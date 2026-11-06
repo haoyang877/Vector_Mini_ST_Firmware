@@ -1,56 +1,92 @@
-# Architecture Map
+# 架构边界
 
-当前软件结构见[电机驱动软件架构](docs/architecture/software_architecture.md)，
-文件归属见[代码框架](docs/architecture/code_structure.md)。本页维护稳定边界，不复制历史阶段说明。
+核对日期：2026-11-06。本文件定义稳定职责、依赖、数据所有权与运行边界。
+编程决策与命名统一见 [STYLE.md](STYLE.md)，执行与验证入口见 [AGENTS.md](AGENTS.md)。
+当前实现详图见[软件架构](docs/architecture/software_architecture.md)，
+文件归属见[代码框架](docs/architecture/code_structure.md)；历史方案不覆盖当前边界。
 
-## 产品与共享契约
+## 产品边界
 
-- `firmware/`：STM32G4 / AT32F456 共用的单轴电机 APP。
-- `loader/`：独立的 G431 升级与启动产品，不链接进 APP。
-- `host_app/`：独立主机应用，包含 Rust GUI 候选与 Qt6 CAN FD 工具。
-- `shared/`：跨产品协议、CRC32、镜像、启动邮箱、生产身份和目标布局契约。
-- `projects/`：板级 main、Keil 工程、启动汇编、scatter 和 CubeMX 输入。
-- `tests/`、`tools/`：离线验证和显式台架工具；`outputs/` 保存生成证据。
+| 目录 | 职责 |
+| --- | --- |
+| firmware | STM32G4 / AT32F456 共用的单轴电机 APP |
+| loader | 独立升级和启动产品，不链接进 APP |
+| host_app | 独立主机应用，包含 Rust GUI 候选与 Qt6 CAN FD 工具 |
+| shared | 真实跨产品共享的协议、CRC、镜像、邮箱、身份和目标布局契约 |
+| projects | 板级 main、Keil、启动汇编、scatter 和 CubeMX 输入 |
+| tests / tools | 离线验证、构建及显式台架操作 |
+| outputs | 忽略的生成证据，不是源码或当前验收结论 |
 
-## 固件依赖边界
+APP、Loader、主机应用保持独立可构建。shared 不依赖 APP、硬件实现或 GUI；
+仅把真实共用的稳定数据契约放入 shared，不共享产品运行状态。
 
-APP 组装硬件、算法、参数和协议。MotorAxis 持有单轴对象；MotorLifecycle 负责状态和动作；
-MotorStateMachine 只提供五态纯迁移。通信使用显式绑定的服务，不访问 APP 运行实现或 Watch 对象。
-Motor 和参数代码不依赖 APP 实现；shared 不依赖固件或硬件。
+## 固件职责与依赖
 
-```text
-projects/main → app/composition → runtime → motor algorithms → BSP API
-                     ↓             ↓
-                 communication   parameters → configuration/value contracts
-                     ↓
-                 shared protocol
+| 层/模块 | 拥有的职责 | 不拥有的职责 |
+| --- | --- | --- |
+| projects/main | 板级入口、中断连接、调用启动和主循环 | 寄存器操作与领域算法 |
+| app/composition | 组装模块、调度、协议业务映射、RTT 和 Loader 交接 | 重复实现底层算法和硬件驱动 |
+| app/runtime | 单轴对象、生命周期动作、配置发布和运行调度 | 协议字节布局、MCU 寄存器 |
+| app/motor_state_machine | 状态迁移的纯函数 | 隐藏上下文、硬件操作和业务执行 |
+| motor | 控制、测量、反馈、标定、保护等领域功能 | APP 调度实现和具体厂商依赖 |
+| communication | 接收、解包、通过约定接口交付业务、打包回复 | 直接访问 APP 运行私有对象或 Watch 入口 |
+| parameters / config | 参数默认值、验证、存储转换及板型/电机配置 | 在线控制状态或重复的活动参数所有权 |
+| BSP | 外设、硬件读写、物理换算和平台差异 | 协议策略、运行准入和领域生命周期 |
 
-BSP API ← corresponding MCU implementation ← vendor SDK/generated code
-```
+依赖方向：板级入口 → APP 组装/运行时 → 领域模块和 BSP 公共接口。
+APP 连接 communication、parameters 与领域服务；communication 使用 shared 契约。
+motor 和 parameters 不依赖 APP 实现。纯数学/PI 等计算模块不依赖 BSP。
+领域模块只有确需采样或输出时才使用 BSP API，不把全部算法串成硬件调用链。
 
-硬件只通过 `firmware/platform/bsp/include` 暴露能力与单位，不向上层暴露 HAL 类型、寄存器、
-外设句柄或板卡引脚。硬件实现全部位于对应 MCU；BSP 根目录仅保留内部声明头。
-板型、测量尺度和电机默认值集中在 `firmware/config`，不保留空的 devices 或转发层。
-详细规则见[BSP 职责约定](docs/architecture/bsp_design_rules.md)。
+- 跨边界使用所属模块的明确接口，层内不增加没有语义的转发层。
+- 相邻源码与头按职责组织；不为未来功能建空目录、devices 包装、工厂或注册表。
+- BSP 公共头只暴露项目类型、能力、单位和时序，不暴露 HAL/SDK 类型、句柄、引脚或寄存器。
+- 各 MCU 直接实现同一 BSP 接口，硬件差异集中在板级资源与对应实现，
+  不将板型 #ifdef 散布到可移植算法。
+- 配置集中于 firmware/config；目标布局契约位于 shared/targets；
+  不在多个层重复定义同一配置事实。
+- CubeMX 生成区手改限 USER CODE，资源变更核对 .ioc 与生成入口。
+- 当前 BSP 的初始化、采样、PWM、编码器、CAN 和 Flash 语义由
+  [BSP 职责约定](docs/architecture/bsp_design_rules.md) 唯一维护。
+  main 对 interrupt_map.h 的有限引用也按该契约，不能扩展为直接硬件访问权限。
+
+## 数据所有权与调试
+
+- MotorAxis 持有单轴活动配置、控制状态、FOC 和反馈对象；
+  MotorLifecycle 持有生命周期上下文；状态机只计算迁移。
+  具体字段归属见[参数所有权](docs/architecture/parameter_ownership_v1.md)。
+- 配置、命令、运行状态和存储记录分别建模；同一有效事实有一个维护者。
+  小对象可在同一结构体中分组，不为分类增加状态副本或机械拆分。
+- 算法可接受调用方持有的显式状态对象；调用方负责生命周期和串行访问，
+  算法不再维护隐藏的第二份状态。PI 控制器为此模式的生产样例。
+- 跨模块交换明确命令、只读视图或必要快照；快照注明产生者、有效期及一致性，
+  缓存注明更新条件，不让消费者回写所有者内部状态。
+- 需要 Keil Watch 时可公开所属模块的 g_ 对象；调试与正常业务共用实际状态，
+  不另建一套持续同步的镜像。观察只读，控制使用已定义的命令字段与处理入口。
+- 调试写入须遵守对象的执行上下文与同步契约；全局可见不等于任意时刻可以写入。
+  不允许调试入口绕过既有准入、故障和实际关相确认。
+- 静态存储满足当前单轴需求，固件不引入堆分配；不为未来多实例需求添加上下文管理框架。
 
 ## 运行时边界
 
-- 两板 main 依次调用 Bsp_Init、App_Init、Bsp_Start、App_Start；主循环调用 App_Process。
-- ADC 快中断执行 20 kHz 采样、反馈、控制或单项标定；监督中断以 2 kHz 更新外环和生命周期。
-- 前台处理协议、关相后的 LUT 发布和 Loader 交接；Flash 操作不进入快慢环。
-- 活动配置、运行状态和存储记录分别建模，内部枚举显式映射线上编号。
-- 固定存储替代固件堆分配；标定、外环和反馈仍是单轴实现。
-- STOP 请求受理不代表已关相；故障和过期会话结果不能恢复旧输出。
-- 当前 APP 不接入普通目标、在线参数读写/保存、标定进度服务或绕组热调度。
+- main 按 Bsp_Init → App_Init → Bsp_Start → App_Start 连接；主循环调用 App_Process。
+  初始化和开始执行的具体副作用服从 BSP/APP 契约，调用次序显式可读。
+- 快中断展示采样 → 反馈/控制或标定 → 计数等实际顺序；硬件确认和清标志仍由 BSP 完成。
+  快慢环周期取自现行配置，架构文档不重复硬编码易变化的频率。
+- 算法计算、业务调度和硬件操作分离；ISR 工作量有界，前台负责协议和关相后的 Flash 操作。
+- 配置只在约定边界发布，运行中不能观察到半更新对象；功率资格由其业务所有者维护。
+- 临界区仅覆盖真实共享状态的一致性要求，不把整个业务流程包在关中断中。
+  删除或缩短既有临界区前必须保留已验证的并发修复与中断优先级语义。
+- STOP 受理不等于功率已关断；故障和过期会话结果不得恢复旧输出。
+- 增加实时诊断时明确工作量和调度位置，不把无界 I/O 或持久化混入控制快环。
 
-当前配置和未完成条件见[配置说明](firmware/config/README.md)；
-具体线上行为见[核心 v1.8](docs/protocols/README.md#implementation)。
+具体线上能力见[协议入口](docs/protocols/README.md#implementation)，
+板卡与配置限制见[配置说明](firmware/config/README.md)。
+功能启停状态留在所属当前契约，不在本页重复维护易失效的能力清单。
 
 ## 验证边界
 
-`tools/run.py` 是统一命令入口。PR 验证检查全部工程路径、格式、lint、离线测试、分层、接口和文档。
-`doctor`、quick、PR 不接触硬件；release 构建也不下载固件。
-架构检查没有违规不代表工程可编译，编译通过也不代表时序、电气或电机行为已经验收。
-源码、协议和参数 ABI 改动须保留适当的比较证据；旧 outputs 不能作为当前 PASS。
-
-本轮残留清理及基线见[清理计划](docs/plans/active/2026-10-30-firmware-cleanup-v1.md)。
+工程路径、架构依赖、可构建性、行为与硬件时序分别验证，不能相互替代。
+源文件对照和模块编译支持各自范围内的结论，不证明完整镜像或实机已通过。
+验证级别、默认命令不接触硬件的约束与交付流程统一见 AGENTS.md；
+重构比较、命名和拆分判定统一见 STYLE.md。

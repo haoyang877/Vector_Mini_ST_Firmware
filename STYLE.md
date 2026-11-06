@@ -1,211 +1,158 @@
-# Vector Mini ST Code Style
+# 编程规范
 
-Formatting is mechanical; readability and embedded-safety rules are design constraints. The
-repository harness enforces both for new files and for a legacy file as soon as that file changes.
-Vendor and generated sources retain their upstream formatting.
+核对日期：2026-11-06。本文件是仓库自有代码的唯一编程规则来源。
+职责、依赖和状态所有权见 [ARCHITECTURE.md](ARCHITECTURE.md)，执行流程见 [AGENTS.md](AGENTS.md)。
 
-## Scope and commands
+## 决策顺序与适用范围
 
-- Managed Python: Python sources under `tools`, `tests`, `loader`, `host_app`, and `shared`.
-- Managed C/C++: repository-owned sources under `firmware`, `loader`, `host_app`, `shared`, and
-  `tests/hil/firmware`.
-- Excluded: `firmware/third_party/**` and all `firmware/platform/sdk/**` and `firmware/platform/bsp/mcu/stm32g4/generated/**` content.
-  Platform application adapters are hand-maintained and follow the repository formatting rules.
-- Check only: `uv run python tools/run.py format --check` and
-  `uv run python tools/run.py lint`.
-- Format new or changed managed files: `uv run python tools/run.py format`.
-- Explicitly migrate all legacy formatting debt: `uv run python tools/run.py format --all`.
-- Limit a local operation with
-  `--module firmware|loader|host_app|shared|tooling|templates`; CI always checks all modules against
-  the same root configuration.
+按顺序判断：明确的当前需求与接口契约；正确性、实时性和硬件约束；职责与数据归属；
+可读性与实现简洁；最后是命名和排版。需求与约束不兼容时先说明冲突，不静默改变功能。
+精简实现不等于授权裁剪功能。具体例外写明对象、理由、适用范围和唯一来源；
+局部约定不能无说明地成为全仓规则，历史报告不能覆盖当前契约。
 
-`tools/harness/style_debt.json` records exact hashes of unchanged legacy files that do not yet
-meet the rules. Changing one of those files invalidates its waiver and requires cleanup. Resolved
-debt never needs to be restored.
+以下原则用于每次新增与修改：主流程直接可读；模块职责明确；可变数据有明确维护者；
+优先删除重复逻辑；接口服务真实需求；重构保持约定行为。
+新代码直接遵循本规范，已有代码在触及时整理；大范围重构单独计划，不夹带全仓改名。
 
-## C and C++
+- 适用于 firmware、projects 中的自有代码，以及 loader、host_app、shared、tests、tools 和 templates。
+  自动扫描范围以 harness.toml 为准；不在扫描范围不等于免除规范。
+- 厂商 SDK、SEGGER、其他第三方及 CubeMX 生成区不统一格式；生成代码手改限 USER CODE。
+- 根目录 .editorconfig、.clang-format 和 Ruff 配置是格式来源，不新增模块级竞争规则。
+- tools/harness/style_debt.json 仅豁免哈希不变的历史问题；修改文件后须收敛，不扩大债务基线。
 
-- Use four spaces, no tabs, Allman braces, and a 100-column target.
-- Manually wrap Chinese prose near the 100-column target. The formatter does not reflow comments,
-  because byte-based wrapping can split Chinese contracts at unreadable positions.
-- Every `if`, `else`, `for`, `while`, and `do` body uses braces.
-- Public functions use `Module_Action`; private functions and variables use `snake_case`; types use
-  `PascalCase`; macros and compile-time constants use `UPPER_SNAKE_CASE`.
-- File-private objects use `s_` plus a meaningful snake_case name; externally visible mutable objects,
-  when unavoidable, use `g_` plus their owning module. Parameters, local variables, and members have
-  no storage prefix. Private const configuration/lookup objects also use `s_`; const is the qualifier.
-- Repository-owned types omit redundant `_TypeDef` suffixes. Use role names for sensors, explicit
-  target/measured/filtered/applied vocabulary for values, and requested/active/valid vocabulary for
-  flags. Do not change external HAL/third-party or frozen cross-product identifiers to match this rule.
-- Put the unit or representation in physical-value names, such as `_rad`, `_rad_s`, `_a`, `_v`,
-  `_us`, `_q15`, or `_counts`. Convert units at boundaries rather than in the control core.
-- Prefer small, single-purpose functions, early validation, explicit failure paths, and bounded
-  loops. Avoid nesting deeper than four levels.
-- Never allocate, block, log without a bound, or perform storage/CRC work in an ISR or fast loop.
-- Public headers must include their own prerequisites and remain usable on the host test target.
-- Protocol and persistent structures keep explicit-width fields and compile-time size/offset checks.
-  Reformatting must never silently change ABI layout.
-- Repository-owned comments and docstrings use concise Chinese. They explain invariants, units,
-  ownership, hardware risks, or a non-obvious decision; they do not narrate syntax. Public APIs and
-  non-trivial modules require a Chinese contract comment.
-- Every public C/C++ function declaration uses a Doxygen contract immediately above it: Chinese
-  `@brief`, one `@param` for every named parameter, and `@return` for every non-`void` result.
-  Add `@note` when the caller must know ISR/thread context, ownership, blocking behavior, side
-  effects, hardware state, or a safety precondition.
+## 设计判定表
 
-### Naming and abbreviations
+| 决策 | 采用条件 | 不采用的理由 |
+| --- | --- | --- |
+| 提取函数 | 独立可理解的职责、真实复用、模块边界或复杂算法验证需要 | 一次简单取字段或纯转发；仅为了降低行数 |
+| 拆分文件 | 职责、依赖或生命周期不同，能够形成清楚接口 | 文件较长但业务不可分；为每个函数建文件 |
+| 使用结构体 | 同一业务对象、相近生命周期的数据需要共同传递或维护 | 仅为少几个参数混入无关对象；重复存一份状态 |
+| 公开全局对象 | 有真实跨文件共享或调试需求，明确拥有者、读写者和同步方式 | 省去接口而允许任意模块修改内部状态 |
+| 增加检查 | 外部输入、硬件结果或接口契约要求，失败有明确处理 | 已由同一信任边界验证且未变化的数据逐层重复检查 |
+| 提取共用逻辑 | 多个真实调用者的单位、时序、所有权和错误语义一致 | 仅语法相似，靠模式开关或回调拼接不同业务 |
+| 增加单实现接口 | 真实硬件边界、必要测试边界或稳定 ABI | 假设将来可能有第二种实现 |
 
-- Follow `STYLE.md`: public functions use `Module_Action`, private functions use `snake_case`,
-  types use `PascalCase`, and macros use `UPPER_SNAKE_CASE`. Files use `snake_case` and describe
-  their responsibility. A module uses one recognizable prefix; do not shorten it into ambiguity.
-- Use `Init`, `Configure`, `Reset`, `Update`, `Step`, `Sample`, `Get`, `Set`, `Is`, `Has`, `Can`,
-  `Validate`, `Publish`, and `Cancel` consistently with their actual behavior. `Get`, `Is`, `Has`,
-  and `Can` are read-only queries. Document hardware I/O, faults, state changes, execution context,
-  units, and the precise meaning of return values in public contracts.
-- Approved short words in function and type names: `Elec` = electrical, `Mech` = mechanical,
-  `Vel` = velocity, `Pos` = position, `Config` = configuration, and `Param` = parameter.
-  Use the same spelling throughout; do not use `Ele`, `Mec`, or an ambiguous `Cal`.
-  Write `Current`, `Voltage`, `Temperature`, and `Calibration` in full.
-- Established domain abbreviations may be used when unambiguous: `Foc`, `Pi`, `Pwm`, `Adc`,
-  `Lut`, `Mcu`, `Svm`, `Id`, `Iq`, `Vd`, `Vq`, and `Q15` in function/type names; use uppercase
-  in macros and lowercase in identifiers, for example `FOC_FREQ`, `id_target_a`, and `zero_q15`.
-  Preserve canonical external identifiers where their casing is part of a contract.
-- Include units or representation in physical-value variables and fields (`_a`, `_v`, `_rad`,
-  `_rad_s`, `_ms`, `_us`, `_counts`, `_q15`); document function return units. Prefer short,
-  meaningful names such as `Encoder_GetElecVel` and `Encoder_GetMechPos` over arbitrary truncation.
-- Apply these rules to new and touched code; rename existing interfaces only after checking all
-  callers, build inputs, tests, and documentation. Preserve protocol, storage, and shared ABI
-  identifiers unless a separately versioned migration is explicitly intended.
+优先顺序：删除已确认不需要的行为 → 复用现有实现 → 使用已有标准/平台能力 →
+新增最小直接实现 → 有真实需求时提取共用模块。函数长度只是提示，不是拆分指标。
+简单重复与复杂通用框架之间优先选择前者，不创建 utils/helpers 杂物模块。
 
-## Python
+## C/C++ 命名
 
-- Ruff is the formatter and linter; configuration and versions live in `pyproject.toml` and
-  `harness.toml`.
-- Public helpers and non-trivial data structures use type annotations. Prefer `pathlib.Path` for
-  paths and explicit subprocess return-code handling.
-- Put executable behavior in `main()` and keep imports free of hardware access or side effects.
-- Never use `assert` for hardware safety, input validation, STOP verification, or shutdown checks.
-- CLI failures state what failed and provide an actionable remediation.
-- Python module and public API docstrings use Chinese; command-line option names and externally
-  defined protocol terms retain their canonical spelling.
+| 对象 | 唯一写法 | 示例 |
+| --- | --- | --- |
+| 文件 | snake_case，名称表达职责 | pi_controller.c / pi_controller.h |
+| 公共函数 | Module_ActionObject，一个模块一个前缀 | PiController_TrackOutput |
+| 私有函数 | static + snake_case | clamp_output |
+| 类型 | PascalCase，不添加冗余 _TypeDef | PiController |
+| 局部变量、参数、成员 | snake_case，无存储前缀 | sample_period_s |
+| 文件私有对象 | static + s_ + snake_case | s_motor_state |
+| 对外可变对象 | g_ + 所属模块 + 业务名，只定义一次 | g_motor_context |
+| 宏和枚举常量 | UPPER_SNAKE_CASE | MOTOR_MAX_CURRENT_A |
 
-## Generated and third-party code
+文件私有 const 对象同样使用 s_，不因 const 再建立一套命名；局部 const 使用普通变量规则。
+外部全局必须在所属模块头中声明，调用方不自行复制 extern。
+同一概念保持同名，不混用 Motor/MotorCtrl/Mc；成员不重复结构体已经表达的完整上下文。
 
-Do not reformat vendor, SEGGER, CMSIS, HAL, or CubeMX-generated files. Edits to CubeMX files remain
-inside `USER CODE` regions and are reviewed for generator survival. Repository adapters around
-generated code follow this style normally.
+| 动词 | 固定语义 |
+| --- | --- |
+| Init | 建立初始状态；说明重复调用和失败时状态 |
+| Configure | 应用配置；说明是否保留运行状态 |
+| Start / Stop | 请求或执行开始/停止；明确返回是否代表动作完成 |
+| Reset | 按约定重置运行状态；明确保留哪些配置 |
+| Run / Step / Update | 一次计算、状态推进或数据更新，说明调用节拍；不为统一动词批量改旧接口 |
+| Sample / Read | 获取测量或外部数据，可有硬件读取副作用 |
+| Get / Is / Has / Can | 只读查询，不暗中推进状态或执行硬件动作 |
+| Set / Validate / Publish / Cancel | 分别表示赋值、检查、发布和取消，说明具体副作用 |
 
-## Module consistency
+缩写固定为 Elec、Mech、Vel、Pos、Config、Param；不混用 Ele、Mec 或含糊的 Cal。
+Current、Voltage、Temperature、Calibration 写全。领域缩写使用 Foc、Pi、Pwm、Adc、Lut、
+Mcu、Svm、Id、Iq、Vd、Vq、Q15；宏中大写、变量中小写。外部协议/SDK/ABI 的规范名称保留。
 
-All buildable modules inherit the root `.editorconfig`, `.clang-format`, Ruff configuration, and
-this document. A module may exclude generated or externally owned files, but it must not introduce
-a competing formatter configuration. Cross-module interfaces use the `shared` naming, units,
-error semantics, and ABI vocabulary. New module build commands must run the root `format --check`
-and `lint` gates rather than defining weaker local equivalents.
+物理值带单位或表示后缀：_a、_v、_rad、_rad_s、_rad_s2、_s、_ms、_us、_counts、_q15。
+ticks 仅指节拍数，不能替换会话代次。目标、测量、滤波和实际施加量分别使用
+target、measured、filtered、applied；标志使用 requested、active、valid 等确切事实。
+复用算法的输入/输出单位随调用者变化时，可用 reference、feedback、output，
+但必须在接口中写清单位关系，不能误标为某一种物理量。单位换算放在边界。
 
-## Simplification, coupling, and reuse
+## 表达、数据和接口
 
-Use this order before introducing code or a dependency:
+- 四空格、无 Tab、Allman 大括号，所有 if/else/for/while/do 语句体使用大括号。
+  目标 100 列；中文注释人工适当换行。超过四层嵌套时优先整理流程。
+- 有副作用的步骤按执行顺序展开，不把多个初始化/业务调用串在 &&、|| 或逗号表达式中。
+  纯条件判断可使用短路表达式；失败流程明确保留原调用顺序。
+- 能在编译期确定的数据使用静态初始化；需要运行信息时才增加初始化步骤。
+  Init、Configure、Reset 不互相代替，不机械增加 initialized/ready 标志。
+- 配置、命令、运行状态和存储记录区分语义；无需为了分类强制新增嵌套结构或复制字段。
+  能推导的状态不重复缓存；确需快照/缓存时按架构所有权规则说明一致性。
+- 检查集中在负责该契约的边界；可信内部计算可依赖有文档的前置条件。
+  新增边界须明确非空、有限值、长度/范围、失败状态及其责任方。
+  不因简化删除既有保护或改变错误语义；具体 BSP 行为以其现行契约为准。
+- 确实可能失败且调用方需要处理时返回 bool 或必要的错误码；无失败语义时返回 void。
+  不机械要求所有接口使用错误枚举，不隐藏失败或臆造成功状态。
+- 公共头自包含，只公开调用方需要的类型与接口；内部辅助函数先用 static。
+  仅多个内部调用者不足以成为公共 API，跨模块共享还须满足设计判定表。
+- 协议/存储使用明确位宽和必要的尺寸、偏移检查，不依赖内存布局直接替代协议编解码。
+  重命名须检查所有调用方、工程输入、测试和文档；冻结 ABI 变更需独立版本迁移。
+- ISR/快环工作量有界，不分配、不阻塞、不执行 Flash/存储、CRC 批处理或无界日志。
+  时序、临界区及硬件边界遵循 ARCHITECTURE.md。
 
-1. Remove behavior that is no longer required.
-2. Reuse an existing repository implementation with the same contract.
-3. Use the language standard library or an already required platform facility.
-4. Add the smallest direct implementation that satisfies the current requirement.
-5. Extract a shared abstraction only after real callers demonstrate the same semantics.
+## 注释与契约
 
-Similar syntax is not sufficient reason to share code. Units, timing, execution context, ownership,
-error handling, persistence, and hardware-safety behavior must also match. If those differ, keep the
-implementations separate or share only the genuinely common data transformation.
+仓库自有注释/docstring 使用简洁中文，解释用途、单位、所有权、约束和非直观设计原因，
+不逐句翻译代码。私有简单函数无需重复注释，复杂算法在决策点解释原因。
+公共 C/C++ 声明必须有中文 Doxygen：@brief、每个具名参数的 @param、非 void 的 @return。
+调用环境、硬件副作用、阻塞、串行访问或安全前提使用 @note；失败描述必须符合实现。
 
-Avoid interfaces with one implementation, factories for one product, callback registries for fixed
-control flow, and configuration for values that never vary. Exceptions are real hardware boundaries,
-host-test seams, protocol or persistent ABI boundaries, and safety isolation. Record the reason in the
-interface contract.
+## Python 与工具
 
-For non-trivial changes, review these questions:
+- 使用锁定版本的 Ruff；公共辅助函数和非简单数据结构有类型注解。
+- 使用 pathlib.Path，明确 subprocess 返回码；命令失败说明原因和修复方式。
+- 可执行行为放 main，导入无设备访问或其他执行副作用；路径、环境和会话显式传入。
+- 不用 assert 处理硬件安全前提、输入验证、STOP 或关断确认；离线测试断言可用。
+- 复用 tools/project_paths.py 与 tools/harness/common.py；业务辅助逻辑留在所属工具领域。
+  共用工具遵守同一设计判定表，不为共享加入产品特例分支。
 
-1. Which existing implementations and callers were inspected?
-2. What code was removed or reused?
-3. Which layer owns the behavior, and did any dependency direction change?
-4. Does the change add hidden mutable state or initialization-order coupling?
-5. If code was extracted, which real callers share its complete contract?
-6. Could a direct function or data structure replace the new abstraction?
-7. What smallest test protects the behavior and shared contract?
+## 检查与重构验收
 
-Keep substantial refactoring separate from functional changes so each diff remains independently
-reviewable and reversible. Never simplify away boundary validation, explicit error handling, power
-stage shutdown checks, calibration controls, or bounded real-time behavior.
+| 内容 | 执行方式 |
+| --- | --- |
+| 排版、中文注释、已有可读性约束 | tools/run.py format --check 和 lint |
+| 工程引用、依赖及接口契约 | check_project_layout、check_architecture、check_interfaces |
+| 职责、命名词义、拆分、所有权 | 人工评审；现有检查器不代表全部规则已自动覆盖 |
+| 行为、协议、资源和时序 | 与改动相匹配的原生测试、编译、对照及必要实测 |
 
-### Firmware helper functions
+格式化时指定本次文件，避免改动别人的工作；不新增相互竞争的模块规则。
+共享实现要有针对性测试；已有测试覆盖且仅整理命名/格式/注释时，优先复用，
+不要新增只复述实现的测试。执行级别统一见 AGENTS.md。
 
-- Start a helper as `static` in the owning `.c` file. Move it into a module-private file only when
-  multiple functions in that module need it.
-- Promote a helper to `firmware/common/` only when unrelated real modules use the same complete
-  contract. Name the module after the capability, such as byte order, CRC, fixed-point conversion,
-  or a bounded container; do not create `utils.c`, `helpers.c`, or another miscellaneous bucket.
-- Prefer pure functions with explicit inputs and outputs. A common helper must not read mutable
-  globals, access hardware, depend on HAL/RTOS types, allocate memory, block, or hide initialization.
-- Document width, units, valid range, overflow/saturation, NaN handling, buffer capacity, aliasing,
-  ISR safety, and worst-case work when they affect correctness.
-- Keep reusable headers self-contained and implementation visibility minimal. Do not add Boolean
-  mode flags, `void *`, callbacks, or configuration merely to make unrelated behavior look generic.
-- Shared helpers need focused host-native tests covering boundary and failure behavior. Remove an
-  unused public helper instead of retaining it for a hypothetical caller.
+显著重构先记录目标、不变行为、调用者、基线、验收和回退，再分阶段实施。
+结构调整与功能、参数、协议或保护策略改变分开；不保留无清理期限的双运行路径。
+根据影响比较 ABI、状态/故障、控制输出、执行次序、时序、栈及 ROM/RAM。
+生成日志和二进制归 outputs，旧结果不作为当前证据。
+未解释的输出、ABI、资源或镜像变化必须查明；源码位置/调试信息变化引起的差异也应说明。
+已有失败和未测范围单独记录，不把局部通过表述为整仓或硬件通过。
 
-### Repository tool helpers
+## 标准样例与模板
 
-- Keep imports free of device access and side effects. Pass paths, environment-derived settings,
-  subprocess runners, and hardware sessions explicitly at the boundary.
-- Reuse `tools/project_paths.py` for repository paths and `tools/harness/common.py` for harness
-  evidence mechanics; domain-specific protocol or analysis helpers stay with their owning tool area.
-- Promote repeated code only when parsing, units, failure behavior, and output schema match. Prefer
-  a small duplicated adapter over a shared function with product-specific flags and branches.
-- A reusable tool function has type annotations, a Chinese contract, deterministic return data,
-  actionable errors, and a focused offline test. It never contacts hardware merely by being imported.
+生产样例：[pi_controller.h](firmware/motor/control/pi_controller.h) /
+[pi_controller.c](firmware/motor/control/pi_controller.c)。
+阅读顺序为结构体契约 → Configure → Run → TrackOutput → Reset。
 
-## Behavior-preserving refactoring
+| 规范决策 | PI 样例体现 |
+| --- | --- |
+| 真实模块边界 | FOC、速度和位置控制共用，算法不依赖 BSP、APP 或厂商头 |
+| 状态所有权 | 调用方持有并串行访问 PiController，无隐藏全局状态 |
+| 数据聚合 | 一个小对象保留配置与运行字段，用注释分组，不新增复制或包装层 |
+| 检查边界 | 调用者提供有效输入，内核直接计算，不逐拍重复初始化校验 |
+| 生命周期 | 零初始化或 Reset 建立运行状态，Configure 保留积分，Reset 保留配置 |
+| 命名与单位 | sample_period_s 固定单位；其余输入/输出的单位关系在头文件约定 |
+| 简洁实现 | 仅四个真实公共操作及复用的私有限幅函数，运算顺序直接可读 |
 
-### Before editing
+该样例只适合可信输入的确定性计算，不能把“不逐拍校验”照搬到协议、Flash 或硬件入口。
+有限输入也须确保中间计算不溢出；调用方不得把未初始化对象交给 Run。
+既有接口和布局保留，避免为形式改动全部调用方；具体验证见
+[统一规范与样例记录](docs/plans/completed/2026-11-06-programming-standard-v1.md)。
 
-- State the structural problem, the desired improvement, and the behavior that must remain unchanged.
-- Inspect every caller and capture a baseline appropriate to the module: tests, protocol and
-  parameter ABI, control outputs, fault behavior, timing/jitter, stack, ROM/RAM, and firmware
-  artifacts. Use `verify --reference-source` when source-equivalence comparison is applicable.
-- Add characterization tests or golden vectors for legacy behavior that is not already covered.
-
-### During migration
-
-- Keep refactoring separate from feature, parameter, protocol, and safety-policy changes.
-- Use small stages that build, test, and revert independently. Do not keep two runtime paths or a
-  feature flag on the MCU without an explicit Flash/RAM, state-space, timing, and removal plan.
-- Preserve ownership, units, error semantics, interrupt eligibility, worst-case execution time, and
-  observable ordering while moving code between modules.
-- If temporary telemetry is needed, keep it bounded, compile-time gated, and outside the fast loop
-  unless the measurement itself is the subject of the change.
-
-### Acceptance
-
-- Treat unexplained changes in output, state transitions, fault response, timing, memory use, ABI,
-  map, HEX, or image hash as behavior changes rather than harmless refactoring noise.
-- Record the rollback point, comparison result, failed checks, and remaining debt in the plan before
-  declaring the refactor complete.
-
-## Golden examples
-
-Copy and rename the examples under `templates/` when creating a module or command. The examples are
-part of the managed style scope, so CI verifies them with the same rules as production code. They
-demonstrate structure and error handling, not product-specific behavior or default parameters.
-
-## Public interface example
-
-```c
-/**
- * @brief 尝试发布一帧状态；队列忙时立即返回，不等待也不重试。
- * @param identifier 标准 CAN 标识符，只使用低 11 位。
- * @param data 只读负载，所有权始终属于调用方。
- * @param length 负载字节数，范围为 0..64。
- * @return 成功入队返回 true；参数非法或队列忙返回 false。
- * @note 可从前台调用，不可在电机快速中断中调用。
- */
-bool comm_hw_can_try_send_status(uint16_t identifier, const uint8_t *data, size_t length);
-```
+新模块从 [templates](templates/README.md) 选择相近起点，删除不需要的状态和接口；
+模板是边界处理示例，不要求每个算法拥有配置结构、初始化标志或错误枚举。
+不复制产品限值，也不把某个样例的局部前提升级为全仓规则。

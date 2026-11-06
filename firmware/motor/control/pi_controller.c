@@ -1,8 +1,8 @@
 /* PI 状态由调用方拥有；只计算条件积分与输出跟踪，不访问硬件。 */
 #include "pi_controller.h"
 
-/* Keep the reusable PI independent of board/vendor utility headers. */
-static float pi_clamp(float value, float minimum, float maximum)
+/* 运行输出与跟踪积分共用限幅，不依赖带有板级类型的工具头。 */
+static float clamp_output(float value, float minimum, float maximum)
 {
     if (value < minimum)
     {
@@ -18,13 +18,13 @@ static float pi_clamp(float value, float minimum, float maximum)
 void PiController_Configure(PiController *controller,
                             float proportional_gain,
                             float integral_gain,
-                            float sample_period,
+                            float sample_period_s,
                             float output_min,
                             float output_max)
 {
     controller->proportional_gain = proportional_gain;
     controller->integral_gain = integral_gain;
-    controller->sample_period_s = sample_period;
+    controller->sample_period_s = sample_period_s;
     controller->output_min = output_min;
     controller->output_max = output_max;
 }
@@ -44,6 +44,7 @@ float PiController_Run(PiController *controller, float reference, float feedback
                                                            controller->sample_period_s;
     output_candidate = controller->proportional_output + integral_candidate;
 
+    /* 饱和时仅接受使输出回到有效范围的积分方向，避免继续积累误差。 */
     if ((output_candidate >= controller->output_min &&
          output_candidate <= controller->output_max) ||
         (output_candidate > controller->output_max && controller->error < 0.0f) ||
@@ -52,9 +53,9 @@ float PiController_Run(PiController *controller, float reference, float feedback
         controller->integral_output = integral_candidate;
     }
 
-    controller->output = pi_clamp(controller->proportional_output + controller->integral_output,
-                                  controller->output_min,
-                                  controller->output_max);
+    controller->output = clamp_output(controller->proportional_output + controller->integral_output,
+                                      controller->output_min,
+                                      controller->output_max);
     return controller->output;
 }
 
@@ -62,7 +63,7 @@ void PiController_TrackOutput(PiController *controller, float applied_output)
 {
     controller->integral_output += applied_output - controller->output;
     controller->integral_output =
-        pi_clamp(controller->integral_output, controller->output_min, controller->output_max);
+        clamp_output(controller->integral_output, controller->output_min, controller->output_max);
     controller->output = applied_output;
 }
 

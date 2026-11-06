@@ -4,6 +4,11 @@ These examples are the starting point for repository-owned modules and tools. Co
 example, rename the public prefix, remove unused fields, and add focused tests. Do not copy product
 limits or hardware behavior from another module.
 
+编程规则唯一来源为 [STYLE.md](../STYLE.md)。本目录展示外部输入校验和工具入口，
+不要求所有模块都增加初始化状态、配置对象或错误枚举。已有测试覆盖时优先复用。
+可信输入的确定性计算参考真实生产样例
+[pi_controller.h](../firmware/motor/control/pi_controller.h) 与对应实现；其边界说明见 STYLE.md。
+
 - `c_module/vector_module.h`: public API, units, ownership, and explicit status values.
 - `c_module/vector_module.c`: validation, initialization, and bounded state updates.
 - `python_tool.py`: import-safe CLI structure, typed paths, and actionable errors.

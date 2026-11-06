@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/** 明确区分失败原因，调用方不得根据布尔值猜测恢复方式。 */
+/** 本模板的调用方需要区分拒绝原因；仅有成功/失败语义的接口可使用 bool。 */
 typedef enum
 {
     VECTOR_MODULE_STATUS_OK = 0,
@@ -30,11 +30,12 @@ typedef struct
 } VectorModule;
 
 /**
- * @brief 校验配置并初始化调用方持有的状态；任何失败都保持模块未使能。
+ * @brief 校验配置并初始化调用方状态；失败不修改对象，成功重置目标和配置。
  * @param module 待初始化状态；成功后由调用方继续持有，不允许传入 NULL。
  * @param config 只读 SI 单位配置；函数返回后不保存该指针。
  * @return 成功返回 OK；空指针、非有限值或范围非法返回 INVALID_ARGUMENT。
- * @note 不分配内存、不访问硬件，也不会使能功率输出。
+ * @note 同一对象须串行访问；重复初始化成功会重置目标，失败保留此前状态。
+ * @note 首次使用须零初始化对象；不分配内存、不访问硬件，也不会使能功率输出。
  */
 VectorModuleStatus VectorModule_Init(VectorModule *module, const VectorModuleConfig *config);
 

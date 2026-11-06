@@ -4,6 +4,7 @@
 #include "motor_state_types.h"
 #include "encoder_feedback.h"
 #include "linear_hall.h"
+#include "output_encoder.h"
 #include "foc.h"
 
 /** @brief 轴所有者提供的只读反馈引用，状态仍由MotorAxis独占。 */
@@ -13,6 +14,7 @@ typedef struct
     const EncoderState *encoder;
     const MotorControlState *motor;
     const LinearHall *linear_hall;
+    const OutputEncoder *output_encoder;
 } MotorAxisFeedback;
 
 /**
@@ -59,19 +61,10 @@ void MotorAxis_OuterOverrun(void);
 void MotorAxis_ProcessPositionPlan(void);
 
 /**
- * @brief 在关相前台发布标定结果；有输出霍尔的轴同时保存本机参数并回读。
+ * @brief 在关相前台发布标定结果；保存电机及输出轴参数并回读。
  * @note 仅主循环调用；CRC 编码允许中断，擦写前复核会话代际与关相状态。
  */
 void MotorAxis_ProcessCalibrationPublication(void);
-
-/**
- * @brief 停机前台同步保存当前配置及编码器标定到Flash。
- * @return ACCEPTED表示记录持久化及回读完成；BUSY表示控制未停止或标定未释放，
- *         DENIED表示配置或标定无效，FAULT表示已有故障，PERSIST_FAILED表示存储失败。
- * @note 仅串行前台调用；零偏完成且空闲关相后复用启动记录暂存区，不自动重试。
- *       保存完整schema14记录，BSP独占采样暂停与中断恢复，不自动启相。
- */
-MotorControlResult MotorAxis_SaveCalibration(void);
 
 /**
  * @brief 读取启动配置的设备节点地址。

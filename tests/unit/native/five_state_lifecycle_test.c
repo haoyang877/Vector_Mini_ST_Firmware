@@ -347,6 +347,11 @@ static void test_calibration_completes_to_idle(void)
                                calibration_epoch);
     assert(!MotorLifecycle_IsCalibrationRunnable());
     tick();
+    assert(MotorLifecycle_GetState() == MOTOR_STATE_CALIBRATION && phases_disabled);
+    uint32_t mask = BspSystem_EnterCritical();
+    MotorLifecycle_CompleteCalibrationPublication(calibration_epoch, true);
+    BspSystem_ExitCritical(mask);
+    tick();
     assert(MotorLifecycle_GetState() == MOTOR_STATE_IDLE && phases_disabled);
     assert(MotorLifecycle_GetCalibrationType() == MOTOR_CALIBRATION_NONE);
     assert(MotorLifecycle_WorkEpoch() != calibration_epoch);
@@ -363,6 +368,11 @@ static void test_calibration_completes_to_idle(void)
     MotorLifecycle_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
                                calibration_epoch);
     assert(phases_disabled);
+    tick();
+    assert(MotorLifecycle_GetState() == MOTOR_STATE_CALIBRATION);
+    mask = BspSystem_EnterCritical();
+    MotorLifecycle_CompleteCalibrationPublication(calibration_epoch, true);
+    BspSystem_ExitCritical(mask);
     tick();
     assert(MotorLifecycle_GetState() == MOTOR_STATE_IDLE);
 }
@@ -471,6 +481,43 @@ static void test_linearization_waits_for_publication(void)
     assert(MotorLifecycle_GetState() == MOTOR_STATE_IDLE);
 }
 
+/* 阶段切换只排队；实际启相仍拒绝 STOP、故障和无效 LUT。 */
+static void test_joint_zero_rechecks_power(void)
+{
+    static const MotorElectricalPreset electrical = {.gear_ratio = 8.0f};
+    static const MotorAxisPreset pitch = {.joint = MOTOR_JOINT_PITCH, .electrical = &electrical};
+    for (unsigned condition = 0; condition < 4; ++condition)
+    {
+        reset();
+        assert(MotorLifecycle_RequestCalibration(MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
+               MOTOR_CONTROL_ACCEPTED);
+        MotorLifecycle_BeginFastTick();
+        MotorLifecycle_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE},
+                                   MotorLifecycle_WorkEpoch());
+        configuration.preset = &pitch;
+        configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
+        uint32_t mask = BspSystem_EnterCritical(), epoch;
+        assert(MotorLifecycle_ReadPendingCalibrationPublication(&epoch));
+        MotorLifecycle_ContinueElectricalZero();
+        BspSystem_ExitCritical(mask);
+        assert(phases_disabled);
+        if (condition == 1)
+        {
+            assert(MotorLifecycle_RequestRemoteStop());
+        }
+        if (condition == 2)
+        {
+            motor.fault_code = MOTOR_FAULT_ENCODER;
+        }
+        if (condition == 3)
+        {
+            configuration.device.encoder.calib_flag = 0;
+        }
+        MotorLifecycle_BeginFastTick();
+        assert(phases_disabled == (condition != 0));
+    }
+}
+
 static void test_calibration_communication_to_idle(void)
 {
     assert(Protocol_Init(1U));
@@ -508,23 +555,19 @@ static void test_calibration_communication_to_idle(void)
         assert(MotorLifecycle_IsCalibrationRunnable());
         uint32_t calibration_epoch = MotorLifecycle_WorkEpoch();
 
-        if (types[index] == MOTOR_CALIBRATION_ENCODER_LINEARIZATION)
-        {
-            MotorLifecycle_PostOutcome((MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE},
-                                       calibration_epoch);
-            tick();
-            assert(MotorLifecycle_GetState() == MOTOR_STATE_CALIBRATION && phases_disabled);
-            uint32_t publication_epoch;
-            uint32_t interrupt_mask = BspSystem_EnterCritical();
-            assert(MotorLifecycle_ReadPendingCalibrationPublication(&publication_epoch));
-            MotorLifecycle_CompleteCalibrationPublication(publication_epoch, true);
-            BspSystem_ExitCritical(interrupt_mask);
-        }
-        else
-        {
-            MotorLifecycle_PostOutcome((MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
-                                       calibration_epoch);
-        }
+        MotorLifecycle_PostOutcome(
+            (MotorTaskResult){types[index] == MOTOR_CALIBRATION_ENCODER_LINEARIZATION
+                                  ? MOTOR_TASK_FINALIZE
+                                  : MOTOR_TASK_COMPLETED,
+                              MOTOR_FAULT_NONE},
+            calibration_epoch);
+        tick();
+        assert(MotorLifecycle_GetState() == MOTOR_STATE_CALIBRATION && phases_disabled);
+        uint32_t publication_epoch;
+        uint32_t interrupt_mask = BspSystem_EnterCritical();
+        assert(MotorLifecycle_ReadPendingCalibrationPublication(&publication_epoch));
+        MotorLifecycle_CompleteCalibrationPublication(publication_epoch, true);
+        BspSystem_ExitCritical(interrupt_mask);
         tick();
         assert(MotorLifecycle_GetState() == MOTOR_STATE_IDLE && phases_disabled);
         assert(MotorLifecycle_GetCalibrationType() == MOTOR_CALIBRATION_NONE);
@@ -632,6 +675,7 @@ int main(void)
     test_calibration_stop_fault_and_late_result();
     test_linearization_waits_for_publication();
     test_calibration_communication_to_idle();
+    test_joint_zero_rechecks_power();
     puts("PASS core lifecycle and calibration: completion, publication, stale epochs, stop, fault "
          "shutdown, recovery and preemption");
     return 0;

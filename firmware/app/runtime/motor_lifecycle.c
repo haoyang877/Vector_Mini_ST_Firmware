@@ -304,15 +304,10 @@ void MotorLifecycle_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
             {
                 MotorFault_Report(g_motor_context.motor, MOTOR_FAULT_CONTROL_OVERRUN);
             }
-            else if (outcome.result == MOTOR_TASK_FINALIZE ||
-                     (BSP_ENABLED_LINEAR_HALL &&
-                      MotorAxisPreset_HasLinearHall(g_motor_context.configuration->preset)))
-            {
-                g_motor_context.calibration_publication_pending = true;
-            }
             else
             {
-                g_motor_context.calibration_completion_pending = true;
+                /* 两类传动的标定结果均经停机前台保存后才报告完成。 */
+                g_motor_context.calibration_publication_pending = true;
             }
         }
     }
@@ -549,7 +544,7 @@ bool MotorLifecycle_IsCalibrationRunnable(void)
 
 bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoch)
 {
-    if (calibration_epoch == NULL || !g_motor_context.calibration_publication_pending ||
+    if (!g_motor_context.calibration_publication_pending ||
         g_motor_context.state != MOTOR_STATE_CALIBRATION || g_motor_context.stop_pending ||
         g_motor_context.motor->fault_code != MOTOR_FAULT_NONE || !BspPwm_ArePhasesDisabled())
     {
@@ -559,21 +554,12 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoc
     return true;
 }
 
-bool MotorLifecycle_ContinueElectricalZero(uint32_t epoch)
+void MotorLifecycle_ContinueElectricalZero(void)
 {
-    uint32_t pending;
-    if (!MotorLifecycle_ReadPendingCalibrationPublication(&pending) || epoch != pending ||
-        g_motor_context.starts_locked ||
-        g_motor_context.calibration_type != MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
-        !MotorAxisPreset_HasLinearHall(g_motor_context.configuration->preset))
-    {
-        return false;
-    }
     g_motor_context.calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
     g_motor_context.calibration_publication_pending = false;
     BspSystem_MemoryBarrier();
-    g_motor_context.power_enable_epoch = epoch;
-    return true;
+    g_motor_context.power_enable_epoch = g_motor_context.epoch;
 }
 
 void MotorLifecycle_CompleteCalibrationPublication(uint32_t calibration_epoch,

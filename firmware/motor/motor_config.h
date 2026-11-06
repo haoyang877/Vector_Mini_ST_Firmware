@@ -67,11 +67,11 @@ typedef struct
 /**
  * @brief 查询该装配是否带有用于输出轴测角的正交双线性霍尔。
  * @param preset 启动时匹配的轴配置，未配置时为 NULL。
- * @return PITCH 和 YAW 返回 true；三个直驱轴返回 false。
+ * @return 配置为减速传动的 PITCH 和 YAW 返回 true；直驱返回 false。
  */
 static inline bool MotorAxisPreset_HasLinearHall(const MotorAxisPreset *preset)
 {
-    return preset != NULL &&
+    return preset != NULL && preset->electrical != NULL && preset->electrical->gear_ratio > 1.0f &&
            (preset->joint == MOTOR_JOINT_PITCH || preset->joint == MOTOR_JOINT_YAW);
 }
 

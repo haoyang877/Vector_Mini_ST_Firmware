@@ -5,19 +5,12 @@
 
 void LinearHall_CalibrationBegin(LinearHallCalibration *cal)
 {
-    *cal = (LinearHallCalibration){.sin_min = INFINITY,
-                                   .sin_max = -INFINITY,
-                                   .cos_min = INFINITY,
-                                   .cos_max = -INFINITY,
-                                   .active = true};
+    *cal = (LinearHallCalibration){
+        .sin_min = INFINITY, .sin_max = -INFINITY, .cos_min = INFINITY, .cos_max = -INFINITY};
 }
 
 void LinearHall_CalibrationSample(LinearHallCalibration *cal, float sin_counts, float cos_counts)
 {
-    if (!cal->active || !isfinite(sin_counts) || !isfinite(cos_counts))
-    {
-        return;
-    }
     cal->sin_min = fminf(cal->sin_min, sin_counts);
     cal->sin_max = fmaxf(cal->sin_max, sin_counts);
     cal->cos_min = fminf(cal->cos_min, cos_counts);
@@ -26,13 +19,8 @@ void LinearHall_CalibrationSample(LinearHallCalibration *cal, float sin_counts, 
 
 bool LinearHall_CalibrationFinish(LinearHallCalibration *cal, LinearHall *hall)
 {
-    if (!cal->active)
-    {
-        return false;
-    }
     float sin_amp = (cal->sin_max - cal->sin_min) * 0.5f;
     float cos_amp = (cal->cos_max - cal->cos_min) * 0.5f;
-    cal->active = false;
     uint8_t faults = LINEAR_HALL_CAL_FAULT_NONE;
     if (cal->sin_min > cal->sin_max)
     {
@@ -106,7 +94,7 @@ void LinearHall_Update(LinearHall *hall, float sin_counts, float cos_counts)
     }
     sample->sin_cal = fminf(1.0f, fmaxf(-1.0f, sample->sin_cal));
     sample->cos_cal = fminf(1.0f, fmaxf(-1.0f, sample->cos_cal));
-    float angle = Math_Atan2(sample->sin_cal, sample->cos_cal);
+    float angle = -Math_Atan2(sample->sin_cal, sample->cos_cal); //反向
     if (angle < 0.0f)
     {
         angle += _2PI;

@@ -21,4 +21,22 @@ typedef struct
     uint8_t reverse;
 } EncoderCalibration;
 
+/**
+ * @brief 用电机编码器 LUT 线性化方向校正后的单圈原码。
+ * @param calibration 已发布的 1024 点 LUT，全零表等价于原码。
+ * @param raw_q15 方向校正后的单圈计数，65536 counts/转。
+ * @return 线性化后的单圈计数。
+ */
+static inline uint16_t Encoder_Linearize(const EncoderCalibration *calibration, uint16_t raw_q15)
+{
+    uint16_t lut_index = raw_q15 >> 6;
+    uint16_t fraction = raw_q15 & 0x003FU;
+    int32_t correction_a = calibration->linearization_lut_q15[lut_index];
+    int32_t correction_b =
+        calibration->linearization_lut_q15[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
+    int32_t correction = correction_a + (((correction_b - correction_a) * fraction) >> 6);
+
+    return (uint16_t)((int32_t)raw_q15 - correction);
+}
+
 #endif

@@ -116,7 +116,6 @@ void MotorAxis_ControlFast(void) { event(44, 0); }
 void MotorAxis_SupervisorTick(void) { event(45, 0); }
 void Protocol_RxInterrupt(void) { event(46, 0); }
 bool MotorLifecycle_RequestRemoteStop(void) { return true; }
-MotorControlResult MotorAxis_SaveCalibration(void) { return MOTOR_CONTROL_ACCEPTED; }
 MotorControlResult MotorLifecycle_RequestCalibration(MotorCalibrationType type) { (void)type; return MOTOR_CONTROL_ACCEPTED; }
 MotorControlResult MotorLifecycle_RequestEnable(MotorControlMode mode) { (void)mode; return MOTOR_CONTROL_ACCEPTED; }
 MotorControlResult MotorLifecycle_SetTarget(const MotorTarget *target) { (void)target; return MOTOR_CONTROL_ACCEPTED; }

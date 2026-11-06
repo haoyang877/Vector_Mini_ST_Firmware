@@ -6,6 +6,7 @@
 
 #include "motor_config.h"
 #include "linear_hall.h"
+#include "output_encoder.h"
 /* 参数持久化契约：InterfaceParam 是 Flash 参数区的存储布局，
  * schema 版本与字段追加规则见各字段注释；本头文件只声明布局与读写接口。
  * 字段顺序是已发布ABI，不按参数分类重排：基础配置、标定结果和兼容派生值在此编码，
@@ -85,6 +86,35 @@ typedef struct
     float speed_feedforward_jerk_rad_s3;
     float speed_feedforward_current_limit_a;
 } InterfaceParam;
+
+/* OEN1 扩展位于旧记录之后；绑定旧记录 CRC，旧固件仍可验证前 2288 字节。 */
+typedef struct
+{
+    uint32_t magic, motor_crc32;
+    OutputEncoderParams params;
+    uint32_t crc32;
+} OutputEncoderRecord;
+
+typedef struct
+{
+    InterfaceParam motor;
+    OutputEncoderRecord output;
+} MotorAxisRecord;
+
+/**
+ * @brief 编码输出轴标定扩展，绑定同次保存的电机及 Hall 参数。
+ * @param record 已完成基础参数编码的整轴记录。
+ * @param encoder 输出轴标定结果与零位。
+ */
+void Param_StoreOutputEncoder(MotorAxisRecord *record, const OutputEncoder *encoder);
+
+/**
+ * @brief 校验扩展并恢复输出轴参数，旧记录或减速比变化时保留初始化值。
+ * @param record 基础记录已校验的 Flash 副本。
+ * @param encoder 已按当前传动减速比初始化的对象。
+ * @return 扩展版本、CRC、基础参数绑定和系数均匹配时返回 true。
+ */
+bool Param_RestoreOutputEncoder(const MotorAxisRecord *record, OutputEncoder *encoder);
 
 /**
  * @brief 将本轴最近一次 Hall 标定结果加入已导出的记录，并重新计算整条 CRC。

@@ -70,6 +70,41 @@ void Param_RestoreLinearHall(const InterfaceParam *param, LinearHall *hall)
     hall->calibration_faults = faults;
 }
 
+/* 小端 OEN1，扩展自身校验覆盖 magic 到 params，不包含末尾 CRC。 */
+#define PARAM_OUTPUT_ENCODER_V1 0x314e454fU
+typedef char OutputEncoderLayout[(sizeof(OutputEncoderRecord) == 32U &&
+                                  offsetof(MotorAxisRecord, output) == 2288U &&
+                                  sizeof(MotorAxisRecord) == 2320U)
+                                     ? 1
+                                     : -1];
+
+void Param_StoreOutputEncoder(MotorAxisRecord *record, const OutputEncoder *encoder)
+{
+    record->output = (OutputEncoderRecord){.magic = PARAM_OUTPUT_ENCODER_V1,
+                                           .motor_crc32 = record->motor.record_crc32,
+                                           .params = encoder->params};
+    record->output.crc32 = Crc32_Compute(&record->output, offsetof(OutputEncoderRecord, crc32), 0U);
+}
+
+bool Param_RestoreOutputEncoder(const MotorAxisRecord *record, OutputEncoder *encoder)
+{
+    const OutputEncoderRecord *r = &record->output;
+    const OutputEncoderParams *p = &r->params;
+    if (r->magic != PARAM_OUTPUT_ENCODER_V1 || r->motor_crc32 != record->motor.record_crc32 ||
+        r->crc32 != Crc32_Compute(r, offsetof(OutputEncoderRecord, crc32), 0U) ||
+        p->gear_ratio != encoder->params.gear_ratio || p->gear_ratio < 1.0f ||
+        p->gear_ratio != floorf(p->gear_ratio) || !isfinite(p->phase_rad) ||
+        fabsf(p->phase_rad) > _PI || !isfinite(p->zero_rad) || p->zero_rad < 0.0f ||
+        p->zero_rad >= _2PI || (p->direction != 1 && p->direction != -1) ||
+        ((p->status & 0x7fU) > OUTPUT_ENCODER_CAL_RELATION) || (p->status & ~0x183U) != 0U ||
+        ((p->status & OUTPUT_ENCODER_CAL_OK) != 0U && (p->status & 0x7fU) != 0U))
+    {
+        return false;
+    }
+    encoder->params = *p;
+    return true;
+}
+
 /* 应用包络来自编译配置；有效轴记录只收窄，通信地址不参与控制限值。 */
 static float application_speed_ceiling_rad_s(const MotorAxisProfile *profile, bool valid)
 {

@@ -1360,6 +1360,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>output_encoder.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\feedback\output_encoder.c</FilePath>
+            </File>
+            <File>
               <FileName>linear_hall.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\feedback\linear_hall.c</FilePath>

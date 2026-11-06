@@ -31,16 +31,18 @@ SensorlessStartupState s_sensorless_startup;
 FocState s_foc_state;
 CurrentOffsetCalibration s_current_offset_calibration;
 LinearHall s_linear_hall;
+OutputEncoder s_output_encoder;
 
 const MotorAxisFeedback MotorAxis_Feedback = {
-    &s_foc_state, &s_rotor_encoder, &s_motor_state, &s_linear_hall};
+    &s_foc_state, &s_rotor_encoder, &s_motor_state, &s_linear_hall, &s_output_encoder};
 
 /* 编码器线性化独占的6144字节静态工作区；发布或取消前不复用。 */
 static EncoderCalibrationWorkspace s_encoder_linearization_workspace;
 /* 启动装载和停机前台保存串行复用，避免再分配整条记录。 */
-static InterfaceParam s_parameter_record;
+static MotorAxisRecord s_axis_record;
 #if BSP_ENABLED_LINEAR_HALL
 static LinearHallCalibration s_hall_sweep;
+static OutputEncoderCalib s_output_calib;
 #endif
 
 static MotorTaskResult run_active_calibration_cycle(void)
@@ -54,12 +56,18 @@ static MotorTaskResult run_active_calibration_cycle(void)
     switch (MotorLifecycle_GetCalibrationType())
     {
     case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:
+        if (EncoderCalibration_GetPhase() == CS_NULL)
+        {
+            s_output_encoder.ready = false;
+        }
 #if BSP_ENABLED_LINEAR_HALL
         if (MotorAxisPreset_HasLinearHall(s_motor_configuration.preset) &&
             EncoderCalibration_GetPhase() == CS_NULL)
         {
             /* 新会话覆盖上次中止的极值；只在观测器闭环采样阶段收集。 */
             LinearHall_CalibrationBegin(&s_hall_sweep);
+            OutputEncoder_CalibBegin(&s_output_calib, s_output_encoder.params.gear_ratio);
+            s_output_encoder.ready = false;
         }
 #endif
         return EncoderCalibration_StepLut(&control, &s_encoder_linearization_workspace);
@@ -67,6 +75,10 @@ static MotorTaskResult run_active_calibration_cycle(void)
     case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
         return EncoderCalibration_StepElecZero(&control);
     case MOTOR_CALIBRATION_MECHANICAL_ZERO:
+        if (!OutputEncoder_IsReady(&s_output_encoder))
+        {
+            return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
+        }
         if (Encoder_SetMechanicalZero(&s_motor_configuration.device.encoder, &s_rotor_encoder))
         {
             MotorOuterLoop_RequestReset();
@@ -83,9 +95,9 @@ void MotorAxis_Init(void)
     s_foc_state.bus_voltage_filter_alpha = 0.05f;
     s_foc_state.bus_current_filter_alpha = 0.05f;
     /* 固定启动暂存区与停机保存共用；装载失败沿用默认值。 */
-    if (BspFlash_Read(&s_parameter_record, sizeof(s_parameter_record)) == BSP_OK)
+    if (BspFlash_Read(&s_axis_record, sizeof(s_axis_record)) == BSP_OK)
     {
-        Param_Download(&s_parameter_record, sizeof(s_parameter_record), &s_motor_configuration);
+        Param_Download(&s_axis_record.motor, sizeof(s_axis_record.motor), &s_motor_configuration);
     }
     else
     {
@@ -96,9 +108,26 @@ void MotorAxis_Init(void)
     if (s_motor_configuration.configuration_source == MOTOR_CONFIGURATION_STORED &&
         MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
     {
-        Param_RestoreLinearHall(&s_parameter_record, &s_linear_hall);
+        Param_RestoreLinearHall(&s_axis_record.motor, &s_linear_hall);
     }
 #endif
+    float ratio = s_motor_configuration.preset != NULL
+                      ? s_motor_configuration.preset->electrical->gear_ratio
+                      : 1.0f;
+    OutputEncoder_Init(&s_output_encoder, ratio);
+    /* 直驱旧记录可直接沿用已有电机机械零位；减速轴须重新标定对应关系。 */
+    if (ratio == 1.0f &&
+        (s_motor_configuration.device.encoder.calib_flag & ENC_CALIB_MECHANICAL_ZERO) != 0U)
+    {
+        s_output_encoder.params.zero_rad =
+            (float)s_motor_configuration.device.encoder.mechanical_zero_q15 *
+            (6.283185307f / 65536.0f);
+        s_output_encoder.params.status |= OUTPUT_ENCODER_ZERO_SET;
+    }
+    if (s_motor_configuration.configuration_source == MOTOR_CONFIGURATION_STORED)
+    {
+        (void)Param_RestoreOutputEncoder(&s_axis_record, &s_output_encoder);
+    }
     MotorCurrentOffsets_Init(&s_current_offset_calibration,
                              &s_motor_configuration,
                              &s_foc_state,
@@ -161,14 +190,36 @@ void MotorAxis_OuterTick(void)
         float sin_counts = BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN);
         float cos_counts = BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS);
         if (MotorLifecycle_GetCalibrationType() == MOTOR_CALIBRATION_ENCODER_LINEARIZATION &&
-            EncoderCalibration_GetPhase() == CS_OBS_SAMPLE_CW && s_hall_sweep.active &&
-            MotorLifecycle_IsCalibrationRunnable())
+            EncoderCalibration_GetPhase() == CS_OBS_SAMPLE_CW)
         {
             LinearHall_CalibrationSample(&s_hall_sweep, sin_counts, cos_counts);
+            OutputEncoder_CalibSample(&s_output_calib,
+                                      s_rotor_encoder.directed_q15,
+                                      (uint16_t)sin_counts,
+                                      (uint16_t)cos_counts);
         }
         LinearHall_Update(&s_linear_hall, sin_counts, cos_counts);
     }
 #endif
+    /* 等待现有上电采样窗口结束，避免传感器启动初值参与首次辨圈。 */
+    if (s_current_offset_calibration.complete && Encoder_IsOnline(&s_rotor_encoder) &&
+        (s_motor_configuration.device.encoder.calib_flag & ENC_CALIB_LINEARIZED) != 0U &&
+        (s_output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) != 0U &&
+        MotorLifecycle_GetState() != MOTOR_STATE_CALIBRATION)
+    {
+        uint16_t motor_q15 = s_rotor_encoder.linearized_q15;
+        if (OutputEncoder_IsReady(&s_output_encoder))
+        {
+            OutputEncoder_Update(&s_output_encoder, motor_q15);
+        }
+        else if (s_output_encoder.params.gear_ratio == 1.0f ||
+                 (s_linear_hall.calibration_success && isfinite(s_linear_hall.val.sin_cal) &&
+                  isfinite(s_linear_hall.val.cos_cal) &&
+                  (s_linear_hall.val.sin_cal != 0.0f || s_linear_hall.val.cos_cal != 0.0f)))
+        {
+            OutputEncoder_Locate(&s_output_encoder, motor_q15, s_linear_hall.val.angle_rad);
+        }
+    }
     MotorLifecycle_OuterTick();
 }
 
@@ -263,68 +314,6 @@ void MotorAxis_ProcessPositionPlan(void)
     }
 }
 
-static bool can_save_calibration(const uint32_t *epoch)
-{
-    if (epoch == NULL)
-    {
-        return MotorLifecycle_GetState() == MOTOR_STATE_IDLE && MotorLifecycle_IsStopped();
-    }
-    uint32_t pending;
-    return MotorLifecycle_ReadPendingCalibrationPublication(&pending) && pending == *epoch;
-}
-
-static MotorControlResult save_calibration(const uint32_t *epoch)
-{
-    if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
-    {
-        return MOTOR_CONTROL_FAULT;
-    }
-    if (!can_save_calibration(epoch) || !EncoderCalibration_IsIdle())
-    {
-        return MOTOR_CONTROL_BUSY;
-    }
-    uint8_t flags = s_motor_configuration.device.encoder.calib_flag;
-    if (!s_current_offset_calibration.complete || s_current_offset_calibration.failed ||
-        !MotorCurrentOffsets_IsValid(&s_motor_configuration) ||
-        !ParameterValue_ConfigurationValid(&s_motor_configuration) || flags == 0U ||
-        (flags & ~(ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO)) != 0U ||
-        s_motor_configuration.device.encoder.reverse > 1U)
-    {
-        return MOTOR_CONTROL_DENIED;
-    }
-    /* 前台串行，空闲且零偏完成后中断不改配置；不在整条CRC期间屏蔽中断。 */
-    Param_Upload(&s_parameter_record, &s_motor_configuration);
-#if BSP_ENABLED_LINEAR_HALL
-    if (MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
-    {
-        Param_StoreLinearHall(&s_parameter_record, &s_linear_hall);
-    }
-#endif
-    uint32_t mask = BspSystem_EnterCritical();
-    if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
-    {
-        BspSystem_ExitCritical(mask);
-        return MOTOR_CONTROL_FAULT;
-    }
-    if (!can_save_calibration(epoch))
-    {
-        BspSystem_ExitCritical(mask);
-        return MOTOR_CONTROL_BUSY;
-    }
-    BspResult result = BspFlash_Write(&s_parameter_record, sizeof(s_parameter_record));
-    BspSystem_ExitCritical(mask);
-    if (result == BSP_OK)
-    {
-        return MOTOR_CONTROL_ACCEPTED;
-    }
-    return result == BSP_REJECTED ? MOTOR_CONTROL_DENIED : MOTOR_CONTROL_PERSIST_FAILED;
-}
-
-MotorControlResult MotorAxis_SaveCalibration(void)
-{
-    return save_calibration(NULL);
-}
-
 void MotorAxis_ProcessCalibrationPublication(void)
 {
     uint32_t mask = BspSystem_EnterCritical();
@@ -359,9 +348,12 @@ void MotorAxis_ProcessCalibrationPublication(void)
             BspSystem_ExitCritical(mask);
             return;
         }
-        if (!EncoderCalibration_PublishLut(&s_motor_configuration.device.encoder,
-                                           &s_rotor_encoder) ||
-            !MotorLifecycle_ContinueElectricalZero(epoch))
+        if (EncoderCalibration_PublishLut(&s_motor_configuration.device.encoder, &s_rotor_encoder))
+        {
+            OutputEncoder_Init(&s_output_encoder, s_output_encoder.params.gear_ratio);
+            MotorLifecycle_ContinueElectricalZero();
+        }
+        else
         {
             MotorLifecycle_CompleteCalibrationPublication(epoch, false);
         }
@@ -369,37 +361,70 @@ void MotorAxis_ProcessCalibrationPublication(void)
         return;
     }
 #endif
-    bool published = !lut || EncoderCalibration_PublishLut(&s_motor_configuration.device.encoder,
-                                                           &s_rotor_encoder);
-#if BSP_ENABLED_LINEAR_HALL
-    if (published && MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
+    if (lut &&
+        !EncoderCalibration_PublishLut(&s_motor_configuration.device.encoder, &s_rotor_encoder))
     {
-        bool hall_ok =
-            MotorLifecycle_GetCalibrationType() != MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO ||
-            LinearHall_CalibrationFinish(&s_hall_sweep, &s_linear_hall);
+        MotorLifecycle_CompleteCalibrationPublication(epoch, false);
         BspSystem_ExitCritical(mask);
-        /* 先在前台编码，写前再复核会话和关相状态。完成通知在 Flash 回读之后。 */
-        MotorControlResult saved = save_calibration(&epoch);
-        mask = BspSystem_EnterCritical();
-        if (can_save_calibration(&epoch))
-        {
-            if (saved != MOTOR_CONTROL_ACCEPTED || !hall_ok)
-            {
-                MotorFault_Report(&s_motor_state,
-                                  saved != MOTOR_CONTROL_ACCEPTED
-                                      ? MOTOR_FAULT_CALIBRATION_STORAGE
-                                      : MOTOR_FAULT_LINEAR_HALL_CALIBRATION);
-            }
-            else
-            {
-                MotorLifecycle_CompleteCalibrationPublication(epoch, true);
-            }
-        }
+        return;
     }
-    else
-#endif
+    OutputEncoder output = s_output_encoder;
+    MotorCalibrationType kind = MotorLifecycle_GetCalibrationType();
+    MotorFaultCode fault = MOTOR_FAULT_NONE;
+    if (lut)
     {
-        MotorLifecycle_CompleteCalibrationPublication(epoch, published);
+        OutputEncoder_Init(&output, output.params.gear_ratio);
+    }
+    if (kind == MOTOR_CALIBRATION_MECHANICAL_ZERO)
+    {
+        OutputEncoder_Update(&output, s_rotor_encoder.linearized_q15);
+        OutputEncoder_SetZero(&output);
+    }
+#if BSP_ENABLED_LINEAR_HALL
+    LinearHall hall = s_linear_hall;
+    if (kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO &&
+        !LinearHall_CalibrationFinish(&s_hall_sweep, &hall))
+    {
+        fault = MOTOR_FAULT_LINEAR_HALL_CALIBRATION;
+    }
+#endif
+    BspSystem_ExitCritical(mask);
+#if BSP_ENABLED_LINEAR_HALL
+    /* 三遍有限样本拟合允许控制中断抢占；提交前仍须复核原会话。 */
+    if (kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO &&
+        !OutputEncoder_CalibEnd(
+            &output, &s_output_calib, &hall, &s_motor_configuration.device.encoder) &&
+        fault == MOTOR_FAULT_NONE)
+    {
+        fault = MOTOR_FAULT_ENCODER;
+    }
+#endif
+    Param_Upload(&s_axis_record.motor, &s_motor_configuration);
+#if BSP_ENABLED_LINEAR_HALL
+    if (MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
+    {
+        Param_StoreLinearHall(&s_axis_record.motor, &hall);
+    }
+#endif
+    Param_StoreOutputEncoder(&s_axis_record, &output);
+    mask = BspSystem_EnterCritical();
+    uint32_t pending_epoch;
+    if (MotorLifecycle_ReadPendingCalibrationPublication(&pending_epoch) && pending_epoch == epoch)
+    {
+        s_output_encoder = output;
+#if BSP_ENABLED_LINEAR_HALL
+        s_linear_hall = hall;
+#endif
+        BspResult saved = BspFlash_Write(&s_axis_record, sizeof(s_axis_record));
+        if (saved != BSP_OK || fault != MOTOR_FAULT_NONE)
+        {
+            MotorFault_Report(&s_motor_state,
+                              saved != BSP_OK ? MOTOR_FAULT_CALIBRATION_STORAGE : fault);
+        }
+        else
+        {
+            MotorLifecycle_CompleteCalibrationPublication(epoch, true);
+        }
     }
     BspSystem_ExitCritical(mask);
 }

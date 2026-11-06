@@ -147,3 +147,5 @@
 - [共用电机BSP与实现分离](2026-10-26-common-motor-bsp-v1.md)：九目标/Loader及PR/release通过，AT32永久关相验证通过；剩余文件精简项见报告。
 
 - [BSP最小直接实现](2026-10-26-minimal-bsp-v1.md)：删除17个文件，九工程及Loader、PR/release和AT32关相验证通过。
+
+- [输出轴绝对位置与启动恢复](2026-11-06-output-encoder-v1.md)：直驱/整数减速实现、OEN1 存储、双板编译及 PITCH 100 圈联合标定、9 点复位与实际断电恢复通过；release 两项既有测试失败保留。

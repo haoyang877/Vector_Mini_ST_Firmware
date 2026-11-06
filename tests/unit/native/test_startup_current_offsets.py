@@ -23,8 +23,10 @@ def main() -> None:
     algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
     production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
     production += "static EncoderCalibrationWorkspace s_encoder_linearization_workspace;\n"
-    production += "#if BSP_ENABLED_LINEAR_HALL\nstatic LinearHall s_linear_hall;\n"
-    production += "static LinearHallCalibration s_hall_sweep;\n"
+    production += "static LinearHall s_linear_hall;\n#if BSP_ENABLED_LINEAR_HALL\n"
+    production += (
+        "static LinearHallCalibration s_hall_sweep;\nstatic OutputEncoderCalib s_output_calib;\n"
+    )
     production += "#endif\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
@@ -83,6 +85,7 @@ def main() -> None:
                 str(ROOT / "firmware/motor/control/pi_controller.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 str(ROOT / "firmware/motor/feedback/linear_hall.c"),
+                str(ROOT / "firmware/motor/feedback/output_encoder.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
                 str(ROOT / "firmware/motor/protection/motor_thermal_control.c"),

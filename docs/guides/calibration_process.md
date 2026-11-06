@@ -52,7 +52,7 @@ LUT 使用相对角度参考。稳速结束时记录的起始角会引入整体�
 电零位使用已有 LUT 的线性化角度。d 轴电流逐渐升至标定电流，保持对齐期间按环形角度
 计算均值，再发布电角度零位。样本锚点、和与计数归同一均值状态所有，
 均值计算在固定保持窗口完成采样后执行。
-完成后快环上报 `MOTOR_TASK_COMPLETED`，生命周期关相并回到空闲。
+完成后快环上报 `MOTOR_TASK_COMPLETED`，生命周期关相，前台保存完成后回到空闲。
 
 机械零位直接记录当前线性化角，设置重定位置原点请求。外环消费请求并更新多圈位置。
 
@@ -77,11 +77,19 @@ LUT 使用相对角度参考。稳速结束时记录的起始角会引入整体�
 ## RAM 与持久化
 
 LUT 和零位成功后写入 `MotorConfiguration.device.encoder`，结果首先保存在 RAM。
-`MotorAxis_SaveCalibration()` 已实现空闲关相下的记录编码、Flash 写入和结果返回，
-当前没有独立 APP 保存请求入口。PITCH、YAW 联合标定结束后自动调用保存路径，
+`MotorAxis_ProcessCalibrationPublication()` 在 PITCH、YAW 联合标定结束后编码记录，
+擦写前复核会话、STOP/故障和关相状态，
 写入 LUT、电零位、Hall 四个系数和成功/故障标志，再报告完成。启动时从 Flash 装载已有标定记录。
 STOP 或运动故障取消时不保存部分结果；Hall 极值不合格时保留旧系数并保存失败原因。
 
 工作区为 6144 字节，采样计数与候选 LUT 共用存储。
 持久化沿用 2288 字节 schema14 记录。存储字段和 CRC 契约见
 [参数说明](../../firmware/parameters/README.md#storage)。
+
+## 输出轴绝对位置
+
+直驱与整数减速轴共用 `OutputEncoder_GetPos(MotorAxis_Feedback.output_encoder)`，使用前查询 `OutputEncoder_IsReady`。4 kHz 更新连续输出轴位置，单位 rad；现有位置环和 CAN 位置单位仍为电机轴。
+
+Hall 轴同步采集 256 对稀疏原码，标定完成后用新 Hall 幅值/偏置和新编码器 LUT 求方向、相位。计算在前台执行。直驱不依赖 Hall，减速比为 1。工装机械零位命令同时设置输出轴零位，必须先完成输出定位。
+
+两种传动的标定结果都由前台关相保存，Flash 回读完成后才报告完成。输出参数通过 [OEN1 扩展](../protocols/output_encoder_v1.md) 上电恢复。更换减速比或重做编码器 LUT 后重新建立对应关系及机械零位。

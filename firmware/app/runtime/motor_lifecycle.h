@@ -95,7 +95,7 @@ bool MotorLifecycle_IsCalibrationRunnable(void);
 
 /**
  * @brief 读取待发布或保存的角度标定会话代际。
- * @param calibration_epoch 返回待发布会话的代际，不可使用后续代际替代。
+ * @param calibration_epoch 非空输出指针，返回待发布会话的代际，不可使用后续代际替代。
  * @return 当前候选仍有效且已关相时返回true。
  * @note 前台发布、写 Flash 和完成通知前均复核原代际。
  */
@@ -103,11 +103,10 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoc
 
 /**
  * @brief 关相发布编码器结果后，在同一联合标定会话内转入电零位对齐。
- * @param epoch 当前标定代际。
- * @return 已排队在下一快拍重新检查准入并启相时返回 true。
- * @note 前台持全中断临界区调用。
+ * @note 前台持全中断临界区调用；调用方已确认本会话待发布、支持 Hall 且 LUT 发布成功。
+ *       下一快拍仍检查启相条件，STOP 或故障不能重新启相。
  */
-bool MotorLifecycle_ContinueElectricalZero(uint32_t epoch);
+void MotorLifecycle_ContinueElectricalZero(void);
 
 /**
  * @brief 提交原会话的发布结果，成功后由监督层触发COMPLETE。

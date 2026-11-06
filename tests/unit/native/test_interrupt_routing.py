@@ -14,16 +14,6 @@ void RTT_Sampling(void) {
 
 OUTER_STUB = r"""
 #include "config.h"
-#if BSP_BOARD == BSP_BOARD_AT32F456
-#include "motor_state_types.h"
-#include "board_config.h"
-#define APP_FAST_MAX_CYCLES (AT32_CORE_HZ / FOC_FREQ)
-typedef struct { uint32_t samples, peak_cycles, over_budget, long_intervals; } CalibrationTiming;
-static CalibrationTiming s_calibration_timing[2];
-uint32_t BspSystem_CycleCount(void) { return 0U; }
-static MotorCalibrationType MotorLifecycle_GetCalibrationType(void) { return MOTOR_CALIBRATION_NONE; }
-static bool MotorLifecycle_IsCalibrationRunnable(void) { return false; }
-#endif
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
 static volatile bool s_outer_outstanding;
 static unsigned requests, outer_calls, overruns;

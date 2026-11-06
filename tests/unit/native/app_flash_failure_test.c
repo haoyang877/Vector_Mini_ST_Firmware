@@ -322,6 +322,18 @@ int main(void)
                               13U, 14U, 15U, 16U, 17U, 18U, 19U, 20U, 21U, 22U, 23U, 24U};
     check_failures(data, sizeof(data));
     check_ready_and_success(data, sizeof(data));
+    /* 包括 OEN1 扩展的整轴记录必须能跨页保存并读回。 */
+    uint8_t axis_record[TARGET_RAW_BYTES], restored[TARGET_RAW_BYTES];
+    _Static_assert(TARGET_RAW_BYTES == 2320U, "MotorAxisRecord capacity drift");
+    for (unsigned i = 0U; i < sizeof(axis_record); ++i)
+    {
+        axis_record[i] = (uint8_t)(i * 17U);
+    }
+    setup();
+    assert(param_store_write(axis_record, sizeof(axis_record)));
+    assert(param_store_read(restored, sizeof(restored)));
+    assert(memcmp(axis_record, restored, sizeof(axis_record)) == 0);
+    assert(erase_calls == 2U && program_calls == sizeof(axis_record) / 8U);
 #ifdef _WIN32
     VirtualFree(memory, 0U, MEM_RELEASE);
 #else

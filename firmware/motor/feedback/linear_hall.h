@@ -56,7 +56,6 @@ typedef struct
 {
     float sin_min, sin_max;
     float cos_min, cos_max;
-    bool active;
 } LinearHallCalibration;
 
 /**
@@ -66,11 +65,11 @@ typedef struct
 void LinearHall_CalibrationBegin(LinearHallCalibration *cal);
 
 /**
- * @brief 逐拍记录两路原码的极值，跳过缺样，保留超限原码供结束时检查。
+ * @brief 逐拍记录两路 ADC 原码极值，保留超限原码供结束时检查。
  * @param cal 已开始的标定工作区。
  * @param sin_counts 本拍 sin 原始 ADC 值，单位 count。
  * @param cos_counts 同拍 cos 原始 ADC 值，单位 count。
- * @note 调用方保证采样过程覆盖至少一整圈。
+ * @note 调用方在 Begin 之后、标定采样阶段传入两路有限 ADC 原码，并覆盖至少一整圈。
  */
 void LinearHall_CalibrationSample(LinearHallCalibration *cal, float sin_counts, float cos_counts);
 
@@ -78,7 +77,7 @@ void LinearHall_CalibrationSample(LinearHallCalibration *cal, float sin_counts, 
  * @brief 结束本次标定；用两路极值分别计算偏置和幅值，写入当前轴 RAM。
  * @param cal 当前扫圈工作区。
  * @param hall 待更新的轴对象；与角度更新在同一上下文串行调用。
- * @note 结束活动标定时更新 calibration_success 和 calibration_faults。
+ * @note 调用方在 Begin 之后结束采样，再调用一次；更新 calibration_success 和 calibration_faults。
  * @return 两路原码均在 [10, 4086] count 内且各自半峰峰值至少 800 count 时返回 true；失败保留原系数。
  */
 bool LinearHall_CalibrationFinish(LinearHallCalibration *cal, LinearHall *hall);

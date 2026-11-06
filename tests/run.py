@@ -28,6 +28,7 @@ NATIVE = (
     "test_interrupt_routing",
     "test_app_orchestration",
     "test_calibration_save",
+    "test_output_encoder",
     "test_encoder_sample_overlap",
     "test_encoder_update",
     "test_fast_loop_math",

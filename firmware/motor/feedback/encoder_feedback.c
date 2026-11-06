@@ -38,14 +38,7 @@ static uint16_t encoder_apply_direction_q15(const EncoderCalibration *calibratio
 static uint16_t encoder_apply_linearization_q15(const EncoderCalibration *calibration,
                                                 uint16_t raw_q15)
 {
-    uint16_t lut_index = raw_q15 >> 6;
-    uint16_t fraction = raw_q15 & 0x003FU;
-    int32_t correction_a = calibration->linearization_lut_q15[lut_index];
-    int32_t correction_b =
-        calibration->linearization_lut_q15[(lut_index + 1U) & (ENCODER_OFFSET_LUT_SIZE - 1U)];
-    int32_t correction = correction_a + (((correction_b - correction_a) * fraction) >> 6);
-
-    return (uint16_t)((int32_t)raw_q15 - correction);
+    return Encoder_Linearize(calibration, raw_q15);
 }
 
 /* 由线性化角与电零位得到电角度（20 kHz 快路径每拍更新）。

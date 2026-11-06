@@ -59,5 +59,6 @@ PITCH、YAW 在步骤 2 同时由 Axis 的 4 kHz 外环采集 Hall 原码极值�
 发布函数检查待发布阶段、复制 LUT 并将有效位置为 `ENC_CALIB_LINEARIZED`，
 完成后释放工作区，随后由 Axis 恢复中断。
 
-标定结果写入 RAM。现有 `MotorAxis_SaveCalibration()` 封装停机保存，当前没有 APP 请求入口。
+标定结果写入 RAM。带 Hall 的轴由 `MotorAxis_ProcessCalibrationPublication()` 统一保存，
+未使用的手动保存入口已删除。写前保留会话、STOP/故障和关相检查。
 对外六个接口、6 KiB 工作区和 schema14 存储布局沿用既有契约。

@@ -206,7 +206,7 @@ static void guards_unchanged(void)
 
 int main(void)
 {
-    _Static_assert(sizeof(InterfaceParam) == AT32_PARAM_RAW_BYTES, "RAW capacity drift");
+    _Static_assert(sizeof(MotorAxisRecord) == AT32_PARAM_RAW_BYTES, "RAW capacity drift");
     uint8_t input[AT32_PARAM_RAW_BYTES + 1U], result[AT32_PARAM_BYTES + 1U];
     for (unsigned i = 0U; i < sizeof(input); ++i)
     {

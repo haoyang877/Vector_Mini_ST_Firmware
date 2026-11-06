@@ -22,6 +22,8 @@
 #include "motor_thermal_control.h"
 #include "bsp_system.h"
 #include "application_config.h"
+#include "parameter_record.h"
+#include "bsp_flash.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
 static MotorConfiguration s_motor_configuration;
@@ -31,6 +33,7 @@ static PiController s_speed_pi;
 static EncoderState s_rotor_encoder;
 static FluxObserverState s_flux_observer;
 static SensorlessStartupState s_sensorless_startup;
+static OutputEncoder s_output_encoder;
 static uint16_t samples[3];
 static float bus_sample_raw, bsp_bus_offset;
 static unsigned bus_raw_reads, phase_offset_writes, bus_offset_writes;
@@ -56,31 +59,45 @@ EncoderCalibrationPhase EncoderCalibration_GetPhase(void)
 static float hall_raw_sin = 2048.0f, hall_raw_cos = 2048.0f;
 #if BSP_ENABLED_LINEAR_HALL
 static uint32_t test_ms;
-bool MotorLifecycle_ContinueElectricalZero(uint32_t epoch)
+void MotorLifecycle_ContinueElectricalZero(void)
 {
-    assert(calibration_publication_pending && epoch == 1U);
+    assert(calibration_publication_pending);
     calibration_publication_pending = false;
     simulated_calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
-    return true;
 }
 float Encoder_GetMechVelContinuous(const EncoderState *encoder)
 {
     return 0.0f;
 }
-static bool can_save_calibration(const uint32_t *epoch)
-{
-    return calibration_publication_pending && *epoch == 1U;
-}
-static MotorControlResult save_calibration(const uint32_t *epoch)
-{
-    assert(can_save_calibration(epoch));
-    return MOTOR_CONTROL_ACCEPTED;
-}
 #endif
+static MotorAxisRecord s_axis_record;
+bool Encoder_IsOnline(const EncoderState *encoder)
+{
+    return encoder->has_valid_sample;
+}
+void Param_StoreOutputEncoder(MotorAxisRecord *record, const OutputEncoder *encoder)
+{
+    assert(record == &s_axis_record && encoder != NULL);
+}
+void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration)
+{
+    assert(param == &s_axis_record.motor && configuration == &s_motor_configuration);
+}
+void Param_StoreLinearHall(InterfaceParam *param, const LinearHall *hall)
+{
+    assert(param == &s_axis_record.motor && hall != NULL);
+}
+BspResult BspFlash_Write(const void *data, size_t length)
+{
+    assert(output_off && calibration_publication_pending);
+    assert(data == &s_axis_record && length == sizeof(s_axis_record));
+    return BSP_OK;
+}
 
 MotorCalibrationType MotorLifecycle_GetCalibrationType(void)
 {
-    return simulated_calibration_type;
+    return simulated_state == MOTOR_STATE_CALIBRATION ? simulated_calibration_type
+                                                      : MOTOR_CALIBRATION_NONE;
 }
 
 void MotorLifecycle_OuterTick(void)
@@ -768,6 +785,8 @@ static void test_calibration_dispatch_and_publication(void)
     {
         prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
         simulated_calibration_type = calibration_type;
+        OutputEncoder_Init(&s_output_encoder, 1.0f);
+        OutputEncoder_Locate(&s_output_encoder, 0.0f, 0.0f);
         simulated_calibration_outcome = (MotorTaskResult){
             calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ? MOTOR_TASK_FINALIZE
                                                                         : MOTOR_TASK_COMPLETED,
@@ -776,7 +795,7 @@ static void test_calibration_dispatch_and_publication(void)
         MotorAxis_ControlFast();
         assert(calibration_cycle_calls == 1U && control_calls == 0U);
     }
-    prepare_fast_tick_order(MOTOR_STATE_IDLE, MOTOR_CONTROL_NONE);
+    prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
     calibration_publication_pending = true;
     MotorAxis_ProcessCalibrationPublication();
@@ -792,11 +811,12 @@ static void test_calibration_dispatch_and_publication(void)
     static const MotorElectricalPreset electrical = {.gear_ratio = 8.0f};
     static const MotorAxisPreset pitch = {.joint = MOTOR_JOINT_PITCH, .electrical = &electrical};
     s_motor_configuration.preset = &pitch;
+    OutputEncoder_Init(&s_output_encoder, 8.0f);
     LinearHall_Init(&s_linear_hall);
     simulated_state = MOTOR_STATE_CALIBRATION;
     simulated_phase = CS_NULL;
     (void)run_active_calibration_cycle();
-    assert(s_hall_sweep.active);
+    assert(isinf(s_hall_sweep.sin_min));
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
     simulated_phase = CS_OBS_STARTUP;
@@ -841,19 +861,63 @@ static void test_calibration_dispatch_and_publication(void)
     test_ms = 201U;
     MotorAxis_ProcessCalibrationPublication();
     assert(simulated_calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO);
-    assert(s_hall_sweep.active && s_hall_sweep.sin_min == 200);
+    assert(s_hall_sweep.sin_min == 200);
     MotorAxis_OuterTick();
     simulated_calibration_outcome.result = MOTOR_TASK_COMPLETED;
     assert(run_active_calibration_cycle().result == MOTOR_TASK_COMPLETED);
+    s_output_calib.count = OUTPUT_ENCODER_CAL_SAMPLES;
+    memset(&s_motor_configuration.device.encoder, 0, sizeof(s_motor_configuration.device.encoder));
+    for (unsigned i = 0; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
+    {
+        int32_t counts = (int32_t)(i * 8.0f * 65536.0f * 1.01f / 255.0f);
+        float h = (float)counts * (_2PI / (65536.0f * 8.0f));
+        s_output_calib.samples[i] =
+            (OutputEncoderCalibSample){counts,
+                                       (uint16_t)(1800.0f - 1600.0f * sinf(h)),
+                                       (uint16_t)(2100.0f + 1400.0f * cosf(h))};
+    }
     calibration_publication_pending = true;
     MotorAxis_ProcessCalibrationPublication();
     assert(calibration_publication_calls == 3 && s_linear_hall.calibration_success);
-    assert(!s_hall_sweep.active);
     assert(s_linear_hall.sin_off_counts == 1800 && s_linear_hall.sin_amp == 1600);
     assert(s_linear_hall.cos_off_counts == 2100 && s_linear_hall.cos_amp == 1400);
     s_motor_configuration.preset = NULL;
 #endif
     puts("PASS calibration dispatch: linearization/electrical/mechanical, publication");
+}
+
+static void test_output_encoder_startup(void)
+{
+    simulated_state = MOTOR_STATE_IDLE;
+    s_motor_configuration.preset = NULL;
+    s_motor_configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
+    s_rotor_encoder.has_valid_sample = true;
+    s_linear_hall.calibration_success = true;
+    s_linear_hall.val.sin_cal = -sinf(0.45f);
+    s_linear_hall.val.cos_cal = cosf(0.45f);
+    s_linear_hall.val.angle_rad = 0.45f;
+    const float ratios[] = {1.0f, 8.0f};
+    for (unsigned i = 0U; i < sizeof(ratios) / sizeof(ratios[0]); ++i)
+    {
+        OutputEncoder_Init(&s_output_encoder, ratios[i]);
+        s_output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
+        s_current_offset_calibration.complete = false;
+        s_rotor_encoder.linearized_q15 = 0U;
+        MotorAxis_OuterTick();
+        assert(!OutputEncoder_IsReady(&s_output_encoder));
+        /* 真实角接近半圈、Hall 有小误差时，启动零码不能提前决定圈段。 */
+        s_rotor_encoder.linearized_q15 = 32760U;
+        s_current_offset_calibration.complete = true;
+        MotorAxis_OuterTick();
+        assert(OutputEncoder_IsReady(&s_output_encoder));
+        float expected = 32760.0f * (_2PI / 65536.0f) / ratios[i];
+        assert(fabsf(s_output_encoder.initial_position_rad - expected) < 1e-5f);
+        assert(s_output_encoder.motor_delta_q15 == 0);
+        s_rotor_encoder.linearized_q15 += 100U;
+        MotorAxis_OuterTick();
+        assert(s_output_encoder.motor_delta_q15 == 100);
+    }
+    puts("PASS output encoder waits for startup sampling before locating direct/geared axes");
 }
 
 int main(void)
@@ -913,6 +977,7 @@ int main(void)
     assert(isnan(s_foc_state.phase_current_a.a) && isnan(s_foc_state.phase_current_a.b) &&
            isnan(s_foc_state.phase_current_a.c));
     test_calibration_dispatch_and_publication();
+    test_output_encoder_startup();
     puts("PASS FastTick order: channel ADC, SPI overlap, core dispatch and two fault stops");
     puts("PASS IDLE-only shared current-offset window, phase/bus scale, atomic publish and failure "
          "freeze");

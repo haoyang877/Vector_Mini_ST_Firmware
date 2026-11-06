@@ -389,7 +389,7 @@ class At32TargetTests(unittest.TestCase):
         for start, length in ranges:
             self.assertEqual(int(start, 0) + int(length, 0), values["AT32_PARAM_BASE"])
         self.assertEqual(values["AT32_PARAM_BASE"] % values["AT32_FLASH_SECTOR_BYTES"], 0)
-        self.assertLessEqual(values["AT32_PARAM_RAW_BYTES"], 2 * values["AT32_FLASH_SECTOR_BYTES"])
+        self.assertLessEqual(values["AT32_PARAM_RAW_BYTES"], 3 * values["AT32_FLASH_SECTOR_BYTES"])
         self.assertEqual(
             values["AT32_PARAM_BASE"] + values["AT32_PARAM_BYTES"],
             values["AT32_FLASH_BASE"] + values["AT32_FLASH_BYTES"],

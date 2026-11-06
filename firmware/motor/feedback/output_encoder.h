@@ -8,7 +8,10 @@
 
 #define OUTPUT_ENCODER_CAL_OK 0x80U
 #define OUTPUT_ENCODER_ZERO_SET 0x100U
-#define OUTPUT_ENCODER_CAL_SAMPLES 256U
+#define OUTPUT_ENCODER_CAL_SAMPLES 2048U
+
+/** @brief 有限计算批次后的前台健康服务，不修改标定数据。 */
+typedef void (*OutputEncoderCalibrationProgress)(void);
 
 typedef enum
 {
@@ -35,7 +38,7 @@ typedef struct
     bool ready;
 } OutputEncoder;
 
-/* 只保存首个输出圈的稀疏原码，结束后用新 Hall 系数及新 LUT 计算对应关系。 */
+/* 首个输出圈的小角度区间均值；电机和两路 Hall 使用同一组采样，结束后再校正。 */
 typedef struct
 {
     int32_t motor_counts;
@@ -47,6 +50,8 @@ typedef struct
     OutputEncoderCalibSample samples[OUTPUT_ENCODER_CAL_SAMPLES];
     int32_t motor_counts, first_counts, step_counts;
     uint16_t previous_q15, count;
+    int64_t motor_sum_counts;
+    uint32_t sin_sum_counts, cos_sum_counts, sample_count;
 } OutputEncoderCalib;
 
 /**
@@ -102,12 +107,12 @@ void OutputEncoder_SetZero(OutputEncoder *encoder);
 void OutputEncoder_CalibBegin(OutputEncoderCalib *cal, float gear_ratio);
 
 /**
- * @brief 按实际电机位移记录 Hall 与电机编码器配对原码。
+ * @brief 按实际电机位移保存小区间的电机和 Hall 配对均值。
  * @param cal 已开始的工作区。
  * @param motor_q15 方向校正后的电机原码，尚未使用 LUT。
  * @param sin_counts 同拍 Hall sin 原码。
  * @param cos_counts 同拍 Hall cos 原码。
- * @note 4 kHz 单写，仅在观测器采样阶段调用，不做拟合。
+ * @note 4 kHz 单写，仅标定记录累加均值；ADC 单次采样及运行反馈不作平均，不在此拟合。
  */
 void OutputEncoder_CalibSample(OutputEncoderCalib *cal,
                                uint16_t motor_q15,
@@ -115,17 +120,19 @@ void OutputEncoder_CalibSample(OutputEncoderCalib *cal,
                                uint16_t cos_counts);
 
 /**
- * @brief 用最终 Hall 系数和编码器 LUT 计算方向、相位并检查辨圈余量。
+ * @brief 用新电机 LUT 生成 Hall 误差表，再计算方向、相位并检查辨圈余量。
  * @param encoder 待提交的输出对象；成功清除旧机械零位，失败保留系数并记录原因。
  * @param cal 已停止采集的工作区。
- * @param hall 本次完成幅值、偏置标定的 Hall 对象。
+ * @param hall 本次完成幅值、偏置标定的候选对象；写入新表和结果，失败清表。
  * @param motor 本次新发布的电机编码器 LUT。
+ * @param progress 非空前台健康服务；每处理至多128组调用，不得修改标定输入或候选结果。
  * @return 配对样本覆盖整圈且关系一致时返回 true。
  * @note 只在可抢占的停机前台调用，调用方复核会话后提交结果。
  */
 bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
                             const OutputEncoderCalib *cal,
-                            const LinearHall *hall,
-                            const EncoderCalibration *motor);
+                            LinearHall *hall,
+                            const EncoderCalibration *motor,
+                            OutputEncoderCalibrationProgress progress);
 
 #endif

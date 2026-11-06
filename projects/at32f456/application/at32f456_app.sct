@@ -1,5 +1,5 @@
 ; 普通APP：与调试APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
-; 56KiB热代码与其余数据分区，RAM边界沿用既有布局；Flash参数布局不变。
+; 32KiB热代码、60KiB数据，容纳Hall配对标定；总RAM边界保持不变。
 LR_IROM1 0x08000000 0x0003C000 {
   ER_IROM1 0x08000000 0x0003C000 {
     *.o (RESET, +First)
@@ -14,7 +14,7 @@ LR_IROM1 0x08000000 0x0003C000 {
     encoder_calibration.o (i.EncoderCalibration_PublishLut)
     .ANY (+RO)
   }
-  ER_FAST 0x20000000 0x0000E000 {
+  ER_FAST 0x20000000 0x00008000 {
     system.o (+RO)
     can.o (+RO)
     motor_axis.o (+RO)
@@ -53,7 +53,7 @@ LR_IROM1 0x08000000 0x0003C000 {
     rt_memclr.o (+RO)
     rt_memclr_w.o (+RO)
   }
-  RW_IRAM1 0x2000E000 0x00009000 {
+  RW_IRAM1 0x20008000 0x0000F000 {
     .ANY (+RW +ZI)
   }
 }

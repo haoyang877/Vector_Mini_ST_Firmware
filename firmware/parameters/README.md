@@ -44,4 +44,6 @@ PITCH、YAW 完成编码器角度标定后，前台关相保存同一条 2288 B 
 
 AT32F456 产品记录继续使用 schema14 的固定长度和 CRC。AXS2 修订 2 中两个轮节点的行程填零，三个关节要求实际上下界；速度为电机轴单位。旧 APP 拒绝新修订，新 AT32F456 APP 须显式重新配参后才能启用旧设备。详见[五轴工装](../../docs/guides/at32f456_five_axes.md)。
 
-输出轴绝对位置的方向、相位、机械零位、减速比和状态通过 [OEN1 扩展](../../docs/protocols/output_encoder_v1.md) 保存。schema14 前缀布局不变，整轴读写采用 MotorAxisRecord。
+输出轴方向、相位、机械零位、减速比和状态与 1024 点 Hall LUT 通过
+[OEN3 扩展](../../docs/protocols/output_encoder_v3.md) 一起保存，兼容读取 OEN1/OEN2。
+schema14 前缀布局不变，MotorAxisRecord 整轴读写为 4372 字节。

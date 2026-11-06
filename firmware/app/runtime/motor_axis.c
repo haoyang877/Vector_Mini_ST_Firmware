@@ -43,6 +43,8 @@ static MotorAxisRecord s_axis_record;
 #if BSP_ENABLED_LINEAR_HALL
 static LinearHallCalibration s_hall_sweep;
 static OutputEncoderCalib s_output_calib;
+/* 快环写、外环短临界区读取；只保存本拍三元组，不增加扫圈工作区。 */
+static volatile OutputEncoderCalibSample s_hall_sample;
 #endif
 
 static MotorTaskResult run_active_calibration_cycle(void)
@@ -126,7 +128,7 @@ void MotorAxis_Init(void)
     }
     if (s_motor_configuration.configuration_source == MOTOR_CONFIGURATION_STORED)
     {
-        (void)Param_RestoreOutputEncoder(&s_axis_record, &s_output_encoder);
+        (void)Param_RestoreOutputEncoder(&s_axis_record, &s_output_encoder, &s_linear_hall);
     }
     MotorCurrentOffsets_Init(&s_current_offset_calibration,
                              &s_motor_configuration,
@@ -187,18 +189,22 @@ void MotorAxis_OuterTick(void)
 #if BSP_ENABLED_LINEAR_HALL
     if (MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
     {
-        float sin_counts = BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN);
-        float cos_counts = BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS);
+        /* ADC 快环优先级为 0，BASEPRI 控制临界区不能保护这 8 字节快照。 */
+        uint32_t mask = BspSystem_EnterCritical();
+        OutputEncoderCalibSample sample = s_hall_sample;
+        BspSystem_ExitCritical(mask);
+        float sin_counts = (float)sample.sin_counts;
+        float cos_counts = (float)sample.cos_counts;
         if (MotorLifecycle_GetCalibrationType() == MOTOR_CALIBRATION_ENCODER_LINEARIZATION &&
             EncoderCalibration_GetPhase() == CS_OBS_SAMPLE_CW)
         {
             LinearHall_CalibrationSample(&s_hall_sweep, sin_counts, cos_counts);
             OutputEncoder_CalibSample(&s_output_calib,
-                                      s_rotor_encoder.directed_q15,
-                                      (uint16_t)sin_counts,
-                                      (uint16_t)cos_counts);
+                                      (uint16_t)sample.motor_counts,
+                                      sample.sin_counts,
+                                      sample.cos_counts);
         }
-        LinearHall_Update(&s_linear_hall, sin_counts, cos_counts);
+        LinearHall_UpdateFiltered(&s_linear_hall, sin_counts, cos_counts);
     }
 #endif
     /* 等待现有上电采样窗口结束，避免传感器启动初值参与首次辨圈。 */
@@ -264,6 +270,15 @@ void MotorAxis_SampleFast(void)
     }
 
     Encoder_Update(&s_rotor_encoder);
+#if BSP_ENABLED_LINEAR_HALL
+    if (MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
+    {
+        s_hall_sample =
+            (OutputEncoderCalibSample){s_rotor_encoder.directed_q15,
+                                       (uint16_t)BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN),
+                                       (uint16_t)BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS)};
+    }
+#endif
 }
 
 void MotorAxis_ControlFast(void)
@@ -314,8 +329,9 @@ void MotorAxis_ProcessPositionPlan(void)
     }
 }
 
-void MotorAxis_ProcessCalibrationPublication(void)
+void MotorAxis_ProcessCalibrationPublication(OutputEncoderCalibrationProgress progress)
 {
+    (void)progress;
     uint32_t mask = BspSystem_EnterCritical();
     uint32_t epoch;
     if (!MotorLifecycle_ReadPendingCalibrationPublication(&epoch))
@@ -390,10 +406,10 @@ void MotorAxis_ProcessCalibrationPublication(void)
 #endif
     BspSystem_ExitCritical(mask);
 #if BSP_ENABLED_LINEAR_HALL
-    /* 三遍有限样本拟合允许控制中断抢占；提交前仍须复核原会话。 */
+    /* 建表及相位拟合允许控制中断抢占；提交前仍须复核原会话。 */
     if (kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO &&
         !OutputEncoder_CalibEnd(
-            &output, &s_output_calib, &hall, &s_motor_configuration.device.encoder) &&
+            &output, &s_output_calib, &hall, &s_motor_configuration.device.encoder, progress) &&
         fault == MOTOR_FAULT_NONE)
     {
         fault = MOTOR_FAULT_ENCODER;
@@ -406,7 +422,11 @@ void MotorAxis_ProcessCalibrationPublication(void)
         Param_StoreLinearHall(&s_axis_record.motor, &hall);
     }
 #endif
-    Param_StoreOutputEncoder(&s_axis_record, &output);
+#if BSP_ENABLED_LINEAR_HALL
+    Param_StoreOutputEncoder(&s_axis_record, &output, &hall);
+#else
+    Param_StoreOutputEncoder(&s_axis_record, &output, NULL);
+#endif
     mask = BspSystem_EnterCritical();
     uint32_t pending_epoch;
     if (MotorLifecycle_ReadPendingCalibrationPublication(&pending_epoch) && pending_epoch == epoch)

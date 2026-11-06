@@ -70,28 +70,46 @@ void Param_RestoreLinearHall(const InterfaceParam *param, LinearHall *hall)
     hall->calibration_faults = faults;
 }
 
-/* 小端 OEN1，扩展自身校验覆盖 magic 到 params，不包含末尾 CRC。 */
+/* OEN1 兼容读取；OEN2 为128点，OEN3 将1024点表与输出相位整体保存。 */
 #define PARAM_OUTPUT_ENCODER_V1 0x314e454fU
-typedef char OutputEncoderLayout[(sizeof(OutputEncoderRecord) == 32U &&
+#define PARAM_OUTPUT_ENCODER_V2 0x324e454fU
+#define PARAM_OUTPUT_ENCODER_V3 0x334e454fU
+typedef char OutputEncoderLayout[(sizeof(OutputEncoderRecord) == 2084U &&
+                                  offsetof(OutputEncoderRecord, hall_lut_status) == 28U &&
+                                  offsetof(OutputEncoderRecord, crc32) == 2080U &&
                                   offsetof(MotorAxisRecord, output) == 2288U &&
-                                  sizeof(MotorAxisRecord) == 2320U)
+                                  sizeof(MotorAxisRecord) == 4372U)
                                      ? 1
                                      : -1];
 
-void Param_StoreOutputEncoder(MotorAxisRecord *record, const OutputEncoder *encoder)
+void Param_StoreOutputEncoder(MotorAxisRecord *record,
+                              const OutputEncoder *encoder,
+                              const LinearHall *hall)
 {
-    record->output = (OutputEncoderRecord){.magic = PARAM_OUTPUT_ENCODER_V1,
+    record->output = (OutputEncoderRecord){.magic = PARAM_OUTPUT_ENCODER_V3,
                                            .motor_crc32 = record->motor.record_crc32,
                                            .params = encoder->params};
+    if (hall != NULL)
+    {
+        record->output.hall_lut_status = hall->lut_status;
+        memcpy(record->output.hall_lut_q15, hall->lut_q15, sizeof(hall->lut_q15));
+    }
     record->output.crc32 = Crc32_Compute(&record->output, offsetof(OutputEncoderRecord, crc32), 0U);
 }
 
-bool Param_RestoreOutputEncoder(const MotorAxisRecord *record, OutputEncoder *encoder)
+bool Param_RestoreOutputEncoder(const MotorAxisRecord *record,
+                                OutputEncoder *encoder,
+                                LinearHall *hall)
 {
     const OutputEncoderRecord *r = &record->output;
     const OutputEncoderParams *p = &r->params;
-    if (r->magic != PARAM_OUTPUT_ENCODER_V1 || r->motor_crc32 != record->motor.record_crc32 ||
-        r->crc32 != Crc32_Compute(r, offsetof(OutputEncoderRecord, crc32), 0U) ||
+    bool legacy = r->magic == PARAM_OUTPUT_ENCODER_V1;
+    bool small = r->magic == PARAM_OUTPUT_ENCODER_V2;
+    uint32_t bytes = legacy ? 28U : small ? 288U : (uint32_t)offsetof(OutputEncoderRecord, crc32);
+    uint32_t crc;
+    memcpy(&crc, (const uint8_t *)r + bytes, sizeof(crc));
+    if ((!legacy && !small && r->magic != PARAM_OUTPUT_ENCODER_V3) ||
+        r->motor_crc32 != record->motor.record_crc32 || crc != Crc32_Compute(r, bytes, 0U) ||
         p->gear_ratio != encoder->params.gear_ratio || p->gear_ratio < 1.0f ||
         p->gear_ratio != floorf(p->gear_ratio) || !isfinite(p->phase_rad) ||
         fabsf(p->phase_rad) > _PI || !isfinite(p->zero_rad) || p->zero_rad < 0.0f ||
@@ -100,6 +118,55 @@ bool Param_RestoreOutputEncoder(const MotorAxisRecord *record, OutputEncoder *en
         ((p->status & OUTPUT_ENCODER_CAL_OK) != 0U && (p->status & 0x7fU) != 0U))
     {
         return false;
+    }
+    if (!legacy && (r->hall_lut_status != 0U && r->hall_lut_status != LINEAR_HALL_LUT_OK &&
+                    r->hall_lut_status != LINEAR_HALL_LUT_COVERAGE &&
+                    r->hall_lut_status != LINEAR_HALL_LUT_MAPPING))
+    {
+        return false;
+    }
+    if (!legacy && r->hall_lut_status == LINEAR_HALL_LUT_OK)
+    {
+        if (hall == NULL || !hall->calibration_success)
+        {
+            return false;
+        }
+        if (small)
+        {
+            for (unsigned i = 0U; i < 128U; ++i)
+            {
+                /* 展开后的八个子段仍须各至少一个Q15计数。 */
+                if (512 + r->hall_lut_q15[(i + 1U) & 127U] - r->hall_lut_q15[i] < 8)
+                {
+                    return false;
+                }
+            }
+        }
+        else if (!LinearHall_LutIsMonotonic(r->hall_lut_q15))
+        {
+            return false;
+        }
+    }
+    if (hall != NULL)
+    {
+        hall->lut_status = legacy ? 0U : r->hall_lut_status;
+        memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
+        if (hall->lut_status == LINEAR_HALL_LUT_OK)
+        {
+            if (small)
+            {
+                for (unsigned i = 0U; i < LINEAR_HALL_LUT_SIZE; ++i)
+                {
+                    int32_t a = r->hall_lut_q15[i >> 3U];
+                    int32_t b = r->hall_lut_q15[((i >> 3U) + 1U) & 127U];
+                    hall->lut_q15[i] = (int16_t)(a + (b - a) * (int32_t)(i & 7U) / 8);
+                }
+            }
+            else
+            {
+                memcpy(hall->lut_q15, r->hall_lut_q15, sizeof(hall->lut_q15));
+            }
+        }
     }
     encoder->params = *p;
     return true;

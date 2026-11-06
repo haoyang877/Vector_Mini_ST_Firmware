@@ -106,7 +106,7 @@ void App_Start(void)
 void App_Process(void)
 {
     MotorAxis_ProcessPositionPlan();
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(service_watchdog);
     AppProtocol_Refresh();
     Protocol_Process(BspSystem_TimeMs());
     service_boot(BspSystem_TimeMs());

@@ -32,7 +32,9 @@ EncoderCalibration_StepElecZero(&control);
 4. 减速、卸流，返回 `MOTOR_TASK_FINALIZE`。生命周期关相，主循环发布候选 LUT。
 
 PITCH、YAW 在步骤 2 同时由 Axis 的 4 kHz 外环采集 Hall 原码极值，不再单独旋转磁场扫圈。
-关相停稳并发布 LUT 后继续电零位对齐，结束后统一计算 Hall 偏置、幅值并保存结果到 Flash。
+关相停稳并发布 LUT 后继续电零位对齐，结束后统一计算 Hall 偏置、幅值，复用 2048 组配对区间均值
+生成 1024 点 Hall LUT 并重算输出相位，一起保存到 Flash。建表由 OutputEncoder 在可抢占
+前台完成，参考使用新电机 LUT 校正的连续机械角除减速比；不增加旋转阶段。
 中止不自动保存，重新开始编码器标定会清空上次 Hall 极值。
 
 `step_measure()` 组织启动、采样、构表的控制输出和阶段推进。

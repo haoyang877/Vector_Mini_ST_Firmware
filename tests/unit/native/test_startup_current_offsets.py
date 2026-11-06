@@ -26,6 +26,7 @@ def main() -> None:
     production += "static LinearHall s_linear_hall;\n#if BSP_ENABLED_LINEAR_HALL\n"
     production += (
         "static LinearHallCalibration s_hall_sweep;\nstatic OutputEncoderCalib s_output_calib;\n"
+        "static volatile OutputEncoderCalibSample s_hall_sample;\n"
     )
     production += "#endif\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"

@@ -36,8 +36,9 @@ void BspWatchdog_Feed(void)
 void MotorAxis_ProcessPositionPlan(void)
 {
 }
-void MotorAxis_ProcessCalibrationPublication(void)
+void MotorAxis_ProcessCalibrationPublication(OutputEncoderCalibrationProgress progress)
 {
+    (void)progress;
     assert(foreground_stage == 0U);
     foreground_stage = 1U;
 }

@@ -62,9 +62,10 @@ void MotorAxis_ProcessPositionPlan(void);
 
 /**
  * @brief 在关相前台发布标定结果；保存电机及输出轴参数并回读。
+ * @param progress 非空前台健康服务，沿用快慢环进展检查，不扩大看门狗窗口。
  * @note 仅主循环调用；CRC 编码允许中断，擦写前复核会话代际与关相状态。
  */
-void MotorAxis_ProcessCalibrationPublication(void);
+void MotorAxis_ProcessCalibrationPublication(OutputEncoderCalibrationProgress progress);
 
 /**
  * @brief 读取启动配置的设备节点地址。

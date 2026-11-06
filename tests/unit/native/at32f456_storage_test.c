@@ -20,7 +20,7 @@ static bool param_store_read(void *data, uint32_t length)
 }
 
 flash_type sim_flash;
-static uint8_t storage[AT32_PARAM_BYTES + 2U * AT32_FLASH_SECTOR_BYTES];
+static uint8_t storage[AT32_PARAM_BYTES + 3U * AT32_FLASH_SECTOR_BYTES];
 static bool power_off = true, blocked_unlock, missing_completion;
 static unsigned irq = 1U, ipsr, erases, programs, reads, polls, locks;
 static unsigned error_after, busy_after, corrupt_after, operation, remaining;
@@ -67,7 +67,7 @@ static void flash_store_word(uint32_t address, uint32_t value)
     assert(sampling_paused);
     assert(!operation && !sim_flash.ctrl_bit.oplk && sim_flash.ctrl_bit.fprgm);
     assert(address % 4U == 0U && address >= AT32_PARAM_BASE);
-    assert(address + 4U <= AT32_PARAM_BASE + 2U * AT32_FLASH_SECTOR_BYTES);
+    assert(address + 4U <= AT32_PARAM_BASE + 3U * AT32_FLASH_SECTOR_BYTES);
     pending_address = address;
     pending_word = value;
     ++programs;
@@ -132,7 +132,7 @@ flag_status flash_flag_get(uint32_t flags)
             pending_address = sim_flash.addr;
             assert(pending_address % AT32_FLASH_SECTOR_BYTES == 0U);
             assert(pending_address >= AT32_PARAM_BASE);
-            assert(pending_address < AT32_PARAM_BASE + 2U * AT32_FLASH_SECTOR_BYTES);
+            assert(pending_address < AT32_PARAM_BASE + 3U * AT32_FLASH_SECTOR_BYTES);
             ++erases;
             operation = 1U;
             remaining = 2U;
@@ -198,7 +198,7 @@ static void guards_unchanged(void)
         assert(storage[i] == 0xA5U);
         assert(storage[AT32_FLASH_SECTOR_BYTES + AT32_PARAM_BYTES + i] == 0xA5U);
     }
-    for (unsigned i = 2U * AT32_FLASH_SECTOR_BYTES; i < AT32_PARAM_BYTES; ++i)
+    for (unsigned i = 3U * AT32_FLASH_SECTOR_BYTES; i < AT32_PARAM_BYTES; ++i)
     {
         assert(storage[AT32_FLASH_SECTOR_BYTES + i] == 0xA5U);
     }

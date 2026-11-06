@@ -87,11 +87,13 @@ typedef struct
     float speed_feedforward_current_limit_a;
 } InterfaceParam;
 
-/* OEN1 扩展位于旧记录之后；绑定旧记录 CRC，旧固件仍可验证前 2288 字节。 */
+/* OEN3 扩展整体绑定电机、Hall 幅值及输出关系；前 2288 字节仍是 schema14。 */
 typedef struct
 {
     uint32_t magic, motor_crc32;
     OutputEncoderParams params;
+    uint32_t hall_lut_status;
+    int16_t hall_lut_q15[LINEAR_HALL_LUT_SIZE];
     uint32_t crc32;
 } OutputEncoderRecord;
 
@@ -105,16 +107,22 @@ typedef struct
  * @brief 编码输出轴标定扩展，绑定同次保存的电机及 Hall 参数。
  * @param record 已完成基础参数编码的整轴记录。
  * @param encoder 输出轴标定结果与零位。
+ * @param hall 同次 Hall 候选对象，无 Hall 的直驱轴传 NULL。
  */
-void Param_StoreOutputEncoder(MotorAxisRecord *record, const OutputEncoder *encoder);
+void Param_StoreOutputEncoder(MotorAxisRecord *record,
+                              const OutputEncoder *encoder,
+                              const LinearHall *hall);
 
 /**
  * @brief 校验扩展并恢复输出轴参数，旧记录或减速比变化时保留初始化值。
  * @param record 基础记录已校验的 Flash 副本。
  * @param encoder 已按当前传动减速比初始化的对象。
+ * @param hall 已恢复幅值/偏置的 Hall 对象；无 Hall 的直驱轴可传 NULL。
  * @return 扩展版本、CRC、基础参数绑定和系数均匹配时返回 true。
  */
-bool Param_RestoreOutputEncoder(const MotorAxisRecord *record, OutputEncoder *encoder);
+bool Param_RestoreOutputEncoder(const MotorAxisRecord *record,
+                                OutputEncoder *encoder,
+                                LinearHall *hall);
 
 /**
  * @brief 将本轴最近一次 Hall 标定结果加入已导出的记录，并重新计算整条 CRC。

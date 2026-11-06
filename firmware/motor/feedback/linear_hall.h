@@ -7,6 +7,10 @@
 #define HALL_CAL_MIN_COUNTS 10.0f
 #define HALL_CAL_MAX_COUNTS (4096.0f - HALL_CAL_MIN_COUNTS)
 #define HALL_CAL_MIN_AMP_COUNTS 800.0f
+#define LINEAR_HALL_LUT_SIZE 1024U
+#define LINEAR_HALL_LUT_OK 0x80U
+#define LINEAR_HALL_LUT_COVERAGE 1U
+#define LINEAR_HALL_LUT_MAPPING 2U
 
 /**
  * @brief 校验单通道存储系数能否还原为合格的 ADC 极值。
@@ -38,6 +42,7 @@ typedef struct
 {
     float sin_counts, cos_counts;
     float sin_cal, cos_cal;
+    float angle_raw_rad;
     float angle_rad;
 } LinearHallSample;
 
@@ -46,9 +51,14 @@ typedef struct
 {
     float sin_off_counts, cos_off_counts;
     float sin_amp, cos_amp;
-    bool calibration_success;   /* 最近一次标定结果；没有已存结果时为 false。 */
-    uint8_t calibration_faults; /* 随系数恢复的故障位；成功或没有已存结果时为零。 */
+    bool calibration_success;              /* 最近一次标定结果；没有已存结果时为 false。 */
+    uint8_t calibration_faults;            /* 随系数恢复的故障位；成功或没有已存结果时为零。 */
+    uint32_t lut_status;                   /* 0 未标定，0x80 成功，1 覆盖不足，2 映射不一致。 */
+    int16_t lut_q15[LINEAR_HALL_LUT_SIZE]; /* 加法修正，65536 counts/输出圈。 */
     LinearHallSample val;
+    float filter_previous_rad[2]; /* LUT后原角的前两拍，仅运行滤波使用，不持久化。 */
+    float filter_stage_rad[2];    /* 两级平滑状态，仅运行滤波使用，不持久化。 */
+    bool filter_initialized;
 } LinearHall;
 
 /* 本次标定的两路 ADC 原码极值。 */
@@ -89,13 +99,43 @@ bool LinearHall_CalibrationFinish(LinearHallCalibration *cal, LinearHall *hall);
 void LinearHall_Init(LinearHall *hall);
 
 /**
- * @brief 独立去偏并除以各通道幅值，更新 atan2 单圈角。
+ * @brief 检查校正后节点严格递增，包含跨零的首尾段。
+ * @param lut_q15 完整的 1024 点有符号修正表。
+ * @return 所有相邻节点的校正后增量为正时返回 true。
+ * @note 仅标定结算和 Flash 装载使用，不在逐拍角度计算中调用。
+ */
+static inline bool LinearHall_LutIsMonotonic(const int16_t lut_q15[LINEAR_HALL_LUT_SIZE])
+{
+    for (unsigned i = 0U; i < LINEAR_HALL_LUT_SIZE; ++i)
+    {
+        int32_t next = lut_q15[(i + 1U) & (LINEAR_HALL_LUT_SIZE - 1U)];
+        if ((int32_t)(65536U / LINEAR_HALL_LUT_SIZE) + next - lut_q15[i] <= 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief 独立去偏归一化，计算原角并通过周期 LUT 更新校正单圈角。
  * @param hall 当前轴的霍尔对象；本拍结果写入 val。
  * @param sin_counts 本拍同步读取的 sin ADC 原码，缺样传 NAN。
  * @param cos_counts 同拍 cos ADC 原码，缺样传 NAN。
  * @note 外环单写；缺样或归一化后两路同时为零时保持上一角度，初值为零。
  */
 void LinearHall_Update(LinearHall *hall, float sin_counts, float cos_counts);
+
+/**
+ * @brief 计算本拍角度，用环形中值及带匀速滞后补偿的两级平滑抑制噪声。
+ * @param hall 当前轴独占对象；首次调用用当前角度初始化历史。
+ * @param sin_counts 本拍 sin ADC 原码。
+ * @param cos_counts 本拍 cos ADC 原码。
+ * @note 仅4 kHz运行链调用；匀速稳态滞后一拍（0.25 ms），动态延迟与频率有关。
+ *       两级alpha均为1/16，输出2*y1-y2；标定重放使用Update，不混入滤波延迟。
+ *       原码、归一化值和angle_raw_rad保持本拍值，angle_rad为滤波后的LUT角。
+ */
+void LinearHall_UpdateFiltered(LinearHall *hall, float sin_counts, float cos_counts);
 
 /**
  * @brief 获取当前霍尔传感器的角度。

@@ -23,6 +23,9 @@
 #include "bsp_system.h"
 #include "application_config.h"
 #include "parameter_record.h"
+static void calibration_progress(void)
+{
+}
 #include "bsp_flash.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
@@ -75,7 +78,9 @@ bool Encoder_IsOnline(const EncoderState *encoder)
 {
     return encoder->has_valid_sample;
 }
-void Param_StoreOutputEncoder(MotorAxisRecord *record, const OutputEncoder *encoder)
+void Param_StoreOutputEncoder(MotorAxisRecord *record,
+                              const OutputEncoder *encoder,
+                              const LinearHall *hall)
 {
     assert(record == &s_axis_record && encoder != NULL);
 }
@@ -171,6 +176,8 @@ static bool simulated_defaults;
 static bool simulated_save;
 static unsigned velocity_restarts;
 static unsigned critical_depth;
+static bool update_hall_on_unlock;
+static void inject_hall_after_snapshot(void);
 static bool trace_enabled, inject_control_fault;
 static char fast_trace[32];
 static unsigned fast_trace_length;
@@ -203,6 +210,7 @@ void BspSystem_ExitCritical(uint32_t previous)
 {
     assert(critical_depth == previous + 1U);
     critical_depth = previous;
+    inject_hall_after_snapshot();
 }
 
 static void load_parameters(MotorConfiguration *configuration)
@@ -798,13 +806,13 @@ static void test_calibration_dispatch_and_publication(void)
     prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
     calibration_publication_pending = true;
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(calibration_progress);
     assert(calibration_publication_calls == 1U);
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(calibration_progress);
     assert(calibration_publication_calls == 1U);
     calibration_publication_pending = true;
     calibration_publication_succeeds = false;
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(calibration_progress);
     assert(calibration_publication_calls == 2U);
 #if BSP_ENABLED_LINEAR_HALL
     /* Hall 随观测器闭环采集；启动、构表、停止和电零位对齐均不采样。 */
@@ -820,14 +828,23 @@ static void test_calibration_dispatch_and_publication(void)
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
     simulated_phase = CS_OBS_STARTUP;
+    MotorAxis_SampleFast();
     MotorAxis_OuterTick();
     assert(isinf(s_hall_sweep.sin_min));
     simulated_phase = CS_OBS_SAMPLE_CW;
     hall_raw_sin = 100;
     hall_raw_cos = 600;
+    s_rotor_encoder.directed_q15 = 1234;
+    MotorAxis_SampleFast();
+    update_hall_on_unlock = true;
     MotorAxis_OuterTick();
+    assert(!update_hall_on_unlock);
+    assert(s_output_calib.samples[0].motor_counts == 1234);
+    assert(s_output_calib.samples[0].sin_counts == 100 &&
+           s_output_calib.samples[0].cos_counts == 600);
     hall_raw_sin = 3500;
     hall_raw_cos = 3600;
+    MotorAxis_SampleFast();
     MotorAxis_OuterTick();
     assert(s_hall_sweep.sin_min == 100 && s_hall_sweep.cos_max == 3600);
     /* 中止后新会话不得带入旧极值。 */
@@ -843,9 +860,11 @@ static void test_calibration_dispatch_and_publication(void)
     simulated_phase = CS_OBS_SAMPLE_CW;
     hall_raw_sin = 200;
     hall_raw_cos = 700;
+    MotorAxis_SampleFast();
     MotorAxis_OuterTick();
     hall_raw_sin = 3400;
     hall_raw_cos = 3500;
+    MotorAxis_SampleFast();
     MotorAxis_OuterTick();
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
@@ -857,9 +876,9 @@ static void test_calibration_dispatch_and_publication(void)
         MotorAxis_OuterTick();
     }
     calibration_publication_pending = calibration_publication_succeeds = true;
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(calibration_progress);
     test_ms = 201U;
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(calibration_progress);
     assert(simulated_calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO);
     assert(s_hall_sweep.sin_min == 200);
     MotorAxis_OuterTick();
@@ -869,7 +888,7 @@ static void test_calibration_dispatch_and_publication(void)
     memset(&s_motor_configuration.device.encoder, 0, sizeof(s_motor_configuration.device.encoder));
     for (unsigned i = 0; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        int32_t counts = (int32_t)(i * 8.0f * 65536.0f * 1.01f / 255.0f);
+        int32_t counts = (int32_t)(i * 8.0f * 65536.0f * 1.01f / (OUTPUT_ENCODER_CAL_SAMPLES - 1U));
         float h = (float)counts * (_2PI / (65536.0f * 8.0f));
         s_output_calib.samples[i] =
             (OutputEncoderCalibSample){counts,
@@ -877,7 +896,7 @@ static void test_calibration_dispatch_and_publication(void)
                                        (uint16_t)(2100.0f + 1400.0f * cosf(h))};
     }
     calibration_publication_pending = true;
-    MotorAxis_ProcessCalibrationPublication();
+    MotorAxis_ProcessCalibrationPublication(calibration_progress);
     assert(calibration_publication_calls == 3 && s_linear_hall.calibration_success);
     assert(s_linear_hall.sin_off_counts == 1800 && s_linear_hall.sin_amp == 1600);
     assert(s_linear_hall.cos_off_counts == 2100 && s_linear_hall.cos_amp == 1400);
@@ -997,4 +1016,19 @@ uint32_t BspSystem_EnterControlCritical(void)
 void BspSystem_ExitControlCritical(uint32_t state)
 {
     BspSystem_ExitCritical(state);
+}
+
+static void inject_hall_after_snapshot(void)
+{
+#if BSP_ENABLED_LINEAR_HALL
+    if (update_hall_on_unlock)
+    {
+        /* 复制完成立即抢占，消费者仍须使用同一个旧三元组。 */
+        update_hall_on_unlock = false;
+        s_hall_sample = (OutputEncoderCalibSample){2345, 333, 444};
+        s_rotor_encoder.directed_q15 = 2345;
+    }
+#else
+    (void)update_hall_on_unlock;
+#endif
 }

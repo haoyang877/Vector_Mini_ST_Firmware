@@ -107,7 +107,7 @@ bool BootHw_EnterLoader(uint8_t node) { assert(depth == 1 && stopped); event(37,
 bool BootHw_Confirm(uint32_t version, uint32_t crc) { event(38, version); event(39, crc); ++confirms; return true; }
 void BootHw_Watchdog(bool valid) { event(40, valid); }
 void MotorAxis_ProcessPositionPlan(void) {}
-void MotorAxis_ProcessCalibrationPublication(void) { event(41, 0); }
+void MotorAxis_ProcessCalibrationPublication(OutputEncoderCalibrationProgress progress) { (void)progress; event(41, 0); }
 void AppProtocol_Refresh(void) { event(42, 0); }
 void Protocol_Process(uint32_t time) { event(43, time); ++now_ms; }
 void MotorAxis_FastTick(void) { event(44, 0); }

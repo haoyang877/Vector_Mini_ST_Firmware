@@ -65,9 +65,9 @@ static EncoderState s_rotor_encoder;
 static uint32_t now_ms;
 uint32_t BspSystem_TimeMs(void) { return now_ms; }
 float Encoder_GetMechVelContinuous(const EncoderState *encoder) { return encoder->mechanical_velocity_continuous_rad_s; }
-bool MotorLifecycle_ContinueLinearHall(uint32_t epoch) {
+bool MotorLifecycle_ContinueElectricalZero(uint32_t epoch) {
  assert(epoch==33 && released && critical && publication);
- kind=MOTOR_CALIBRATION_LINEAR_HALL; publication=false; return true;
+ kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; publication=false; return true;
 }
 bool EncoderCalibration_PublishLut(EncoderCalibration *cal, EncoderState *encoder) {
  assert(critical && publication && encoder==&s_rotor_encoder);
@@ -235,16 +235,17 @@ int main(void) {
  assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
  s_motor_configuration.configuration_confirmed=true;
  LinearHall_Init(&s_linear_hall);
+ LinearHall_CalibrationBegin(&s_hall_sweep);
+ LinearHall_CalibrationSample(&s_hall_sweep,200,600);
+ LinearHall_CalibrationSample(&s_hall_sweep,3400,3600);
  kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
  state=MOTOR_STATE_CALIBRATION; stopped=false; publication=true; released=false;
  MotorAxis_ProcessCalibrationPublication(); assert(!released && !writes);
  now_ms=201; MotorAxis_ProcessCalibrationPublication();
- assert(released && kind==MOTOR_CALIBRATION_LINEAR_HALL && !publication && !writes);
+ assert(released && kind==MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO && !publication && !writes);
+ assert(s_hall_sweep.active && s_hall_sweep.sin_min==200 && s_hall_sweep.cos_max==3600);
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  publication=true;
- LinearHall_CalibrationBegin(&s_hall_sweep);
- LinearHall_CalibrationSample(&s_hall_sweep,200,600);
- LinearHall_CalibrationSample(&s_hall_sweep,3400,3600);
  MotorAxis_ProcessCalibrationPublication();
  assert(completions==1 && writes==1 && s_motor_state.fault_code==MOTOR_FAULT_NONE);
  assert(stored_record.hall_tag_status==0x48410180U && stored_record.encoder_calib_flag==ENC_CALIB_ALL);
@@ -258,7 +259,7 @@ int main(void) {
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  MotorAxis_ProcessCalibrationPublication();
  assert(writes==2 && stored_record.encoder_calib_flag==ENC_CALIB_ALL && stored_record.hall_tag_status==0x48410180U);
- kind=MOTOR_CALIBRATION_LINEAR_HALL; publication=true;
+ kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; publication=true;
  LinearHall_CalibrationBegin(&s_hall_sweep);
  MotorAxis_ProcessCalibrationPublication();
  assert(writes==3 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_LINEAR_HALL_CALIBRATION);

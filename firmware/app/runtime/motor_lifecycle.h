@@ -102,12 +102,12 @@ bool MotorLifecycle_IsCalibrationRunnable(void);
 bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoch);
 
 /**
- * @brief 关相发布编码器结果后，在同一会话内转入 Hall 扫圈。
+ * @brief 关相发布编码器结果后，在同一联合标定会话内转入电零位对齐。
  * @param epoch 当前标定代际。
  * @return 已排队在下一快拍重新检查准入并启相时返回 true。
  * @note 前台持全中断临界区调用。
  */
-bool MotorLifecycle_ContinueLinearHall(uint32_t epoch);
+bool MotorLifecycle_ContinueElectricalZero(uint32_t epoch);
 
 /**
  * @brief 提交原会话的发布结果，成功后由监督层触发COMPLETE。

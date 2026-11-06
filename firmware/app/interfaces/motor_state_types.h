@@ -26,14 +26,14 @@ typedef enum
     MOTOR_CONTROL_PERSIST_FAILED
 } MotorControlResult;
 
-/** @brief 独立标定类型；标定不自动保存到Flash。 */
+/** @brief 标定类型；带 Hall 的联合标定完成后自动保存到 Flash。 */
 typedef enum
 {
     MOTOR_CALIBRATION_NONE,
     MOTOR_CALIBRATION_ENCODER_LINEARIZATION,
     MOTOR_CALIBRATION_ELECTRICAL_ZERO,
     MOTOR_CALIBRATION_MECHANICAL_ZERO,
-    MOTOR_CALIBRATION_LINEAR_HALL /* 联合任务内部阶段，不接受外部单独请求。 */
+    MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO /* 联合任务的电零位对齐，不接受外部请求。 */
 } MotorCalibrationType;
 
 /** @brief 一次性读取的状态值；模式和故障使用电机内部编号，不是线路编号。 */

@@ -25,8 +25,7 @@ def main() -> None:
     production += "static EncoderCalibrationWorkspace s_encoder_linearization_workspace;\n"
     production += "#if BSP_ENABLED_LINEAR_HALL\nstatic LinearHall s_linear_hall;\n"
     production += "static LinearHallCalibration s_hall_sweep;\n"
-    production += "static float s_hall_start_rad, s_hall_field_rad; static uint32_t s_hall_ticks;\n"
-    production += function_source(axis, "step_hall") + "\n#endif\n"
+    production += "#endif\n"
     production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
     production += function_source(sensing, "MotorCurrent_Update")

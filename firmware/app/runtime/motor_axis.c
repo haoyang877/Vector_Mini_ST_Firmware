@@ -19,7 +19,6 @@
 #include "flux_observer.h"
 #include "sensorless_startup.h"
 #include "linear_hall.h"
-#include "control_math.h"
 #include <math.h>
 
 /* 持有单轴对象并编排快慢环；全局符号保留给只读 Watch。 */
@@ -42,51 +41,6 @@ static EncoderCalibrationWorkspace s_encoder_linearization_workspace;
 static InterfaceParam s_parameter_record;
 #if BSP_ENABLED_LINEAR_HALL
 static LinearHallCalibration s_hall_sweep;
-static float s_hall_start_rad, s_hall_field_rad;
-static uint32_t s_hall_ticks;
-
-/* 电零位对齐结束时转子位于零电角；以限流慢转磁场扫过实测一整输出圈。 */
-static MotorTaskResult step_hall(const EncoderCalibrationControl *drive)
-{
-    if (!s_hall_sweep.active)
-    {
-        MotorTaskResult result = EncoderCalibration_StepElecZero(drive);
-        if (result.result == MOTOR_TASK_COMPLETED)
-        {
-            LinearHall_CalibrationBegin(&s_hall_sweep);
-            s_hall_start_rad = Encoder_GetMechPos(drive->encoder);
-            s_hall_ticks = 0U;
-            s_hall_field_rad = 0.0f;
-            return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
-        }
-        return result;
-    }
-
-    const float travel = Encoder_GetMechPos(drive->encoder) - s_hall_start_rad;
-    const float target = _2PI * drive->configuration->preset->electrical->gear_ratio * 1.01f;
-    const float elapsed = (float)++s_hall_ticks * FOC_TS_S;
-    if (!isfinite(travel) || travel < -0.5f || elapsed > target / 2.0f + 3.0f)
-    {
-        return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
-    }
-    if (travel >= target)
-    {
-        return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
-    }
-    /* 电机轴最高 5 rad/s，起步和接近末端均降速。 */
-    const float speed = Math_Min(Math_Min(5.0f, 5.0f * elapsed), 1.0f + 2.0f * (target - travel));
-    const float elec_speed = speed * (float)drive->configuration->model.motor_pole_pairs;
-    s_hall_field_rad += elec_speed * FOC_TS_S;
-    if (s_hall_field_rad >= _2PI)
-    {
-        s_hall_field_rad -= _2PI;
-    }
-    drive->motor->id_target_a = Math_Min(drive->configuration->model.calibration_current_a,
-                                         drive->configuration->application.current_limit_a);
-    drive->motor->iq_target_a = 0.0f;
-    Foc_RunCurrent(drive->configuration, drive->foc, drive->motor, s_hall_field_rad, elec_speed);
-    return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
-}
 #endif
 
 static MotorTaskResult run_active_calibration_cycle(void)
@@ -100,11 +54,16 @@ static MotorTaskResult run_active_calibration_cycle(void)
     switch (MotorLifecycle_GetCalibrationType())
     {
     case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:
-        return EncoderCalibration_StepLut(&control, &s_encoder_linearization_workspace);
 #if BSP_ENABLED_LINEAR_HALL
-    case MOTOR_CALIBRATION_LINEAR_HALL:
-        return step_hall(&control);
+        if (MotorAxisPreset_HasLinearHall(s_motor_configuration.preset) &&
+            EncoderCalibration_GetPhase() == CS_NULL)
+        {
+            /* 新会话覆盖上次中止的极值；只在观测器闭环采样阶段收集。 */
+            LinearHall_CalibrationBegin(&s_hall_sweep);
+        }
 #endif
+        return EncoderCalibration_StepLut(&control, &s_encoder_linearization_workspace);
+    case MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO:
     case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
         return EncoderCalibration_StepElecZero(&control);
     case MOTOR_CALIBRATION_MECHANICAL_ZERO:
@@ -201,8 +160,9 @@ void MotorAxis_OuterTick(void)
     {
         float sin_counts = BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN);
         float cos_counts = BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS);
-        if (MotorLifecycle_GetCalibrationType() == MOTOR_CALIBRATION_LINEAR_HALL &&
-            s_hall_sweep.active && MotorLifecycle_IsCalibrationRunnable())
+        if (MotorLifecycle_GetCalibrationType() == MOTOR_CALIBRATION_ENCODER_LINEARIZATION &&
+            EncoderCalibration_GetPhase() == CS_OBS_SAMPLE_CW && s_hall_sweep.active &&
+            MotorLifecycle_IsCalibrationRunnable())
         {
             LinearHall_CalibrationSample(&s_hall_sweep, sin_counts, cos_counts);
         }
@@ -399,10 +359,9 @@ void MotorAxis_ProcessCalibrationPublication(void)
             BspSystem_ExitCritical(mask);
             return;
         }
-        s_hall_sweep.active = false;
         if (!EncoderCalibration_PublishLut(&s_motor_configuration.device.encoder,
                                            &s_rotor_encoder) ||
-            !MotorLifecycle_ContinueLinearHall(epoch))
+            !MotorLifecycle_ContinueElectricalZero(epoch))
         {
             MotorLifecycle_CompleteCalibrationPublication(epoch, false);
         }
@@ -415,8 +374,9 @@ void MotorAxis_ProcessCalibrationPublication(void)
 #if BSP_ENABLED_LINEAR_HALL
     if (published && MotorAxisPreset_HasLinearHall(s_motor_configuration.preset))
     {
-        bool hall_ok = MotorLifecycle_GetCalibrationType() != MOTOR_CALIBRATION_LINEAR_HALL ||
-                       LinearHall_CalibrationFinish(&s_hall_sweep, &s_linear_hall);
+        bool hall_ok =
+            MotorLifecycle_GetCalibrationType() != MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO ||
+            LinearHall_CalibrationFinish(&s_hall_sweep, &s_linear_hall);
         BspSystem_ExitCritical(mask);
         /* 先在前台编码，写前再复核会话和关相状态。完成通知在 Flash 回读之后。 */
         MotorControlResult saved = save_calibration(&epoch);

@@ -157,7 +157,7 @@ static bool calibration_requires_power(MotorCalibrationType calibration_type)
 {
     return calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
            calibration_type == MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
-           calibration_type == MOTOR_CALIBRATION_LINEAR_HALL;
+           calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
 }
 
 static bool calibration_inputs_valid(void)
@@ -188,7 +188,7 @@ static bool calibration_inputs_valid(void)
     return config->configuration_confirmed && state_vbus_in_enable_window() &&
            g_motor_context.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V &&
            ((g_motor_context.calibration_type != MOTOR_CALIBRATION_ELECTRICAL_ZERO &&
-             g_motor_context.calibration_type != MOTOR_CALIBRATION_LINEAR_HALL) ||
+             g_motor_context.calibration_type != MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO) ||
             (Encoder_GetCalibrationFlag(&g_motor_context.configuration->device.encoder) &
              ENC_CALIB_LINEARIZED) != 0U);
 }
@@ -559,7 +559,7 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoc
     return true;
 }
 
-bool MotorLifecycle_ContinueLinearHall(uint32_t epoch)
+bool MotorLifecycle_ContinueElectricalZero(uint32_t epoch)
 {
     uint32_t pending;
     if (!MotorLifecycle_ReadPendingCalibrationPublication(&pending) || epoch != pending ||
@@ -569,7 +569,7 @@ bool MotorLifecycle_ContinueLinearHall(uint32_t epoch)
     {
         return false;
     }
-    g_motor_context.calibration_type = MOTOR_CALIBRATION_LINEAR_HALL;
+    g_motor_context.calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
     g_motor_context.calibration_publication_pending = false;
     BspSystem_MemoryBarrier();
     g_motor_context.power_enable_epoch = epoch;

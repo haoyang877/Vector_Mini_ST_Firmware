@@ -36,7 +36,7 @@ void BspApp_OnControlTick(void)
     RTT_Sampling();
 }
 
-/* Watch 只读；两组分别累计编码器和 Hall 有功率输出期间的快环时间。 */
+/* Watch 只读；两组分别累计编码器/Hall 并行采集与电零位对齐期间的快环时间。 */
 typedef struct
 {
     uint32_t samples, peak_cycles, over_budget, long_intervals;
@@ -51,7 +51,7 @@ void MCU_ADC_IRQ_HANDLER(void)
     {
         MotorCalibrationType kind = MotorLifecycle_GetCalibrationType();
         bool measuring = (kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
-                          kind == MOTOR_CALIBRATION_LINEAR_HALL) &&
+                          kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO) &&
                          MotorLifecycle_IsCalibrationRunnable();
         MotorAxis_SampleFast();
         MotorAxis_ControlFast();
@@ -77,7 +77,7 @@ void MCU_ADC_IRQ_HANDLER(void)
         if (measuring)
         {
             volatile CalibrationTiming *timing =
-                &s_calibration_timing[kind == MOTOR_CALIBRATION_LINEAR_HALL];
+                &s_calibration_timing[kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO];
             uint32_t cycles = BspSystem_CycleCount() - start;
             ++timing->samples;
             if (cycles > timing->peak_cycles)

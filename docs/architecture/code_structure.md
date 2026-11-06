@@ -1,6 +1,6 @@
 # 代码框架与目录职责
 
-更新：2026-10-30。当前运行链路见[软件架构](software_architecture.md)，
+更新：2026-11-06。当前运行链路见[软件架构](software_architecture.md)，
 工程约束见根目录 [ARCHITECTURE.md](../../ARCHITECTURE.md)。
 
 ## 产品边界
@@ -53,6 +53,11 @@ MotorAxis 持有 MotorConfiguration、MotorControlState、FocState、编码器�
 配置分 model/application/device；LUT 和零位只存一份，位于 device.encoder。
 FocState 直接持有电流、电压、温度及控制量，测量没有第二份所有者。
 生命周期上下文 g_motor_context 在 motor_lifecycle.c；状态机文件只有纯函数。
+
+观测器状态与接口归 [flux_observer.h](../../firmware/motor/feedback/flux_observer.h)，
+无感启动阶段与状态归 [sensorless_startup.h](../../firmware/motor/control/sensorless_startup.h)；
+编码器标定直接包含所使用类型的所属头文件。两模块不另设隐藏的可变状态副本，
+首次初始化、重入及复位保留项以各自公共头的契约为准。
 
 ADC 快环 20 kHz，监督 2 kHz；前台处理协议与 LUT 发布。
 启动零偏在关相 IDLE 累计 2048 拍，成功后一次发布，不产生参数修订号。

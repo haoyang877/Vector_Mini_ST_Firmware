@@ -9,7 +9,7 @@
 #define FLUX_OBSERVER_MAX_CORRECTION_STEP 0.2f
 #define FLUX_OBSERVER_MIN_FLUX 1e-6f
 
-static int fluxobserver_is_finite(float value)
+static int flux_observer_is_finite(float value)
 {
     uint32_t bits;
     /* binary32指数全1仅表示NaN/无穷；固定4字节复制避免别名违规与浮点分支。 */
@@ -17,7 +17,7 @@ static int fluxobserver_is_finite(float value)
     return (bits & 0x7F800000U) != 0x7F800000U;
 }
 
-static void fluxobserver_reset_state(FluxObserverState *flux_observer)
+static void flux_observer_reset_state(FluxObserverState *flux_observer)
 {
     flux_observer->sin = 0.0f;
     flux_observer->cos = 1.0f;
@@ -45,7 +45,7 @@ static void fluxobserver_reset_state(FluxObserverState *flux_observer)
  */
 void FluxObserver_Init(FluxObserverState *flux_observer)
 {
-    fluxobserver_reset_state(flux_observer);
+    flux_observer_reset_state(flux_observer);
     flux_observer->gamma = FLUX_OBSERVER_DEFAULT_GAMMA;
 }
 
@@ -61,45 +61,47 @@ void FluxObserver_Update(const MotorModelConfig *model,
                          const AlphaBetaVector *voltage_ab_v,
                          FluxObserverState *flux_observer)
 {
-    float Rs = model->motor_phase_resistance_ohm;
-    float Ls = (model->motor_d_inductance_h + model->motor_q_inductance_h) * 0.5f;
-    float flux = model->motor_flux_wb;
-    float flux_sq;
+    float resistance_ohm = model->motor_phase_resistance_ohm;
+    float inductance_h = (model->motor_d_inductance_h + model->motor_q_inductance_h) * 0.5f;
+    float flux_wb = model->motor_flux_wb;
+    float flux_squared_wb2;
     float gamma_limit;
     float gamma;
-    float delta_theta = 0.0f;
+    float delta_angle_rad = 0.0f;
 
-    if (!fluxobserver_is_finite(Rs) || !fluxobserver_is_finite(Ls) ||
-        !fluxobserver_is_finite(flux) || flux <= FLUX_OBSERVER_MIN_FLUX)
+    if (!flux_observer_is_finite(resistance_ohm) || !flux_observer_is_finite(inductance_h) ||
+        !flux_observer_is_finite(flux_wb) || flux_wb <= FLUX_OBSERVER_MIN_FLUX)
     {
-        fluxobserver_reset_state(flux_observer);
+        flux_observer_reset_state(flux_observer);
         return;
     }
 
-    if (!fluxobserver_is_finite(flux_observer->x1_last) ||
-        !fluxobserver_is_finite(flux_observer->x2_last))
+    if (!flux_observer_is_finite(flux_observer->x1_last) ||
+        !flux_observer_is_finite(flux_observer->x2_last))
     {
-        fluxobserver_reset_state(flux_observer);
+        flux_observer_reset_state(flux_observer);
     }
 
-    flux_sq = flux * flux;
-    gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (FOC_TS_S * flux_sq);
+    flux_squared_wb2 = flux_wb * flux_wb;
+    gamma_limit = FLUX_OBSERVER_MAX_CORRECTION_STEP / (FOC_TS_S * flux_squared_wb2);
     gamma = flux_observer->gamma < gamma_limit ? flux_observer->gamma : gamma_limit;
 
     flux_observer->current_ab_a = *current_ab_a;
     flux_observer->voltage_ab_v = *voltage_ab_v;
 
-    /*flux observer*/
+    /* 电阻压降补偿后积分磁链，并按磁链幅值约束修正。 */
     flux_observer->y1_last =
-        -Rs * flux_observer->current_ab_a.alpha + flux_observer->voltage_ab_v.alpha;
+        -resistance_ohm * flux_observer->current_ab_a.alpha + flux_observer->voltage_ab_v.alpha;
     flux_observer->y2_last =
-        -Rs * flux_observer->current_ab_a.beta + flux_observer->voltage_ab_v.beta;
+        -resistance_ohm * flux_observer->current_ab_a.beta + flux_observer->voltage_ab_v.beta;
 
-    flux_observer->etax1 = flux_observer->x1_last - Ls * flux_observer->current_ab_a.alpha;
-    flux_observer->etax2 = flux_observer->x2_last - Ls * flux_observer->current_ab_a.beta;
+    flux_observer->etax1 =
+        flux_observer->x1_last - inductance_h * flux_observer->current_ab_a.alpha;
+    flux_observer->etax2 = flux_observer->x2_last - inductance_h * flux_observer->current_ab_a.beta;
 
-    flux_observer->flux_error_wb2 = flux_sq - (flux_observer->etax1 * flux_observer->etax1 +
-                                               flux_observer->etax2 * flux_observer->etax2);
+    flux_observer->flux_error_wb2 =
+        flux_squared_wb2 -
+        (flux_observer->etax1 * flux_observer->etax1 + flux_observer->etax2 * flux_observer->etax2);
 
     flux_observer->x1 = FOC_TS_S * (flux_observer->y1_last +
                                     gamma * flux_observer->etax1 * flux_observer->flux_error_wb2) +
@@ -108,24 +110,26 @@ void FluxObserver_Update(const MotorModelConfig *model,
                                     gamma * flux_observer->etax2 * flux_observer->flux_error_wb2) +
                         flux_observer->x2_last;
 
-    if (!fluxobserver_is_finite(flux_observer->x1) || !fluxobserver_is_finite(flux_observer->x2))
+    if (!flux_observer_is_finite(flux_observer->x1) || !flux_observer_is_finite(flux_observer->x2))
     {
-        fluxobserver_reset_state(flux_observer);
+        flux_observer_reset_state(flux_observer);
         return;
     }
 
-    /*iteration*/
+    /* 保存本拍积分结果。 */
     flux_observer->x1_last = flux_observer->x1;
     flux_observer->x2_last = flux_observer->x2;
 
-    flux_observer->cos = (flux_observer->x1 - Ls * flux_observer->current_ab_a.alpha) / flux;
-    flux_observer->sin = (flux_observer->x2 - Ls * flux_observer->current_ab_a.beta) / flux;
+    flux_observer->cos =
+        (flux_observer->x1 - inductance_h * flux_observer->current_ab_a.alpha) / flux_wb;
+    flux_observer->sin =
+        (flux_observer->x2 - inductance_h * flux_observer->current_ab_a.beta) / flux_wb;
 
-    /*calculate angle with atan*/
+    /* 从磁链方向计算电角度。 */
     flux_observer->electrical_angle_rad = Math_Atan2(flux_observer->sin, flux_observer->cos);
-    if (!fluxobserver_is_finite(flux_observer->electrical_angle_rad))
+    if (!flux_observer_is_finite(flux_observer->electrical_angle_rad))
     {
-        fluxobserver_reset_state(flux_observer);
+        flux_observer_reset_state(flux_observer);
         return;
     }
 
@@ -135,27 +139,27 @@ void FluxObserver_Update(const MotorModelConfig *model,
         flux_observer->electrical_angle_rad += _2PI;
     }
 
-    delta_theta =
+    delta_angle_rad =
         flux_observer->electrical_angle_rad - flux_observer->previous_electrical_angle_rad;
 
     flux_observer->previous_electrical_angle_rad = flux_observer->electrical_angle_rad;
 
-    if (delta_theta < -4.0f)
+    if (delta_angle_rad < -4.0f)
     {
-        delta_theta += _2PI;
+        delta_angle_rad += _2PI;
         if (flux_observer->electrical_turns == INT32_MAX)
         {
-            fluxobserver_reset_state(flux_observer);
+            flux_observer_reset_state(flux_observer);
             return;
         }
         ++flux_observer->electrical_turns;
     }
-    else if (delta_theta > 4.0f)
+    else if (delta_angle_rad > 4.0f)
     {
-        delta_theta -= _2PI;
+        delta_angle_rad -= _2PI;
         if (flux_observer->electrical_turns == INT32_MIN)
         {
-            fluxobserver_reset_state(flux_observer);
+            flux_observer_reset_state(flux_observer);
             return;
         }
         --flux_observer->electrical_turns;
@@ -163,7 +167,7 @@ void FluxObserver_Update(const MotorModelConfig *model,
 
     flux_observer->electrical_position_rad =
         (float)flux_observer->electrical_turns * _2PI + flux_observer->electrical_angle_rad;
-    UTILS_LP_FAST(flux_observer->electrical_velocity_rad_s, delta_theta / FOC_TS_S, 0.1f);
+    UTILS_LP_FAST(flux_observer->electrical_velocity_rad_s, delta_angle_rad / FOC_TS_S, 0.1f);
 }
 
 /**

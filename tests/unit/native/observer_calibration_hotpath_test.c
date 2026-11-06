@@ -180,7 +180,7 @@ static void check_finite(void)
         uint32_t bits = i * UINT32_C(65537);
         float value;
         memcpy(&value, &bits, sizeof(value));
-        assert(fluxobserver_is_finite(value) == !!isfinite(value));
+        assert(flux_observer_is_finite(value) == !!isfinite(value));
     }
     const uint32_t edge[] = {0U,
                              0x80000000U,
@@ -195,8 +195,41 @@ static void check_finite(void)
     {
         float value;
         memcpy(&value, &edge[i], sizeof(value));
-        assert(fluxobserver_is_finite(value) == !!isfinite(value));
+        assert(flux_observer_is_finite(value) == !!isfinite(value));
     }
+}
+
+/* 区分首次初始化、重启与故障重建，防止整理时误清位置代际或型号整定。 */
+static void check_observer_initialization(void)
+{
+    FluxObserverState observer = {0};
+    MotorConfiguration configuration = {0};
+    const AlphaBetaVector zero = {0};
+
+    FluxObserver_Init(&observer);
+    const float default_gamma = observer.gamma;
+    assert(observer.position_epoch == 1U && default_gamma > 0.0f);
+    assert(observer.cos == 1.0f && FluxObserver_GetElecPos(&observer) == 0.0f);
+
+    observer.gamma = 123.0f;
+    observer.current_ab_a.alpha = 2.0f;
+    observer.voltage_ab_v.beta = 3.0f;
+    observer.electrical_turns = 7;
+    observer.x1_last = 0.5f;
+    FluxObserver_InitConfigured(&observer, &configuration);
+    assert(observer.position_epoch == 2U && observer.gamma == default_gamma);
+    assert(observer.electrical_turns == 0 && observer.x1_last == 0.0f);
+    assert(observer.current_ab_a.alpha == 2.0f && observer.voltage_ab_v.beta == 3.0f);
+
+    observer.gamma = 123.0f;
+    /* 无效模型在采样复制前退出，但必须使已有位置参考失效。 */
+    FluxObserver_Update(&configuration.model, &zero, &zero, &observer);
+    assert(observer.position_epoch == 3U && observer.gamma == 123.0f);
+    assert(observer.current_ab_a.alpha == 2.0f && observer.voltage_ab_v.beta == 3.0f);
+
+    observer.position_epoch = UINT32_MAX;
+    FluxObserver_Init(&observer);
+    assert(observer.position_epoch == 0U && observer.gamma == default_gamma);
 }
 
 static void check_observer(void)
@@ -781,6 +814,7 @@ int main(void)
     check_long_sweep_position();
     assert(check_calibration_core() == 0);
     check_finite();
+    check_observer_initialization();
     check_observer();
     check_prepare();
     check_commit();

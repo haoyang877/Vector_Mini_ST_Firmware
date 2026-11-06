@@ -269,84 +269,8 @@ static void paired_interval_mean(void)
            cal.samples[0].cos_counts == 456);
 }
 
-static void runtime_filter(void)
-{
-    for (int direction = -1; direction <= 1; direction += 2)
-    {
-        LinearHall hall = {
-            .sin_off_counts = 2000, .cos_off_counts = 2000, .sin_amp = 1600, .cos_amp = 1600};
-        for (unsigned i = 0; i < 400; ++i)
-        {
-            float angle = 6.27f + direction * .002f * i;
-            LinearHall_UpdateFiltered(&hall, 2000 - 1600 * sinf(angle), 2000 + 1600 * cosf(angle));
-            float delayed = 6.27f + direction * .002f * (i == 0 ? 0 : i - 1);
-            near_angle(hall.val.angle_rad, delayed, i > 200 ? .00003f : .014f);
-            near_angle(hall.val.angle_raw_rad, angle, .00001f);
-        }
-        hall.filter_initialized = false;
-        for (unsigned i = 0; i < 400; ++i)
-        {
-            float angle = 6.27f + direction * .002f * i;
-            float sine = 2000 - 1600 * sinf(angle) + (i == 215 ? 400 : 0);
-            LinearHall_UpdateFiltered(&hall, sine, 2000 + 1600 * cosf(angle));
-            near_angle(hall.val.angle_rad, angle, i > 200 ? .0041f : .016f);
-        }
-        float previous = hall.val.angle_rad;
-        LinearHall_UpdateFiltered(&hall, NAN, 2000);
-        assert(hall.val.angle_rad == previous);
-    }
-}
-
-static void filter_response(void)
-{
-    const float frequencies[] = {1, 5, 10, 20, 50, 100};
-    const float expected_delay_ms[] = {.2543f, .3531f, .6163f, 1.2572f, 2.0069f, 1.7136f};
-    for (unsigned f = 0; f < sizeof(frequencies) / sizeof(frequencies[0]); ++f)
-    {
-        LinearHall hall = {
-            .sin_off_counts = 2000, .cos_off_counts = 2000, .sin_amp = 1600, .cos_amp = 1600};
-        double sine = 0, cosine = 0;
-        for (unsigned i = 0; i < 12000; ++i)
-        {
-            float phase = _2PI * frequencies[f] * (float)i / 4000.0f;
-            /* 在跨零处往返，直接测量真实C实现的幅相，不平移输出序列。 */
-            float angle = .1f * sinf(phase);
-            LinearHall_UpdateFiltered(&hall, 2000 - 1600 * sinf(angle), 2000 + 1600 * cosf(angle));
-            if (i >= 4000)
-            {
-                float value = remainderf(hall.val.angle_rad, _2PI);
-                sine += value * sinf(phase);
-                cosine += value * cosf(phase);
-            }
-        }
-        double delay_ms = -atan2(cosine, sine) * 1000 / (_2PI * frequencies[f]);
-        double gain = hypot(sine, cosine) / 400.0;
-        assert(fabs(delay_ms - expected_delay_ms[f]) < .025);
-        assert(gain > .65 && gain < 1.14);
-        printf("Hall filter %.0f Hz: delay %.4f ms, gain %.5f\n", frequencies[f], delay_ms, gain);
-    }
-    LinearHall hall = {
-        .sin_off_counts = 2000, .cos_off_counts = 2000, .sin_amp = 1600, .cos_amp = 1600};
-    float peak = 0;
-    for (unsigned i = 0; i < 400; ++i)
-    {
-        float angle = i < 20 ? 0 : .1f;
-        LinearHall_UpdateFiltered(&hall, 2000 - 1600 * sinf(angle), 2000 + 1600 * cosf(angle));
-        float value = remainderf(hall.val.angle_rad, _2PI);
-        peak = fmaxf(peak, value);
-        if (i >= 180)
-        {
-            near_angle(value, angle, .001f);
-        }
-    }
-    assert(peak < .114f && peak > .1f);
-    printf("Hall filter step: overshoot %.3f%%; settled within 40 ms\n", (peak / .1f - 1) * 100);
-}
-
 int main(void)
 {
-    filter_response();
-    runtime_filter();
     direct_drive();
     paired_interval_mean();
     geared_drive(8, 1, 2.9f);

@@ -56,9 +56,6 @@ typedef struct
     uint32_t lut_status;                   /* 0 未标定，0x80 成功，1 覆盖不足，2 映射不一致。 */
     int16_t lut_q15[LINEAR_HALL_LUT_SIZE]; /* 加法修正，65536 counts/输出圈。 */
     LinearHallSample val;
-    float filter_previous_rad[2]; /* LUT后原角的前两拍，仅运行滤波使用，不持久化。 */
-    float filter_stage_rad[2];    /* 两级平滑状态，仅运行滤波使用，不持久化。 */
-    bool filter_initialized;
 } LinearHall;
 
 /* 本次标定的两路 ADC 原码极值。 */
@@ -125,17 +122,6 @@ static inline bool LinearHall_LutIsMonotonic(const int16_t lut_q15[LINEAR_HALL_L
  * @note 外环单写；缺样或归一化后两路同时为零时保持上一角度，初值为零。
  */
 void LinearHall_Update(LinearHall *hall, float sin_counts, float cos_counts);
-
-/**
- * @brief 计算本拍角度，用环形中值及带匀速滞后补偿的两级平滑抑制噪声。
- * @param hall 当前轴独占对象；首次调用用当前角度初始化历史。
- * @param sin_counts 本拍 sin ADC 原码。
- * @param cos_counts 本拍 cos ADC 原码。
- * @note 仅4 kHz运行链调用；匀速稳态滞后一拍（0.25 ms），动态延迟与频率有关。
- *       两级alpha均为1/16，输出2*y1-y2；标定重放使用Update，不混入滤波延迟。
- *       原码、归一化值和angle_raw_rad保持本拍值，angle_rad为滤波后的LUT角。
- */
-void LinearHall_UpdateFiltered(LinearHall *hall, float sin_counts, float cos_counts);
 
 /**
  * @brief 获取当前霍尔传感器的角度。

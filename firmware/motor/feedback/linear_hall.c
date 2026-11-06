@@ -23,7 +23,6 @@ bool LinearHall_CalibrationFinish(LinearHallCalibration *cal, LinearHall *hall)
     /* 新幅值或失败结果不能搭配旧误差表。零表仍可输出原始角。 */
     memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
     hall->lut_status = 0U;
-    hall->filter_initialized = false;
     float sin_amp = (cal->sin_max - cal->sin_min) * 0.5f;
     float cos_amp = (cal->cos_max - cal->cos_min) * 0.5f;
     uint8_t faults = LINEAR_HALL_CAL_FAULT_NONE;
@@ -83,7 +82,7 @@ void LinearHall_Init(LinearHall *hall)
                          .calibration_success = false};
 }
 
-static bool update_angle(LinearHall *hall, float sin_counts, float cos_counts)
+void LinearHall_Update(LinearHall *hall, float sin_counts, float cos_counts)
 {
     LinearHallSample *sample = &hall->val;
     sample->sin_counts = sin_counts;
@@ -95,7 +94,7 @@ static bool update_angle(LinearHall *hall, float sin_counts, float cos_counts)
     if (!isfinite(sample->sin_cal) || !isfinite(sample->cos_cal) ||
         (sample->sin_cal == 0.0f && sample->cos_cal == 0.0f))
     {
-        return false;
+        return;
     }
     sample->sin_cal = fminf(1.0f, fmaxf(-1.0f, sample->sin_cal));
     sample->cos_cal = fminf(1.0f, fmaxf(-1.0f, sample->cos_cal));
@@ -125,71 +124,6 @@ static bool update_angle(LinearHall *hall, float sin_counts, float cos_counts)
         angle -= _2PI;
     }
     sample->angle_rad = angle;
-    return true;
-}
-
-void LinearHall_Update(LinearHall *hall, float sin_counts, float cos_counts)
-{
-    (void)update_angle(hall, sin_counts, cos_counts);
-}
-
-static float wrap_delta(float angle)
-{
-    if (angle > _PI)
-    {
-        angle -= _2PI;
-    }
-    if (angle < -_PI)
-    {
-        angle += _2PI;
-    }
-    return angle;
-}
-
-static float wrap_angle(float angle)
-{
-    if (angle < 0.0f)
-    {
-        angle += _2PI;
-    }
-    if (angle >= _2PI)
-    {
-        angle -= _2PI;
-    }
-    return angle;
-}
-
-void LinearHall_UpdateFiltered(LinearHall *hall, float sin_counts, float cos_counts)
-{
-    if (!update_angle(hall, sin_counts, cos_counts))
-    {
-        return;
-    }
-    float angle = hall->val.angle_rad;
-    if (!hall->filter_initialized)
-    {
-        hall->filter_previous_rad[0] = hall->filter_previous_rad[1] = angle;
-        hall->filter_stage_rad[0] = hall->filter_stage_rad[1] = angle;
-        hall->filter_initialized = true;
-        return;
-    }
-    float previous = hall->filter_previous_rad[0];
-    float current_delta = wrap_delta(angle - previous);
-    float older_delta = wrap_delta(hall->filter_previous_rad[1] - previous);
-    float middle = current_delta > 0.0f ? fmaxf(0.0f, fminf(current_delta, older_delta))
-                                        : fminf(0.0f, fmaxf(current_delta, older_delta));
-    hall->filter_previous_rad[1] = previous;
-    hall->filter_previous_rad[0] = angle;
-    angle = wrap_angle(previous + middle);
-    /* 中值去孤立突跳；两级相同极点平滑连续纹波，2*y1-y2补偿匀速滞后。
-     * 4 kHz下alpha=1/16，单级极点约41 Hz；状态保持单圈值以免累计精度损失。 */
-    float first = wrap_angle(hall->filter_stage_rad[0] +
-                             0.0625f * wrap_delta(angle - hall->filter_stage_rad[0]));
-    float second = wrap_angle(hall->filter_stage_rad[1] +
-                              0.0625f * wrap_delta(first - hall->filter_stage_rad[1]));
-    hall->filter_stage_rad[0] = first;
-    hall->filter_stage_rad[1] = second;
-    hall->val.angle_rad = wrap_angle(first + wrap_delta(first - second));
 }
 
 float LinearHall_getAngle(const LinearHall *hall)

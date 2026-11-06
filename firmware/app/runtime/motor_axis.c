@@ -204,7 +204,7 @@ void MotorAxis_OuterTick(void)
                                       sample.sin_counts,
                                       sample.cos_counts);
         }
-        LinearHall_UpdateFiltered(&s_linear_hall, sin_counts, cos_counts);
+        LinearHall_Update(&s_linear_hall, sin_counts, cos_counts);
     }
 #endif
     /* 等待现有上电采样窗口结束，避免传感器启动初值参与首次辨圈。 */

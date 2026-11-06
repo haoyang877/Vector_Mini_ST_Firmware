@@ -15,7 +15,13 @@ from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--node", type=lambda s: int(s, 0), required=True, choices=range(3, 8))
-    parser.add_argument("--travel", nargs=2, type=float, metavar=("MIN_RAD", "MAX_RAD"))
+    parser.add_argument(
+        "--travel",
+        nargs=2,
+        type=float,
+        metavar=("MIN_RAD", "MAX_RAD"),
+        help="可选收窄行程，省略则使用该轴机械全行程",
+    )
     parser.add_argument("--speed", type=float, required=True, help="电机轴 rad/s")
     parser.add_argument(
         "--thermal", type=float, nargs=7, help="持续A、峰值A、时间常数s、进入/退出/跳闸/清除比"
@@ -28,11 +34,9 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if args.node >= 5 and args.travel is None:
-        parser.error("关节必须明确给出电机轴实际行程 --travel")
     if args.node >= 6 and args.thermal is None:
         parser.error("YQ 热模型需提供已核对的 --thermal 七个参数")
-    travel = args.travel or [0.0, 0.0]
+    travel = args.travel or []
     values = [*travel, args.speed, *(args.thermal or [])]
     if not all(math.isfinite(v) for v in values):
         parser.error("参数必须为有限值")
@@ -74,7 +78,7 @@ def main() -> None:
             [
                 str(executable),
                 str(args.node),
-                *map(str, travel),
+                *(map(str, travel) if travel else ["default", "default"]),
                 str(args.speed),
                 str(int(args.confirm_model)),
                 str(record),

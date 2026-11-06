@@ -663,9 +663,34 @@ static void test_live_targets(void)
     assert(isnan(status.iq_reference_a) && isnan(status.iq_a) && isnan(status.vq_v));
 }
 
+static void test_wheel_position_targets(void)
+{
+    const MotorJointType wheels[] = {MOTOR_JOINT_WHEEL_LEFT, MOTOR_JOINT_WHEEL_RIGHT};
+    for (unsigned i = 0; i < 2; ++i)
+    {
+        reset();
+        MotorAxisProfile *axis = &configuration.application.axis_profile;
+        axis->magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
+        axis->version = MOTOR_AXIS_PROFILE_NUMERIC_VERSION;
+        axis->identity.numeric.config_revision = MOTOR_PRODUCT_AXIS_REVISION;
+        axis->identity.numeric.joint_type = wheels[i];
+        encoder.mechanical_position_rad = -8.0f;
+        assert(MotorLifecycle_RequestEnable(MOTOR_CONTROL_POSITION) == MOTOR_CONTROL_ACCEPTED);
+        assert(motor.position_target_rad == -8.0f && motor.position_reference_rad == -8.0f);
+        tick();
+        MotorTarget target = {.mode = MOTOR_CONTROL_POSITION, .position_rad = 14.0f};
+        assert(MotorLifecycle_SetTarget(&target) == MOTOR_CONTROL_ACCEPTED);
+        assert(motor.position_target_rad == 14.0f);
+        assert(MotorLifecycle_RequestRemoteStop());
+        tick();
+        assert(MotorLifecycle_IsStopped() && phases_disabled);
+    }
+}
+
 int main(void)
 {
     test_live_targets();
+    test_wheel_position_targets();
     test_five_states();
     test_control_and_stop();
     test_bus_current_snapshot();

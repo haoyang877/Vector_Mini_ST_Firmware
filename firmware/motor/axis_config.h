@@ -50,6 +50,19 @@ typedef struct
 } MotorJointControlConfig;
 
 /**
+ * @brief 识别产品修订 2 的连续旋转车轮；该记录的零行程字段表示无机械止挡。
+ * @param profile 已校验的轴记录。
+ * @return 左轮或右轮返回 true。
+ */
+static inline bool MotorAxisProfile_IsContinuousWheel(const MotorAxisProfile *profile)
+{
+    return profile != NULL && profile->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+           profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION &&
+           (profile->identity.numeric.joint_type == MOTOR_JOINT_WHEEL_LEFT ||
+            profile->identity.numeric.joint_type == MOTOR_JOINT_WHEEL_RIGHT);
+}
+
+/**
  * @brief 检查位置指令是否位于轴的闭区间内。
  * @param profile 调用方已验证且启用行程限制的轴记录。
  * @param target_rad 有限的位置指令，rad。
@@ -58,8 +71,9 @@ typedef struct
 static inline bool MotorAxisProfile_TargetWithinBounds(const MotorAxisProfile *profile,
                                                        float target_rad)
 {
-    return target_rad >= profile->minimum_position_rad &&
-           target_rad <= profile->maximum_position_rad;
+    return isfinite(target_rad) && (MotorAxisProfile_IsContinuousWheel(profile) ||
+                                    (target_rad >= profile->minimum_position_rad &&
+                                     target_rad <= profile->maximum_position_rad));
 }
 
 /**
@@ -76,6 +90,10 @@ static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profi
                                                    float actual,
                                                    float target)
 {
+    if (MotorAxisProfile_IsContinuousWheel(profile))
+    {
+        return valid && isfinite(actual) && isfinite(target);
+    }
     return profile != NULL && valid && isfinite(actual) && isfinite(target) &&
            (profile->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
             (profile->identity.numeric.config_revision == MOTOR_JOINT_CONFIG_REVISION &&

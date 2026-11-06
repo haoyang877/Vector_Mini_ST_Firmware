@@ -51,6 +51,13 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
  */
 bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *output);
 /**
+ * @brief 从已有记录恢复轴配置，将产品关节行程收窄到当前机械范围。
+ * @param stored 启动时读取的轴记录。
+ * @param output 校验成功后的活动配置，失败时不可使用。
+ * @return 记录校验通过且关节行程有正宽度的交集时返回 true；未配置沿用 Load 语义。
+ */
+bool MotorAxisProfile_Restore(const MotorAxisProfile *stored, MotorAxisProfile *output);
+/**
  * @brief 创建带 CRC 的 roll/pitch 名称记录。
  * @param output 调用方非空记录空间；不转移所有权。
  * @param name 只读零结尾名称，仅允许 roll 或 pitch。

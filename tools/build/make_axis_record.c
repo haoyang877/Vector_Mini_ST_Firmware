@@ -3,6 +3,7 @@
 #include "motor_axis_profile.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char **argv)
 {
@@ -29,9 +30,15 @@ int main(int argc, char **argv)
         return 2;
     }
     float ratio = argv[7][0] == '1' ? p->electrical->gear_ratio : 1.0f;
+    float maximum_travel = p->output_travel_limit_rad * p->electrical->gear_ratio;
+    float minimum = strcmp(argv[2], "default") == 0
+                        ? (maximum_travel == 0.0f ? 0.0f : -maximum_travel)
+                        : strtof(argv[2], NULL) * ratio;
+    float maximum =
+        strcmp(argv[3], "default") == 0 ? maximum_travel : strtof(argv[3], NULL) * ratio;
     if (!Param_CreateAxis(node,
-                          strtof(argv[2], NULL) * ratio,
-                          strtof(argv[3], NULL) * ratio,
+                          minimum,
+                          maximum,
                           strtof(argv[4], NULL) * ratio,
                           argc == 15 ? &heat : NULL,
                           &configuration))

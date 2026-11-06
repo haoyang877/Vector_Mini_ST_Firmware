@@ -29,7 +29,7 @@ static const MotorElectricalPreset s_ht = {
     HT8115_INDUCTANCE_H *CURRENT_LOOP_BANDWIDTH_RAD_S,
     HT8115_PHASE_RESISTANCE_OHM *CURRENT_LOOP_BANDWIDTH_RAD_S,
     800000.0f,
-    0.0f,
+    ENCODER_SPEED_PLL_HZ,
     1.0f};
 static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            YQ5708_PHASE_RESISTANCE_OHM,
@@ -38,10 +38,16 @@ static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            AT32_YQ5708_CURRENT_KP,
                                            AT32_YQ5708_CURRENT_KI,
                                            800000.0f,
-                                           600.0f,
-                                           8.0f};
+                                           ENCODER_SPEED_PLL_HZ,
+                                           YQ5708_GEAR_RATIO};
 
-/* 阻尼轴参数只作脱开负载的离线/工装起点。 */
+/* ROLL/PITCH/YAW 各装 2 N·m 阻尼轴；标定起点按脱开负载的工装设置。 */
+#define PRODUCT_RUN_CURRENT_LIMIT_A 7.0f
+/* 输出轴最高 120°/s，恒加速 1 s 达到上限；控制与存储使用电机轴单位。 */
+#define YQ_OUTPUT_SPEED_RAD_S (CONFIG_TWO_PI / 3.0f)
+#define YQ_MOTOR_SPEED_RAD_S (YQ_OUTPUT_SPEED_RAD_S * YQ5708_GEAR_RATIO)
+#define YQ_MOTOR_ACCEL_RAD_S2 (YQ_MOTOR_SPEED_RAD_S / 1.0f)
+
 static const SensorlessStartupConfig s_wheel_start =
     CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.05f, 0.5f);
 static const SensorlessStartupConfig s_roll_start =
@@ -60,7 +66,9 @@ static const MotorAxisPreset s_presets[] = {
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
      20.0f,
-     {0, 0, 0.05f, 0.5f, 1.0f, 1.0f, 3.0f}},
+     {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
+     0.0f,
+     0.0f},
     {0x04,
      MOTOR_JOINT_WHEEL_RIGHT,
      &s_ht,
@@ -68,32 +76,64 @@ static const MotorAxisPreset s_presets[] = {
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
      20.0f,
-     {0, 0, 0.05f, 0.5f, 1.0f, 1.0f, 3.0f}},
+     {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
+     0.0f,
+     0.0f},
     {0x05,
      MOTOR_JOINT_ROLL,
      &s_ht,
      &s_roll_start,
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
-     0.785398163f,
-     {8.0f, 2.0f, 0.5f, 1.0f, 0.785398163f, 0.785398163f, 3.0f}},
+     3.14159265f,
+     {8.0f, 2.0f, 0.5f, 1.0f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
+     2.0f,
+     CONFIG_TWO_PI * (150.0f / 360.0f)},
     {0x06,
      MOTOR_JOINT_PITCH,
      &s_yq,
      &s_pitch_start,
      PITCH_CALIB_SPEED_RAD_S,
      1.6f,
-     6.2831853f,
-     {2.0f, 0.0f, 0.048f, 0.5f, 6.2831853f, 6.2831853f, 3.0f}},
+     YQ_MOTOR_SPEED_RAD_S,
+     {2.0f,
+      0.0f,
+      0.048f,
+      0.5f,
+      YQ_MOTOR_ACCEL_RAD_S2,
+      YQ_MOTOR_ACCEL_RAD_S2,
+      PRODUCT_RUN_CURRENT_LIMIT_A},
+     2.0f,
+     CONFIG_TWO_PI / 12.0f},
     {0x07,
      MOTOR_JOINT_YAW,
      &s_yq,
      &s_yq_start,
      YQ5708_CALIB_SPEED_RAD_S,
      1.6f,
-     6.2831853f,
-     {2.0f, 0.0f, 0.048f, 0.5f, 6.2831853f, 6.2831853f, 3.0f}},
+     YQ_MOTOR_SPEED_RAD_S,
+     {2.0f,
+      0.0f,
+      0.048f,
+      0.5f,
+      YQ_MOTOR_ACCEL_RAD_S2,
+      YQ_MOTOR_ACCEL_RAD_S2,
+      PRODUCT_RUN_CURRENT_LIMIT_A},
+     2.0f,
+     CONFIG_TWO_PI / 2.0f},
 };
+
+static const MotorAxisPreset *product_joint(uint32_t joint)
+{
+    for (unsigned i = 0; i < sizeof(s_presets) / sizeof(s_presets[0]); ++i)
+    {
+        if (s_presets[i].joint == joint)
+        {
+            return &s_presets[i];
+        }
+    }
+    return NULL;
+}
 
 const MotorAxisPreset *MotorAxisProfile_ForNode(uint8_t node_id)
 {
@@ -138,7 +178,7 @@ static uint32_t record_crc(const MotorAxisProfile *p)
     return Crc32_Compute(p, (uint32_t)offsetof(MotorAxisProfile, crc32), 0U);
 }
 
-bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *output)
+static bool load_profile(const MotorAxisProfile *stored, MotorAxisProfile *output, bool restore)
 {
     const uint8_t *bytes = (const uint8_t *)stored;
     bool zero = true, erased = true;
@@ -168,8 +208,10 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
         if (stored->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
         {
             const uint32_t role = stored->identity.numeric.joint_type;
-            if (role < MOTOR_JOINT_ROLL || role > MOTOR_JOINT_WHEEL_LEFT ||
-                !isfinite(stored->maximum_speed_rad_s) || stored->maximum_speed_rad_s <= 0.0f)
+            const MotorAxisPreset *p = product_joint(role);
+            if (p == NULL || !isfinite(stored->maximum_speed_rad_s) ||
+                stored->maximum_speed_rad_s <= 0.0f ||
+                stored->maximum_speed_rad_s > p->speed_ceiling_rad_s)
             {
                 return false;
             }
@@ -177,9 +219,23 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
             {
                 return stored->minimum_position_rad == 0.0f && stored->maximum_position_rad == 0.0f;
             }
-            return isfinite(stored->minimum_position_rad) &&
-                   isfinite(stored->maximum_position_rad) &&
-                   stored->minimum_position_rad < stored->maximum_position_rad;
+            const float limit = p->output_travel_limit_rad * p->electrical->gear_ratio;
+            if (!isfinite(stored->minimum_position_rad) || !isfinite(stored->maximum_position_rad))
+            {
+                return false;
+            }
+            if (stored->minimum_position_rad < -limit || stored->maximum_position_rad > limit)
+            {
+                if (!restore)
+                {
+                    return false;
+                }
+                /* 原记录CRC已验证；运行时只采用旧设备行程与当前机械范围的交集。 */
+                output->minimum_position_rad = fmaxf(stored->minimum_position_rad, -limit);
+                output->maximum_position_rad = fminf(stored->maximum_position_rad, limit);
+                output->crc32 = record_crc(output);
+            }
+            return output->minimum_position_rad < output->maximum_position_rad;
         }
         if (stored->identity.numeric.joint_type > MOTOR_JOINT_WHEEL_LEFT ||
             stored->identity.numeric.config_revision > MOTOR_JOINT_CONFIG_REVISION)
@@ -206,6 +262,16 @@ bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *out
     return isfinite(stored->minimum_position_rad) && isfinite(stored->maximum_position_rad) &&
            stored->minimum_position_rad < stored->maximum_position_rad &&
            isfinite(stored->maximum_speed_rad_s) && stored->maximum_speed_rad_s > 0;
+}
+
+bool MotorAxisProfile_Load(const MotorAxisProfile *stored, MotorAxisProfile *output)
+{
+    return load_profile(stored, output, false);
+}
+
+bool MotorAxisProfile_Restore(const MotorAxisProfile *stored, MotorAxisProfile *output)
+{
+    return load_profile(stored, output, true);
 }
 
 bool MotorAxisProfile_Create(MotorAxisProfile *output,
@@ -283,17 +349,9 @@ bool MotorAxisProfile_Resolve(const MotorAxisProfile *profile, MotorJointControl
         checked.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         checked.identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
     {
-        for (unsigned i = 0; i < sizeof(s_presets) / sizeof(s_presets[0]); ++i)
-        {
-            const MotorAxisPreset *p = &s_presets[i];
-            if (p->joint == checked.identity.numeric.joint_type &&
-                checked.maximum_speed_rad_s <= p->speed_ceiling_rad_s)
-            {
-                *output = p->control;
-                return true;
-            }
-        }
-        return false;
+        const MotorAxisPreset *p = product_joint(checked.identity.numeric.joint_type);
+        *output = p->control;
+        return true;
     }
     if (output == NULL || !MotorAxisProfile_Load(profile, &checked) ||
         checked.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||

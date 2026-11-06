@@ -62,6 +62,10 @@ typedef struct
     const SensorlessStartupConfig *startup;
     float calibration_speed_rad_s, calibration_limit_a, speed_ceiling_rad_s;
     MotorJointControlConfig control;
+    /* 装配标称阻尼力矩；用于标识工况，不直接作为电流前馈。 */
+    float damper_torque_nm;
+    /* 对称机械行程的单侧上限，输出轴 rad；连续旋转轮填零。 */
+    float output_travel_limit_rad;
 } MotorAxisPreset;
 
 /**

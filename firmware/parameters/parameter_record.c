@@ -333,7 +333,7 @@ bool Param_CreateAxis(uint8_t node_id,
     MotorApplicationConfig *app = &configuration->application;
     app->axis_profile = axis;
     app->axis_profile_valid = true;
-    app->current_limit_a = fminf(p->control.maximum_current_a, heat.continuous_vector_a);
+    app->current_limit_a = fminf(p->control.maximum_current_a, heat.peak_a);
     app->speed_ceiling_rad_s = app->speed_limit_rad_s = speed_rad_s;
     app->speed_feedforward.current_limit_a =
         fminf(app->current_limit_a, app->speed_feedforward.current_limit_a);
@@ -442,15 +442,15 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     }
     configuration->preset = NULL;
     const MotorAxisPreset *preset = NULL;
+    MotorAxisProfile *axis = &configuration->application.axis_profile;
     if (BSP_BOARD == BSP_BOARD_AT32F456)
     {
         preset = MotorAxisProfile_ForNode((uint8_t)param->node_id);
-        MotorAxisProfile axis;
-        if (preset == NULL || !MotorAxisProfile_Load(&param->axis_profile, &axis) ||
-            axis.magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
-            axis.identity.numeric.config_revision != MOTOR_PRODUCT_AXIS_REVISION ||
-            axis.identity.numeric.joint_type != preset->joint ||
-            axis.maximum_speed_rad_s > preset->speed_ceiling_rad_s ||
+        if (preset == NULL || !MotorAxisProfile_Restore(&param->axis_profile, axis) ||
+            axis->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
+            axis->identity.numeric.config_revision != MOTOR_PRODUCT_AXIS_REVISION ||
+            axis->identity.numeric.joint_type != preset->joint ||
+            axis->maximum_speed_rad_s > preset->speed_ceiling_rad_s ||
             param->motor_pole_pairs != (float)preset->electrical->pole_pairs ||
             param->motor_phase_resistance_ohm != preset->electrical->resistance_ohm ||
             param->motor_d_inductance_h != preset->electrical->inductance_h ||
@@ -500,7 +500,7 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     /* 与 Loader 共用 node_id 字段；应用轴身份不能改写设备地址。 */
     configuration->device.node_id = (uint8_t)param->node_id;
     configuration->application.axis_profile_valid =
-        MotorAxisProfile_Load(&param->axis_profile, &configuration->application.axis_profile);
+        preset != NULL || MotorAxisProfile_Load(&param->axis_profile, axis);
     configuration->application.speed_ceiling_rad_s = application_speed_ceiling_rad_s(
         &configuration->application.axis_profile, configuration->application.axis_profile_valid);
     configuration->device.phase_a_offset_counts = param->currentoffset_a;
@@ -612,6 +612,12 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     else
     {
         MotorApplicationConfig *app = &configuration->application;
+        /* 旧轮记录的 0/0 表示当时未启用位置环，启动时采用车轮保持增益。 */
+        if (MotorAxisProfile_IsContinuousWheel(&app->axis_profile) &&
+            app->cascade_position_kp == 0.0f && app->cascade_position_kd == 0.0f)
+        {
+            app->cascade_position_kp = preset->control.position_kp;
+        }
         app->speed_acceleration_rad_s2 =
             fminf(app->speed_acceleration_rad_s2, preset->control.acceleration_rad_s2);
         app->speed_deceleration_rad_s2 =
@@ -626,8 +632,7 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             app->position_maximum_speed_rad_s =
                 fminf(app->speed_limit_rad_s, param->position_maximum_speed_rad_s);
         }
-        app->current_limit_a =
-            fminf(app->current_limit_a, configuration->model.thermal.continuous_vector_a);
+        app->current_limit_a = fminf(app->current_limit_a, configuration->model.thermal.peak_a);
         app->speed_feedforward.current_limit_a =
             fminf(app->current_limit_a, app->speed_feedforward.current_limit_a);
         app->speed_feedforward.acceleration_limit_rad_s2 =

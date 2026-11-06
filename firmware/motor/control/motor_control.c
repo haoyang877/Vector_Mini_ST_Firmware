@@ -279,7 +279,7 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
     bool active =
         m->control_mode == MOTOR_CONTROL_POSITION || m->control_mode == MOTOR_CONTROL_SPEED;
     float position = Encoder_GetMechPos(encoder);
-    /* YQ-5708 无 AXS 覆盖的实测组合，位置串级复用速度模式的独立测速 PLL。 */
+    /* 产品轴的位置串级与速度模式共用电机端独立测速 PLL。 */
     bool position_speed_pll =
         m->control_mode == MOTOR_CONTROL_POSITION && encoder->speed_pll_hz > 0.0f &&
         (configuration->preset != NULL || configuration->application.axis_profile.magic == 0U);

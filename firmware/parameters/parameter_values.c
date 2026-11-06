@@ -410,7 +410,7 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
             limit = fminf(limit, config.maximum_current_a);
             if (configuration->preset != NULL)
             {
-                limit = fminf(limit, configuration->model.thermal.continuous_vector_a);
+                limit = fminf(limit, configuration->model.thermal.peak_a);
             }
         }
         if (si_value <= 0.0f || si_value > limit)

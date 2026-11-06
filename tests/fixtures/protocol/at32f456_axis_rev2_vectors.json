@@ -22,31 +22,31 @@
       "node": 3,
       "role": 5,
       "axis_crc": "0xf518917c",
-      "record_crc": "0x9c38cf18"
+      "record_crc": "0x4e6dee92"
     },
     {
       "node": 4,
       "role": 4,
       "axis_crc": "0x907faa3a",
-      "record_crc": "0xe6d05641"
+      "record_crc": "0x348577cb"
     },
     {
       "node": 5,
       "role": 1,
       "axis_crc": "0xf7ec47e7",
-      "record_crc": "0x820b885c"
+      "record_crc": "0x7c72e38b"
     },
     {
       "node": 6,
       "role": 2,
       "axis_crc": "0x58450a2d",
-      "record_crc": "0xcb930d69"
+      "record_crc": "0x82245fca"
     },
     {
       "node": 7,
       "role": 3,
       "axis_crc": "0x3d22316b",
-      "record_crc": "0x8428b7ed"
+      "record_crc": "0xcd9fe54e"
     }
   ]
 }

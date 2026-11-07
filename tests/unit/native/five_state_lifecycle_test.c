@@ -692,6 +692,21 @@ static void test_live_targets(void)
             target.vq_v = 100.0f;
         }
         assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+        if (modes[i] == MOTOR_CONTROL_OPEN_CURRENT || modes[i] == MOTOR_CONTROL_OPEN_VOLTAGE)
+        {
+            float previous_frequency_hz = motor.open_loop_frequency_hz;
+            float previous_id_a = motor.id_target_a;
+            float previous_vd_v = motor.vd_target_v;
+            target.id_a = modes[i] == MOTOR_CONTROL_OPEN_CURRENT ? 7.0f : 0.0f;
+            target.vd_v = modes[i] == MOTOR_CONTROL_OPEN_VOLTAGE ? 100.0f : 0.0f;
+            target.frequency_hz = 15.0f;
+            target.speed_rad_s = 1.0f;
+            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_INVALID);
+            target.speed_rad_s = 0.0f;
+            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+            assert(motor.open_loop_frequency_hz == previous_frequency_hz &&
+                   motor.id_target_a == previous_id_a && motor.vd_target_v == previous_vd_v);
+        }
     }
     reset();
     foc.bus_current_filtered_a = 0.125f;

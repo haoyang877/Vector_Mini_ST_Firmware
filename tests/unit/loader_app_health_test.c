@@ -155,7 +155,7 @@ void BootHw_Watchdog(bool healthy)
 }
 int main(void)
 {
-    g_app.loader = (AppLoader){.life = &g_app.axis.lifecycle,
+    g_app.loader = (AppLoader){.lifecycle = &g_app.axis.lifecycle,
                                .communication_ready = &g_app.communication_ready,
                                .endpoint = &g_app.endpoint,
                                .publish_identity = publish_identity};

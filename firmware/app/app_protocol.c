@@ -4,8 +4,15 @@
 #include <math.h>
 #include <limits.h>
 
-/* 只装配协议和运行所有者；协议值、端口及停机确认均由前台串行访问。 */
-/* 此处只做协议到领域值的映射；配置与事务由 motor_state 所有者决定。 */
+/* 线上编号与内部枚举独立。0 表示没有可启动的模式。 */
+static const uint8_t s_wire_modes[] = {
+    [MOTOR_CONTROL_CURRENT] = 1U,
+    [MOTOR_CONTROL_SPEED] = 2U,
+    [MOTOR_CONTROL_POSITION] = 3U,
+    [MOTOR_CONTROL_VQ] = 6U,
+    [MOTOR_CONTROL_OPEN_VOLTAGE] = 9U,
+    [MOTOR_CONTROL_OPEN_CURRENT] = 10U,
+};
 
 static ProtocolStatus control_status(MotorControlResult result)
 {
@@ -21,45 +28,28 @@ static ProtocolStatus control_status(MotorControlResult result)
                                                                      : PROTOCOL_FAILED;
 }
 
-static bool decode_mode(uint8_t wire_mode, MotorControlMode *mode)
+static MotorControlMode decode_control_mode(uint8_t wire_mode)
 {
-    if (mode == NULL)
+    if (wire_mode != 0U)
     {
-        return false;
+        for (unsigned mode = 0; mode < sizeof(s_wire_modes); ++mode)
+        {
+            if (s_wire_modes[mode] == wire_mode)
+            {
+                return (MotorControlMode)mode;
+            }
+        }
     }
-    switch (wire_mode)
-    {
-    case 1U:
-        *mode = MOTOR_CONTROL_CURRENT;
-        return true;
-    case 2U:
-        *mode = MOTOR_CONTROL_SPEED;
-        return true;
-    case 3U:
-        *mode = MOTOR_CONTROL_POSITION;
-        return true;
-    case 6U:
-        *mode = MOTOR_CONTROL_VQ;
-        return true;
-    case 9U:
-        *mode = MOTOR_CONTROL_OPEN_VOLTAGE;
-        return true;
-    case 10U:
-        *mode = MOTOR_CONTROL_OPEN_CURRENT;
-        return true;
-    default:
-        return false;
-    }
+    return MOTOR_CONTROL_NONE;
 }
 
 static void start_motor(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
     AppProtocol *adapter = context;
     *reply = (ProtocolReply){.status = PROTOCOL_UNSUPPORTED};
-    MotorControlMode mode;
-    if (!decode_mode(request->mode, &mode))
+    MotorControlMode mode = decode_control_mode(request->mode);
+    if (mode == MOTOR_CONTROL_NONE)
     {
-        reply->status = PROTOCOL_UNSUPPORTED;
         return;
     }
     reply->status = control_status(MotorLifecycle_RequestEnable(adapter->lifecycle, mode));
@@ -73,7 +63,7 @@ static void start_motor(void *context, const ProtocolCommand *request, ProtocolR
     }
 }
 
-static bool same_target(const ProtocolCommand *previous, const ProtocolCommand *request)
+static bool target_values_match(const ProtocolCommand *previous, const ProtocolCommand *request)
 {
     return request->mode == previous->mode && request->position_mrad == previous->position_mrad &&
            request->speed_mrad_s == previous->speed_mrad_s && request->iq_mA == previous->iq_mA &&
@@ -86,24 +76,31 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
 {
     AppProtocol *adapter = context;
     *reply = (ProtocolReply){.status = PROTOCOL_UNSUPPORTED};
-    MotorControlMode mode;
-    if (!decode_mode(request->mode, &mode))
+    MotorControlMode mode = decode_control_mode(request->mode);
+    if (mode == MOTOR_CONTROL_NONE)
     {
-        reply->status = PROTOCOL_UNSUPPORTED;
         return;
     }
-    if (adapter->target_valid &&
-        (int16_t)(uint16_t)(request->sequence - adapter->last_target.sequence) <= 0)
+    if (adapter->has_last_target)
     {
-        bool same = request->sequence == adapter->last_target.sequence &&
-                    same_target(&adapter->last_target, request);
-        reply->status =
-            same && adapter->target_epoch == MotorLifecycle_WorkEpoch(adapter->lifecycle)
-                ? PROTOCOL_OK
-            : request->sequence == adapter->last_target.sequence && !same
-                ? PROTOCOL_INVALID_ARGUMENT
-                : PROTOCOL_DENIED;
-        return;
+        uint16_t sequence_delta = (uint16_t)(request->sequence - adapter->last_target.sequence);
+        if (sequence_delta == 0U)
+        {
+            reply->status = PROTOCOL_INVALID_ARGUMENT;
+            if (target_values_match(&adapter->last_target, request))
+            {
+                reply->status =
+                    adapter->last_target_epoch == MotorLifecycle_WorkEpoch(adapter->lifecycle)
+                        ? PROTOCOL_OK
+                        : PROTOCOL_DENIED;
+            }
+            return;
+        }
+        if (sequence_delta > INT16_MAX)
+        {
+            reply->status = PROTOCOL_DENIED;
+            return;
+        }
     }
     MotorTarget target = {.mode = (uint16_t)mode,
                           .position_rad = request->position_mrad * 0.001f,
@@ -118,8 +115,8 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
     if (result == MOTOR_CONTROL_ACCEPTED)
     {
         adapter->last_target = *request;
-        adapter->target_epoch = MotorLifecycle_WorkEpoch(adapter->lifecycle);
-        adapter->target_valid = true;
+        adapter->last_target_epoch = MotorLifecycle_WorkEpoch(adapter->lifecycle);
+        adapter->has_last_target = true;
     }
     AppProtocol_Refresh(adapter);
 }
@@ -257,25 +254,9 @@ static uint32_t fault_bits(MotorFaultCode error)
     }
 }
 
-static uint8_t protocol_mode(MotorControlMode mode)
+static uint8_t encode_control_mode(MotorControlMode mode)
 {
-    switch (mode)
-    {
-    case MOTOR_CONTROL_CURRENT:
-        return 1U;
-    case MOTOR_CONTROL_SPEED:
-        return 2U;
-    case MOTOR_CONTROL_POSITION:
-        return 3U;
-    case MOTOR_CONTROL_VQ:
-        return 6U;
-    case MOTOR_CONTROL_OPEN_VOLTAGE:
-        return 9U;
-    case MOTOR_CONTROL_OPEN_CURRENT:
-        return 10U;
-    default:
-        return 0U;
-    }
+    return (unsigned)mode < sizeof(s_wire_modes) ? s_wire_modes[mode] : 0U;
 }
 
 static uint8_t protocol_state(MotorState state)
@@ -327,7 +308,7 @@ void AppProtocol_Refresh(AppProtocol *adapter)
 {
     MotorStatus status = MotorLifecycle_ReadStatus(adapter->lifecycle);
     adapter->status.faults = fault_bits((MotorFaultCode)status.fault);
-    adapter->status.mode = protocol_mode((MotorControlMode)status.mode);
+    adapter->status.mode = encode_control_mode((MotorControlMode)status.mode);
     adapter->status.state = status.fault != MOTOR_FAULT_NONE ? 8U : protocol_state(status.state);
     adapter->status.sample_available = true;
     ProtocolFeedback *values = &adapter->status.measurements;

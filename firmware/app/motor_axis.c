@@ -80,7 +80,7 @@ void MotorAxis_Init(MotorAxis *axis)
                                                           &axis->rotor_encoder,
                                                           &axis->observer,
                                                           &axis->startup};
-    axis->calibration.life = &axis->lifecycle;
+    axis->calibration.lifecycle = &axis->lifecycle;
     axis->calibration.outer = &axis->outer;
     axis->calibration.hall = &axis->linear_hall;
     axis->calibration.output = &axis->output_encoder;

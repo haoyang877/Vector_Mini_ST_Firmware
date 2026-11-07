@@ -60,29 +60,20 @@ void App_Init(AppContext *app)
     MotorAxis_Init(&app->axis);
     AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.lifecycle);
 
-    /* 创建CAN协议运行时并固定本机节点地址，此时不启动CAN硬件。 */
-    app->communication_ready = Protocol_Init(&app->endpoint, MotorAxis_NodeId(&app->axis));
-    if (app->communication_ready)
-    {
-        /* 设置主机可读取的设备身份、版本和能力信息。 */
-        app->communication_ready = bind_device_description(app);
-    }
-    app->loader.life = &app->axis.lifecycle;
+    app->communication_ready =
+        Protocol_Init(&app->endpoint, MotorAxis_NodeId(&app->axis)) && bind_device_description(app);
+    app->loader.lifecycle = &app->axis.lifecycle;
     app->loader.endpoint = &app->endpoint;
     app->loader.communication_ready = &app->communication_ready;
     app->loader.read_node_id = read_node_id;
     app->loader.publish_identity = publish_identity;
     app->loader.identity_context = app;
-    if (app->communication_ready)
-    {
-        AppLoader_Init(&app->loader);
-    }
-
     if (!app->communication_ready)
     {
-        /* 初始化失败不能留下已启动但无通信入口的功率输出。 */
         app->axis.hardware->power.disable();
+        return;
     }
+    AppLoader_Init(&app->loader);
 }
 
 /**
@@ -91,11 +82,7 @@ void App_Init(AppContext *app)
  */
 void App_Start(AppContext *app)
 {
-    /* 初始化成功后才启动CAN硬件，并保存启动结果。 */
-    if (app->communication_ready)
-    {
-        app->communication_ready = Protocol_Start(&app->endpoint);
-    }
+    app->communication_ready = app->communication_ready && Protocol_Start(&app->endpoint);
     if (!app->communication_ready)
     {
         app->axis.hardware->power.disable();

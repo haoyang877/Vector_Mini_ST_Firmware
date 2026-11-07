@@ -6,7 +6,7 @@
 /** @brief 一次上电内的 Loader 停机票据与健康确认状态。 */
 typedef struct
 {
-    MotorLifecycle *life;
+    MotorLifecycle *lifecycle;
     ProtocolEndpoint *endpoint;
     const bool *communication_ready;
     uint8_t (*read_node_id)(void *context);

@@ -10,7 +10,7 @@
 typedef struct
 {
     EncoderCalibrationControl drive;
-    MotorLifecycle *life;
+    MotorLifecycle *lifecycle;
     MotorOuterLoop *outer;
     LinearHall *hall;
     OutputEncoder *output;
@@ -27,20 +27,20 @@ typedef struct
 
 /**
  * @brief 推进当前轴的一次快拍标定。
- * @param cal 当前轴独占的标定会话。
+ * @param calibration 当前轴独占的标定会话。
  * @return 本拍任务结果，由调用方按原代际提交。
  * @note 仅 ADC 快拍调用。
  */
-MotorTaskResult MotorCalibration_StepFast(MotorCalibration *cal);
+MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration);
 
 /**
  * @brief 在停机前台发布原会话的标定结果并保存参数。
- * @param cal 当前轴的候选和本机记录。
+ * @param calibration 当前轴的候选和本机记录。
  * @param progress 长计算期间的健康服务。
  * @param progress_context 健康服务所属的应用实例。
  * @note 在最终提交前复核原代际及数字关相，Flash 回读失败锁存故障。
  */
-void MotorCalibration_ProcessPublication(MotorCalibration *cal,
+void MotorCalibration_ProcessPublication(MotorCalibration *calibration,
                                          OutputEncoderCalibrationProgress progress,
                                          void *progress_context);
 #endif

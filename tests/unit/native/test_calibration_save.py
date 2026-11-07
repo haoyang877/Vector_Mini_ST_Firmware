@@ -118,13 +118,13 @@ void observed_upload(InterfaceParam *record, const MotorConfiguration *configura
 """
         + "\n#define Param_Upload observed_upload\n"
         + "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(axis, "advance_joint_lut")
+        + function_source(axis, "publish_joint_lut_when_stopped")
         + "\n#endif\n"
         + function_source(axis, "MotorCalibration_ProcessPublication")
         + r"""
 #undef Param_Upload
 static void reset(void) {
- calibration = (MotorCalibration){.write_record=BspFlash_Write,.life=&life, .drive={.configuration=&s_motor_configuration,.encoder=&s_rotor_encoder,.motor=&s_motor_state}, .record=&s_axis_record, .output=&s_output_encoder};
+ calibration = (MotorCalibration){.write_record=BspFlash_Write,.lifecycle=&life, .drive={.configuration=&s_motor_configuration,.encoder=&s_rotor_encoder,.motor=&s_motor_state}, .record=&s_axis_record, .output=&s_output_encoder};
 #if BSP_ENABLED_LINEAR_HALL
  calibration.hall=&s_linear_hall;
 #endif

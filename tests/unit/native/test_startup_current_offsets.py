@@ -49,7 +49,7 @@ def main() -> None:
     production += function_source(calibration, "MotorCalibration_StepFast")
     production += (
         "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(calibration, "advance_joint_lut")
+        + function_source(calibration, "publish_joint_lut_when_stopped")
         + "\n#endif\n"
     )
     production += function_source(calibration, "MotorCalibration_ProcessPublication")

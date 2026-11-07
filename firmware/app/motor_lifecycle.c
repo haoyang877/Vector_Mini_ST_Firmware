@@ -347,6 +347,88 @@ MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *life, MotorContr
     return result;
 }
 
+static bool dq_target_within_limit(float d, float q, float limit)
+{
+    return isfinite(limit) && limit > 0.0f && d * d + q * q <= limit * limit;
+}
+
+/* 调用方已在全中断临界区核对运行状态和模式。先验证所有字段，再发布该模式的目标。 */
+static MotorControlResult apply_running_target(const MotorLifecycleBindings *drive,
+                                               const MotorTarget *target)
+{
+    MotorControlMode mode = (MotorControlMode)target->mode;
+    bool current_mode = mode == MOTOR_CONTROL_CURRENT || mode == MOTOR_CONTROL_OPEN_CURRENT;
+    bool voltage_mode = MotorControlMode_IsVoltage(mode);
+    bool open_loop = MotorControlMode_IsOpenLoop(mode);
+    if ((mode != MOTOR_CONTROL_POSITION && target->position_rad != 0.0f) ||
+        (mode != MOTOR_CONTROL_SPEED && target->speed_rad_s != 0.0f) ||
+        (!current_mode && target->iq_a != 0.0f) || (!voltage_mode && target->vq_v != 0.0f) ||
+        (!open_loop && target->frequency_hz != 0.0f) ||
+        (mode != MOTOR_CONTROL_OPEN_CURRENT && target->id_a != 0.0f) ||
+        (mode != MOTOR_CONTROL_OPEN_VOLTAGE && target->vd_v != 0.0f))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+
+    const MotorConfiguration *configuration = drive->configuration;
+    MotorControlState *motor = drive->motor;
+    if (open_loop &&
+        !(fabsf(target->frequency_hz) <=
+          MotorConfiguration_OpenLoopLimitHz(configuration, MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ)))
+    {
+        return MOTOR_CONTROL_OUT_OF_RANGE;
+    }
+    if (current_mode)
+    {
+        float limit_a = configuration->application.current_limit_a;
+        if (motor->thermal_limit_active)
+        {
+            limit_a = fminf(limit_a, motor->thermal_current_limit_a);
+        }
+        if (!dq_target_within_limit(target->id_a, target->iq_a, limit_a))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        motor->id_target_a = target->id_a;
+        motor->iq_target_a = target->iq_a;
+    }
+    else if (voltage_mode)
+    {
+        float limit_v = Foc_MaxVoltage(drive->foc->bus_voltage_filtered_v);
+        if (!dq_target_within_limit(target->vd_v, target->vq_v, limit_v))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        motor->vd_target_v = target->vd_v;
+        motor->vq_target_v = target->vq_v;
+    }
+    else if (mode == MOTOR_CONTROL_SPEED)
+    {
+        float limit_rad_s = configuration->application.speed_limit_rad_s;
+        if (!isfinite(limit_rad_s) || fabsf(target->speed_rad_s) > limit_rad_s)
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        motor->speed_target_rad_s = target->speed_rad_s;
+    }
+    else
+    {
+        if (!MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
+                                             configuration->application.axis_profile_valid,
+                                             Encoder_GetMechPos(drive->rotor_encoder),
+                                             target->position_rad))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        motor->position_target_rad = target->position_rad;
+    }
+    if (open_loop)
+    {
+        motor->open_loop_frequency_hz = target->frequency_hz;
+    }
+    return MOTOR_CONTROL_ACCEPTED;
+}
+
 MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTarget *target)
 {
     if (target == NULL || !MotorControlMode_IsValid((MotorControlMode)target->mode) ||
@@ -356,80 +438,17 @@ MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTar
     {
         return MOTOR_CONTROL_INVALID;
     }
+
     uint32_t mask = BspSystem_EnterCritical();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    MotorControlState *motor = life->drive.motor;
-    if (motor->fault_code != MOTOR_FAULT_NONE)
+    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
     {
         result = MOTOR_CONTROL_FAULT;
     }
     else if (life->state == MOTOR_STATE_RUNNING && !life->stop_pending && !life->starts_locked &&
-             target->mode == motor->control_mode)
+             target->mode == life->drive.motor->control_mode)
     {
-        float current_limit = life->drive.configuration->application.current_limit_a;
-        float voltage_limit = Foc_MaxVoltage(life->drive.foc->bus_voltage_filtered_v);
-        bool current =
-            target->mode == MOTOR_CONTROL_CURRENT || target->mode == MOTOR_CONTROL_OPEN_CURRENT;
-        bool voltage =
-            target->mode == MOTOR_CONTROL_VQ || target->mode == MOTOR_CONTROL_OPEN_VOLTAGE;
-        bool speed = target->mode == MOTOR_CONTROL_SPEED;
-        bool position = target->mode == MOTOR_CONTROL_POSITION;
-        bool open = MotorControlMode_IsOpenLoop((MotorControlMode)target->mode);
-        if (motor->thermal_limit_active)
-        {
-            current_limit = fminf(current_limit, motor->thermal_current_limit_a);
-        }
-        bool fields = (position || target->position_rad == 0.0f) &&
-                      (speed || target->speed_rad_s == 0.0f) && (current || target->iq_a == 0.0f) &&
-                      (voltage || target->vq_v == 0.0f) && (open || target->frequency_hz == 0.0f) &&
-                      (target->mode == MOTOR_CONTROL_OPEN_CURRENT || target->id_a == 0.0f) &&
-                      (target->mode == MOTOR_CONTROL_OPEN_VOLTAGE || target->vd_v == 0.0f);
-        bool range =
-            (!current || (isfinite(current_limit) && current_limit > 0.0f &&
-                          target->id_a * target->id_a + target->iq_a * target->iq_a <=
-                              current_limit * current_limit)) &&
-            (!voltage || (isfinite(voltage_limit) && voltage_limit > 0.0f &&
-                          target->vd_v * target->vd_v + target->vq_v * target->vq_v <=
-                              voltage_limit * voltage_limit)) &&
-            (!speed || (isfinite(life->drive.configuration->application.speed_limit_rad_s) &&
-                        fabsf(target->speed_rad_s) <=
-                            life->drive.configuration->application.speed_limit_rad_s)) &&
-            (!position || MotorAxisProfile_AllowsPosition(
-                              &life->drive.configuration->application.axis_profile,
-                              life->drive.configuration->application.axis_profile_valid,
-                              Encoder_GetMechPos(life->drive.rotor_encoder),
-                              target->position_rad)) &&
-            (!open || fabsf(target->frequency_hz) <=
-                          MotorConfiguration_OpenLoopLimitHz(life->drive.configuration,
-                                                             MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ));
-        result = !fields  ? MOTOR_CONTROL_INVALID
-                 : !range ? MOTOR_CONTROL_OUT_OF_RANGE
-                          : MOTOR_CONTROL_ACCEPTED;
-        if (result == MOTOR_CONTROL_ACCEPTED)
-        {
-            if (current)
-            {
-                motor->id_target_a = target->id_a;
-                motor->iq_target_a = target->iq_a;
-            }
-            if (voltage)
-            {
-                motor->vd_target_v = target->vd_v;
-                motor->vq_target_v = target->vq_v;
-            }
-            if (open)
-            {
-                motor->open_loop_frequency_hz = target->frequency_hz;
-            }
-            if (speed)
-            {
-                motor->speed_target_rad_s = target->speed_rad_s;
-            }
-            if (position)
-            {
-                motor->position_target_rad = target->position_rad;
-            }
-        }
+        result = apply_running_target(&life->drive, target);
     }
     BspSystem_ExitCritical(mask);
     return result;
@@ -684,25 +703,25 @@ void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work
     bool configuration_valid = ParameterValue_ConfigurationValid(life->drive.configuration);
     uint32_t mask = BspSystem_EnterControlCritical();
     consume_stop(life);
-    bool same =
+    bool same_session =
         work->epoch == life->epoch && work->motor.control_mode == life->drive.motor->control_mode;
-    if (work->allowed && same && work->motor.fault_code != MOTOR_FAULT_NONE)
+    if (work->allowed && same_session && work->motor.fault_code != MOTOR_FAULT_NONE)
     {
         MotorFault_Report(life->drive.motor, (MotorFaultCode)work->motor.fault_code);
     }
     check_running_conditions(life, configuration_valid);
-    bool outer = life->drive.motor->control_mode == MOTOR_CONTROL_SPEED ||
-                 life->drive.motor->control_mode == MOTOR_CONTROL_POSITION;
-    bool ready = !outer || MotorOuterLoop_IsReady(life->drive.outer);
-    bool can_enable = ready && life->state == MOTOR_STATE_IDLE && life->enable_pending &&
+    bool uses_outer_loop = life->drive.motor->control_mode == MOTOR_CONTROL_SPEED ||
+                           life->drive.motor->control_mode == MOTOR_CONTROL_POSITION;
+    bool outer_ready = !uses_outer_loop || MotorOuterLoop_IsReady(life->drive.outer);
+    bool can_enable = outer_ready && life->state == MOTOR_STATE_IDLE && life->enable_pending &&
                       output_inputs_valid(life);
     /* ADC 可抢占控制临界区。代际、STOP、故障的最终复核和写入必须在同一全屏蔽区。 */
-    uint32_t commit = BspSystem_EnterCritical();
-    bool valid = work->allowed && work->epoch == life->epoch &&
-                 work->motor.control_mode == life->drive.motor->control_mode &&
-                 life->drive.motor->fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
-                 !life->starts_locked;
-    if (valid && outer && ready)
+    uint32_t interrupt_mask = BspSystem_EnterCritical();
+    bool can_commit = work->allowed && work->epoch == life->epoch &&
+                      work->motor.control_mode == life->drive.motor->control_mode &&
+                      life->drive.motor->fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
+                      !life->starts_locked;
+    if (can_commit && uses_outer_loop && outer_ready)
     {
         MotorControlState *motor = life->drive.motor;
         motor->id_target_a = work->motor.id_target_a;
@@ -717,13 +736,13 @@ void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work
             work->motor.position_trajectory_acceleration_rad_s2;
         *life->drive.speed_pi = work->speed_pi;
     }
-    if (valid && can_enable)
+    if (can_commit && can_enable)
     {
         BspSystem_MemoryBarrier();
         life->power_enable_epoch = work->epoch;
     }
-    BspSystem_ExitCritical(commit);
-    if (!valid && work->allowed)
+    BspSystem_ExitCritical(interrupt_mask);
+    if (!can_commit && work->allowed)
     {
         MotorOuterLoop_RequestReset(life->drive.outer);
     }

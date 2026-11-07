@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--reference-source", type=Path, help="含原生测试的基线源码树中的 app.c")
     args = parser.parse_args()
+    args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
     fixture = Path(__file__).with_name("app_orchestration_fixture.c").read_text(encoding="utf-8")
     current = (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")

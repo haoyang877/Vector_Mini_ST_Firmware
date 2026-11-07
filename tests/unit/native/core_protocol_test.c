@@ -14,6 +14,7 @@ static unsigned starts, target_calls;
 static bool stop_allowed = true, stopped = true;
 static uint32_t target_epoch = 1U;
 static MotorTarget last_target;
+static MotorControlMode reported_mode = MOTOR_CONTROL_NONE;
 static unsigned calibration_requests;
 static MotorControlResult start_result = MOTOR_CONTROL_ACCEPTED;
 static MotorControlResult calibration_result = MOTOR_CONTROL_ACCEPTED;
@@ -42,7 +43,7 @@ MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *instance)
 {
     (void)instance;
     return (MotorStatus){
-        .state = MOTOR_STATE_IDLE, .mode = MOTOR_CONTROL_NONE, .fault = MOTOR_FAULT_NONE};
+        .state = MOTOR_STATE_IDLE, .mode = reported_mode, .fault = MOTOR_FAULT_NONE};
 }
 
 MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,
@@ -169,6 +170,40 @@ static void test_calibration_protocol(void)
     assert(YgProtocol_ReadU32Le(response.data + 4U) == 4U);
 }
 
+static void test_target_mode_mapping(void)
+{
+    static const struct
+    {
+        uint8_t wire;
+        MotorControlMode mode;
+    } modes[] = {{1, MOTOR_CONTROL_CURRENT},
+                 {2, MOTOR_CONTROL_SPEED},
+                 {3, MOTOR_CONTROL_POSITION},
+                 {6, MOTOR_CONTROL_VQ},
+                 {9, MOTOR_CONTROL_OPEN_VOLTAGE},
+                 {10, MOTOR_CONTROL_OPEN_CURRENT}};
+    ProtocolReply reply;
+    for (unsigned i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i)
+    {
+        ProtocolCommand request = {.mode = modes[i].wire, .sequence = (uint16_t)(i + 1)};
+        reported_mode = modes[i].mode;
+        endpoint.motor.target(endpoint.motor.context, &request, &reply);
+        assert(reply.status == PROTOCOL_OK && last_target.mode == modes[i].mode);
+        assert(adapter.status.mode == modes[i].wire);
+    }
+    unsigned calls_before = target_calls;
+    ProtocolCommand request = {.mode = 0U, .sequence = 7U};
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
+    assert(reply.status == PROTOCOL_UNSUPPORTED && target_calls == calls_before);
+    request.mode = 1U;
+    request.sequence = (uint16_t)(adapter.last_target.sequence + 0x8000U);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
+    assert(reply.status == PROTOCOL_DENIED && target_calls == calls_before);
+    --request.sequence;
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
+    assert(reply.status == PROTOCOL_OK && target_calls == calls_before + 1U);
+}
+
 int main(void)
 {
     AppProtocol_Init(&adapter, &endpoint, &life);
@@ -246,6 +281,7 @@ int main(void)
     print_vector("target_unsupported", encoded_reply.data, encoded_reply.length);
     endpoint.motor.clear_fault(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK);
+    test_target_mode_mapping();
     puts("PASS core protocol: three calibration kinds, wire guards, result mapping, START and "
          "unsupported operations");
     return 0;

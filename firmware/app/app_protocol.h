@@ -10,8 +10,8 @@ typedef struct
     MotorLifecycle *lifecycle;
     ProtocolMotorStatus status;
     ProtocolCommand last_target;
-    uint32_t target_epoch, calibration_request_number, stop_token;
-    bool target_valid, stop_confirmed;
+    uint32_t last_target_epoch, calibration_request_number, stop_token;
+    bool has_last_target, stop_confirmed;
 } AppProtocol;
 
 /**

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "pi_controller.h"
 
 /* 基础串级配置：位置 rad、速度 rad/s、时间 s、电流 A；旧速度增益仍乘电流上限。 */
 typedef struct
@@ -22,6 +23,17 @@ typedef struct
     float current_limit_a;
 } PositionCascadeConfig;
 
+/** @brief 一根轴独占的位置控制器；零初始化后串行推进。 */
+typedef struct
+{
+    PositionCascadeConfig config;
+    PiController speed_controller;
+    float filtered_speed_rad_s;
+    float velocity_filter_alpha;
+    uint16_t loop_count;
+    bool configured;
+} PositionCascadeState;
+
 /* 串级输出；position_reference 为本拍所跟踪的位置。 */
 typedef struct
 {
@@ -40,8 +52,10 @@ typedef struct
  * @param output 非空结果空间；仅在成功时填充。
  * @return 输入及计算有效返回 true，否则返回 false，不发布新结果。
  * @note 单实例串行调用，无硬件访问；下调限流立即生效，配置更新不清支撑积分。
+ * @param state 调用方持有的实例状态。
  */
-bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControl(PositionCascadeState *state,
+                                   const PositionCascadeConfig *config,
                                    float measured_position,
                                    float measured_speed,
                                    PositionCascadeControlOutput *output);
@@ -55,8 +69,10 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
  * @param output 非空结果；失败时不发布新结果。
  * @return 输入和计算有效返回true。
  * @note 仅串行外环调用；额度立即约束PI饱和及积分跟踪，不改变速度增益。
+ * @param state 调用方持有的实例状态。
  */
-bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
+                                          const PositionCascadeConfig *config,
                                           float measured_position,
                                           float measured_speed,
                                           float available_current_a,
@@ -70,8 +86,10 @@ bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
  * @param output 非空结果空间；仅在成功时填充。
  * @return 已配置且输入/计算有效返回 true，否则返回 false。
  * @note 单实例串行调用；调参须先通过 UpdateControl，目标改变不复位 PI 或速度滤波。
+ * @param state 调用方持有的实例状态。
  */
-bool PositionCascade_UpdateTargetControl(float target_position,
+bool PositionCascade_UpdateTargetControl(PositionCascadeState *state,
+                                         float target_position,
                                          float measured_position,
                                          float measured_speed,
                                          PositionCascadeControlOutput *output);
@@ -79,14 +97,16 @@ bool PositionCascade_UpdateTargetControl(float target_position,
 /**
  * @brief 清零 PI、滤波和分频状态，撤销配置有效性。
  * @note 单实例串行调用；用于启动/模式重置，不执行硬件操作。
+ * @param state 调用方持有的实例状态。
  */
-void PositionCascade_Reset(void);
+void PositionCascade_Reset(PositionCascadeState *state);
 
 /**
  * @brief 借用最近有效的基础配置。
  * @return 已配置时返回只读借用地址，否则返回 NULL。
  * @note 地址内容仅在下一更新或 Reset 前有效，不可修改；单实例串行调用。
+ * @param state 当前实例的级联状态。
  */
-const PositionCascadeConfig *PositionCascade_GetConfiguration(void);
+const PositionCascadeConfig *PositionCascade_GetConfiguration(const PositionCascadeState *state);
 
 #endif

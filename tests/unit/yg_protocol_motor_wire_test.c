@@ -10,14 +10,16 @@
 bool test_application_capabilities(void);
 
 static unsigned open_loop_calls[2];
-static void open_loop_start(const ProtocolCommand *request, ProtocolReply *reply)
+static void open_loop_start(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     CHECK(request->mode == 9U || request->mode == 10U);
     ++open_loop_calls[0];
     reply->status = PROTOCOL_OK;
 }
-static void open_loop_target(const ProtocolCommand *request, ProtocolReply *reply)
+static void open_loop_target(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     CHECK(request->mode == 9U || request->mode == 10U);
     ++open_loop_calls[1];
     reply->status = PROTOCOL_OK;
@@ -57,7 +59,7 @@ static void test_open_loop_vectors(void)
     CHECK(decode_target_command(&message, &decoded) == YG_PROTOCOL_INVALID_LENGTH);
     CHECK(test_reset_protocol(3U));
     memset(open_loop_calls, 0, sizeof(open_loop_calls));
-    s_test_motor = (ProtocolMotor){.start = open_loop_start, .target = open_loop_target};
+    endpoint.motor = (ProtocolMotor){.start = open_loop_start, .target = open_loop_target};
     uint8_t start_payload[4] = {9, 0, 0, 0};
     ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
                                              .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
@@ -67,33 +69,33 @@ static void test_open_loop_vectors(void)
                                              .message_type = PROTOCOL_START,
                                              .payload_length = 4U,
                                              .payload = start_payload}};
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     CHECK(open_loop_calls[0] == 1U && exchange.reply.data[0] == 0U);
     start_payload[0] = 10U;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
     start_payload[0] = 7U;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
     CHECK(exchange.reply.data[0] == 2U);
     for (size_t i = 1U; i < sizeof(start_payload); ++i)
     {
         start_payload[i] = 1U;
-        CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+        CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
         CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD && open_loop_calls[0] == 2U);
         start_payload[i] = 0U;
     }
     exchange.request.payload_length = 1U;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH && open_loop_calls[0] == 2U);
     exchange.request.message_type = PROTOCOL_CONTROL;
     exchange.request.payload_length = 32U;
     exchange.request.payload = voltage;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     CHECK(open_loop_calls[1] == 1U && open_loop_calls[0] == 2U && exchange.reply.data[0] == 0U);
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 2U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 2U);
     memcpy(invalid, voltage, sizeof(invalid));
     invalid[20] ^= 1U;
     exchange.request.payload = invalid;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 3U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 3U);
     CHECK(exchange.reply.data[0] == 0U);
     printf("PASS v0.3 open-loop golden payloads, SI mapping, lengths, start whitelist and "
            "extended-payload replay\n");

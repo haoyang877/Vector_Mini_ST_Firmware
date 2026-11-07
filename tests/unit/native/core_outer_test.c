@@ -11,6 +11,8 @@
 #include "speed_control.h"
 #include "application_config.h"
 
+static MotorOuterLoop outer;
+
 static MotorConfiguration s_configuration;
 static MotorControlState s_motor;
 static PiController s_pi;
@@ -107,16 +109,19 @@ void Foc_RunVq(const MotorConfiguration *configuration,
 {
     Foc_RunCurrent(configuration, foc, motor, phase, speed);
 }
-void PositionCascade_Reset(void)
+void PositionCascade_Reset(PositionCascadeState *instance)
 {
+    (void)instance;
     ++s_resets;
 }
-bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControlLimited(PositionCascadeState *instance,
+                                          const PositionCascadeConfig *config,
                                           float position,
                                           float speed,
                                           float available_current_a,
                                           PositionCascadeControlOutput *output)
 {
+    (void)instance;
     ++s_updates;
     s_config = *config;
     if (!s_core_valid)
@@ -161,12 +166,12 @@ static void setup(MotorControlMode mode)
     s_configuration.application.cascade_position_kd = 2.0f;
     s_motor.position_target_rad = 0.3f;
     s_motor.speed_target_rad_s = 0.2f;
-    MotorOuterLoop_RequestReset();
+    MotorOuterLoop_RequestReset(&outer);
 }
 static void tick_without_foreground(void)
 {
     MotorConfiguration before = s_configuration;
-    MotorOuterLoop_SlowTick(&s_configuration, &s_motor, &s_pi, &s_encoder);
+    MotorOuterLoop_SlowTick(&outer, &s_configuration, &s_motor, &s_pi, &s_encoder);
     CHECK(memcmp(&before, &s_configuration, sizeof(before)) == 0);
 }
 
@@ -174,10 +179,10 @@ static void tick(void)
 {
     tick_without_foreground();
     MotorPositionPlan plan;
-    if (MotorOuterLoop_TakePositionPlan(&plan))
+    if (MotorOuterLoop_TakePositionPlan(&outer, &plan))
     {
         bool ok = MotorOuterLoop_BuildPositionPlan(&plan);
-        MotorOuterLoop_PublishPositionPlan(&plan, ok);
+        MotorOuterLoop_PublishPositionPlan(&outer, &plan, ok);
     }
 }
 
@@ -185,7 +190,7 @@ static void check_configuration(void)
 {
     setup(MOTOR_CONTROL_POSITION);
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == 4.0f);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 4.0f);
     CHECK(s_config.call_divider == 1U && s_config.update_period_s == SPEED_LOOP_TS_S);
     CHECK(s_config.target_position == 0.3f &&
           s_config.velocity_filter_hz ==
@@ -233,7 +238,7 @@ static void check_validation(void)
         memcpy((char *)&s_configuration + offsets[i], &invalid, sizeof(invalid));
         tick();
         CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
-        CHECK(s_motor.iq_target_a == 0.0f && !MotorOuterLoop_IsReady());
+        CHECK(s_motor.iq_target_a == 0.0f && !MotorOuterLoop_IsReady(&outer));
     }
     /* 最终目标与实测位置均在界内，但已有速度使本拍参考越过上界。 */
     setup(MOTOR_CONTROL_POSITION);
@@ -278,10 +283,10 @@ static void check_runtime(void)
         setup((MotorControlMode)mode);
         tick();
         unsigned resets = s_resets;
-        MotorOuterLoop_RequestReset();
-        CHECK(!MotorOuterLoop_IsReady());
+        MotorOuterLoop_RequestReset(&outer);
+        CHECK(!MotorOuterLoop_IsReady(&outer));
         tick();
-        CHECK(s_resets > resets && MotorOuterLoop_IsReady());
+        CHECK(s_resets > resets && MotorOuterLoop_IsReady(&outer));
         s_motor.fault_code = MOTOR_FAULT_OVERCURRENT;
         s_motor.iq_target_a = 0.0f;
         tick();
@@ -298,10 +303,11 @@ static void check_runtime(void)
     {
         tick();
     }
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a > 0.0f && s_motor.iq_target_a <= 0.5f);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a > 0.0f &&
+          s_motor.iq_target_a <= 0.5f);
     s_configuration.application.current_limit_a = 0.0f;
     tick();
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 0.0f);
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
     setup(MOTOR_CONTROL_POSITION);
     s_motor.position_target_rad = 0.6f;
@@ -330,7 +336,7 @@ static void check_runtime(void)
         CHECK(fabsf(acceleration - last_acceleration) <=
               10.0f * CASCADE_POSITION_LOOP_TS_S + 0.0006f);
         last_acceleration = acceleration;
-        CHECK(MotorOuterLoop_IsReady() &&
+        CHECK(MotorOuterLoop_IsReady(&outer) &&
               fabsf(s_motor.speed_ramped_rad_s) <=
                   s_configuration.application.position_maximum_speed_rad_s);
     }
@@ -340,17 +346,17 @@ static void check_runtime(void)
     setup(MOTOR_CONTROL_POSITION);
     tick_without_foreground();
     MotorPositionPlan stale;
-    CHECK(MotorOuterLoop_TakePositionPlan(&stale));
-    MotorOuterLoop_RequestReset();
+    CHECK(MotorOuterLoop_TakePositionPlan(&outer, &stale));
+    MotorOuterLoop_RequestReset(&outer);
     tick_without_foreground();
     MotorPositionPlan fresh;
-    CHECK(MotorOuterLoop_TakePositionPlan(&fresh) && fresh.serial != stale.serial);
-    MotorOuterLoop_PublishPositionPlan(&stale, MotorOuterLoop_BuildPositionPlan(&stale));
+    CHECK(MotorOuterLoop_TakePositionPlan(&outer, &fresh) && fresh.serial != stale.serial);
+    MotorOuterLoop_PublishPositionPlan(&outer, &stale, MotorOuterLoop_BuildPositionPlan(&stale));
     for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 250U; ++i)
     {
         tick_without_foreground();
     }
-    CHECK(s_motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && !MotorOuterLoop_IsReady() &&
+    CHECK(s_motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && !MotorOuterLoop_IsReady(&outer) &&
           s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_CURRENT);
     FocState foc = {0};
@@ -441,7 +447,7 @@ static void check_feedforward_runtime(void)
 
     start_feedforward();
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.uses_speed_ramp);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.uses_speed_ramp);
     CHECK(fabsf(s_motor.speed_ramped_rad_s - 0.00005f) < 0.00000001f);
     CHECK(fabsf(s_motor.iq_target_a - 0.0201002f) < 0.0000001f);
     float first_speed = s_motor.speed_ramped_rad_s;
@@ -450,22 +456,22 @@ static void check_feedforward_runtime(void)
     {
         tick();
     }
-    MotorOuterLoop_RequestReset();
-    CHECK(!MotorOuterLoop_IsReady());
+    MotorOuterLoop_RequestReset(&outer);
+    CHECK(!MotorOuterLoop_IsReady(&outer));
     tick();
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
 
     /* STOP/NONE、故障、切入位置再返回，均不能沿用旧规划与积分。 */
     s_motor.control_mode = MOTOR_CONTROL_NONE;
     tick();
-    CHECK(!MotorOuterLoop_IsReady());
+    CHECK(!MotorOuterLoop_IsReady(&outer));
     s_motor.control_mode = MOTOR_CONTROL_SPEED;
     tick();
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
     s_motor.fault_code = MOTOR_FAULT_OVERCURRENT;
     s_motor.iq_target_a = 0.0f;
     tick();
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 0.0f);
     s_motor.fault_code = MOTOR_FAULT_NONE;
     tick();
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
@@ -515,18 +521,19 @@ static void check_feedforward_runtime(void)
     s_configuration.application.speed_feedforward.gain_a_per_rad_s2 = NAN;
     tick();
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.id_target_a == 0.0f && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.id_target_a == 0.0f &&
+          s_motor.iq_target_a == 0.0f);
     start_feedforward();
     tick();
     s_pi.integral_output = NAN;
     tick();
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_SPEED);
     s_configuration.application.current_limit_a = 0.5f;
     s_speed_rad_s = 100.0f;
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == -0.5f);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == -0.5f);
     CHECK(s_pi.proportional_gain == 0.5f && s_pi.integral_gain == 2.0f);
 }
 

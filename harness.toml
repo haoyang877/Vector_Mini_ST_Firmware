@@ -79,17 +79,13 @@ allows = ["motor_math", "platform_api", "motor", "shared", "platform_config", "a
 paths = ["firmware/parameters"]
 allows = ["motor_math", "platform_api", "motor", "parameters", "shared", "platform_config", "app_config"]
 
-[architecture.layers.app_interfaces]
-paths = ["firmware/app/interfaces"]
-allows = ["motor", "app_interfaces"]
-
 [architecture.layers.communication]
 paths = ["firmware/communication"]
-allows = ["platform_api", "motor", "parameters", "app_interfaces", "communication", "shared"]
+allows = ["platform_api", "motor", "parameters", "communication", "shared"]
 
 [architecture.layers.app]
 paths = ["firmware/app"]
-allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters", "app_interfaces", "communication", "app", "shared", "platform_config", "app_config"]
+allows = ["target_profile", "motor_math", "platform_api", "motor", "parameters", "communication", "app", "shared", "platform_config", "app_config"]
 
 [architecture.layers.platform_stm32]
 paths = ["firmware/platform/bsp/mcu/stm32g4"]
@@ -110,7 +106,7 @@ allows = ["platform_interrupt_map", "platform_api", "app", "cubemx", "platform_c
 
 [architecture.layers.at32_application]
 paths = ["projects/at32f456/application"]
-allows = ["at32_application", "platform_interrupt_map", "platform_api", "platform_at32", "platform_config", "app", "app_interfaces", "motor", "parameters", "target_profile", "communication", "app_config"]
+allows = ["at32_application", "platform_interrupt_map", "platform_api", "platform_at32", "platform_config", "app", "motor", "parameters", "target_profile", "communication", "app_config"]
 
 [architecture.layers.at32_foundation]
 paths = ["tests/bench/at32f456"]
@@ -119,7 +115,7 @@ allows = ["platform_internal", "platform_api", "platform_at32", "platform_config
 
 [architecture.layers.cubemx]
 paths = ["firmware/platform/bsp/mcu/stm32g4/generated/Core"]
-allows = ["platform_api", "motor", "parameters", "app_interfaces", "communication", "app", "platform_stm32", "cubemx", "platform_config"]
+allows = ["platform_api", "motor", "parameters", "communication", "app", "platform_stm32", "cubemx", "platform_config"]
 
 [architecture.layers.loader_api]
 paths = ["loader/ports/include"]

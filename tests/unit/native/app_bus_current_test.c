@@ -9,46 +9,57 @@
 #include "../../../firmware/communication/yg_protocol_boot.c"
 #include "app_protocol.h"
 
-#define s_bound Protocol_Motor.status
+static ProtocolEndpoint endpoint;
+static AppProtocol adapter;
+static MotorLifecycle life;
+#define s_bound endpoint.motor.status
 static MotorStatus s_status;
 
-MotorStatus MotorLifecycle_ReadStatus(void)
+MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *instance)
 {
+    (void)instance;
     return s_status;
 }
 
-bool BspPwm_ArePhasesDisabled(void)
+bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
 {
+    (void)life;
     return true;
 }
-bool MotorLifecycle_RequestRemoteStop(void)
+bool MotorLifecycle_RequestRemoteStop(MotorLifecycle *instance)
 {
+    (void)instance;
     return true;
 }
-MotorControlResult MotorLifecycle_RequestEnable(MotorControlMode mode)
+MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *instance, MotorControlMode mode)
 {
+    (void)instance;
     (void)mode;
     return MOTOR_CONTROL_DENIED;
 }
-MotorControlResult MotorLifecycle_RequestCalibration(MotorCalibrationType type)
+MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,
+                                                     MotorCalibrationType type)
 {
+    (void)instance;
     (void)type;
     return MOTOR_CONTROL_DENIED;
 }
-MotorControlResult MotorLifecycle_RequestClear(void)
+MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *instance)
 {
+    (void)instance;
     return MOTOR_CONTROL_DENIED;
 }
 
 int main(void)
 {
-    assert(Protocol_Init(1U));
+    AppProtocol_Init(&adapter, &endpoint, &life);
+    assert(Protocol_Init(&endpoint, 1U));
     const uint8_t states[] = {5U, 3U, 4U, 6U, 8U};
     for (unsigned i = 0; i <= MOTOR_STATE_FAULT; ++i)
     {
         s_status = (MotorStatus){
             .state = (MotorState)i, .mode = MOTOR_CONTROL_SPEED, .fault = MOTOR_FAULT_NONE};
-        AppProtocol_Refresh();
+        AppProtocol_Refresh(&adapter);
         assert(s_bound->state == states[i] && s_bound->mode == 2U && s_bound->sample_available);
         ProtocolFeedback feedback;
         assert(Protocol_BuildFeedback(s_bound, 1U, 0U, 0U, &feedback) == YG_PROTOCOL_OK);
@@ -69,7 +80,7 @@ int main(void)
                              .temperature_c = 25.5f,
                              .vq_v = -1.5f,
                              .vd_v = 0.0625f};
-    AppProtocol_Refresh();
+    AppProtocol_Refresh(&adapter);
     ProtocolFeedback live;
     assert(Protocol_BuildFeedback(s_bound, 1U, 0U, 123U, &live) == YG_PROTOCOL_OK);
     assert(live.valid_bits == 0x0DFAU && live.actual_position_mrad == -1250 &&
@@ -90,7 +101,7 @@ int main(void)
     s_status.bus_current_a = INFINITY;
     s_status.position_rad = 3000000.0f;
     s_status.temperature_c = -327.68f;
-    AppProtocol_Refresh();
+    AppProtocol_Refresh(&adapter);
     assert(Protocol_BuildFeedback(s_bound, 1U, 0U, 0U, &live) == YG_PROTOCOL_OK);
     assert((live.valid_bits & ((1U << 1) | (1U << 5) | (1U << 8))) == 0U &&
            live.actual_position_mrad == INT32_MIN && live.bus_current_mA == INT16_MIN &&
@@ -98,18 +109,20 @@ int main(void)
     s_status = (MotorStatus){.state = MOTOR_STATE_RUNNING,
                              .mode = MOTOR_CONTROL_CURRENT,
                              .fault = MOTOR_FAULT_OVERCURRENT};
-    AppProtocol_Refresh();
+    AppProtocol_Refresh(&adapter);
     assert(s_bound->state == 8U && s_bound->faults == 1U && s_bound->mode == 1U);
     puts("PASS APP state/fault mapping and invalid measurement feedback");
     return 0;
 }
 
-MotorControlResult MotorLifecycle_SetTarget(const MotorTarget *target)
+MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *instance, const MotorTarget *target)
 {
+    (void)instance;
     (void)target;
     return MOTOR_CONTROL_DENIED;
 }
-uint32_t MotorLifecycle_WorkEpoch(void)
+uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)
 {
+    (void)instance;
     return 1U;
 }

@@ -18,7 +18,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
     def test_watch_objects_are_not_cross_module_data_interfaces(self) -> None:
         """Watch符号保留；生产模块不得自行extern或直接使用其它所有者的运行对象。"""
         owners = {
-            "firmware/app/runtime/motor_axis.c": (
+            "firmware/app/motor_axis.c": (
                 "s_motor_configuration",
                 "s_motor_state",
                 "s_foc_state",
@@ -50,7 +50,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                     if relative != owner:
                         for name in names:
                             self.assertIsNone(re.search(rf"\b{name}\b", source), (relative, name))
-                if relative != "firmware/app/runtime/motor_lifecycle.c":
+                if relative != "firmware/app/motor_lifecycle.c":
                     self.assertIsNone(
                         re.search(r"\bextern\b[^;{}]*\bs_context\b", source), relative
                     )
@@ -64,7 +64,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             r"Task_(?:Current|Vq)_Mode|MotorControl_Step|MotorExecution_ControlStep)"
             r"\s*\([^;{}]*\)\s*\{"
         )
-        for path in (ROOT / "firmware/app/runtime").glob("*.[ch]"):
+        for path in (ROOT / "firmware/app").glob("*.[ch]"):
             self.assertIsNone(
                 re.search(implementations, production_text(path)), path.relative_to(ROOT).as_posix()
             )
@@ -72,14 +72,14 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
     def test_parameter_transactions_have_explicit_callers(self) -> None:
         """事务统一使用启动绑定的对象；适配器不取得可写配置或控制器地址。"""
         permitted = {
-            "firmware/app/runtime/motor_axis.c": {"Init", "AdvanceRevision"},
-            "firmware/app/composition/app_protocol.c": {"Read", "Write"},
-            "firmware/app/composition/app.c": {"NodeId"},
+            "firmware/app/motor_axis.c": {"Init", "AdvanceRevision"},
+            "firmware/app/app_protocol.c": {"Read", "Write"},
+            "firmware/app/app.c": {"NodeId"},
         }
         for directory in ("app", "motor", "parameters", "services", "communication"):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
                 relative = path.relative_to(ROOT).as_posix()
-                if relative == "firmware/app/runtime/motor_parameter_transaction.c":
+                if relative == "firmware/app/motor_parameter_transaction.c":
                     continue
                 calls = set(
                     re.findall(r"\bMotorParameterTransaction_(\w+)\s*\(", production_text(path))
@@ -94,13 +94,15 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
 
     def test_state_module_has_no_goto(self) -> None:
         """状态机使用结构化分支，禁止跳转逻辑重新进入生产模块。"""
-        for path in (ROOT / "firmware/app/motor_state_machine").glob("*.[ch]"):
+        for path in (ROOT / "firmware/app").glob("*.[ch]"):
             self.assertIsNone(re.search(r"\bgoto\b", production_text(path)), path.as_posix())
 
     def test_state_core_does_not_own_request_history_or_background_jobs(self) -> None:
         """状态核心只提交迁移和安全动作；身份记录与保存协议必须留在各自实现。"""
-        module = ROOT / "firmware/app/motor_state_machine"
-        core = production_text(module / "motor_state_machine.c")
+        module = ROOT / "firmware/app"
+        core = production_text(module / "motor_lifecycle.c").split(
+            "MotorState MotorStateMachine_Step(", 1
+        )[1]
         for token in (
             "last_maintenance_request",
             "latest_start",
@@ -113,7 +115,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             "MotorLifecycle_SubmitControl",
         ):
             self.assertNotIn(token, core)
-        runtime = production_text(ROOT / "firmware/app/runtime/motor_lifecycle.c")
+        runtime = production_text(ROOT / "firmware/app/motor_lifecycle.c")
         for token in (
             "MotorMaintenance",
             "FocBackground",
@@ -157,15 +159,23 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         callers = set()
         for directory in ("app", "motor", "parameters", "services", "communication"):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
-                if re.search(r"\bBspPwm_Enable\s*\(", production_text(path)):
+                if re.search(r"\bpower->enable\s*\(", production_text(path)):
                     callers.add(path.relative_to(ROOT).as_posix())
-        self.assertEqual(callers, {"firmware/app/runtime/motor_lifecycle.c"})
+        self.assertEqual(callers, {"firmware/app/motor_lifecycle.c"})
 
     def test_five_state_core_has_no_old_framework(self) -> None:
         """仅保留五态纯迁移；自检占位，初始化直接空闲。"""
-        module = ROOT / "firmware/app/motor_state_machine"
+        module = ROOT / "firmware/app"
         self.assertEqual(
-            {p.name for p in module.iterdir()}, {"motor_state_machine.c", "motor_state_machine.h"}
+            {p.name for p in module.glob("*.c")},
+            {
+                "app.c",
+                "app_loader.c",
+                "app_protocol.c",
+                "motor_lifecycle.c",
+                "motor_axis.c",
+                "motor_calibration.c",
+            },
         )
         for path in (ROOT / "firmware/app").rglob("*.[ch]"):
             source = production_text(path)
@@ -173,10 +183,12 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 source, r"MOTOR_STATE_(?:INIT|STARTING|STOPPING|MAINTENANCE|FATAL)\b"
             )
             self.assertNotIn("MotorStateRules_", source)
-        core = production_text(module / "motor_state_machine.c")
+        core = production_text(module / "motor_lifecycle.c").split(
+            "MotorState MotorStateMachine_Step(", 1
+        )[1]
         self.assertNotRegex(core, r"Bsp|MotorMaintenance|MotorLifecycle|g_motor_context")
-        owner = production_text(ROOT / "firmware/app/runtime/motor_lifecycle.c")
-        self.assertIn("g_motor_context.state = MOTOR_STATE_IDLE;", owner)
+        owner = production_text(ROOT / "firmware/app/motor_lifecycle.c")
+        self.assertIn("life->state = MOTOR_STATE_IDLE;", owner)
         self.assertNotRegex(owner, r"\b(?:run|execute|start)_self_test\s*\(")
         self.assertNotIn("MotorLifecycle_ReadReadiness", owner)
 

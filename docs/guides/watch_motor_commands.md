@@ -33,9 +33,7 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 - 在 Debug 会话打开 `View → Watch Windows → Watch 1/2`，双击 `<Enter expression>` 添加表达式。
 - 开启 `View → Periodic Window Update`，支持的调试驱动可在 CPU 运行时刷新值。
-- 当前源码将 MotorAxis 配置/运行对象和 `g_motor_context` 提供为非静态全局符号，
-  可直接添加这些短名并展开成员。历史冻结 AXF 仍可能是 `static` 实例；
-  短名无法解析时，在 `View → Symbols` 中选择对应源码模块实例并添加完整限定名。
+- 两板 main.c 中的 `g_app` 是 Watch 根符号，展开 axis、protocol 或 endpoint 查找所属对象。
   始终以匹配板上镜像的 AXF 为准，不硬编码 RAM 地址。
 - 全局符号便于观察，公共头不提供这些对象的可写 `extern` 接口；产品代码仍通过请求、快照和显式对象参数访问。
 - Watch 中只输入无副作用的读表达式，不加入赋值、递增/递减或目标函数调用。
@@ -45,37 +43,29 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 ## Watch 1：状态、安全与维护
 
-`s_motor_configuration`、`s_motor_state`、`s_foc_state` 和 `s_rotor_encoder` 归
-`firmware/app/runtime/motor_axis.c`；`s_config_revision` 归
-`firmware/app/runtime/motor_axis.c`；`g_motor_context` 归
-`firmware/app/runtime/motor_lifecycle.c`。下表使用短名表示成员路径，
+下表给出板级实例的成员路径。
 实际 Watch 名称以加载的 AXF 和 Symbols 生成的限定名为准。
 
-采样值直接保存在 `s_foc_state` 的成员中，不再有 measurement 层或独立测量对象。
-配置单独保存在 `s_motor_configuration`；`s_motor_state` 只含运行态，
-`s_rotor_encoder` 只含采样、PLL和位置/速度动态状态。LUT、零位、方向和标定标志
-单份保存在 `s_motor_configuration.device.encoder`。
+采样值直接保存在 `g_app.axis.foc` 的成员中，不再有 measurement 层或独立测量对象。
+配置单独保存在 `g_app.axis.configuration`；`g_app.axis.motor` 只含运行态，
+`g_app.axis.rotor_encoder` 只含采样、PLL和位置/速度动态状态。LUT、零位、方向和标定标志
+单份保存在 `g_app.axis.configuration.device.encoder`。
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
-| `g_motor_context.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方八状态映射 |
-| `s_motor_state.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
-| `s_motor_state.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
-| `s_motor_configuration.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
-| `s_motor_configuration.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
-| `g_motor_context.self_test_stable_ticks` | INIT 连续健康计数 | 连续 4 个监督拍通过；STOP 不重启窗口，不是所有模式就绪缓存 |
-| `g_motor_context.fast_sample_ticks` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
-| `s_foc_state.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
-| `s_foc_state.bus_current_estimated_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
-| `s_foc_state.bus_current_a` | A | 硬件实测母线电流；未提供或未校零时为 NaN |
-| `s_foc_state.phase_current_a.a` | A | A 相电流，检查零偏、方向及异常 |
-| `s_foc_state.phase_current_a.b` | A | B 相电流 |
-| `s_foc_state.phase_current_a.c` | A | C 相电流；软件低频观测不是瞬时峰值证据 |
-| `s_foc_state.temperature_c` | °C | 固件温度读数，不等于电机绕组温度 |
-| `g_motor_context.last_maintenance` | 维护进度结构 | 展开查看对应 ticket 与终态；旧结果不代表当前任务 |
-| `g_motor_context.background_busy` | bool | 后台工作是否仍占用；单独为 false 不证明全部资源已释放 |
-| `g_motor_context.control_progress` | 控制进度结构 | 区分命令受理与实际应用结果，结合来源身份查看 |
-| `s_config_revision` | 活动配置修订 | 不等于存储 schema，也不直接证明已经保存到 Flash |
+| `g_app.axis.lifecycle.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方五态映射 |
+| `g_app.axis.motor.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
+| `g_app.axis.motor.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
+| `g_app.axis.configuration.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
+| `g_app.axis.configuration.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
+| `g_app.axis.lifecycle.fast_sample_ticks` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
+| `g_app.axis.foc.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
+| `g_app.axis.foc.bus_current_estimated_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
+| `g_app.axis.foc.bus_current_a` | A | 硬件实测母线电流；未提供或未校零时为 NaN |
+| `g_app.axis.foc.phase_current_a.a` | A | A 相电流，检查零偏、方向及异常 |
+| `g_app.axis.foc.phase_current_a.b` | A | B 相电流 |
+| `g_app.axis.foc.phase_current_a.c` | A | C 相电流；软件低频观测不是瞬时峰值证据 |
+| `g_app.axis.foc.temperature_c` | °C | 固件温度读数，不等于电机绕组温度 |
 | `(htim1.Instance->CCER & 0x0555)` | STM32G4 三相使能位 | 关闭时为 0；仅平台寄存器只读核对，不替代实际驱动关断测量 |
 
 `htim1` 定义在 CubeMX 的 `Core/Src/tim.c`；寄存器表达式仅适用于本 STM32G4 平台。
@@ -85,18 +75,18 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
-| `s_motor_state.speed_target_rad_s` | rad/s | 受理后的速度目标，不表示电机已达到目标 |
-| `s_motor_state.speed_ramped_rad_s` | rad/s | 斜坡规划后的速度参考 |
-| `s_rotor_encoder.mechanical_velocity_rad_s` | rad/s | 机械速度反馈；乘 `9.5492966` 换算 rpm |
-| `s_motor_state.id_target_a` | A | d 轴电流目标 |
-| `s_motor_state.iq_target_a` | A | q 轴电流目标；维护任务可能使用单独参考，需结合任务判断 |
-| `s_foc_state.id_a` / `s_foc_state.iq_a` | A | d/q 电流反馈；两条表达式分别添加 |
-| `s_motor_state.position_target_rad` | rad | 位置目标 |
-| `s_motor_state.position_reference_rad` | rad | 规划后的位置参考 |
-| `s_rotor_encoder.mechanical_position_rad` | rad | 机械位置反馈 |
-| `s_rotor_encoder.has_valid_sample` | bool | 是否已取得首个角度样本；不表示做过硬件诊断 |
-| `s_rotor_encoder.sample_epoch` | 采样计数 | 每次角度更新推进 |
-| `s_motor_configuration.device.encoder.calib_flag` | bitmask | bit0 线性化、bit1 电零位、bit2 可选机械零位；属于配置，非动态采样状态 |
+| `g_app.axis.motor.speed_target_rad_s` | rad/s | 受理后的速度目标，不表示电机已达到目标 |
+| `g_app.axis.motor.speed_ramped_rad_s` | rad/s | 斜坡规划后的速度参考 |
+| `g_app.axis.rotor_encoder.mechanical_velocity_rad_s` | rad/s | 机械速度反馈；乘 `9.5492966` 换算 rpm |
+| `g_app.axis.motor.id_target_a` | A | d 轴电流目标 |
+| `g_app.axis.motor.iq_target_a` | A | q 轴电流目标；维护任务可能使用单独参考，需结合任务判断 |
+| `g_app.axis.foc.id_a` / `g_app.axis.foc.iq_a` | A | d/q 电流反馈；两条表达式分别添加 |
+| `g_app.axis.motor.position_target_rad` | rad | 位置目标 |
+| `g_app.axis.motor.position_reference_rad` | rad | 规划后的位置参考 |
+| `g_app.axis.rotor_encoder.mechanical_position_rad` | rad | 机械位置反馈 |
+| `g_app.axis.rotor_encoder.has_valid_sample` | bool | 是否已取得首个角度样本；不表示做过硬件诊断 |
+| `g_app.axis.rotor_encoder.sample_epoch` | 采样计数 | 每次角度更新推进 |
+| `g_app.axis.configuration.device.encoder.calib_flag` | bitmask | bit0 线性化、bit1 电零位、bit2 可选机械零位；属于配置，非动态采样状态 |
 
 ## 参数布局与编号
 
@@ -115,11 +105,11 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 | `s_current_offset_calibration.sample_count` | 新鲜帧计数，从0到20000，完成后不再累加 |
 | `s_current_offset_calibration.complete` | 成功后为true；不能单独证明整个自检完成 |
 | `s_current_offset_calibration.failed` | 输出、模式、原始范围或偏置失败；不自动重试 |
-| `s_motor_configuration.device.phase_a_offset_counts` | A相零点，成功后为1948..2148内实测均值 |
-| `s_motor_configuration.device.phase_b_offset_counts` | B相零点，不要求与A相相同 |
-| `s_motor_configuration.device.phase_c_offset_counts` | C相零点，不要求为固定2048 |
-| `s_foc_state.id_pi` / `s_foc_state.iq_pi` | 上电已配置活动Kp/Ki及Current_Ts；展开分别添加 |
-| `s_speed_pi` | 上电已配置活动速度Kp/Ki、Speed_Ts和-1..1归一化输出限幅 |
+| `g_app.axis.configuration.device.phase_a_offset_counts` | A相零点，成功后为1948..2148内实测均值 |
+| `g_app.axis.configuration.device.phase_b_offset_counts` | B相零点，不要求与A相相同 |
+| `g_app.axis.configuration.device.phase_c_offset_counts` | C相零点，不要求为固定2048 |
+| `g_app.axis.foc.id_pi` / `g_app.axis.foc.iq_pi` | 上电已配置活动Kp/Ki及Current_Ts；展开分别添加 |
+| `g_app.axis.speed_pi` | 上电已配置活动速度Kp/Ki、Speed_Ts和-1..1归一化输出限幅 |
 
 电流PI首次有效母线采样之前电压限幅为零；限幅刷新修复版在每次母线采样后，
 即使空闲也刷新d/q PI的output_min/output_max，单位为V，不是相电流额度A。
@@ -127,8 +117,8 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 无效/非正母线对应零限幅，不改变PI增益、周期或积分状态。
 旧a2a6e97c候选仍有空闲限幅为零的遗漏，不能用该候选的观测替代新版本验收；
 新限幅修复候选须另行下载并加载匹配AXF，见[修复计划](../archive/plans/2026-09-29-current-pi-limit-refresh-v1.md)。
-活动参数在 `s_motor_configuration.model` 的 `id_kp/id_ki/iq_kp/iq_ki` 和
-`s_motor_configuration.application` 的 `speed_kp/speed_ki`，
+活动参数在 `g_app.axis.configuration.model` 的 `id_kp/id_ki/iq_kp/iq_ki` 和
+`g_app.axis.configuration.application` 的 `speed_kp/speed_ki`，
 不以PI积分/输出为零判断增益缺失。校正失败时保持无效资格与锁存故障，
 先排除原因再重新上电，不通过Watch改值恢复。本修复增加运行对象，必须重建匹配AXF。
 
@@ -139,18 +129,18 @@ RAM布局变化不由Flash schema编号识别，本次不改变schema14/12/13的
 
 | 参数 | 当前表达式 | 单位或含义 |
 | --- | --- | --- |
-| 极对数 | `s_motor_configuration.model.motor_pole_pairs` | 极对数 |
-| 校准电流 | `s_motor_configuration.model.calibration_current_a` | A |
-| 电流上限 | `s_motor_configuration.application.current_limit_a` | A |
-| 速度上限 | `s_motor_configuration.application.speed_limit_rad_s` | rad/s |
-| A 相零偏 | `s_motor_configuration.device.phase_a_offset_counts` | ADC counts |
-| LUT | `s_motor_configuration.device.encoder.linearization_lut_q15` | Q15角度修正表；展开数组只读观察 |
-| 电零位 | `s_motor_configuration.device.encoder.electrical_zero_q15` | Q15 |
-| 机械零位 | `s_motor_configuration.device.encoder.mechanical_zero_q15` | Q15 |
-| 编码器方向 | `s_motor_configuration.device.encoder.reverse` | 方向配置 |
+| 极对数 | `g_app.axis.configuration.model.motor_pole_pairs` | 极对数 |
+| 校准电流 | `g_app.axis.configuration.model.calibration_current_a` | A |
+| 电流上限 | `g_app.axis.configuration.application.current_limit_a` | A |
+| 速度上限 | `g_app.axis.configuration.application.speed_limit_rad_s` | rad/s |
+| A 相零偏 | `g_app.axis.configuration.device.phase_a_offset_counts` | ADC counts |
+| LUT | `g_app.axis.configuration.device.encoder.linearization_lut_q15` | Q15角度修正表；展开数组只读观察 |
+| 电零位 | `g_app.axis.configuration.device.encoder.electrical_zero_q15` | Q15 |
+| 机械零位 | `g_app.axis.configuration.device.encoder.mechanical_zero_q15` | Q15 |
+| 编码器方向 | `g_app.axis.configuration.device.encoder.reverse` | 方向配置 |
 
-`s_motor_configuration.device.node_id` 是设备节点参数，
-`s_motor_configuration.application.speed_ceiling_rad_s` 是应用上限；不要通过 Watch 改动它们。
+`g_app.axis.configuration.device.node_id` 是设备节点参数，
+`g_app.axis.configuration.application.speed_ceiling_rad_s` 是应用上限；不要通过 Watch 改动它们。
 采样电阻 `CURRENT_SENSE_SHUNT_MILLIOHM` 是编译宏，不是 Watch 可修改的 RAM 变量。
 6 mΩ 硬件需要核对实际构建输入为 `CURRENT_SENSE_SHUNT_MILLIOHM=6U`。
 

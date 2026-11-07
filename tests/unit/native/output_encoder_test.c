@@ -5,9 +5,9 @@
 #include "output_encoder.h"
 #include "parameter_record.h"
 static unsigned progress_calls;
-static void calibration_progress(void)
+static void calibration_progress(void *context)
 {
-    ++progress_calls;
+    ++*(unsigned *)context;
 }
 #include "control_math.h"
 #include "crc32.h"
@@ -113,7 +113,8 @@ static void geared_drive(float ratio, int direction, float phase)
     }
     assert(cal.count == OUTPUT_ENCODER_CAL_SAMPLES);
     unsigned before_progress = progress_calls;
-    assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(OutputEncoder_CalibEnd(
+        &encoder, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(progress_calls - before_progress == 64U);
     assert(encoder.params.direction == direction);
     near_angle(encoder.params.phase_rad, phase, .003f);
@@ -142,13 +143,16 @@ static void geared_drive(float ratio, int direction, float phase)
     /* 错误减速比及没有覆盖整圈的采样不能保存成功状态。 */
     OutputEncoder wrong;
     OutputEncoder_Init(&wrong, ratio + 1);
-    assert(!OutputEncoder_CalibEnd(&wrong, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(
+        &wrong, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(wrong.params.status == OUTPUT_ENCODER_CAL_RELATION);
     OutputEncoder_CalibBegin(&cal, ratio);
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(
+        &encoder, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(encoder.params.status == OUTPUT_ENCODER_CAL_NO_SAMPLES && !encoder.ready);
     hall.calibration_success = false;
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(
+        &encoder, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(encoder.params.status == OUTPUT_ENCODER_CAL_HALL);
 }
 
@@ -182,7 +186,8 @@ static void nonlinear_hall(int direction, int rotation, float phase, bool skew, 
             (uint16_t)lroundf(2000 + 1800 * cosf(angle) + (ripple ? 7 * cosf(112 * truth) : 0)));
     }
     unsigned before_progress = progress_calls;
-    assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(OutputEncoder_CalibEnd(
+        &encoder, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(progress_calls - before_progress == 64U);
     assert(hall.lut_status == LINEAR_HALL_LUT_OK);
     assert(encoder.params.direction == direction);
@@ -234,7 +239,8 @@ static void nonlinear_hall(int direction, int rotation, float phase, bool skew, 
 
     /* 缺覆盖与原曲线折返失败；失败后的角度仍能输出，旧表不能残留。 */
     cal.count = 10;
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(
+        &encoder, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(hall.lut_status == LINEAR_HALL_LUT_COVERAGE);
     for (unsigned i = 0; i < LINEAR_HALL_LUT_SIZE; ++i)
     {
@@ -243,7 +249,8 @@ static void nonlinear_hall(int direction, int rotation, float phase, bool skew, 
     cal.count = OUTPUT_ENCODER_CAL_SAMPLES;
     cal.samples[50].sin_counts = cal.samples[10].sin_counts;
     cal.samples[50].cos_counts = cal.samples[10].cos_counts;
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(
+        &encoder, &cal, &hall, &motor, calibration_progress, &progress_calls));
     assert(hall.lut_status == LINEAR_HALL_LUT_MAPPING);
     LinearHall_Update(&hall, 1000, 3000);
     assert(hall.val.angle_rad == hall.val.angle_raw_rad);

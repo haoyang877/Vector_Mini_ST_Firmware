@@ -23,20 +23,14 @@
 #include "bsp_system.h"
 #include "application_config.h"
 #include "parameter_record.h"
-static void calibration_progress(void)
+static void calibration_progress(void *context)
 {
+    (void)context;
 }
 #include "bsp_flash.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
-static MotorConfiguration s_motor_configuration;
-static MotorControlState s_motor_state;
-static FocState s_foc_state;
-static PiController s_speed_pi;
-static EncoderState s_rotor_encoder;
-static FluxObserverState s_flux_observer;
-static SensorlessStartupState s_sensorless_startup;
-static OutputEncoder s_output_encoder;
+static MotorAxis axis;
 static uint16_t samples[3];
 static float bus_sample_raw, bsp_bus_offset;
 static unsigned bus_raw_reads, phase_offset_writes, bus_offset_writes;
@@ -55,15 +49,17 @@ static MotorTaskResult simulated_calibration_outcome;
 static bool calibration_publication_pending, calibration_publication_succeeds;
 static unsigned calibration_cycle_calls, calibration_publication_calls;
 static EncoderCalibrationPhase simulated_phase;
-EncoderCalibrationPhase EncoderCalibration_GetPhase(void)
+EncoderCalibrationPhase EncoderCalibration_GetPhase(const EncoderCalibrationSession *instance)
 {
+    (void)instance;
     return simulated_phase;
 }
 static float hall_raw_sin = 2048.0f, hall_raw_cos = 2048.0f;
 #if BSP_ENABLED_LINEAR_HALL
 static uint32_t test_ms;
-void MotorLifecycle_ContinueElectricalZero(void)
+void MotorLifecycle_ContinueElectricalZero(MotorLifecycle *instance)
 {
+    (void)instance;
     assert(calibration_publication_pending);
     calibration_publication_pending = false;
     simulated_calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
@@ -73,7 +69,7 @@ float Encoder_GetMechVelContinuous(const EncoderState *encoder)
     return 0.0f;
 }
 #endif
-static MotorAxisRecord s_axis_record;
+
 bool Encoder_IsOnline(const EncoderState *encoder)
 {
     return encoder->has_valid_sample;
@@ -82,46 +78,70 @@ void Param_StoreOutputEncoder(MotorAxisRecord *record,
                               const OutputEncoder *encoder,
                               const LinearHall *hall)
 {
-    assert(record == &s_axis_record && encoder != NULL);
+    assert(record == &axis.record && encoder != NULL);
 }
 void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration)
 {
-    assert(param == &s_axis_record.motor && configuration == &s_motor_configuration);
+    assert(param == &axis.record.motor && configuration == &axis.configuration);
 }
 void Param_StoreLinearHall(InterfaceParam *param, const LinearHall *hall)
 {
-    assert(param == &s_axis_record.motor && hall != NULL);
+    assert(param == &axis.record.motor && hall != NULL);
 }
 BspResult BspFlash_Write(const void *data, size_t length)
 {
     assert(output_off && calibration_publication_pending);
-    assert(data == &s_axis_record && length == sizeof(s_axis_record));
+    assert(data == &axis.record && length == sizeof(axis.record));
     return BSP_OK;
 }
 
-MotorCalibrationType MotorLifecycle_GetCalibrationType(void)
+MotorCalibrationType MotorLifecycle_GetCalibrationType(const MotorLifecycle *instance)
 {
+    (void)instance;
     return simulated_state == MOTOR_STATE_CALIBRATION ? simulated_calibration_type
                                                       : MOTOR_CALIBRATION_NONE;
 }
 
-void MotorLifecycle_OuterTick(void)
+void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work)
 {
+    (void)life;
+    work->allowed = false;
+}
+void MotorOuterLoop_SlowTick(MotorOuterLoop *outer,
+                             const MotorConfiguration *config,
+                             MotorControlState *motor,
+                             PiController *pi,
+                             EncoderState *encoder)
+{
+    (void)outer;
+    (void)config;
+    (void)motor;
+    (void)pi;
+    (void)encoder;
+    assert(false);
+}
+void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work)
+{
+    (void)life;
+    (void)work;
 }
 
 void Encoder_UpdateSlowEstimate(EncoderState *encoder)
 {
-    assert(encoder == &s_rotor_encoder);
+    assert(encoder == &axis.rotor_encoder);
 }
 
-bool MotorLifecycle_IsCalibrationRunnable(void)
+bool MotorLifecycle_IsCalibrationRunnable(const MotorLifecycle *instance)
 {
+    (void)instance;
     return simulated_state == MOTOR_STATE_CALIBRATION &&
            simulated_calibration_type != MOTOR_CALIBRATION_NONE;
 }
 
-bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoch)
+bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *instance,
+                                                      uint32_t *calibration_epoch)
 {
+    (void)instance;
     if (!calibration_publication_pending)
     {
         return false;
@@ -130,46 +150,55 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(uint32_t *calibration_epoc
     return true;
 }
 
-void MotorLifecycle_CompleteCalibrationPublication(uint32_t calibration_epoch,
+void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *instance,
+                                                   uint32_t calibration_epoch,
                                                    bool publication_succeeded)
 {
+    (void)instance;
     assert(calibration_epoch == 1U && output_off);
     assert(publication_succeeded == calibration_publication_succeeds);
     calibration_publication_pending = false;
     ++calibration_publication_calls;
 }
 
-MotorTaskResult EncoderCalibration_StepLut(const EncoderCalibrationControl *control,
+MotorTaskResult EncoderCalibration_StepLut(EncoderCalibrationSession *instance,
+                                           const EncoderCalibrationControl *control,
                                            EncoderCalibrationWorkspace *workspace)
 {
-    assert(control->configuration == &s_motor_configuration);
-    assert(control->foc == &s_foc_state && control->motor == &s_motor_state);
-    assert(control->encoder == &s_rotor_encoder && control->observer == &s_flux_observer &&
-           control->startup == &s_sensorless_startup && workspace != NULL);
+    (void)instance;
+    assert(control->configuration == &axis.configuration);
+    assert(control->foc == &axis.foc && control->motor == &axis.motor);
+    assert(control->encoder == &axis.rotor_encoder && control->observer == &axis.observer &&
+           control->startup == &axis.startup && workspace != NULL);
     ++calibration_cycle_calls;
     return simulated_calibration_outcome;
 }
 
-MotorTaskResult EncoderCalibration_StepElecZero(const EncoderCalibrationControl *control)
+MotorTaskResult EncoderCalibration_StepElecZero(EncoderCalibrationSession *instance,
+                                                const EncoderCalibrationControl *control)
 {
-    assert(control->configuration == &s_motor_configuration);
-    assert(control->foc == &s_foc_state && control->motor == &s_motor_state &&
-           control->encoder == &s_rotor_encoder);
+    (void)instance;
+    assert(control->configuration == &axis.configuration);
+    assert(control->foc == &axis.foc && control->motor == &axis.motor &&
+           control->encoder == &axis.rotor_encoder);
     ++calibration_cycle_calls;
     return simulated_calibration_outcome;
 }
 
 bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *encoder)
 {
-    assert(calibration == &s_motor_configuration.device.encoder && encoder == &s_rotor_encoder);
+    assert(calibration == &axis.configuration.device.encoder && encoder == &axis.rotor_encoder);
     ++calibration_cycle_calls;
     return true;
 }
 
-bool EncoderCalibration_PublishLut(EncoderCalibration *calibration, EncoderState *encoder)
+bool EncoderCalibration_PublishLut(EncoderCalibrationSession *instance,
+                                   EncoderCalibration *calibration,
+                                   EncoderState *encoder)
 {
-    assert(output_off && calibration == &s_motor_configuration.device.encoder);
-    assert(encoder == &s_rotor_encoder);
+    (void)instance;
+    assert(output_off && calibration == &axis.configuration.device.encoder);
+    assert(encoder == &axis.rotor_encoder);
     return calibration_publication_succeeds;
 }
 static bool simulated_defaults;
@@ -201,7 +230,7 @@ uint32_t BspSystem_EnterCritical(void)
     }
     if (mode_on_commit)
     {
-        s_motor_state.control_mode = MOTOR_CONTROL_CURRENT;
+        axis.motor.control_mode = MOTOR_CONTROL_CURRENT;
     }
     return critical_depth++;
 }
@@ -215,35 +244,29 @@ void BspSystem_ExitCritical(uint32_t previous)
 
 static void load_parameters(MotorConfiguration *configuration)
 {
-    assert(configuration == &s_motor_configuration);
+    assert(configuration == &axis.configuration);
     /* 模拟已存储的不同d/q增益，确保初始化不会覆盖为编译默认值。 */
-    MotorWindingThermal_Default(&s_motor_configuration.model.thermal);
-    s_motor_configuration.application.current_limit_a = 6.0f;
-    s_motor_configuration.model.id_kp = 2.0f;
-    s_motor_configuration.model.id_ki = 3.0f;
-    s_motor_configuration.model.iq_kp = 4.0f;
-    s_motor_configuration.model.iq_ki = 5.0f;
-    s_motor_configuration.application.speed_kp = 0.2f;
-    s_motor_configuration.application.speed_ki = 0.3f;
-    s_motor_configuration.application.axis_profile_valid = true;
-    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
-    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
-    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
+    MotorWindingThermal_Default(&axis.configuration.model.thermal);
+    axis.configuration.application.current_limit_a = 6.0f;
+    axis.configuration.model.id_kp = 2.0f;
+    axis.configuration.model.id_ki = 3.0f;
+    axis.configuration.model.iq_kp = 4.0f;
+    axis.configuration.model.iq_ki = 5.0f;
+    axis.configuration.application.speed_kp = 0.2f;
+    axis.configuration.application.speed_ki = 0.3f;
+    axis.configuration.application.axis_profile_valid = true;
+    axis.configuration.device.phase_a_offset_counts = 2048.0f;
+    axis.configuration.device.phase_b_offset_counts = 2048.0f;
+    axis.configuration.device.phase_c_offset_counts = 2048.0f;
 }
 
-void MotorLifecycle_Init(const MotorConfiguration *configuration,
-                         MotorControlState *motor,
-                         FocState *foc,
-                         PiController *pi,
-                         EncoderState *encoder,
-                         SensorlessStartupState *startup)
+void MotorLifecycle_Init(MotorLifecycle *life, const MotorLifecycleBindings *bindings)
 {
-    (void)pi;
-    (void)encoder;
-    (void)startup;
+    assert(life == &axis.lifecycle);
     ++state_initializations;
-    motor->control_mode = MOTOR_CONTROL_NONE;
-    assert(!MotorCurrentOffsets_IsValid(configuration) && isnan(foc->phase_current_a.a));
+    bindings->motor->control_mode = MOTOR_CONTROL_NONE;
+    assert(!MotorCurrentOffsets_IsValid(bindings->configuration) &&
+           isnan(bindings->foc->phase_current_a.a));
 }
 void Encoder_InitFeedback(EncoderCalibration *calibration,
                           const int32_t *pole_pairs,
@@ -251,10 +274,10 @@ void Encoder_InitFeedback(EncoderCalibration *calibration,
                           const bool *axis_profile_valid,
                           EncoderState *encoder)
 {
-    assert(calibration == &s_motor_configuration.device.encoder);
-    assert(pole_pairs == &s_motor_configuration.model.motor_pole_pairs);
-    assert(axis_profile == &s_motor_configuration.application.axis_profile);
-    assert(axis_profile_valid == &s_motor_configuration.application.axis_profile_valid);
+    assert(calibration == &axis.configuration.device.encoder);
+    assert(pole_pairs == &axis.configuration.model.motor_pole_pairs);
+    assert(axis_profile == &axis.configuration.application.axis_profile);
+    assert(axis_profile_valid == &axis.configuration.application.axis_profile_valid);
     (void)encoder;
 }
 void FluxObserver_Init(FluxObserverState *observer)
@@ -265,8 +288,9 @@ void SensorlessStartup_Reset(SensorlessStartupState *startup)
 {
     (void)startup;
 }
-void MotorOuterLoop_RequestReset(void)
+void MotorOuterLoop_RequestReset(MotorOuterLoop *instance)
 {
+    (void)instance;
 }
 
 bool BspPwm_ArePhasesDisabled(void)
@@ -388,8 +412,9 @@ bool MotorLifecycle_OutputExpected(void)
     return !output_off;
 }
 
-MotorState MotorLifecycle_GetState(void)
+MotorState MotorLifecycle_GetState(const MotorLifecycle *instance)
 {
+    (void)instance;
     return simulated_state;
 }
 static void check_fast_faults(void)
@@ -400,18 +425,20 @@ static void check_fast_faults(void)
 static void fast_fault_stop(void)
 {
     record_fast_call('S');
-    if (s_motor_state.fault_code != MOTOR_FAULT_NONE)
+    if (axis.motor.fault_code != MOTOR_FAULT_NONE)
     {
         output_off = true;
     }
 }
-uint32_t MotorLifecycle_WorkEpoch(void)
+uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)
 {
+    (void)instance;
     record_fast_call('W');
     return 1U;
 }
-void MotorLifecycle_PostOutcome(MotorTaskResult outcome, uint32_t epoch)
+void MotorLifecycle_PostOutcome(MotorLifecycle *instance, MotorTaskResult outcome, uint32_t epoch)
 {
+    (void)instance;
     record_fast_call('T');
     assert(epoch == 1U);
     assert(outcome.result == MOTOR_TASK_RUNNING ||
@@ -439,19 +466,23 @@ MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
     return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
 }
 
+static const MotorAxisHardware s_board_hardware = {
+    .power = {.phases_disabled = BspPwm_ArePhasesDisabled, .set_duty = BspPwm_SetDuty},
+    .write_record = BspFlash_Write};
+
 /* STARTUP_CURRENT_OFFSET_PRODUCTION：脚本插入真实生产体。 */
 
 static void sample_test_currents(void)
 {
-    MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
 }
 
 static void initialize(void)
 {
-    memset(&s_motor_state, 0, sizeof(s_motor_state));
-    memset(&s_foc_state, 0, sizeof(s_foc_state));
-    memset(&s_speed_pi, 0, sizeof(s_speed_pi));
+    memset(&axis.motor, 0, sizeof(axis.motor));
+    memset(&axis.foc, 0, sizeof(axis.foc));
+    memset(&axis.speed_pi, 0, sizeof(axis.speed_pi));
     output_off = true;
     simulated_defaults = simulated_save = false;
     trace_enabled = inject_control_fault = false;
@@ -475,25 +506,25 @@ static void initialize(void)
     samples[0] = 8131U;
     samples[1] = 8205U;
     samples[2] = 8146U;
-    s_foc_state.id_pi.integral_output = s_foc_state.iq_pi.integral_output = 2.0f;
-    s_speed_pi.integral_output = 2.0f;
-    MotorAxis_Init();
-    assert(s_foc_state.bus_voltage_filter_alpha == 0.05f);
-    assert(s_foc_state.bus_current_filter_alpha == 0.05f);
-    assert(isnan(s_foc_state.bus_current_a));
-    assert(isnan(s_foc_state.bus_current_filtered_a));
-    assert(s_motor_state.control_mode == MOTOR_CONTROL_NONE);
-    assert(s_foc_state.id_pi.proportional_gain == 2.0f && s_foc_state.id_pi.integral_gain == 3.0f);
-    assert(s_foc_state.iq_pi.proportional_gain == 4.0f && s_foc_state.iq_pi.integral_gain == 5.0f);
-    assert(s_speed_pi.proportional_gain == 0.2f && s_speed_pi.integral_gain == 0.3f);
-    assert(s_foc_state.id_pi.sample_period_s == FOC_TS_S);
-    assert(s_foc_state.iq_pi.sample_period_s == FOC_TS_S &&
-           s_speed_pi.sample_period_s == SPEED_LOOP_TS_S);
-    assert(s_foc_state.id_pi.output_max == 0.0f && s_foc_state.iq_pi.output_min == 0.0f);
-    assert(s_speed_pi.output_min == -1.0f && s_speed_pi.output_max == 1.0f);
-    assert(s_foc_state.id_pi.integral_output == 0.0f && s_foc_state.iq_pi.integral_output == 0.0f);
-    assert(s_speed_pi.integral_output == 0.0f);
-    assert(!MotorCurrentOffsets_IsValid(&s_motor_configuration));
+    axis.foc.id_pi.integral_output = axis.foc.iq_pi.integral_output = 2.0f;
+    axis.speed_pi.integral_output = 2.0f;
+    MotorAxis_Init(&axis);
+    assert(axis.foc.bus_voltage_filter_alpha == 0.05f);
+    assert(axis.foc.bus_current_filter_alpha == 0.05f);
+    assert(isnan(axis.foc.bus_current_a));
+    assert(isnan(axis.foc.bus_current_filtered_a));
+    assert(axis.motor.control_mode == MOTOR_CONTROL_NONE);
+    assert(axis.foc.id_pi.proportional_gain == 2.0f && axis.foc.id_pi.integral_gain == 3.0f);
+    assert(axis.foc.iq_pi.proportional_gain == 4.0f && axis.foc.iq_pi.integral_gain == 5.0f);
+    assert(axis.speed_pi.proportional_gain == 0.2f && axis.speed_pi.integral_gain == 0.3f);
+    assert(axis.foc.id_pi.sample_period_s == FOC_TS_S);
+    assert(axis.foc.iq_pi.sample_period_s == FOC_TS_S &&
+           axis.speed_pi.sample_period_s == SPEED_LOOP_TS_S);
+    assert(axis.foc.id_pi.output_max == 0.0f && axis.foc.iq_pi.output_min == 0.0f);
+    assert(axis.speed_pi.output_min == -1.0f && axis.speed_pi.output_max == 1.0f);
+    assert(axis.foc.id_pi.integral_output == 0.0f && axis.foc.iq_pi.integral_output == 0.0f);
+    assert(axis.speed_pi.integral_output == 0.0f);
+    assert(!MotorCurrentOffsets_IsValid(&axis.configuration));
 }
 
 static void test_full_window(void)
@@ -503,55 +534,55 @@ static void test_full_window(void)
     {
         samples[0] = (i & 1U) ? 8131U : 8130U;
         bus_sample_raw = BSP_ENABLED_BUS_CURRENT ? ((i & 1U) ? 2050.0f : 2049.0f) : NAN;
-        assert(!s_current_offset_calibration.complete);
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
+        assert(!axis.current_offsets.complete);
+        MotorAxis_SampleFast(&axis);
+        MotorAxis_ControlFast(&axis);
         if (i < CURRENT_OFFSET_SAMPLE_COUNT - 1U)
         {
             assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
-            assert(isnan(s_foc_state.phase_current_a.a));
-            assert(isnan(s_foc_state.bus_current_a));
+            assert(isnan(axis.foc.phase_current_a.a));
+            assert(isnan(axis.foc.bus_current_a));
         }
-        assert(output_off && s_motor_state.fault_code == MOTOR_FAULT_NONE);
+        assert(output_off && axis.motor.fault_code == MOTOR_FAULT_NONE);
     }
-    assert(s_current_offset_calibration.complete && !s_current_offset_calibration.failed);
+    assert(axis.current_offsets.complete && !axis.current_offsets.failed);
     assert(phase_offset_writes == 1U && bus_offset_writes == (BSP_ENABLED_BUS_CURRENT ? 1U : 0U));
     assert(bus_raw_reads == (BSP_ENABLED_BUS_CURRENT ? CURRENT_OFFSET_SAMPLE_COUNT : 0U));
     assert(critical_depth == 0U);
-    assert(MotorCurrentOffsets_IsValid(&s_motor_configuration));
-    assert(s_motor_configuration.device.phase_a_offset_counts == 2032.625f);
-    assert(s_motor_configuration.device.phase_b_offset_counts == 2051.25f);
-    assert(s_motor_configuration.device.phase_c_offset_counts == 2036.5f);
+    assert(MotorCurrentOffsets_IsValid(&axis.configuration));
+    assert(axis.configuration.device.phase_a_offset_counts == 2032.625f);
+    assert(axis.configuration.device.phase_b_offset_counts == 2051.25f);
+    assert(axis.configuration.device.phase_c_offset_counts == 2036.5f);
     if (BSP_ENABLED_BUS_CURRENT)
     {
         assert(bsp_bus_offset == 2049.5f);
-        assert(fabsf(s_foc_state.bus_current_a - 0.05f) < 1e-6f);
+        assert(fabsf(axis.foc.bus_current_a - 0.05f) < 1e-6f);
     }
     else
     {
-        assert(isnan(s_foc_state.bus_current_a));
+        assert(isnan(axis.foc.bus_current_a));
     }
     unsigned prior_raw_reads = current_reads + bus_raw_reads;
-    uint32_t old_sum = s_current_offset_calibration.phase_sum_raw[0];
+    uint32_t old_sum = axis.current_offsets.phase_sum_raw[0];
     for (unsigned i = 0U; i < 20U; ++i)
     {
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
+        MotorAxis_SampleFast(&axis);
+        MotorAxis_ControlFast(&axis);
     }
     assert(current_reads + bus_raw_reads == prior_raw_reads);
-    assert(s_current_offset_calibration.phase_sum_raw[0] == old_sum);
+    assert(axis.current_offsets.phase_sum_raw[0] == old_sum);
     assert(phase_offset_writes == 1U && bus_offset_writes == (BSP_ENABLED_BUS_CURRENT ? 1U : 0U));
 
     /* 控制器复位只清PI，不能清除同一FOC对象中已发布的测量。 */
-    FocState measured = s_foc_state;
-    s_foc_state.id_pi.integral_output = 1.0f;
-    s_foc_state.iq_pi.integral_output = -1.0f;
-    Foc_ResetCurrent(&s_foc_state);
-    measured.id_pi = s_foc_state.id_pi;
-    measured.iq_pi = s_foc_state.iq_pi;
-    assert(memcmp(&measured, &s_foc_state, sizeof(measured)) == 0);
-    assert(s_foc_state.id_pi.integral_output == 0.0f);
-    assert(s_foc_state.iq_pi.integral_output == 0.0f);
+    FocState measured = axis.foc;
+    axis.foc.id_pi.integral_output = 1.0f;
+    axis.foc.iq_pi.integral_output = -1.0f;
+    Foc_ResetCurrent(&axis.foc);
+    measured.id_pi = axis.foc.id_pi;
+    measured.iq_pi = axis.foc.iq_pi;
+    assert(memcmp(&measured, &axis.foc, sizeof(measured)) == 0);
+    assert(axis.foc.id_pi.integral_output == 0.0f);
+    assert(axis.foc.iq_pi.integral_output == 0.0f);
 }
 
 static void test_rejections(void)
@@ -563,34 +594,33 @@ static void test_rejections(void)
         inject_raw = true;
         injected_raw = invalid_raw[i];
         sample_test_currents();
-        assert(s_current_offset_calibration.failed &&
-               s_current_offset_calibration.sample_count == 0U);
-        assert(s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
+        assert(axis.current_offsets.failed && axis.current_offsets.sample_count == 0U);
+        assert(axis.motor.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
         unsigned reads = current_reads + bus_raw_reads;
         inject_raw = false;
         sample_test_currents();
         assert(current_reads + bus_raw_reads == reads);
-        assert(!s_current_offset_calibration.complete && phase_offset_writes == 0U &&
+        assert(!axis.current_offsets.complete && phase_offset_writes == 0U &&
                bus_offset_writes == 0U);
         if (BSP_ENABLED_BUS_CURRENT)
         {
             initialize();
             bus_sample_raw = invalid_raw[i];
             sample_test_currents();
-            assert(s_current_offset_calibration.failed && !s_current_offset_calibration.complete);
+            assert(axis.current_offsets.failed && !axis.current_offsets.complete);
             assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
         }
     }
     initialize();
     output_off = false;
     sample_test_currents();
-    assert(s_current_offset_calibration.failed && current_reads == 0U && bus_raw_reads == 0U);
-    assert(output_off && s_motor_state.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
+    assert(axis.current_offsets.failed && current_reads == 0U && bus_raw_reads == 0U);
+    assert(output_off && axis.motor.fault_code == MOTOR_FAULT_CURRENT_OFFSET);
 
     initialize();
-    s_motor_state.control_mode = MOTOR_CONTROL_CURRENT;
+    axis.motor.control_mode = MOTOR_CONTROL_CURRENT;
     sample_test_currents();
-    assert(s_current_offset_calibration.failed && current_reads == 0U);
+    assert(axis.current_offsets.failed && current_reads == 0U);
 
     for (unsigned race = 0U; race < 2U; ++race)
     {
@@ -602,16 +632,16 @@ static void test_rejections(void)
         enable_on_commit = race == 0U;
         mode_on_commit = race == 1U;
         sample_test_currents();
-        assert(s_current_offset_calibration.failed && !s_current_offset_calibration.complete);
+        assert(axis.current_offsets.failed && !axis.current_offsets.complete);
         assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
-        assert(critical_depth == 0U && isnan(s_motor_configuration.device.phase_a_offset_counts));
+        assert(critical_depth == 0U && isnan(axis.configuration.device.phase_a_offset_counts));
     }
     initialize();
-    s_motor_state.fault_code = MOTOR_FAULT_ENCODER;
+    axis.motor.fault_code = MOTOR_FAULT_ENCODER;
     inject_raw = true;
     injected_raw = NAN;
     sample_test_currents();
-    assert(s_motor_state.fault_code == MOTOR_FAULT_ENCODER);
+    assert(axis.motor.fault_code == MOTOR_FAULT_ENCODER);
 }
 
 static void test_idle_only(void)
@@ -622,13 +652,12 @@ static void test_idle_only(void)
         simulated_state = state;
         for (unsigned i = 0U; i < 10U; ++i)
         {
-            MotorAxis_SampleFast();
-            MotorAxis_ControlFast();
+            MotorAxis_SampleFast(&axis);
+            MotorAxis_ControlFast(&axis);
         }
         assert(current_reads == 0U && bus_raw_reads == 0U);
         assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
-        assert(!s_current_offset_calibration.complete &&
-               s_current_offset_calibration.sample_count == 0U);
+        assert(!axis.current_offsets.complete && axis.current_offsets.sample_count == 0U);
     }
     initialize();
     for (unsigned i = 0U; i < CURRENT_OFFSET_SAMPLE_COUNT; ++i)
@@ -639,8 +668,8 @@ static void test_idle_only(void)
     for (MotorState state = MOTOR_STATE_IDLE; state <= MOTOR_STATE_FAULT; ++state)
     {
         simulated_state = state;
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
+        MotorAxis_SampleFast(&axis);
+        MotorAxis_ControlFast(&axis);
     }
     assert(current_reads + bus_raw_reads == reads);
     assert(phase_offset_writes == 1U && bus_offset_writes == (BSP_ENABLED_BUS_CURRENT ? 1U : 0U));
@@ -651,29 +680,29 @@ static void test_voltage_limits_refresh_only(void)
     /* 母线有效、升降和失效均经真实FastTick；校正pending不执行电流控制。 */
     static const float voltages_v[] = {32.84f, 26.0f, 33.0f, 0.0f, -1.0f, NAN, INFINITY};
     initialize();
-    s_foc_state.id_pi =
+    axis.foc.id_pi =
         (PiController){7.0f, 8.0f, 0.123f, -3.0f, 4.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
-    s_foc_state.iq_pi =
+    axis.foc.iq_pi =
         (PiController){9.0f, 10.0f, 0.124f, -5.0f, 6.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
-    s_speed_pi.output_min = -0.25f;
-    s_speed_pi.output_max = 0.75f;
-    s_speed_pi.integral_output = 0.4f;
-    PiController expected_speed = s_speed_pi;
+    axis.speed_pi.output_min = -0.25f;
+    axis.speed_pi.output_max = 0.75f;
+    axis.speed_pi.integral_output = 0.4f;
+    PiController expected_speed = axis.speed_pi;
     for (unsigned i = 0U; i < sizeof(voltages_v) / sizeof(voltages_v[0]); ++i)
     {
-        PiController expected_id = s_foc_state.id_pi;
-        PiController expected_iq = s_foc_state.iq_pi;
+        PiController expected_id = axis.foc.id_pi;
+        PiController expected_iq = axis.foc.iq_pi;
         simulated_bus_voltage_v = voltages_v[i];
         float maximum_voltage_v = Foc_MaxVoltage(simulated_bus_voltage_v);
         expected_id.output_min = expected_iq.output_min = -maximum_voltage_v;
         expected_id.output_max = expected_iq.output_max = maximum_voltage_v;
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
-        assert(memcmp(&s_foc_state.id_pi, &expected_id, sizeof(expected_id)) == 0);
-        assert(memcmp(&s_foc_state.iq_pi, &expected_iq, sizeof(expected_iq)) == 0);
-        assert(memcmp(&s_speed_pi, &expected_speed, sizeof(expected_speed)) == 0);
+        MotorAxis_SampleFast(&axis);
+        MotorAxis_ControlFast(&axis);
+        assert(memcmp(&axis.foc.id_pi, &expected_id, sizeof(expected_id)) == 0);
+        assert(memcmp(&axis.foc.iq_pi, &expected_iq, sizeof(expected_iq)) == 0);
+        assert(memcmp(&axis.speed_pi, &expected_speed, sizeof(expected_speed)) == 0);
         assert(control_calls == 0U && observer_calls == 0U && output_off);
-        assert(s_motor_state.fault_code == MOTOR_FAULT_NONE);
+        assert(axis.motor.fault_code == MOTOR_FAULT_NONE);
     }
 }
 
@@ -684,8 +713,8 @@ static void expect_fast_tick_order(const char *expected)
     unsigned prior_reads = fast_frame_reads;
     fast_trace_length = 0U;
     trace_enabled = true;
-    MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
     trace_enabled = false;
     assert(strcmp(fast_trace, expected) == 0);
     assert(fast_frame_reads == prior_reads + 1U);
@@ -694,17 +723,17 @@ static void expect_fast_tick_order(const char *expected)
 static void prepare_fast_tick_order(MotorState state, MotorControlMode mode)
 {
     initialize();
-    s_current_offset_calibration.complete = true;
-    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
-    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
-    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
+    axis.current_offsets.complete = true;
+    axis.configuration.device.phase_a_offset_counts = 2048.0f;
+    axis.configuration.device.phase_b_offset_counts = 2048.0f;
+    axis.configuration.device.phase_c_offset_counts = 2048.0f;
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
         bsp_offsets[phase] = 2048.0f;
         samples[phase] = 8192U;
     }
     simulated_state = state;
-    s_motor_state.control_mode = mode;
+    axis.motor.control_mode = mode;
 }
 
 static void test_fast_tick_order(void)
@@ -724,14 +753,14 @@ static void test_fast_tick_order(void)
     /* 故障前后均保留采样收尾；执行中新故障必须由末尾的关断检查接住。 */
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
     output_off = false;
-    s_motor_state.fault_code = MOTOR_FAULT_ENCODER;
+    axis.motor.fault_code = MOTOR_FAULT_ENCODER;
     expect_fast_tick_order("BAVOEFSWTS");
-    assert(output_off && s_motor_state.fault_code == MOTOR_FAULT_ENCODER);
+    assert(output_off && axis.motor.fault_code == MOTOR_FAULT_ENCODER);
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
     output_off = false;
     inject_control_fault = true;
     expect_fast_tick_order("BAVOEFSWCTS");
-    assert(output_off && s_motor_state.fault_code == MOTOR_FAULT_OVERCURRENT);
+    assert(output_off && axis.motor.fault_code == MOTOR_FAULT_OVERCURRENT);
 }
 
 static void test_offset_limits(void)
@@ -746,9 +775,9 @@ static void test_offset_limits(void)
             sample_test_currents();
         }
         bool valid = test < 2U;
-        assert(s_current_offset_calibration.complete == valid);
-        assert(s_current_offset_calibration.failed != valid);
-        assert(MotorCurrentOffsets_IsValid(&s_motor_configuration) == valid);
+        assert(axis.current_offsets.complete == valid);
+        assert(axis.current_offsets.failed != valid);
+        assert(MotorCurrentOffsets_IsValid(&axis.configuration) == valid);
     }
 }
 
@@ -768,11 +797,11 @@ static void test_bus_offset_limits(void)
             sample_test_currents();
         }
         bool valid = test < 2U;
-        assert(s_current_offset_calibration.complete == valid);
-        assert(s_current_offset_calibration.failed != valid);
+        assert(axis.current_offsets.complete == valid);
+        assert(axis.current_offsets.failed != valid);
         assert(phase_offset_writes == (valid ? 1U : 0U));
         assert(bus_offset_writes == (valid ? 1U : 0U));
-        assert(MotorCurrentOffsets_IsValid(&s_motor_configuration) == valid);
+        assert(MotorCurrentOffsets_IsValid(&axis.configuration) == valid);
     }
     initialize();
     for (unsigned i = 0U; i < CURRENT_OFFSET_SAMPLE_COUNT - 1U; ++i)
@@ -781,7 +810,7 @@ static void test_bus_offset_limits(void)
     }
     bus_sample_raw = NAN;
     sample_test_currents();
-    assert(s_current_offset_calibration.failed && !s_current_offset_calibration.complete);
+    assert(axis.current_offsets.failed && !axis.current_offsets.complete);
     assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
 }
 
@@ -793,79 +822,81 @@ static void test_calibration_dispatch_and_publication(void)
     {
         prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
         simulated_calibration_type = calibration_type;
-        OutputEncoder_Init(&s_output_encoder, 1.0f);
-        OutputEncoder_Locate(&s_output_encoder, 0.0f, 0.0f);
+        OutputEncoder_Init(&axis.output_encoder, 1.0f);
+        OutputEncoder_Locate(&axis.output_encoder, 0.0f, 0.0f);
         simulated_calibration_outcome = (MotorTaskResult){
             calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ? MOTOR_TASK_FINALIZE
                                                                         : MOTOR_TASK_COMPLETED,
             MOTOR_FAULT_NONE};
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
+        MotorAxis_SampleFast(&axis);
+        MotorAxis_ControlFast(&axis);
         assert(calibration_cycle_calls == 1U && control_calls == 0U);
     }
     prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
     calibration_publication_pending = true;
-    MotorAxis_ProcessCalibrationPublication(calibration_progress);
+    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
     assert(calibration_publication_calls == 1U);
-    MotorAxis_ProcessCalibrationPublication(calibration_progress);
+    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
     assert(calibration_publication_calls == 1U);
     calibration_publication_pending = true;
     calibration_publication_succeeds = false;
-    MotorAxis_ProcessCalibrationPublication(calibration_progress);
+    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
     assert(calibration_publication_calls == 2U);
 #if BSP_ENABLED_LINEAR_HALL
     /* Hall 随观测器闭环采集；启动、构表、停止和电零位对齐均不采样。 */
     static const MotorElectricalPreset electrical = {.gear_ratio = 8.0f};
     static const MotorAxisPreset pitch = {.joint = MOTOR_JOINT_PITCH, .electrical = &electrical};
-    s_motor_configuration.preset = &pitch;
-    OutputEncoder_Init(&s_output_encoder, 8.0f);
-    LinearHall_Init(&s_linear_hall);
+    axis.configuration.preset = &pitch;
+    OutputEncoder_Init(&axis.output_encoder, 8.0f);
+    LinearHall_Init(&axis.linear_hall);
     simulated_state = MOTOR_STATE_CALIBRATION;
     simulated_phase = CS_NULL;
-    (void)run_active_calibration_cycle();
-    assert(isinf(s_hall_sweep.sin_min));
+    (void)MotorCalibration_StepFast(&axis.calibration);
+    assert(isinf(axis.calibration.hall_sweep.sin_min));
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
     simulated_phase = CS_OBS_STARTUP;
-    MotorAxis_SampleFast();
-    MotorAxis_OuterTick();
-    assert(isinf(s_hall_sweep.sin_min));
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_OuterTick(&axis);
+    assert(isinf(axis.calibration.hall_sweep.sin_min));
     simulated_phase = CS_OBS_SAMPLE_CW;
     hall_raw_sin = 100;
     hall_raw_cos = 600;
-    s_rotor_encoder.directed_q15 = 1234;
-    MotorAxis_SampleFast();
+    axis.rotor_encoder.directed_q15 = 1234;
+    MotorAxis_SampleFast(&axis);
     update_hall_on_unlock = true;
-    MotorAxis_OuterTick();
+    MotorAxis_OuterTick(&axis);
     assert(!update_hall_on_unlock);
-    assert(s_output_calib.samples[0].motor_counts == 1234);
-    assert(s_output_calib.samples[0].sin_counts == 100 &&
-           s_output_calib.samples[0].cos_counts == 600);
+    assert(axis.calibration.output_calibration.samples[0].motor_counts == 1234);
+    assert(axis.calibration.output_calibration.samples[0].sin_counts == 100 &&
+           axis.calibration.output_calibration.samples[0].cos_counts == 600);
     hall_raw_sin = 3500;
     hall_raw_cos = 3600;
-    MotorAxis_SampleFast();
-    MotorAxis_OuterTick();
-    assert(s_hall_sweep.sin_min == 100 && s_hall_sweep.cos_max == 3600);
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_OuterTick(&axis);
+    assert(axis.calibration.hall_sweep.sin_min == 100 &&
+           axis.calibration.hall_sweep.cos_max == 3600);
     /* 中止后新会话不得带入旧极值。 */
     simulated_state = MOTOR_STATE_IDLE;
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
-    MotorAxis_OuterTick();
-    assert(s_hall_sweep.sin_min == 100 && s_hall_sweep.cos_max == 3600);
+    MotorAxis_OuterTick(&axis);
+    assert(axis.calibration.hall_sweep.sin_min == 100 &&
+           axis.calibration.hall_sweep.cos_max == 3600);
     simulated_state = MOTOR_STATE_CALIBRATION;
     simulated_phase = CS_NULL;
-    (void)run_active_calibration_cycle();
-    assert(isinf(s_hall_sweep.sin_min));
+    (void)MotorCalibration_StepFast(&axis.calibration);
+    assert(isinf(axis.calibration.hall_sweep.sin_min));
     simulated_phase = CS_OBS_SAMPLE_CW;
     hall_raw_sin = 200;
     hall_raw_cos = 700;
-    MotorAxis_SampleFast();
-    MotorAxis_OuterTick();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_OuterTick(&axis);
     hall_raw_sin = 3400;
     hall_raw_cos = 3500;
-    MotorAxis_SampleFast();
-    MotorAxis_OuterTick();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_OuterTick(&axis);
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
     const EncoderCalibrationPhase excluded[] = {
@@ -873,34 +904,34 @@ static void test_calibration_dispatch_and_publication(void)
     for (unsigned i = 0; i < sizeof(excluded) / sizeof(excluded[0]); ++i)
     {
         simulated_phase = excluded[i];
-        MotorAxis_OuterTick();
+        MotorAxis_OuterTick(&axis);
     }
     calibration_publication_pending = calibration_publication_succeeds = true;
-    MotorAxis_ProcessCalibrationPublication(calibration_progress);
+    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
     test_ms = 201U;
-    MotorAxis_ProcessCalibrationPublication(calibration_progress);
+    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
     assert(simulated_calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO);
-    assert(s_hall_sweep.sin_min == 200);
-    MotorAxis_OuterTick();
+    assert(axis.calibration.hall_sweep.sin_min == 200);
+    MotorAxis_OuterTick(&axis);
     simulated_calibration_outcome.result = MOTOR_TASK_COMPLETED;
-    assert(run_active_calibration_cycle().result == MOTOR_TASK_COMPLETED);
-    s_output_calib.count = OUTPUT_ENCODER_CAL_SAMPLES;
-    memset(&s_motor_configuration.device.encoder, 0, sizeof(s_motor_configuration.device.encoder));
+    assert(MotorCalibration_StepFast(&axis.calibration).result == MOTOR_TASK_COMPLETED);
+    axis.calibration.output_calibration.count = OUTPUT_ENCODER_CAL_SAMPLES;
+    memset(&axis.configuration.device.encoder, 0, sizeof(axis.configuration.device.encoder));
     for (unsigned i = 0; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
         int32_t counts = (int32_t)(i * 8.0f * 65536.0f * 1.01f / (OUTPUT_ENCODER_CAL_SAMPLES - 1U));
         float h = (float)counts * (_2PI / (65536.0f * 8.0f));
-        s_output_calib.samples[i] =
+        axis.calibration.output_calibration.samples[i] =
             (OutputEncoderCalibSample){counts,
                                        (uint16_t)(1800.0f - 1600.0f * sinf(h)),
                                        (uint16_t)(2100.0f + 1400.0f * cosf(h))};
     }
     calibration_publication_pending = true;
-    MotorAxis_ProcessCalibrationPublication(calibration_progress);
-    assert(calibration_publication_calls == 3 && s_linear_hall.calibration_success);
-    assert(s_linear_hall.sin_off_counts == 1800 && s_linear_hall.sin_amp == 1600);
-    assert(s_linear_hall.cos_off_counts == 2100 && s_linear_hall.cos_amp == 1400);
-    s_motor_configuration.preset = NULL;
+    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    assert(calibration_publication_calls == 3 && axis.linear_hall.calibration_success);
+    assert(axis.linear_hall.sin_off_counts == 1800 && axis.linear_hall.sin_amp == 1600);
+    assert(axis.linear_hall.cos_off_counts == 2100 && axis.linear_hall.cos_amp == 1400);
+    axis.configuration.preset = NULL;
 #endif
     puts("PASS calibration dispatch: linearization/electrical/mechanical, publication");
 }
@@ -908,33 +939,33 @@ static void test_calibration_dispatch_and_publication(void)
 static void test_output_encoder_startup(void)
 {
     simulated_state = MOTOR_STATE_IDLE;
-    s_motor_configuration.preset = NULL;
-    s_motor_configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
-    s_rotor_encoder.has_valid_sample = true;
-    s_linear_hall.calibration_success = true;
-    s_linear_hall.val.sin_cal = -sinf(0.45f);
-    s_linear_hall.val.cos_cal = cosf(0.45f);
-    s_linear_hall.val.angle_rad = 0.45f;
+    axis.configuration.preset = NULL;
+    axis.configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
+    axis.rotor_encoder.has_valid_sample = true;
+    axis.linear_hall.calibration_success = true;
+    axis.linear_hall.val.sin_cal = -sinf(0.45f);
+    axis.linear_hall.val.cos_cal = cosf(0.45f);
+    axis.linear_hall.val.angle_rad = 0.45f;
     const float ratios[] = {1.0f, 8.0f};
     for (unsigned i = 0U; i < sizeof(ratios) / sizeof(ratios[0]); ++i)
     {
-        OutputEncoder_Init(&s_output_encoder, ratios[i]);
-        s_output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
-        s_current_offset_calibration.complete = false;
-        s_rotor_encoder.linearized_q15 = 0U;
-        MotorAxis_OuterTick();
-        assert(!OutputEncoder_IsReady(&s_output_encoder));
+        OutputEncoder_Init(&axis.output_encoder, ratios[i]);
+        axis.output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
+        axis.current_offsets.complete = false;
+        axis.rotor_encoder.linearized_q15 = 0U;
+        MotorAxis_OuterTick(&axis);
+        assert(!OutputEncoder_IsReady(&axis.output_encoder));
         /* 真实角接近半圈、Hall 有小误差时，启动零码不能提前决定圈段。 */
-        s_rotor_encoder.linearized_q15 = 32760U;
-        s_current_offset_calibration.complete = true;
-        MotorAxis_OuterTick();
-        assert(OutputEncoder_IsReady(&s_output_encoder));
+        axis.rotor_encoder.linearized_q15 = 32760U;
+        axis.current_offsets.complete = true;
+        MotorAxis_OuterTick(&axis);
+        assert(OutputEncoder_IsReady(&axis.output_encoder));
         float expected = 32760.0f * (_2PI / 65536.0f) / ratios[i];
-        assert(fabsf(s_output_encoder.initial_position_rad - expected) < 1e-5f);
-        assert(s_output_encoder.motor_delta_q15 == 0);
-        s_rotor_encoder.linearized_q15 += 100U;
-        MotorAxis_OuterTick();
-        assert(s_output_encoder.motor_delta_q15 == 100);
+        assert(fabsf(axis.output_encoder.initial_position_rad - expected) < 1e-5f);
+        assert(axis.output_encoder.motor_delta_q15 == 0);
+        axis.rotor_encoder.linearized_q15 += 100U;
+        MotorAxis_OuterTick(&axis);
+        assert(axis.output_encoder.motor_delta_q15 == 100);
     }
     puts("PASS output encoder waits for startup sampling before locating direct/geared axes");
 }
@@ -942,7 +973,7 @@ static void test_output_encoder_startup(void)
 int main(void)
 {
     /* Watch类型与对象布局不随零偏计算的所属目录迁移而变化。 */
-    assert(sizeof(CurrentOffsetCalibration) == 24U);
+    assert(sizeof(CurrentOffsetCalibration) == 24U + sizeof(axis.current_offsets.phases_disabled));
     assert(offsetof(CurrentOffsetCalibration, phase_sum_raw) == 0U);
     assert(offsetof(CurrentOffsetCalibration, bus_sum_raw) == 12U);
     assert(offsetof(CurrentOffsetCalibration, sample_count) == 16U);
@@ -961,40 +992,40 @@ int main(void)
     simulated_save = true;
     output_off = true;
     velocity_restarts = 0U;
-    MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
-    MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
     assert(velocity_restarts == 0U);
     simulated_save = false;
-    MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
     assert(velocity_restarts == 0U);
     initialize();
     simulated_state = MOTOR_STATE_RUNNING;
-    MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
+    MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
     assert(control_calls == 0U && observer_calls == 0U && progress_calls == 1U);
     initialize();
-    s_foc_state.bus_voltage_filtered_v = 30.0f;
-    Foc_ConfigureControllers(&s_motor_configuration, &s_foc_state, &s_speed_pi);
-    Foc_UpdateCurrentLimits(&s_foc_state);
-    assert(s_foc_state.id_pi.output_max == Foc_MaxVoltage(30.0f));
-    assert(s_foc_state.iq_pi.output_min == -Foc_MaxVoltage(30.0f));
+    axis.foc.bus_voltage_filtered_v = 30.0f;
+    Foc_ConfigureControllers(&axis.configuration, &axis.foc, &axis.speed_pi);
+    Foc_UpdateCurrentLimits(&axis.foc);
+    assert(axis.foc.id_pi.output_max == Foc_MaxVoltage(30.0f));
+    assert(axis.foc.iq_pi.output_min == -Foc_MaxVoltage(30.0f));
     assert(state_initializations >= 7U);
     /* 无效通道仍发布NaN测量，不由采样搬运函数伪造故障或有效电流。 */
-    s_current_offset_calibration.complete = true;
-    s_motor_configuration.device.phase_a_offset_counts = 2048.0f;
-    s_motor_configuration.device.phase_b_offset_counts = 2048.0f;
-    s_motor_configuration.device.phase_c_offset_counts = 2048.0f;
+    axis.current_offsets.complete = true;
+    axis.configuration.device.phase_a_offset_counts = 2048.0f;
+    axis.configuration.device.phase_b_offset_counts = 2048.0f;
+    axis.configuration.device.phase_c_offset_counts = 2048.0f;
     frame_available = false;
     output_off = false;
     unsigned prior_reads = fast_frame_reads;
     expect_fast_tick_order("BAVOEFSWPTS");
     assert(fast_frame_reads == prior_reads + 1U && !output_off);
-    assert(s_motor_state.fault_code == MOTOR_FAULT_NONE);
-    assert(isnan(s_foc_state.phase_current_a.a) && isnan(s_foc_state.phase_current_a.b) &&
-           isnan(s_foc_state.phase_current_a.c));
+    assert(axis.motor.fault_code == MOTOR_FAULT_NONE);
+    assert(isnan(axis.foc.phase_current_a.a) && isnan(axis.foc.phase_current_a.b) &&
+           isnan(axis.foc.phase_current_a.c));
     test_calibration_dispatch_and_publication();
     test_output_encoder_startup();
     puts("PASS FastTick order: channel ADC, SPI overlap, core dispatch and two fault stops");
@@ -1004,8 +1035,9 @@ int main(void)
     return 0;
 }
 
-void MotorLifecycle_BeginFastTick(void)
+void MotorLifecycle_BeginFastTick(MotorLifecycle *instance)
 {
+    (void)instance;
     check_fast_faults();
     fast_fault_stop();
 }
@@ -1025,8 +1057,8 @@ static void inject_hall_after_snapshot(void)
     {
         /* 复制完成立即抢占，消费者仍须使用同一个旧三元组。 */
         update_hall_on_unlock = false;
-        s_hall_sample = (OutputEncoderCalibSample){2345, 333, 444};
-        s_rotor_encoder.directed_q15 = 2345;
+        axis.hall_sample = (OutputEncoderCalibSample){2345, 333, 444};
+        axis.rotor_encoder.directed_q15 = 2345;
     }
 #else
     (void)update_hall_on_unlock;

@@ -14,6 +14,7 @@ typedef struct
     volatile uint32_t sample_count;
     volatile bool complete, failed;
     bool bus_current_enabled;
+    bool (*phases_disabled)(void);
 } CurrentOffsetCalibration;
 
 /**
@@ -58,26 +59,31 @@ void MotorVoltage_Update(FocState *foc);
  */
 void MotorCurrent_Update(FocState *foc);
 
-/**
- * @brief  更新 MCU 温度换算与遥测。
- * @param  foc 测量对象，写入温度字段。
- * @param  motor_state 电机故障所有者；采样失效时锁存故障。
- * @note 2 kHz 监督任务调用，不得在 20 kHz 快速环调用。
- */
-void McuTemperature_Update(FocState *foc, MotorControlState *motor_state);
-
 /* missed_ticks 以监督 tick（2 kHz，0.5 ms）计数；valid 为换算有效性标志。 */
 typedef struct
 {
     uint32_t raw_ts, raw_vref, valid, missed_ticks, sample_count;
     float vdda_mv, raw_celsius;
 } McuTemperatureTelemetry;
+
+/**
+ * @brief  更新 MCU 温度换算与遥测。
+ * @param  foc 测量对象，写入温度字段。
+ * @param  motor_state 电机故障所有者；采样失效时锁存故障。
+ * @note 2 kHz 监督任务调用，不得在 20 kHz 快速环调用。
+ * @param temperature 调用方持有的实例状态。
+ */
+void McuTemperature_Update(volatile McuTemperatureTelemetry *temperature,
+                           FocState *foc,
+                           MotorControlState *motor_state);
+
 /**
  * @brief 读取温度采样是否有效且未超时。
  * @return 监督拥有的温度来源有效且未超时返回 true。
  * @note 只读标量查询，不访问 ADC、不修改采样状态。
+ * @param temperature 调用方持有的实例状态。
  */
-bool McuTemperature_IsFresh(void);
+bool McuTemperature_IsFresh(const volatile McuTemperatureTelemetry *temperature);
 
 /**
  * @brief 检查 ADC 零偏是否处于启动校正允许范围。

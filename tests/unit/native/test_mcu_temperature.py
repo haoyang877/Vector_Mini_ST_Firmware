@@ -29,14 +29,14 @@ void MotorFault_Report(MotorControlState *state, MotorFaultCode fault) {
         + r"""
 static void sample(unsigned ts,unsigned ref) {
     MCU_ADC_TEMPERATURE_RESULT=ts; MCU_ADC_REFERENCE_RESULT=ref;
-    McuTemperature_Update(&foc,&motor);
+    McuTemperature_Update(&s_mcu_temperature,&foc,&motor);
 }
 static void reset(void) {
     memset((void*)&s_mcu_temperature,0,sizeof(s_mcu_temperature));
     memset(&foc,0,sizeof(foc)); memset(&motor,0,sizeof(motor));
 }
 int main(void) {
-    reset();sample(1000,1500);assert(foc.temperature_c==30 && McuTemperature_IsFresh());
+    reset();sample(1000,1500);assert(foc.temperature_c==30 && McuTemperature_IsFresh(&s_mcu_temperature));
     assert(s_mcu_temperature.vdda_mv==3000 && s_mcu_temperature.sample_count==1);
     sample(1040,1500);assert(fabsf(foc.temperature_c-30.1f)<0.0001f);
     assert(s_mcu_temperature.raw_celsius==40);
@@ -45,11 +45,11 @@ int main(void) {
     assert(motor.fault_code==MOTOR_FAULT_OVERTEMPERATURE && foc.temperature_c<90);
     motor.fault_code=MOTOR_FAULT_ENCODER;sample(1400,1500);
     assert(motor.fault_code==MOTOR_FAULT_ENCODER);
-    reset();sample(1000,0);assert(!McuTemperature_IsFresh() && isnan(foc.temperature_c));
+    reset();sample(1000,0);assert(!McuTemperature_IsFresh(&s_mcu_temperature) && isnan(foc.temperature_c));
     for(unsigned i=1;i<MCU_TEMPERATURE_TIMEOUT_TICKS-1;i++) sample(1000,0);
     assert(motor.fault_code==MOTOR_FAULT_NONE);
     sample(1000,0);assert(motor.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
-    sample(1000,1500);assert(McuTemperature_IsFresh() && foc.temperature_c==30);
+    sample(1000,1500);assert(McuTemperature_IsFresh(&s_mcu_temperature) && foc.temperature_c==30);
     assert(motor.fault_code==MOTOR_FAULT_TEMPERATURE_SENSOR);
     trim130=trim30;assert(isnan(BspAdc_ReadChannel(BSP_ADC_MCU_TEMPERATURE)));
     trim130=1400;reset();sample(760,1500);assert(foc.temperature_c==-30);

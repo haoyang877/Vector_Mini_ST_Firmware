@@ -336,7 +336,7 @@
               <MiscControls>--diag_suppress=1</MiscControls>
               <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U,BSP_BOARD=1U,FIRMWARE_TARGET_STM32_APP</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\platform\bsp;..\..\..\shared\targets\vector_mini_st_g431</IncludePath>
+              <IncludePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\platform\bsp;..\..\..\shared\targets\vector_mini_st_g431</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -383,12 +383,73 @@
             <File>
               <FileName>app.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\composition\app.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_loader.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\app\app_loader.c</FilePath>
             </File>
             <File>
               <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\runtime\motor_axis.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_axis.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument />
+                  <IncludeLibraryModules />
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>4</Optim>
+                    <oTime>1</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls />
+                      <Define />
+                      <Undefine />
+                      <IncludePath />
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>motor_calibration.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\app\motor_calibration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -444,63 +505,7 @@
             <File>
               <FileName>motor_lifecycle.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\runtime\motor_lifecycle.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>4</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>motor_state_machine.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\motor_state_machine\motor_state_machine.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_lifecycle.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -556,7 +561,7 @@
             <File>
               <FileName>app_protocol.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\composition\app_protocol.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app_protocol.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -578,62 +583,6 @@
                   <Cads>
                     <interw>2</interw>
                     <Optim>4</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>motor_stop_request.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\interfaces\motor_stop_request.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
                     <oTime>0</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>

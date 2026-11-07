@@ -25,9 +25,8 @@ APP、Loader、主机应用保持独立可构建。shared 不依赖 APP、硬件
 | 层/模块 | 拥有的职责 | 不拥有的职责 |
 | --- | --- | --- |
 | projects/main | 板级入口、中断连接、调用启动和主循环 | 寄存器操作与领域算法 |
-| app/composition | 组装模块、调度、协议业务映射、RTT 和 Loader 交接 | 重复实现底层算法和硬件驱动 |
-| app/runtime | 单轴对象、生命周期动作、配置发布和运行调度 | 协议字节布局、MCU 寄存器 |
-| app/motor_state_machine | 状态迁移的纯函数 | 隐藏上下文、硬件操作和业务执行 |
+| app 的 app、app_protocol、app_loader | 组装、前台调度、协议值转换、Loader 交接 | 底层算法与 MCU 寄存器 |
+| app 的 motor_axis、motor_lifecycle、motor_calibration | 独立轴数据、五态及功率许可、标定发布和保存 | 协议字节布局、厂商驱动 |
 | motor | 控制、测量、反馈、标定、保护等领域功能 | APP 调度实现和具体厂商依赖 |
 | communication | 接收、解包、通过约定接口交付业务、打包回复 | 直接访问 APP 运行私有对象或 Watch 入口 |
 | parameters / config | 参数默认值、验证、存储转换及板型/电机配置 | 在线控制状态或重复的活动参数所有权 |

@@ -15,6 +15,8 @@
  */
 typedef struct
 {
+    /* 轴在上电时绑定实际 PWM，独立台架沿用板级默认输出。 */
+    void (*set_duty)(float phase_a, float phase_b, float phase_c);
     float bus_current_estimated_a, bus_current_estimated_filtered_a;
     float power_filtered_w;
     AlphaBetaVector voltage_ab_v;

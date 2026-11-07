@@ -1,7 +1,7 @@
 # 通信协议
 
 核对：2026-11-04，`the-system-refactor` 当前源码。本文件是唯一现行协议说明。
-依据 [yg_protocol.h](../../firmware/communication/yg_protocol.h)、[yg_protocol.c](../../firmware/communication/yg_protocol.c)、[APP 适配](../../firmware/app/composition/app_protocol.c)及[Loader](../../loader/runtime/main.c)。
+依据 [yg_protocol.h](../../firmware/communication/yg_protocol.h)、[yg_protocol.c](../../firmware/communication/yg_protocol.c)、[APP 适配](../../firmware/app/app_protocol.c)及[Loader](../../loader/runtime/main.c)。
 除镜像清单外，所有多字节整数均为小端；表中偏移从各自 payload 的第 0 字节算起。
 
 ## 代码入口
@@ -216,7 +216,7 @@ GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, ep
 160 请求：`kind:u16, zero:u16`；仅支持 1 编码器 LUT、2 电角零位、6 机械零位。
 161/162 请求为非零 `ticket:u32`，均不支持；取消活动标定用 110。其他 kind 不启动任务。
 三条命令统一回复 12 B：`result:u16, detail:u16, ticket:u32, kind:u16, phase:u8, effects:u8`。
-受理时 ticket 非零、phase=1（进行中）、effects=1（未保存），完成后回空闲，不自动保存 Flash。
+受理时 ticket 非零、phase=1（进行中）、effects=1（未保存），受理时尚未保存。标定候选就绪后，前台复核原会话和实际关相状态并自动写 Flash。保存成功后回空闲，写失败锁存存储故障。
 ticket 只是受理编号，不提供历史查询或后续授权。
 detail：1 不支持类别、3 状态不允许、6 字段错误、7 执行失败；失败时任务元数据可全为 0。
 

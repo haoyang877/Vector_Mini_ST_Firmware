@@ -35,9 +35,9 @@ AT32F456＋YQ-5708（8:1），节点1，CAN FD 1M/5M。沿用用户批准的3A�
 
 ## 实现与兼容
 
-- [运行所有者](../../../firmware/app/runtime/motor_lifecycle.c)校验同模式、停止/故障、现有包络后直接提交；
+- [运行所有者](../../../firmware/app/motor_lifecycle.c)校验同模式、停止/故障、现有包络后直接提交；
   状态读取与目标提交都用短临界区，缩放和CAN发送在临界区之外。
-- [APP协议适配](../../../firmware/app/composition/app_protocol.c)负责单位、结果和最后一次成功请求的重试处理；
+- [APP协议适配](../../../firmware/app/app_protocol.c)负责单位、结果和最后一次成功请求的重试处理；
   16位序号回绕和STOP后旧请求均有离线回归。
 - [协议编码](../../../firmware/communication/yg_protocol.c)继续共用原45字节布局。
   124由116触发，不另设周期广播器，不把反馈当成机械到位确认。

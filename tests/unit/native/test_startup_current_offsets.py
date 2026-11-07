@@ -18,18 +18,11 @@ def main() -> None:
     args = parser.parse_args()
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    axis = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
+    axis = (ROOT / "firmware/app/motor_axis.c").read_text(encoding="utf-8")
     sensing = (ROOT / "firmware/motor/sensing/motor_current.c").read_text(encoding="utf-8")
     algorithm = (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8")
-    production = "CurrentOffsetCalibration s_current_offset_calibration;\n"
-    production += "static EncoderCalibrationWorkspace s_encoder_linearization_workspace;\n"
-    production += "static LinearHall s_linear_hall;\n#if BSP_ENABLED_LINEAR_HALL\n"
-    production += (
-        "static LinearHallCalibration s_hall_sweep;\nstatic OutputEncoderCalib s_output_calib;\n"
-        "static volatile OutputEncoderCalibSample s_hall_sample;\n"
-    )
-    production += "#endif\n"
-    production += "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
+    calibration = (ROOT / "firmware/app/motor_calibration.c").read_text(encoding="utf-8")
+    production = "#define FOC_MAX_MODULATION (0.95f * 0.866025403f)\n"
     production += function_source(sensing, "MotorCurrentOffsets_IsValid")
     production += function_source(sensing, "MotorCurrent_Update")
     for name in (
@@ -47,18 +40,23 @@ def main() -> None:
     ):
         production += function_source(algorithm, name)
     for name in (
-        "run_active_calibration_cycle",
         "MotorAxis_Init",
         "MotorAxis_SampleFast",
         "MotorAxis_ControlFast",
         "MotorAxis_OuterTick",
-        "MotorAxis_ProcessCalibrationPublication",
     ):
         production += function_source(axis, name)
+    production += function_source(calibration, "MotorCalibration_StepFast")
+    production += (
+        "\n#if BSP_ENABLED_LINEAR_HALL\n"
+        + function_source(calibration, "advance_joint_lut")
+        + "\n#endif\n"
+    )
+    production += function_source(calibration, "MotorCalibration_ProcessPublication")
     start = production.index("    /* 固定启动暂存区")
     end = production.index("    MotorCurrentOffsets_Init(", start)
     production = (
-        production[:start] + "    load_parameters(&s_motor_configuration);\n" + production[end:]
+        production[:start] + "    load_parameters(&axis->configuration);\n" + production[end:]
     )
     fixture = (ROOT / "tests/unit/startup_current_offsets_test.c").read_text(encoding="utf-8")
     fixture = fixture.replace(

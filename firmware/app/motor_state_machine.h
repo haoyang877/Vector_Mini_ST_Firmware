@@ -1,7 +1,14 @@
 #ifndef MOTOR_STATE_MACHINE_H
 #define MOTOR_STATE_MACHINE_H
 
-#include "motor_state_types.h"
+typedef enum
+{
+    MOTOR_STATE_IDLE,
+    MOTOR_STATE_SELF_TEST,
+    MOTOR_STATE_CALIBRATION,
+    MOTOR_STATE_RUNNING,
+    MOTOR_STATE_FAULT
+} MotorState;
 
 /* 每次只处理一个已由运行层校验的事件；无硬件、配置或任务依赖。 */
 typedef enum

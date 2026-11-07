@@ -23,7 +23,7 @@ MotorAxis在观测器调用前完成本拍电流的Clarke变换，并以原式
 
 | 源码 | 核心工作 |
 | --- | --- |
-| [motor_lifecycle.c](../../firmware/app/runtime/motor_lifecycle.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
+| [motor_lifecycle.c](../../firmware/app/motor_lifecycle.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
 | [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调速度/位置外环（AT32F456/YQ-5708 每 250 µs，其余配置每 500 µs），分发20kHz任务；不读取APP状态机或服务命令 |
 | [position_control.c](../../firmware/motor/control/position_control.c) | 位置 OTG 参考 → 位置PD → 限幅速度参考 → 速度PI → 电流参考 |
 | [foc.c](../../firmware/motor/control/foc.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |

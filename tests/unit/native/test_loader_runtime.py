@@ -56,11 +56,12 @@ def main() -> None:
         image, _, _ = build_package(source, 7, target)
     header = "static const uint8_t LoaderV2Image[] = {" + ",".join(map(str, image)) + "};\n"
     (output / "loader_image_v2_vector.h").write_text(header, encoding="utf-8")
-    board = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
+    board = (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
+    loader = (ROOT / "firmware/app/app_loader.c").read_text(encoding="utf-8")
     health_fixture = (ROOT / "tests/unit/loader_app_health_test.c").read_text(encoding="utf-8")
     intervals = "\n".join(
         line
-        for line in board.splitlines()
+        for line in (board + loader).splitlines()
         if line.startswith(
             (
                 "#define BOOT_HEALTH_INTERVAL_MS",
@@ -75,21 +76,21 @@ def main() -> None:
         + "\n"
         + health_fixture
         + "\n"
-        + function_source(board, "service_boot")
+        + function_source(loader, "AppLoader_Process")
         + "\n"
-        + function_source(board, "confirm_image")
+        + function_source(loader, "confirm_image")
         + "\n"
         + function_source(board, "service_watchdog")
         + "\n"
         + function_source(board, "App_Process")
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8"),
+            (ROOT / "projects/stm32g4/application/main.c").read_text(encoding="utf-8"),
             "BspApp_OnFastSample",
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8"),
+            (ROOT / "firmware/app/app.c").read_text(encoding="utf-8"),
             "App_SupervisorTick",
         ),
         encoding="utf-8",
@@ -215,7 +216,7 @@ def main() -> None:
         + ["-DBSP_BOARD=1", "-DFOC_ACTIVE_MOTOR_PROFILE=1"]
         + [
             "-I",
-            str(ROOT / "firmware/app/interfaces"),
+            str(ROOT / "firmware/app"),
             "-I",
             str(ROOT / "loader/ports/include"),
             "-I",

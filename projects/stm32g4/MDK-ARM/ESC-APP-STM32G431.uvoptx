@@ -163,12 +163,12 @@
         <Ww>
           <count>0</count>
           <WinNumber>1</WinNumber>
-          <ItemText>g_motor_context.state</ItemText>
+          <ItemText>g_app.axis.lifecycle.state</ItemText>
         </Ww>
         <Ww>
           <count>1</count>
           <WinNumber>1</WinNumber>
-          <ItemText>g_motor_context,0x0A</ItemText>
+          <ItemText>g_app.axis.lifecycle,0x0A</ItemText>
         </Ww>
       </WatchWindow1>
       <MemoryWindow1>
@@ -244,7 +244,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\composition\app.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\app.c</PathWithFileName>
       <FilenameWithoutPath>app.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -256,7 +256,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\runtime\motor_axis.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\motor_axis.c</PathWithFileName>
       <FilenameWithoutPath>motor_axis.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -268,7 +268,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\runtime\motor_lifecycle.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\motor_lifecycle.c</PathWithFileName>
       <FilenameWithoutPath>motor_lifecycle.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -280,8 +280,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\motor_state_machine\motor_state_machine.c</PathWithFileName>
-      <FilenameWithoutPath>motor_state_machine.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\motor_calibration.c</PathWithFileName>
+      <FilenameWithoutPath>motor_calibration.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -292,7 +292,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\composition\app_protocol.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\app_protocol.c</PathWithFileName>
       <FilenameWithoutPath>app_protocol.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -304,8 +304,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\interfaces\motor_stop_request.c</PathWithFileName>
-      <FilenameWithoutPath>motor_stop_request.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\app_loader.c</PathWithFileName>
+      <FilenameWithoutPath>app_loader.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

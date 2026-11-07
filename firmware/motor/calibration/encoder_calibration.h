@@ -32,7 +32,7 @@ typedef struct
 /* 编码器标定任务：
  * - EncoderCalibration_StepLut：无感观测器闭环下重建编码器 1024 点线性化 LUT；
  * - EncoderCalibration_StepElecZero：d 轴对齐并写入电角度零位（需先完成 LUT 标定）。
- * 任务为单轴非重入实现，不自行停相、写模式或保存；完成/失败经 MotorTaskResult 上报，
+ * 调用方持有各轴独立会话，不自行停相、写模式或保存；完成/失败经 MotorTaskResult 上报，
  * 功率级与模式迁移由运行状态机执行；本地中止只清理控制状态。 */
 
 /* 按业务阶段推进；现有阶段保留诊断编号，电零位独立计时。 */
@@ -47,24 +47,102 @@ typedef enum
     CS_LUT_PUBLISH_PENDING = 36
 } EncoderCalibrationPhase;
 
+/** 启动阶段统一管理清表、总超时和连续稳速时间。 */
+typedef struct
+{
+    uint16_t clear_bin;
+    uint32_t ticks;
+    uint32_t stable_ticks;
+} EncoderCalibrationStartupState;
+
+/** 采样参考、单位换算与有效行程由同一阶段持有。 */
+typedef struct
+{
+    float start_elec_rad;
+    int32_t motor_travel_q15;
+    float q15_per_elec_rad;
+    uint16_t start_q15;
+    uint16_t previous_q15;
+    uint32_t ticks;
+    uint32_t position_epoch;
+} EncoderCalibrationSamplingState;
+
+/** 两遍构表的游标及环形展开状态。 */
+typedef struct
+{
+    uint16_t bin;
+    uint8_t pass;
+    int32_t previous_q15;
+    int32_t shift_q15;
+    int64_t sum_q15;
+    uint32_t position_epoch;
+} EncoderCalibrationBuildState;
+
+/** 环形角均值以首个样本展开，避免跨零采样落到半圈。 */
+typedef struct
+{
+    int64_t sum_q15;
+    uint32_t count;
+    uint16_t anchor_q15;
+} EncoderCalibrationAngleMean;
+
+/** 停止阶段的速度与电流斜坡起点。 */
+typedef struct
+{
+    uint32_t ticks;
+    float speed_rad_s;
+    float current_a;
+} EncoderCalibrationStopState;
+
+/* 会话状态唯一归任务所有；借用的控制对象只在当前调用有效。 */
+typedef struct
+{
+    EncoderCalibrationWorkspace *workspace;
+    EncoderCalibrationPhase phase;
+    /* 各阶段独占业务状态；转换时先消费旧值，再初始化下一阶段。 */
+    union
+    {
+        EncoderCalibrationStartupState startup;
+        EncoderCalibrationSamplingState sampling;
+        EncoderCalibrationBuildState build;
+        EncoderCalibrationStopState stop;
+    } stage;
+    PiController speed_pi; /* 同一会话连续使用；取消或新建时连同积分状态清零。 */
+} EncoderLutSession;
+
+typedef struct
+{
+    uint32_t ticks;
+    EncoderCalibrationAngleMean mean;
+} EncoderZeroSession;
+
+typedef struct
+{
+    EncoderLutSession lut;
+    EncoderZeroSession zero;
+} EncoderCalibrationSession;
+
 /* 当前标定阶段；前台与诊断只读，标定任务为唯一写者。 */
 /**
  * @brief 读取标定阶段值。
  * @return 当前观测器标定阶段，不返回可写状态。
+ * @param session 调用方持有的实例状态。
  */
-EncoderCalibrationPhase EncoderCalibration_GetPhase(void);
+EncoderCalibrationPhase EncoderCalibration_GetPhase(const EncoderCalibrationSession *session);
 
 /**
  * @brief 取消LUT及电零位会话并释放工作区借用。
  * @note 只清理本模块的内存与阶段变量，不停相、不改模式、不写参数；可重复调用。
+ * @param session 调用方持有的实例状态。
  */
-void EncoderCalibration_Cancel(void);
+void EncoderCalibration_Cancel(EncoderCalibrationSession *session);
 /**
  * @brief 确认两个标定任务及工作区已释放。
  * @return LUT 和电零位任务均处于空闲时返回 true。
  * @note 仅只读查询，取消由 owner 显式调用。
+ * @param session 调用方持有的实例状态。
  */
-bool EncoderCalibration_IsIdle(void);
+bool EncoderCalibration_IsIdle(const EncoderCalibrationSession *session);
 
 /**
  * @brief 在关相后台发布已构建的候选LUT并释放标定引用。
@@ -73,8 +151,11 @@ bool EncoderCalibration_IsIdle(void);
  * @return 候选有效且发布成功返回true，否则保持原标定返回false。
  * @note 两个对象必须有效。所有者须持有全中断临界区并复核会话、STOP、故障和关相，
  *       发布完成后才能恢复中断；在前台调用。
+ * @param session 调用方持有的实例状态。
  */
-bool EncoderCalibration_PublishLut(EncoderCalibration *calibration, EncoderState *encoder);
+bool EncoderCalibration_PublishLut(EncoderCalibrationSession *session,
+                                   EncoderCalibration *calibration,
+                                   EncoderState *encoder);
 
 /**
  * @brief 观测器 LUT 标定周期任务：无感闭环下重建 1024 点线性化 LUT。
@@ -88,8 +169,10 @@ bool EncoderCalibration_PublishLut(EncoderCalibration *calibration, EncoderState
  *       发布或取消后调用方确认 IsIdle 才可复用空间；不分配或释放内存。
  *       调用方保证配置有效且编码器已就绪；无感启动负责运行参数检查。稳速后以当前角为相对参考，
  *       构表完成后减速并卸流，发布后须重新标定电零位。
+ * @param session 调用方持有的实例状态。
  */
-MotorTaskResult EncoderCalibration_StepLut(const EncoderCalibrationControl *drive,
+MotorTaskResult EncoderCalibration_StepLut(EncoderCalibrationSession *session,
+                                           const EncoderCalibrationControl *drive,
                                            EncoderCalibrationWorkspace *workspace);
 
 /**
@@ -101,7 +184,9 @@ MotorTaskResult EncoderCalibration_StepLut(const EncoderCalibrationControl *driv
  * @note 仅由 20 kHz 快速中断调用；完成/失败经结果协议上报，
  *       停相和任务衔接由主状态机执行，本任务只更新RAM标定。
  *       调用方保证编码器就绪、LUT 有效，标定电流与电流限值均为有效正值。
+ * @param session 调用方持有的实例状态。
  */
-MotorTaskResult EncoderCalibration_StepElecZero(const EncoderCalibrationControl *drive);
+MotorTaskResult EncoderCalibration_StepElecZero(EncoderCalibrationSession *session,
+                                                const EncoderCalibrationControl *drive);
 
 #endif

@@ -152,32 +152,32 @@
         <Ww>
           <count>0</count>
           <WinNumber>1</WinNumber>
-          <ItemText>g_app_fast_samples,0x0A</ItemText>
+          <ItemText>g_app.fast_samples,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>1</count>
           <WinNumber>1</WinNumber>
-          <ItemText>g_motor_context,0x0A</ItemText>
+          <ItemText>g_app.axis.lifecycle,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>2</count>
           <WinNumber>1</WinNumber>
-          <ItemText>\\ESC_APP_AT32F456\../../../firmware/app/runtime/motor_lifecycle.c\g_motor_context.rotor_encoder-&gt;mechanical_position_rad</ItemText>
+          <ItemText>g_app.axis.rotor_encoder.mechanical_position_rad</ItemText>
         </Ww>
         <Ww>
           <count>3</count>
           <WinNumber>1</WinNumber>
-          <ItemText>\\ESC_APP_AT32F456\../../../firmware/app/runtime/motor_lifecycle.c\g_motor_context.rotor_encoder-&gt;mechanical_position_rad</ItemText>
+          <ItemText>g_app.axis.rotor_encoder.mechanical_position_rad</ItemText>
         </Ww>
         <Ww>
           <count>4</count>
           <WinNumber>1</WinNumber>
-          <ItemText>\\ESC_APP_AT32F456\../../../firmware/app/runtime/motor_lifecycle.c\g_motor_context.motor-&gt;control_mode</ItemText>
+          <ItemText>g_app.axis.motor.control_mode</ItemText>
         </Ww>
         <Ww>
           <count>5</count>
           <WinNumber>1</WinNumber>
-          <ItemText>\\ESC_APP_AT32F456\../../../firmware/app/runtime/motor_lifecycle.c\g_motor_context.motor-&gt;position_target_rad</ItemText>
+          <ItemText>g_app.axis.motor.position_target_rad</ItemText>
         </Ww>
       </WatchWindow1>
       <Tracepoint>
@@ -226,7 +226,7 @@
   </Target>
 
   <Group>
-    <GroupName>App</GroupName>
+    <GroupName>00_App</GroupName>
     <tvExp>1</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -238,7 +238,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\composition\app.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\app.c</PathWithFileName>
       <FilenameWithoutPath>app.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -262,7 +262,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\runtime\motor_axis.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\motor_axis.c</PathWithFileName>
       <FilenameWithoutPath>motor_axis.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -274,7 +274,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\runtime\motor_lifecycle.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\motor_lifecycle.c</PathWithFileName>
       <FilenameWithoutPath>motor_lifecycle.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -286,8 +286,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\motor_state_machine\motor_state_machine.c</PathWithFileName>
-      <FilenameWithoutPath>motor_state_machine.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\motor_calibration.c</PathWithFileName>
+      <FilenameWithoutPath>motor_calibration.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -298,7 +298,7 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\composition\app_protocol.c</PathWithFileName>
+      <PathWithFileName>..\..\..\firmware\app\app_protocol.c</PathWithFileName>
       <FilenameWithoutPath>app_protocol.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
@@ -310,15 +310,15 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\interfaces\motor_stop_request.c</PathWithFileName>
-      <FilenameWithoutPath>motor_stop_request.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\app_loader.c</PathWithFileName>
+      <FilenameWithoutPath>app_loader.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
   </Group>
 
   <Group>
-    <GroupName>Motor</GroupName>
+    <GroupName>10_Motor</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -566,7 +566,7 @@
   </Group>
 
   <Group>
-    <GroupName>Parameters</GroupName>
+    <GroupName>20_Parameters</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -610,7 +610,7 @@
   </Group>
 
   <Group>
-    <GroupName>Communication</GroupName>
+    <GroupName>30_Communication</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -642,7 +642,7 @@
   </Group>
 
   <Group>
-    <GroupName>Platform</GroupName>
+    <GroupName>40_Platform</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -758,7 +758,7 @@
   </Group>
 
   <Group>
-    <GroupName>Shared</GroupName>
+    <GroupName>50_Shared</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
@@ -826,7 +826,7 @@
   </Group>
 
   <Group>
-    <GroupName>Mcu_SDK</GroupName>
+    <GroupName>90_Vendor</GroupName>
     <tvExp>0</tvExp>
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>

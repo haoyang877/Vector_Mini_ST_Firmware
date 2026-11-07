@@ -19,14 +19,14 @@
 
 ## 代码职责
 
-- [motor_state_machine.c](../../firmware/app/motor_state_machine/motor_state_machine.c)：
+- [motor_state_machine.c](../../firmware/app/motor_lifecycle.c)：
   唯一五态纯迁移函数；不访问硬件、不拥有通信、任务或运行上下文。
-- [motor_state_machine.h](../../firmware/app/motor_state_machine/motor_state_machine.h)：
+- [motor_state_machine.h](../../firmware/app/motor_state_machine.h)：
   六个单一事件与纯函数接口，没有事件位图、动作位图或通用规则引擎。
-- [motor_lifecycle.c](../../firmware/app/runtime/motor_lifecycle.c)：
+- [motor_lifecycle.c](../../firmware/app/motor_lifecycle.c)：
   唯一运行上下文，直接实现启停、标定、状态监督及功率保护。
   内部函数仅文件可见，没有跨文件上下文接口或公开转发层。
-- [motor_axis.c](../../firmware/app/runtime/motor_axis.c)：
+- [motor_axis.c](../../firmware/app/motor_axis.c)：
   持有单轴对象并编排快慢环；快环进入BeginFastTick，结束时PostOutcome，
   两个入口各自负责所属阶段的故障检查和关相。
   标定分支复用已有算法；主循环调用ProcessCalibrationPublication发布已验证的LUT。

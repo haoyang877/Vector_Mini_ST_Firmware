@@ -2,8 +2,8 @@
   "schema_version": 1,
   "baseline_ref": "66606dd9d59f5a71401a4cee8b6122045f7f7b7c",
   "files": {
-    "firmware/app/motor_state.c": "firmware/app/runtime/motor_axis.c",
-    "firmware/app/motor_state.h": "firmware/app/runtime/motor_axis.h",
+    "firmware/app/motor_state.c": "firmware/app/motor_axis.c",
+    "firmware/app/motor_state.h": "firmware/app/motor_axis.h",
     "firmware/motor/data_type.h": "firmware/motor/motor_types.h",
     "firmware/motor/identification/foc_friction_identification.c": "firmware/motor/identification/friction_identification_task.c",
     "firmware/motor/identification/foc_friction_identification.h": "firmware/motor/identification/friction_identification_task.h",
@@ -437,7 +437,7 @@
       "revision_work_epoch": "s_revision_work_epoch",
       "save_job": "s_save_job"
     },
-    "firmware/app/motor_state_machine.c": {
+    "firmware/app.c": {
       "FOC": "s_foc_state",
       "MotorControl": "s_motor_state",
       "OnBoard_Encoder": "s_rotor_encoder",

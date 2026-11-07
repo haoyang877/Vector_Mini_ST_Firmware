@@ -7,7 +7,7 @@ from run_position_servo_tests import function_source
 def main() -> None:
     """用边界桩记录真实采样/控制阶段，不重写生产分支。"""
     args = arguments(__doc__)
-    production = (ROOT / "firmware/app/runtime/motor_axis.c").read_text(encoding="utf-8")
+    production = (ROOT / "firmware/app/motor_axis.c").read_text(encoding="utf-8")
     source = (
         r"""
 #include <assert.h>
@@ -17,48 +17,46 @@ def main() -> None:
 #include "motor_control.h"
 #include "motor_sensing.h"
 #include "flux_observer.h"
-static MotorConfiguration s_motor_configuration;
-static MotorControlState s_motor_state;
-static FocState s_foc_state;
-static EncoderState s_rotor_encoder;
-static FluxObserverState s_flux_observer;
-static CurrentOffsetCalibration s_current_offset_calibration;
+#include "motor_axis.h"
+static MotorAxis axis;
 static MotorState selected_state;
 static unsigned steps[32],count;
 static void step(unsigned n) {steps[count++]=n;}
 #define BspEncoder_Begin() step(1)
 #define MotorVoltage_Update(a) ((void)(a),step(2))
 #define Foc_UpdateCurrentLimits(a) ((void)(a),step(3))
-#define MotorLifecycle_GetState() selected_state
+#define MotorLifecycle_GetState(life) selected_state
 #define MotorCurrentOffsets_Calibrate(a,b,c) ((void)(a),(void)(b),(void)(c),step(4),true)
 #define MotorCurrent_Update(a) ((void)(a),step(5))
 #define Clarke_Transform(a,b) ((void)(a),(void)(b),step(6))
 #define FluxObserver_Update(a,b,c,d) ((void)(a),(void)(b),(void)(c),(void)(d),step(7))
 #define Encoder_Update(a) ((void)(a),step(8))
-#define MotorLifecycle_BeginFastTick() step(9)
-#define MotorLifecycle_WorkEpoch() (step(10),17U)
-#define MotorLifecycle_IsCalibrationRunnable() true
+#define MotorLifecycle_BeginFastTick(life) step(9)
+#define MotorLifecycle_WorkEpoch(life) (step(10),17U)
+#define MotorLifecycle_IsCalibrationRunnable(life) true
 static MotorTaskResult result(unsigned n) {step(n);return (MotorTaskResult){MOTOR_TASK_RUNNING,MOTOR_FAULT_NONE};}
-#define run_active_calibration_cycle() result(11)
+#define MotorCalibration_StepFast(cal) result(11)
 #define MotorControl_Step(a,b,c,d,e) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),result(12))
-#define BspPwm_SetDuty(a,b,c) ((void)(a),(void)(b),(void)(c),step(13))
+static void set_duty(float a,float b,float c) {assert(a==0.5f && b==0.5f && c==0.5f);step(13);}
+static const MotorAxisHardware hardware = {.power.set_duty=set_duty};
 static void post(MotorTaskResult r,unsigned epoch) {(void)r;assert(epoch==17);step(14);}
-#define MotorLifecycle_PostOutcome(a,b) post(a,b)
+#define MotorLifecycle_PostOutcome(life,a,b) post(a,b)
 """
         + function_source(production, "MotorAxis_SampleFast")
         + function_source(production, "MotorAxis_ControlFast")
         + r"""
 int main(void) {
+    axis.hardware=&hardware;
     unsigned cases=0;
     for(unsigned st=MOTOR_STATE_IDLE;st<=MOTOR_STATE_FAULT;st++)
     for(unsigned complete=0;complete<2;complete++)
     for(unsigned mode=0;mode<3;mode++)
     for(unsigned fault=0;fault<2;fault++) {
-        selected_state=(MotorState)st; s_current_offset_calibration.complete=complete;
-        s_motor_state.control_mode=mode==0 ? MOTOR_CONTROL_POSITION : mode==1 ? MOTOR_CONTROL_SPEED : MOTOR_CONTROL_CURRENT;
-        s_motor_state.fault_code=fault ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
-        count=0;MotorAxis_SampleFast();
-    MotorAxis_ControlFast();
+        selected_state=(MotorState)st; axis.current_offsets.complete=complete;
+        axis.motor.control_mode=mode==0 ? MOTOR_CONTROL_POSITION : mode==1 ? MOTOR_CONTROL_SPEED : MOTOR_CONTROL_CURRENT;
+        axis.motor.fault_code=fault ? MOTOR_FAULT_ENCODER : MOTOR_FAULT_NONE;
+        count=0;MotorAxis_SampleFast(&axis);
+    MotorAxis_ControlFast(&axis);
         unsigned expected[16]={1,2,3},n=3;
         if(selected_state==MOTOR_STATE_IDLE) expected[n++]=4;
         if(complete) expected[n++]=5;

@@ -7,6 +7,9 @@
 #include "../../../firmware/communication/yg_protocol_boot.c"
 #include "motor_axis.h"
 
+static MotorLifecycle life;
+static ProtocolEndpoint endpoint;
+static AppProtocol adapter;
 static unsigned starts, target_calls;
 static bool stop_allowed = true, stopped = true;
 static uint32_t target_epoch = 1U;
@@ -25,35 +28,42 @@ static void print_vector(const char *name, const uint8_t *data, size_t length)
     puts("");
 }
 
-bool MotorLifecycle_RequestRemoteStop(void)
+bool MotorLifecycle_RequestRemoteStop(MotorLifecycle *instance)
 {
+    (void)instance;
     return stop_allowed;
 }
-bool BspPwm_ArePhasesDisabled(void)
+bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
 {
+    (void)life;
     return stopped;
 }
-MotorStatus MotorLifecycle_ReadStatus(void)
+MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *instance)
 {
+    (void)instance;
     return (MotorStatus){
         .state = MOTOR_STATE_IDLE, .mode = MOTOR_CONTROL_NONE, .fault = MOTOR_FAULT_NONE};
 }
 
-MotorControlResult MotorLifecycle_RequestCalibration(MotorCalibrationType calibration_type)
+MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,
+                                                     MotorCalibrationType calibration_type)
 {
+    (void)instance;
     ++calibration_requests;
     requested_calibration_type = calibration_type;
     return calibration_result;
 }
 
-MotorControlResult MotorLifecycle_RequestEnable(MotorControlMode mode)
+MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *instance, MotorControlMode mode)
 {
+    (void)instance;
     assert(mode == MOTOR_CONTROL_SPEED);
     ++starts;
     return start_result;
 }
-MotorControlResult MotorLifecycle_RequestClear(void)
+MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *instance)
 {
+    (void)instance;
     return MOTOR_CONTROL_ACCEPTED;
 }
 
@@ -72,7 +82,7 @@ static ProtocolResponse send_calibration_command(uint16_t message_type,
                                              .sequence = 1U,
                                              .payload_length = payload_length,
                                              .payload = request_payload}};
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.length == PROTOCOL_JOB_REPLY_SIZE);
     return exchange.reply;
 }
@@ -161,7 +171,8 @@ static void test_calibration_protocol(void)
 
 int main(void)
 {
-    assert(Protocol_Init(1U));
+    AppProtocol_Init(&adapter, &endpoint, &life);
+    assert(Protocol_Init(&endpoint, 1U));
     ProtocolReply reply;
     const uint16_t parameter_types[] = {
         PROTOCOL_READ_PARAMETER, PROTOCOL_WRITE_PARAMETER, PROTOCOL_SAVE_PARAMETER};
@@ -181,7 +192,7 @@ int main(void)
                                                  .message_type = parameter_types[i],
                                                  .payload = bytes,
                                                  .payload_length = i == 1U ? 12U : 4U}};
-        assert(reject_parameter_command(&exchange) == YG_PROTOCOL_OK);
+        assert(reject_parameter_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
         print_vector(parameter_names[i], exchange.reply.data, exchange.reply.length);
     }
     ProtocolResponse job_response =
@@ -189,64 +200,66 @@ int main(void)
     print_vector("unbound_job_unsupported", job_response.data, job_response.length);
     test_calibration_protocol();
     ProtocolCommand request = {.mode = 2U, .source_node = 4U, .sequence = 1U};
-    Protocol_Motor.start(&request, &reply);
+    endpoint.motor.start(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_ACCEPTED && starts == 1U);
-    Protocol_Motor.start(&request, &reply);
+    endpoint.motor.start(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_ACCEPTED && starts == 2U);
     start_result = MOTOR_CONTROL_BUSY;
-    Protocol_Motor.start(&request, &reply);
+    endpoint.motor.start(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_BUSY);
     request.mode = 1U;
     request.iq_mA = 250;
     request.sequence = UINT16_MAX;
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK && target_calls == 1U && last_target.iq_a == 0.25f);
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK && target_calls == 1U);
     request.iq_mA = 500;
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_INVALID_ARGUMENT && target_calls == 1U);
     request.sequence = UINT16_MAX - 1U;
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_DENIED && target_calls == 1U);
     request.sequence = 0U;
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK && target_calls == 2U);
     ++target_epoch;
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_DENIED && target_calls == 2U);
     stopped = false;
-    Protocol_Motor.stop(&request, &reply);
+    endpoint.motor.stop(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_ACCEPTED && reply.token != 0U);
     uint32_t stop_token = reply.token;
     stopped = true;
-    Protocol_Motor.stop(&request, &reply);
+    endpoint.motor.stop(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK && reply.token == stop_token);
     stop_allowed = false;
-    Protocol_Motor.stop(&request, &reply);
+    endpoint.motor.stop(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_DENIED && reply.token == 0U);
     stop_allowed = true;
     /* 未实现的线路模式仍由 APP 拒绝；无需模拟运行时撤销固定绑定。 */
     request.mode = 4U;
-    Protocol_Motor.target(&request, &reply);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_UNSUPPORTED);
     ProtocolResponse encoded_reply = {0};
     Protocol_WriteResult(&encoded_reply, Protocol_StatusToCode(reply.status), reply.detail);
     print_vector("target_unsupported", encoded_reply.data, encoded_reply.length);
-    Protocol_Motor.clear_fault(&request, &reply);
+    endpoint.motor.clear_fault(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK);
     puts("PASS core protocol: three calibration kinds, wire guards, result mapping, START and "
          "unsupported operations");
     return 0;
 }
 
-MotorControlResult MotorLifecycle_SetTarget(const MotorTarget *target)
+MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *instance, const MotorTarget *target)
 {
+    (void)instance;
     ++target_calls;
     last_target = *target;
     return MOTOR_CONTROL_ACCEPTED;
 }
-uint32_t MotorLifecycle_WorkEpoch(void)
+uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)
 {
+    (void)instance;
     return target_epoch;
 }

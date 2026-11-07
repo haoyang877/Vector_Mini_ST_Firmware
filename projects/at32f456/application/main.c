@@ -7,6 +7,17 @@
 #include "bsp_system.h"
 #include "interrupt_map.h"
 
+/* 该板中断向量只服务本机应用。 */
+AppContext g_app;
+
+/* RTT 只读观测板级实例；不复制反馈。 */
+const MotorAxisFeedback MotorAxis_Feedback = {.linear_hall = &g_app.axis.linear_hall};
+
+void BspApp_OnCanReceive(void)
+{
+    Protocol_RxInterrupt(&g_app.endpoint);
+}
+
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
 /* ADC 为单一派发者；PendSV 完成后才允许派发下一拍。 */
 static volatile bool s_outer_outstanding;
@@ -14,7 +25,7 @@ static volatile bool s_outer_outstanding;
 /** @brief 同优先级的监督与外环串行执行；ADC 可以抢占此处理。 */
 void PendSV_Handler(void)
 {
-    MotorAxis_OuterTick();
+    MotorAxis_OuterTick(&g_app.axis);
     s_outer_outstanding = false;
 }
 #endif
@@ -31,7 +42,7 @@ static void startup_failed(void)
 /** @brief 在BSP确认监督事件后执行应用慢环。 */
 void BspApp_OnControlTick(void)
 {
-    App_SupervisorTick();
+    App_SupervisorTick(&g_app.axis, &g_app.supervisor_ticks);
     RTT_Sampling();
 }
 
@@ -40,9 +51,9 @@ void MCU_ADC_IRQ_HANDLER(void)
 {
     if (BspAdc_CompleteFast())
     {
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
-        ++g_app_fast_samples;
+        MotorAxis_SampleFast(&g_app.axis);
+        MotorAxis_ControlFast(&g_app.axis);
+        ++g_app.fast_samples;
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
         static unsigned outer_ticks;
         if (++outer_ticks == OUTER_LOOP_DIVIDER)
@@ -50,7 +61,7 @@ void MCU_ADC_IRQ_HANDLER(void)
             outer_ticks = 0U;
             if (s_outer_outstanding)
             {
-                MotorAxis_OuterOverrun();
+                MotorAxis_OuterOverrun(&g_app.axis);
             }
             else
             {
@@ -80,16 +91,16 @@ int main(void)
     {
         startup_failed();
     }
-    App_Init();
+    App_Init(&g_app);
     RTT_Init();
     BspSystem_StartCycleCounter();
     if (Bsp_Start() != BSP_OK)
     {
         startup_failed();
     }
-    App_Start();
+    App_Start(&g_app);
     for (;;)
     {
-        App_Process();
+        App_Process(&g_app);
     }
 }

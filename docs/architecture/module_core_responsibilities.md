@@ -28,8 +28,8 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 
 | 模块及源码入口 | 输入 → 核心处理 → 输出 | 状态归属与边界 |
 | --- | --- | --- |
-| [composition](../../firmware/app/composition/app.c) | 四入口契约 → 初始化、前台、快环、监督编排 → 可调度的电机及通信端点 | 只组装，不计算控制算法 |
-| [motor_axis](../../firmware/app/runtime/motor_axis.c) | 采样与受理请求 → 快慢拍调度 → 控制输出及一致快照 | 持有单份电机、编码器、FOC、PI与观测器对象 |
+| [composition](../../firmware/app/app.c) | 四入口契约 → 初始化、前台、快环、监督编排 → 可调度的电机及通信端点 | 只组装，不计算控制算法 |
+| [motor_axis](../../firmware/app/motor_axis.c) | 采样与受理请求 → 快慢拍调度 → 控制输出及一致快照 | 持有单份电机、编码器、FOC、PI与观测器对象 |
 | [主状态机](motor_state_machine_v1.md) | 请求、健康与任务结果 → 准入、启停、清理 → 许可及进展 | 独占生命周期和功率动作；不计算标定数学 |
 | [控制执行](motor_execution_core_v3.md) | 已准入模式、目标与反馈 → 外环/电流环 → 电流参考及一拍结果 | 控制器拥有积分/滤波；不决定启动 |
 | [维护与标定](motor_maintenance_core_v3.md) | 已退役，不再提供标定、保存或任务进度 | 旧Flash记录仍可读取 |

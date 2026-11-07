@@ -139,7 +139,7 @@ class At32TargetTests(unittest.TestCase):
                         in {
                             "projects/at32f456/application/startup_at32f456_app.s",
                             "firmware/platform/devices/encoder_mt6835.c",
-                            "firmware/app/composition/bus_current_feedback.c",
+                            "firmware/app/bus_current_feedback.c",
                             "firmware/platform/bsp/pwm_output_permit.c",
                         }
                     )
@@ -195,7 +195,7 @@ class At32TargetTests(unittest.TestCase):
                     if path.suffix == ".c"
                     and path.as_posix()
                     not in {
-                        "firmware/app/composition/bus_current_feedback.c",
+                        "firmware/app/bus_current_feedback.c",
                         "firmware/app/composition/app_rtt.c",  # 板级选择的调试通道。
                     }
                     and not path.as_posix().startswith("firmware/app/targets/")
@@ -258,7 +258,9 @@ class At32TargetTests(unittest.TestCase):
             "app.c",
             "app_protocol.c",
             "motor_axis.c",
-            "motor_state_machine.c",
+            "motor_lifecycle.c",
+            "motor_calibration.c",
+            "app_loader.c",
             "system.c",
             "boot.c",
         ):
@@ -273,20 +275,20 @@ class At32TargetTests(unittest.TestCase):
                 self.assertEqual(tree.findtext(f".//{hook}/RunUserProg{index}"), "0")
         entry = (ROOT / "projects/at32f456/application/main.c").read_text(encoding="utf8")
         platform = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf8")
-        startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf8")
+        startup = (ROOT / "firmware/app/app.c").read_text(encoding="utf8")
         for call in (
-            "App_Init();",
-            "App_Process();",
+            "App_Init(&g_app);",
+            "App_Process(&g_app);",
             "Bsp_Init()",
             "Bsp_Start()",
-            "App_Start();",
+            "App_Start(&g_app);",
         ):
             self.assertIn(call, entry)
         adc = (ROOT / "firmware/platform/bsp/mcu/at32f456/adc.c").read_text(encoding="utf8")
         self.assertIn("if (BspAdc_CompleteFast())", entry)
-        self.assertIn("MotorAxis_SampleFast();", entry)
-        self.assertIn("MotorAxis_ControlFast();", entry)
-        self.assertIn("++g_app_fast_samples;", entry)
+        self.assertIn("MotorAxis_SampleFast(&g_app.axis);", entry)
+        self.assertIn("MotorAxis_ControlFast(&g_app.axis);", entry)
+        self.assertIn("++g_app.fast_samples;", entry)
         self.assertNotIn("BspAdc_HandleInterrupt", adc)
         self.assertIn("BspApp_OnControlTick();", platform)
         for method in ("Init", "Start"):

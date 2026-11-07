@@ -11,7 +11,7 @@
 #define OUTPUT_ENCODER_CAL_SAMPLES 2048U
 
 /** @brief 有限计算批次后的前台健康服务，不修改标定数据。 */
-typedef void (*OutputEncoderCalibrationProgress)(void);
+typedef void (*OutputEncoderCalibrationProgress)(void *context);
 
 typedef enum
 {
@@ -125,6 +125,7 @@ void OutputEncoder_CalibSample(OutputEncoderCalib *cal,
  * @param cal 已停止采集的工作区。
  * @param hall 本次完成幅值、偏置标定的候选对象；写入新表和结果，失败清表。
  * @param motor 本次新发布的电机编码器 LUT。
+ * @param progress_context 健康服务绑定的实例。
  * @param progress 非空前台健康服务；每处理至多128组调用，不得修改标定输入或候选结果。
  * @return 配对样本覆盖整圈且关系一致时返回 true。
  * @note 只在可抢占的停机前台调用，调用方复核会话后提交结果。
@@ -133,6 +134,7 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
                             const OutputEncoderCalib *cal,
                             LinearHall *hall,
                             const EncoderCalibration *motor,
-                            OutputEncoderCalibrationProgress progress);
+                            OutputEncoderCalibrationProgress progress,
+                            void *progress_context);
 
 #endif

@@ -34,7 +34,7 @@ def run_case(case: str, args: argparse.Namespace, board: int) -> None:
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
     executable = output / f"core_outer_{case}.exe"
     reference = args.reference_root.resolve()
-    flags = ["-I", str(ROOT / "firmware/app/runtime"), *native_include_flags(reference)]
+    flags = ["-I", str(ROOT / "firmware/app"), *native_include_flags(reference)]
     fixture = ROOT / "tests/unit/native/core_outer_test.c"
     position_sources = []
     fixture_text = fixture.read_text(encoding="utf-8")
@@ -49,8 +49,8 @@ def run_case(case: str, args: argparse.Namespace, board: int) -> None:
             "static unsigned s_current_calls;",
         )
         text = text.replace(
-            "CHECK(s_resets > resets && MotorOuterLoop_IsReady());",
-            "CHECK(MotorOuterLoop_IsReady());",
+            "CHECK(s_resets > resets && MotorOuterLoop_IsReady(&outer));",
+            "CHECK(MotorOuterLoop_IsReady(&outer));",
         )
         fixture = output / "runtime_fixture.c"
         fixture.write_text(text, encoding="utf-8")

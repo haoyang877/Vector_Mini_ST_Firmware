@@ -10,15 +10,18 @@
 #include "yg_protocol.h"
 
 static unsigned contract_motor_calls;
-static void motor_handler(const ProtocolCommand *request, ProtocolReply *reply)
+static void motor_handler(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     ++contract_motor_calls;
     assert(request->position_mrad == -1000);
     reply->status = PROTOCOL_ACCEPTED;
     reply->token = 7U;
 }
-static void missing_motor_result(const ProtocolCommand *request, ProtocolReply *reply)
+static void
+missing_motor_result(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     (void)request;
     (void)reply;
 }
@@ -33,7 +36,7 @@ static void job_handler(void *context, const ProtocolJobRequest *request, Protoc
 static void service_boundaries(void)
 {
     assert(test_reset_protocol(3U));
-    s_test_motor = (ProtocolMotor){.start = missing_motor_result, .target = motor_handler};
+    endpoint.motor = (ProtocolMotor){.start = missing_motor_result, .target = motor_handler};
     uint8_t payload[20] = {3U};
     YgProtocol_WriteU32Le(payload + 4U, (uint32_t)-1000);
     ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
@@ -44,26 +47,26 @@ static void service_boundaries(void)
                                              .payload = payload,
                                              .payload_length = sizeof(payload)}};
     contract_motor_calls = 0U;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 1U && contract_motor_calls == 1U);
     exchange.request.payload_length = 19U;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 3U && contract_motor_calls == 1U);
     exchange.request.payload_length = sizeof(payload);
-    s_test_motor.target = NULL;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    endpoint.motor.target = NULL;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 2U && contract_motor_calls == 1U);
     exchange.request.message_type = PROTOCOL_START;
     exchange.request.payload_length = 4U;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 8U);
-    s_test_jobs = (ProtocolJobs){NULL, job_handler};
+    endpoint.jobs = (ProtocolJobs){NULL, job_handler};
     exchange.request.message_type = PROTOCOL_GET_JOB_STATUS;
     YgProtocol_WriteU32Le(payload, 42U);
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 6U);
-    s_test_jobs.handler = NULL;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    endpoint.jobs.handler = NULL;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 2U);
 }
 
@@ -207,10 +210,10 @@ static void motor_command_vectors(void)
     assert(encode_can_frame(&message, 2U, &frame) == YG_PROTOCOL_OK);
     assert(frame.identifier == 0x08EF0302U && frame.length == sizeof(enable_frame));
     assert(memcmp(frame.data, enable_frame, sizeof(enable_frame)) == 0);
-    assert(handle_command(&enable) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &enable) == YG_PROTOCOL_OK);
     assert(YgProtocol_ReadU16Le(enable.reply.data) == PROTOCOL_RESULT_UNSUPPORTED);
     enable_payload[1] = 1U;
-    assert(handle_command(&enable) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &enable) == YG_PROTOCOL_OK);
     assert(YgProtocol_ReadU16Le(enable.reply.data) == PROTOCOL_RESULT_BAD_FIELD);
     enable_payload[1] = 0U;
 

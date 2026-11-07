@@ -73,12 +73,12 @@ static void readonly_request_to_response(void)
                                              .sequence = 9U,
                                              .payload_length = sizeof(payload),
                                              .payload = payload}};
-    s_device = query;
-    assert(handle_info_query(&exchange) == YG_PROTOCOL_OK);
+    endpoint.device = query;
+    assert(handle_info_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.length == 32U);
     assert(exchange.reply.data[12] == 0x34U && exchange.reply.data[13] == 0x12U);
-    s_device.device_description_available = false;
-    assert(handle_info_query(&exchange) == YG_PROTOCOL_OK);
+    endpoint.device.device_description_available = false;
+    assert(handle_info_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.length == 4U && exchange.reply.data[0] == 6U);
 }
 
@@ -150,7 +150,7 @@ static void motor_status_adapter(void)
     s_test_motor_status.state = 3U;
     s_test_motor_status.mode = 3U;
     s_test_motor_status.sample_available = true;
-    assert(handle_motor_status_query(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.length == PROTOCOL_FEEDBACK_SIZE);
     assert(exchange.reply.data[0] == 0U && exchange.reply.data[2] == 0U &&
            exchange.reply.data[42] == 3U);
@@ -158,12 +158,12 @@ static void motor_status_adapter(void)
            exchange.reply.data[25] == 0U);
     exchange.request.payload_length = 1U;
     exchange.request.payload = exchange.reply.data;
-    assert(handle_motor_status_query(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 3U && exchange.reply.length == PROTOCOL_FEEDBACK_SIZE);
     exchange.request.payload_length = 0U;
     exchange.request.payload = NULL;
     s_test_motor_status.sample_available = false;
-    assert(handle_motor_status_query(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.length == PROTOCOL_FEEDBACK_SIZE && exchange.reply.data[0] == 6U &&
            exchange.reply.data[24] == 0U);
 }
@@ -274,6 +274,7 @@ void yg_protocol_contract_test(void);
 
 int main(void)
 {
+    assert(test_reset_protocol(3U));
     frame_round_trip();
     can_id_round_trip();
     readonly_request_to_response();

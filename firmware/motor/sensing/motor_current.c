@@ -17,7 +17,7 @@ void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
                               FocState *foc,
                               bool bus_current_enabled)
 {
-    *calibration = (CurrentOffsetCalibration){0};
+    *calibration = (CurrentOffsetCalibration){.phases_disabled = BspPwm_ArePhasesDisabled};
     calibration->bus_current_enabled = bus_current_enabled;
     configuration->device.phase_a_offset_counts = NAN;
     configuration->device.phase_b_offset_counts = NAN;
@@ -44,7 +44,7 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
     {
         return false;
     }
-    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    if (!calibration->phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
     {
         fail_current_offset_calibration(calibration, motor_state);
         return false;
@@ -95,7 +95,7 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
         return false;
     }
     uint32_t key = BspSystem_EnterCritical();
-    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    if (!calibration->phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
     {
         fail_current_offset_calibration(calibration, motor_state);
         BspSystem_ExitCritical(key);

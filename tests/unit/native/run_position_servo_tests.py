@@ -72,7 +72,7 @@ int main(void) {
 
 def board_orchestration_fixture(source: str | None = None) -> str:
     """执行真实应用Init/Start，核对协议、采样和健康监督先后关系。"""
-    source = source or (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
+    source = source or (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
     return (
         r"""
 #include <assert.h>
@@ -80,33 +80,38 @@ def board_orchestration_fixture(source: str | None = None) -> str:
 #include <stdbool.h>
 #include "bsp_system.h"
 static unsigned order[24],count;
-static bool s_communication_ready,ready=true,s_watchdog_enabled;
-volatile uint32_t g_app_fast_samples;
-static volatile uint32_t s_supervisor_ticks;
-static uint32_t s_watchdog_last_ms,s_watchdog_last_fast,s_watchdog_last_slow;
+#include "app_context.h"
+static AppContext app;
+static bool ready=true;
 static void log_step(unsigned n) { order[count++]=n; }
-static void MotorAxis_Init(void) { log_step(1); }
-static unsigned MotorAxis_NodeId(void) { return 7; }
-static bool Protocol_Init(unsigned n) { assert(n==7);log_step(2);return ready; }
-static bool bind_device_description(void) { log_step(4);return ready; }
-static bool Protocol_Start(void) { log_step(5);return ready; }
+void BspPwm_Disable(void);
+static const MotorAxisHardware hardware={.power.disable=BspPwm_Disable};
+void MotorAxis_Init(MotorAxis *axis) { axis->hardware=&hardware;assert(axis==&app.axis); log_step(1); }
+void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorLifecycle *life) { assert(protocol==&app.protocol && endpoint==&app.endpoint && life==&app.axis.lifecycle); }
+uint8_t MotorAxis_NodeId(const MotorAxis *axis) { assert(axis==&app.axis); return 7; }
+bool Protocol_Init(ProtocolEndpoint *endpoint, uint8_t node) { assert(endpoint==&app.endpoint && node==7);log_step(2);return ready; }
+static uint8_t read_node_id(void *context) { assert(context==&app);return 7; }
+static void publish_identity(void *context) { (void)context; }
+void AppLoader_Init(AppLoader *loader) { assert(loader==&app.loader); }
+static bool bind_device_description(AppContext *context) { assert(context==&app);log_step(4);return ready; }
+bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }
 BspResult BspWatchdog_Start(void) { log_step(6);return BSP_OK; }
 uint32_t BspSystem_TimeMs(void) { log_step(7);return 123; }
-static void BspPwm_Disable(void) { log_step(8); }
-static void halt_disabled(void) { assert(false); }
+void BspPwm_Disable(void) { log_step(8); }
+static void halt_disabled(AppContext *context) { (void)context; assert(false); }
 """
         + function_source(source, "start_watchdog")
         + function_source(source, "App_Init")
         + function_source(source, "App_Start")
         + r"""
 int main(void) {
- g_app_fast_samples=s_supervisor_ticks=9;
- App_Init();assert(count==3 && s_communication_ready && g_app_fast_samples==0 && s_supervisor_ticks==0);
- App_Start();assert(count==6 && s_watchdog_enabled && s_watchdog_last_ms==123);
+ app.fast_samples=app.supervisor_ticks=9;
+ App_Init(&app);assert(count==3 && app.communication_ready && app.fast_samples==0 && app.supervisor_ticks==0);
+ App_Start(&app);assert(count==6 && app.watchdog_enabled && app.watchdog_last_ms==123);
  const unsigned expected[]={1,2,4,5,6,7};
  for(unsigned i=0;i<6;i++) assert(order[i]==expected[i]);
- count=0;ready=false;App_Init();assert(!s_communication_ready && count==3 && order[2]==8);
- App_Start();assert(count==6 && order[3]==8 && order[4]==6 && order[5]==7);
+ App_Init(&app);assert(count==6);app=(AppContext){0};count=0;ready=false;App_Init(&app);assert(!app.communication_ready && count==3 && order[2]==8);
+ App_Start(&app);assert(count==6 && order[3]==8 && order[4]==6 && order[5]==7);
  puts("PASS app binding order, watchdog startup and failed communication shuts output");return 0;
 }
 """
@@ -132,10 +137,11 @@ static jmp_buf exit_entry;
 static unsigned trace[8],count,failure,iterations;
 static void step(unsigned n) { trace[count++]=n; }
 static BspResult Bsp_Init(void) { step(1);return failure==1 ? BSP_IO_ERROR : BSP_OK; }
-static void App_Init(void) { step(2); }
+static unsigned g_app;
+static void App_Init(unsigned *app) { assert(app==&g_app);step(2); }
 static BspResult Bsp_Start(void) { step(3);return failure==2 ? BSP_IO_ERROR : BSP_OK; }
-static void App_Start(void) { step(4); }
-static void App_Process(void) { step(5);if(++iterations==2)longjmp(exit_entry,1); }
+static void App_Start(unsigned *app) { assert(app==&g_app);step(4); }
+static void App_Process(unsigned *app) { assert(app==&g_app);step(5);if(++iterations==2)longjmp(exit_entry,1); }
 static void startup_failed(void) { longjmp(exit_entry,1); }
 """.replace("static BspResult Bsp_", "BspResult Bsp_")
         + rtt

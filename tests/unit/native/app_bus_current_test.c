@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include "motor_lifecycle.h"
 #include "motor_axis.h"
 #include "../../../firmware/communication/yg_protocol.c"
@@ -50,10 +51,59 @@ MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *instance)
     return MOTOR_CONTROL_DENIED;
 }
 
+/* 用原协议舍入定义核对两个位宽和有效位，不复用生产整数编码器。 */
+static void check_scaled_value(float value)
+{
+    s_status =
+        (MotorStatus){.measurements_valid = true, .position_rad = value, .bus_voltage_v = value};
+    AppProtocol_Refresh(&adapter);
+    const ProtocolFeedback *feedback = &adapter.status.measurements;
+    double position = round((double)value * 1000);
+    double voltage = round((double)value * 100);
+    bool position_valid = isfinite(position) && position > INT32_MIN && position <= INT32_MAX;
+    bool voltage_valid = isfinite(voltage) && voltage > INT16_MIN && voltage <= INT16_MAX;
+    assert(feedback->actual_position_mrad == (position_valid ? (int32_t)position : INT32_MIN));
+    assert(feedback->bus_voltage_cV == (voltage_valid ? (int16_t)voltage : INT16_MIN));
+    assert(((feedback->valid_bits & (1U << 1)) != 0U) == position_valid);
+    assert(((feedback->valid_bits & (1U << 4)) != 0U) == voltage_valid);
+}
+
+static void check_scaling_boundaries(void)
+{
+    const float samples[] = {0.0f,
+                             -0.0f,
+                             0.0045f,
+                             -0.0045f,
+                             0.0625f,
+                             -0.0625f,
+                             327.675f,
+                             -327.675f,
+                             2147483.5f,
+                             -2147483.5f,
+                             INFINITY,
+                             -INFINITY,
+                             NAN};
+    for (unsigned i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i)
+    {
+        check_scaled_value(samples[i]);
+        check_scaled_value(nextafterf(samples[i], INFINITY));
+        check_scaled_value(nextafterf(samples[i], -INFINITY));
+    }
+    uint32_t bits = 20261107U;
+    for (unsigned i = 0; i < 100000U; ++i)
+    {
+        bits = bits * 1664525U + 1013904223U;
+        float value;
+        memcpy(&value, &bits, sizeof(value));
+        check_scaled_value(value);
+    }
+}
+
 int main(void)
 {
     AppProtocol_Init(&adapter, &endpoint, &life);
     assert(Protocol_Init(&endpoint, 1U));
+    check_scaling_boundaries();
     const uint8_t states[] = {5U, 3U, 4U, 6U, 8U};
     for (unsigned i = 0; i <= MOTOR_STATE_FAULT; ++i)
     {

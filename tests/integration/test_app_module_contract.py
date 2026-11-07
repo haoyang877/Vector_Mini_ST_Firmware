@@ -17,6 +17,20 @@ MODULES = {
 
 
 class AppModuleContractTests(unittest.TestCase):
+    def test_production_control_and_protocol_use_single_precision(self):
+        """检查核心源码里的类型、普通浮点字面量及常见双精度数学调用。"""
+        comments_and_strings = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"', re.DOTALL)
+        floating_literal = r"(?<![\w.])(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])"
+        scientific_literal = r"(?<![\w.])\d+[eE][+-]?\d+(?![\w.])"
+        binary64 = re.compile(
+            rf"\bdouble\b|{floating_literal}|{scientific_literal}|"
+            r"\b(?:round|fabs|fma|sqrt|fmin|fmax|sin|cos|atan2|ldexp|scalbn)\s*\("
+        )
+        for module in ("app", "motor", "parameters", "communication", "config"):
+            for path in (APP.parent / module).rglob("*.[ch]"):
+                source = comments_and_strings.sub(" ", path.read_text(encoding="utf-8"))
+                self.assertNotRegex(source, binary64, path.as_posix())
+
     def test_only_loader_app_links_the_handoff(self):
         root = APP.parents[1]
         for project, loader_enabled in (

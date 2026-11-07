@@ -1,7 +1,7 @@
 #include "app_protocol.h"
 #include "motor_lifecycle.h"
 #include "yg_protocol.h"
-#include <math.h>
+#include "scaled_integer.h"
 #include <limits.h>
 
 /* 线上编号与内部枚举独立。0 表示没有可启动的模式。 */
@@ -292,16 +292,16 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorLif
 }
 
 /* 仅前台缩放；保留整数最小值作无效哨兵，半值向远离零方向舍入。 */
-static int32_t scale_measurement(
-    float value, unsigned scale, int32_t minimum, int32_t maximum, uint16_t bit, uint16_t *valid)
+static int32_t
+scale_measurement(float value, uint32_t scale, int32_t maximum, uint16_t bit, uint16_t *valid)
 {
-    double rounded = round((double)value * scale);
-    if (!isfinite(rounded) || rounded <= minimum || rounded > maximum)
+    ScaledInteger rounded;
+    if (!ScaledInteger_Round(value, scale, &rounded) || rounded.magnitude > (uint32_t)maximum)
     {
-        return minimum;
+        return -maximum - 1;
     }
     *valid |= bit;
-    return (int32_t)rounded;
+    return rounded.negative ? -(int32_t)rounded.magnitude : (int32_t)rounded.magnitude;
 }
 
 void AppProtocol_Refresh(AppProtocol *adapter)
@@ -319,26 +319,23 @@ void AppProtocol_Refresh(AppProtocol *adapter)
         return;
     }
     uint16_t *valid = &values->valid_bits;
-    values->reference_position_mrad = scale_measurement(
-        status.position_reference_rad, 1000, INT32_MIN, INT32_MAX, 1U << 0, valid);
+    values->reference_position_mrad =
+        scale_measurement(status.position_reference_rad, 1000, INT32_MAX, 1U << 0, valid);
     values->actual_position_mrad =
-        scale_measurement(status.position_rad, 1000, INT32_MIN, INT32_MAX, 1U << 1, valid);
+        scale_measurement(status.position_rad, 1000, INT32_MAX, 1U << 1, valid);
     values->reference_speed_mrad_s =
-        scale_measurement(status.speed_reference_rad_s, 1000, INT32_MIN, INT32_MAX, 1U << 2, valid);
+        scale_measurement(status.speed_reference_rad_s, 1000, INT32_MAX, 1U << 2, valid);
     values->actual_speed_mrad_s =
-        scale_measurement(status.speed_rad_s, 1000, INT32_MIN, INT32_MAX, 1U << 3, valid);
+        scale_measurement(status.speed_rad_s, 1000, INT32_MAX, 1U << 3, valid);
     values->bus_voltage_cV =
-        (int16_t)scale_measurement(status.bus_voltage_v, 100, INT16_MIN, INT16_MAX, 1U << 4, valid);
-    values->bus_current_mA = (int16_t)scale_measurement(
-        status.bus_current_a, 1000, INT16_MIN, INT16_MAX, 1U << 5, valid);
-    values->reference_iq_mA = (int16_t)scale_measurement(
-        status.iq_reference_a, 1000, INT16_MIN, INT16_MAX, 1U << 6, valid);
-    values->actual_iq_mA =
-        (int16_t)scale_measurement(status.iq_a, 1000, INT16_MIN, INT16_MAX, 1U << 7, valid);
+        (int16_t)scale_measurement(status.bus_voltage_v, 100, INT16_MAX, 1U << 4, valid);
+    values->bus_current_mA =
+        (int16_t)scale_measurement(status.bus_current_a, 1000, INT16_MAX, 1U << 5, valid);
+    values->reference_iq_mA =
+        (int16_t)scale_measurement(status.iq_reference_a, 1000, INT16_MAX, 1U << 6, valid);
+    values->actual_iq_mA = (int16_t)scale_measurement(status.iq_a, 1000, INT16_MAX, 1U << 7, valid);
     values->mcu_temperature_centi_c =
-        (int16_t)scale_measurement(status.temperature_c, 100, INT16_MIN, INT16_MAX, 1U << 8, valid);
-    values->v_q_mV =
-        (int16_t)scale_measurement(status.vq_v, 1000, INT16_MIN, INT16_MAX, 1U << 10, valid);
-    values->v_d_mV =
-        (int16_t)scale_measurement(status.vd_v, 1000, INT16_MIN, INT16_MAX, 1U << 11, valid);
+        (int16_t)scale_measurement(status.temperature_c, 100, INT16_MAX, 1U << 8, valid);
+    values->v_q_mV = (int16_t)scale_measurement(status.vq_v, 1000, INT16_MAX, 1U << 10, valid);
+    values->v_d_mV = (int16_t)scale_measurement(status.vd_v, 1000, INT16_MAX, 1U << 11, valid);
 }

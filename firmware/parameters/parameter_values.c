@@ -1,5 +1,6 @@
 #include "parameter_values.h"
 #include "motor_axis_profile.h"
+#include "scaled_integer.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -116,49 +117,20 @@ static const ScalarField *find_field(uint8_t id)
     return NULL;
 }
 
-/* 仅供本表的正整数缩放使用（1000/10^6/10^9），尾数乘积精确且不溢出 u64。
- * 保留原先 double 缩放后加正负半值、先检查 i32 边界再截断的顺序：
- * 舍入值到达端点时，只有精确半值允许通过；不可改成状态编码的舍入后检查。
- * binary32 非有限值直接拒绝，失败不修改输出；有界移位不依赖硬件或全局状态。 */
+/* 参数端点只接受精确半值；遥测编码另保留最小值作为无效哨兵。 */
 static ParameterStatus encode_float(float value, uint32_t scale, uint32_t *raw)
 {
-    uint32_t bits;
-    memcpy(&bits, &value, sizeof(bits));
-    unsigned exponent = (bits >> 23U) & 255U;
-    if (exponent == 255U)
+    ScaledInteger rounded;
+    if (!ScaledInteger_Round(value, scale, &rounded))
     {
         return PARAMETER_OUT_OF_RANGE;
     }
-    uint64_t product = (uint64_t)((bits & 0x7fffffU) | (exponent ? 0x800000U : 0U)) * scale;
-    int shift = exponent ? 150 - (int)exponent : 149;
-    uint64_t magnitude;
-    bool half = false;
-    if (shift > 63)
-    {
-        magnitude = 0U;
-    }
-    else if (shift > 0)
-    {
-        uint64_t midpoint = (uint64_t)1U << (shift - 1);
-        magnitude = (product >> shift) + ((product & midpoint) != 0U);
-        half = (product & ((midpoint << 1) - 1U)) == midpoint;
-    }
-    else
-    {
-        if (shift < -31 || product > (UINT32_MAX >> -shift))
-        {
-            return PARAMETER_OUT_OF_RANGE;
-        }
-        magnitude = product << -shift;
-    }
-    bool negative = (bits >> 31U) != 0U;
-
-    uint32_t limit = negative ? 0x80000000U : 0x7fffffffU;
-    if (magnitude > limit || (magnitude == limit && !half))
+    uint32_t limit = rounded.negative ? 0x80000000U : 0x7fffffffU;
+    if (rounded.magnitude > limit || (rounded.magnitude == limit && !rounded.exact_half))
     {
         return PARAMETER_OUT_OF_RANGE;
     }
-    *raw = negative ? 0U - (uint32_t)magnitude : (uint32_t)magnitude;
+    *raw = rounded.negative ? 0U - rounded.magnitude : rounded.magnitude;
     return PARAMETER_OK;
 }
 

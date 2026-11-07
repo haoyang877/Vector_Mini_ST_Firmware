@@ -260,11 +260,11 @@ class At32TargetTests(unittest.TestCase):
             "motor_axis.c",
             "motor_lifecycle.c",
             "motor_calibration.c",
-            "app_loader.c",
             "system.c",
             "boot.c",
         ):
             self.assertTrue(any(path.endswith("/" + name) for path in paths), name)
+        self.assertFalse(any(path.endswith("/app_loader.c") for path in paths))
         self.assertFalse(any("stm32g4" in path.lower() for path in paths))
         self.assertFalse(
             any("closedloop_bench" in path or "openloop_model" in path for path in paths)
@@ -288,7 +288,7 @@ class At32TargetTests(unittest.TestCase):
         self.assertIn("if (BspAdc_CompleteFast())", entry)
         self.assertIn("MotorAxis_SampleFast(&g_app.axis);", entry)
         self.assertIn("MotorAxis_ControlFast(&g_app.axis);", entry)
-        self.assertIn("++g_app.fast_samples;", entry)
+        self.assertIn("MotorAxis_SupervisorTick(&g_app.axis);", entry)
         self.assertNotIn("BspAdc_HandleInterrupt", adc)
         self.assertIn("BspApp_OnControlTick();", platform)
         for method in ("Init", "Start"):

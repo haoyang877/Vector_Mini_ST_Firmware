@@ -66,7 +66,6 @@ def main() -> None:
             (
                 "#define BOOT_HEALTH_INTERVAL_MS",
                 "#define BOOT_REQUIRED_HEALTHY_INTERVALS",
-                "#define APP_WATCHDOG_INTERVAL_MS",
             )
         )
     )
@@ -80,18 +79,11 @@ def main() -> None:
         + "\n"
         + function_source(loader, "confirm_image")
         + "\n"
-        + function_source(board, "service_watchdog")
-        + "\n"
         + function_source(board, "App_Process")
         + "\n"
         + function_source(
             (ROOT / "projects/stm32g4/application/main.c").read_text(encoding="utf-8"),
             "BspApp_OnFastSample",
-        )
-        + "\n"
-        + function_source(
-            (ROOT / "firmware/app/app.c").read_text(encoding="utf-8"),
-            "App_SupervisorTick",
         ),
         encoding="utf-8",
     )

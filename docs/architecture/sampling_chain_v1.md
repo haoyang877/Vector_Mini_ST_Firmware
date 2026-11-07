@@ -15,7 +15,7 @@ AT32：`MCU ADC IRQ → BspAdc_CompleteFast → MotorAxis_SampleFast → MotorAx
 BSP公开接口负责主/辅ADC配对和清标志；main依次调用采样、控制并递增计数。
 SampleFast包含三相/母线电流、电压、零偏校正及编码器反馈，ControlFast只消费本拍结果。
 STM32保留`BspAdc_HandleInterrupt → HAL完成回调 → BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast`，
-仍先执行快环再清JEOS。两板共用g_app_fast_samples供前台看门狗读取，不增加计数转发函数。
+仍先执行快环再清JEOS。两板由 MotorLifecycle_PostOutcome 登记采样进展。
 AT32链接脚本将整个main ADC入口保留在快速SRAM区。
 
 | 项目 | AT32F456 | STM32G4 |
@@ -76,7 +76,7 @@ Axis初始化两系数为0.05，20kHz快环直接读取BSP母线通道并更新�
 FOC内部的估算母线电流继续独立存在；协议反馈来源不由测量搬运函数更换。
 电流校零与母线滤波保持各自的应用所有权；母线Watch序号改为监督读数次数，
 不再根据ADC序号去重或验证硬件触发连续性。片内温度每次监督调用直接读取DMA。
-本轮没有往其它层新增ADC保护，原应用看门狗和校零策略继续存在。
+上电校零和采样新鲜度检查由轴和生命周期推进。
 
 电流偏置校正固定累计2048个快拍，20kHz下理论102.4ms，仅由INIT状态调用。
 三相和已启用的母线电流共用窗口；第2048拍计算各自均值，确认处于

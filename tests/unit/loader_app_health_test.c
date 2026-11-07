@@ -20,29 +20,13 @@ static void publish_identity(void *context)
 }
 static uint32_t model_now_ms, clock_reads, foreground_stage;
 static uint32_t fast_calls, supervisor_calls;
-static void watchdog_progress(void *context)
-{
-    (void)context;
-}
-static void halt_disabled(AppContext *app)
-{
-    (void)app;
-    assert(false);
-}
-void BspWatchdog_Feed(void)
-{
-}
-
 void MotorAxis_ProcessPositionPlan(MotorAxis *instance)
 {
     (void)instance;
 }
-void MotorCalibration_ProcessPublication(MotorCalibration *cal,
-                                         OutputEncoderCalibrationProgress progress,
-                                         void *context)
+void MotorCalibration_ProcessPublication(MotorCalibration *cal)
 {
-    assert(cal == &g_app.axis.calibration && context == &g_app);
-    (void)progress;
+    assert(cal == &g_app.axis.calibration);
     assert(foreground_stage == 0U);
     foreground_stage = 1U;
 }
@@ -106,7 +90,7 @@ static void test_tick_entries(void)
     assert(fast_calls == 1U && supervisor_calls == 0U);
     for (unsigned tick = 0U; tick < SUPERVISOR_FREQ / 5U; ++tick)
     {
-        App_SupervisorTick(&g_app.axis, &g_app.supervisor_ticks);
+        MotorAxis_SupervisorTick(&g_app.axis);
     }
     assert(supervisor_calls == SUPERVISOR_FREQ / 5U && fast_calls == 1U);
 }

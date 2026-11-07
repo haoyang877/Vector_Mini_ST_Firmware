@@ -42,7 +42,7 @@ static void startup_failed(void)
 /** @brief 在BSP确认监督事件后执行应用慢环。 */
 void BspApp_OnControlTick(void)
 {
-    App_SupervisorTick(&g_app.axis, &g_app.supervisor_ticks);
+    MotorAxis_SupervisorTick(&g_app.axis);
     RTT_Sampling();
 }
 
@@ -53,7 +53,7 @@ void MCU_ADC_IRQ_HANDLER(void)
     {
         MotorAxis_SampleFast(&g_app.axis);
         MotorAxis_ControlFast(&g_app.axis);
-        ++g_app.fast_samples;
+
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
         static unsigned outer_ticks;
         if (++outer_ticks == OUTER_LOOP_DIVIDER)

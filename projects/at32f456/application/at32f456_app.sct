@@ -19,7 +19,7 @@ LR_IROM1 0x08000000 0x0003C000 {
     can.o (+RO)
     motor_axis.o (+RO)
     motor_control.o (+RO)
-    motor_lifecycle.o (i.MotorStateMachine_Step)
+    motor_lifecycle.o (i.MotorLifecycle_NextState)
     motor_calibration.o (i.MotorCalibration_StepFast)
     motor_thermal*.o (+RO)
     adc.o (+RO)

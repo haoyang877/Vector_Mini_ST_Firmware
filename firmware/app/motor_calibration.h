@@ -36,11 +36,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration);
 /**
  * @brief 在停机前台发布原会话的标定结果并保存参数。
  * @param calibration 当前轴的候选和本机记录。
- * @param progress 长计算期间的健康服务。
- * @param progress_context 健康服务所属的应用实例。
  * @note 在最终提交前复核原代际及数字关相，Flash 回读失败锁存故障。
  */
-void MotorCalibration_ProcessPublication(MotorCalibration *calibration,
-                                         OutputEncoderCalibrationProgress progress,
-                                         void *progress_context);
+void MotorCalibration_ProcessPublication(MotorCalibration *calibration);
 #endif

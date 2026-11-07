@@ -117,7 +117,7 @@ static bool write_record(const void *record, uint32_t size_bytes)
     }
     lock_if_idle();
     bool verified = ok && memcmp(flash_memory(AT32_PARAM_BASE), record, size_bytes) == 0;
-    /* 控制器仍忙时不恢复采样；由既有故障/看门狗路径保持关断。 */
+    /* 控制器仍忙时不恢复采样；保持关相并锁存写禁止。 */
     if (!s_flash_blocked)
     {
         Adc_Start();
@@ -193,10 +193,7 @@ BspResult BspFlash_Write(const void *data, size_t length)
         BspSystem_ExitCritical(key);
         return BSP_REJECTED;
     }
-    bool watchdog_ready = McuSystem_SetFlashWatchdog(true);
-    bool ok = watchdog_ready && write_record(data, (uint32_t)length);
-    bool watchdog_restored = McuSystem_SetFlashWatchdog(false);
-    ok = ok && watchdog_restored;
+    bool ok = write_record(data, (uint32_t)length);
     if (!ok)
     {
         s_flash_blocked = true;

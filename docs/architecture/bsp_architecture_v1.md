@@ -36,7 +36,7 @@ firmware/platform/
 两板 main 调用 Bsp_Init、App_Init、Bsp_Start、App_Start，随后循环 App_Process。
 BSP 只准备硬件与时钟，不持有电机或协议业务对象，也不自行恢复电机输出。
 
-AT32 ADC 向量 → main中BspAdc_CompleteFast → MotorAxis_SampleFast → MotorAxis_ControlFast → g_app_fast_samples递增。
+AT32 ADC 向量 → main中BspAdc_CompleteFast → MotorAxis_SampleFast → MotorAxis_ControlFast。
 STM32 ADC 向量 → BspAdc_HandleInterrupt → HAL完成回调 → BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast。
 监督向量 → main入口 → BspSystem_HandleControlInterrupt → BspApp_OnControlTick → 2 kHz APP 监督。
 SysTick向量 → main入口 → BspSystem_HandleTickInterrupt → 本板1ms时基。
@@ -62,7 +62,7 @@ AT32的系统外设初始化按用户约定默认成功，McuSystem_Init/Start�
 | 独立母线电流 | 无 | ADC2 单次域 |
 | 电机 NTC / 输出 sin/cos | 无 | 有采样；输出角度未接入控制 |
 | MCU 温度 | 片内校准值换算 | 关闭片内温度采样 |
-| 应用看门狗 | 未提供；Loader 继承路径独立 | APP 已提供 |
+| Loader 试运行看门狗 | 配套 APP 维护继承看门狗 | 普通 APP 无应用看门狗 |
 | Loader | 独立 APP 和 LoaderApp 选择 | 当前不可用 |
 
 不支持通道不伪造有效值。硬件与应用配置详情见[配置说明](../../firmware/config/README.md)。

@@ -9,7 +9,6 @@
 #include "motor_control.h"
 #include "motor_fault.h"
 #include "motor_sensing.h"
-#include "motor_state_machine.h"
 #include "parameter_values.h"
 
 /* 拥有启停、标定、目标提交和功率安全；无目标邮箱或协议请求身份。 */
@@ -86,7 +85,7 @@ static void stop_motor(MotorLifecycle *life, MotorStateEvent event)
         life->fault_locked = true;
         MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
     }
-    life->state = MotorStateMachine_Step(
+    life->state = MotorLifecycle_NextState(
         life->state,
         life->drive.motor->fault_code == MOTOR_FAULT_NONE ? event : MOTOR_STATE_EVENT_FAULT);
 }
@@ -230,7 +229,7 @@ void MotorLifecycle_BeginFastTick(MotorLifecycle *life)
     }
     if (starting_control)
     {
-        life->state = MotorStateMachine_Step(life->state, MOTOR_STATE_EVENT_RUN);
+        life->state = MotorLifecycle_NextState(life->state, MOTOR_STATE_EVENT_RUN);
         life->enable_pending = false;
     }
 }
@@ -482,7 +481,7 @@ MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *life,
         {
             clear_running_data(life);
             life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
-            life->state = MotorStateMachine_Step(life->state, MOTOR_STATE_EVENT_CALIBRATE);
+            life->state = MotorLifecycle_NextState(life->state, MOTOR_STATE_EVENT_CALIBRATE);
             if (calibration_requires_power(calibration_type))
             {
                 BspSystem_MemoryBarrier();
@@ -607,7 +606,7 @@ static bool clear_fault(MotorLifecycle *life)
         BspSystem_CompareExchange32(&life->drive.motor->fault_code, fault, MOTOR_FAULT_NONE);
     if (cleared)
     {
-        life->state = MotorStateMachine_Step(life->state, MOTOR_STATE_EVENT_CLEAR);
+        life->state = MotorLifecycle_NextState(life->state, MOTOR_STATE_EVENT_CLEAR);
         life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
     }
     BspSystem_ExitCritical(mask);
@@ -834,7 +833,7 @@ MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *life)
 }
 
 /* 五态纯迁移；自检仅占位，所有输出和请求资格由APP运行层处理。 */
-MotorState MotorStateMachine_Step(MotorState state, MotorStateEvent event)
+MotorState MotorLifecycle_NextState(MotorState state, MotorStateEvent event)
 {
     if ((unsigned)state > MOTOR_STATE_FAULT || (unsigned)event > MOTOR_STATE_EVENT_CLEAR ||
         event == MOTOR_STATE_EVENT_FAULT)

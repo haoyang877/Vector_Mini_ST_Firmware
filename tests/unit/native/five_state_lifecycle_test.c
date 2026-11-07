@@ -7,7 +7,6 @@
 #include "motor_lifecycle.h"
 #include "motor_control.h"
 #include "application_config.h"
-#include "motor_state_machine.h"
 #include "motor_fault.h"
 #include "motor_sensing.h"
 #include "bsp_pwm.h"
@@ -247,26 +246,30 @@ static void test_five_states(void)
 {
     for (unsigned state = 0; state <= MOTOR_STATE_FAULT; ++state)
     {
-        assert(MotorStateMachine_Step((MotorState)state, MOTOR_STATE_EVENT_FAULT) ==
+        assert(MotorLifecycle_NextState((MotorState)state, MOTOR_STATE_EVENT_FAULT) ==
                MOTOR_STATE_FAULT);
         for (unsigned event = 0; event <= MOTOR_STATE_EVENT_CLEAR; ++event)
         {
-            assert(MotorStateMachine_Step((MotorState)state, (MotorStateEvent)event) <=
+            assert(MotorLifecycle_NextState((MotorState)state, (MotorStateEvent)event) <=
                    MOTOR_STATE_FAULT);
         }
     }
-    assert(MotorStateMachine_Step(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN) == MOTOR_STATE_RUNNING);
-    assert(MotorStateMachine_Step(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_CALIBRATE) ==
+    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN) ==
+           MOTOR_STATE_RUNNING);
+    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_CALIBRATE) ==
            MOTOR_STATE_CALIBRATION);
-    assert(MotorStateMachine_Step(MOTOR_STATE_RUNNING, MOTOR_STATE_EVENT_STOP) == MOTOR_STATE_IDLE);
-    assert(MotorStateMachine_Step(MOTOR_STATE_CALIBRATION, MOTOR_STATE_EVENT_COMPLETE) ==
+    assert(MotorLifecycle_NextState(MOTOR_STATE_RUNNING, MOTOR_STATE_EVENT_STOP) ==
            MOTOR_STATE_IDLE);
-    assert(MotorStateMachine_Step(MOTOR_STATE_FAULT, MOTOR_STATE_EVENT_STOP) == MOTOR_STATE_FAULT);
-    assert(MotorStateMachine_Step(MOTOR_STATE_FAULT, MOTOR_STATE_EVENT_CLEAR) == MOTOR_STATE_IDLE);
-    assert(MotorStateMachine_Step(MOTOR_STATE_SELF_TEST, MOTOR_STATE_EVENT_RUN) ==
+    assert(MotorLifecycle_NextState(MOTOR_STATE_CALIBRATION, MOTOR_STATE_EVENT_COMPLETE) ==
+           MOTOR_STATE_IDLE);
+    assert(MotorLifecycle_NextState(MOTOR_STATE_FAULT, MOTOR_STATE_EVENT_STOP) ==
+           MOTOR_STATE_FAULT);
+    assert(MotorLifecycle_NextState(MOTOR_STATE_FAULT, MOTOR_STATE_EVENT_CLEAR) ==
+           MOTOR_STATE_IDLE);
+    assert(MotorLifecycle_NextState(MOTOR_STATE_SELF_TEST, MOTOR_STATE_EVENT_RUN) ==
            MOTOR_STATE_SELF_TEST);
-    assert(MotorStateMachine_Step((MotorState)99, MOTOR_STATE_EVENT_RUN) == MOTOR_STATE_FAULT);
-    assert(MotorStateMachine_Step(MOTOR_STATE_IDLE, (MotorStateEvent)99) == MOTOR_STATE_FAULT);
+    assert(MotorLifecycle_NextState((MotorState)99, MOTOR_STATE_EVENT_RUN) == MOTOR_STATE_FAULT);
+    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, (MotorStateEvent)99) == MOTOR_STATE_FAULT);
 }
 static void test_control_and_stop(void)
 {

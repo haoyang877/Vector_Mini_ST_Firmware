@@ -2,6 +2,7 @@
 
 import re
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[2] / "firmware/app"
@@ -16,6 +17,19 @@ MODULES = {
 
 
 class AppModuleContractTests(unittest.TestCase):
+    def test_only_loader_app_links_the_handoff(self):
+        root = APP.parents[1]
+        for project, loader_enabled in (
+            ("projects/at32f456/application/ESC-APP-AT32F456.uvprojx", False),
+            ("projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx", False),
+            ("projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx", True),
+        ):
+            target = ET.parse(root / project).find(".//Targets/Target")
+            sources = [item.text for item in target.findall(".//FileName")]
+            self.assertEqual(sources.count("app_loader.c"), int(loader_enabled), project)
+            defines = target.findtext("TargetOption/TargetArmAds/Cads/VariousControls/Define")
+            self.assertEqual("YG_APP_LOADER_IMAGE=1" in defines.split(","), loader_enabled, project)
+
     def test_public_names_and_modules(self):
         self.assertEqual({p.stem for p in APP.glob("*.c")}, set(MODULES))
         for name, prefix in MODULES.items():

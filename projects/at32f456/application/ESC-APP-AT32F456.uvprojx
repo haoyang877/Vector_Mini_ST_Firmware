@@ -388,11 +388,6 @@
               <FilePath>..\..\..\firmware\app\app.c</FilePath>
             </File>
             <File>
-              <FileName>app_loader.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\app_loader.c</FilePath>
-            </File>
-            <File>
               <FileName>app_rtt.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\app\composition\app_rtt.c</FilePath>

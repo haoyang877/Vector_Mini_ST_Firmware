@@ -118,6 +118,13 @@ def render_project(profile: dict, root: Path) -> str:
         if file.findtext("FileName") == "boot_hw_unavailable.c":
             file.find("FileName").text = Path(build["app_boot_source"]).name
             file.find("FilePath").text = relative(build["app_boot_source"])
+    app_files = groups.find("Group[GroupName='00_App']/Files")
+    if app_files is None:
+        raise ValueError("普通APP工程缺少00_App分组")
+    adapter = ET.SubElement(app_files, "File")
+    ET.SubElement(adapter, "FileName").text = "app_loader.c"
+    ET.SubElement(adapter, "FileType").text = "1"
+    ET.SubElement(adapter, "FilePath").text = relative("firmware/app/app_loader.c")
     files = groups.find("Group[GroupName='50_Shared']/Files")
     if files is None:
         raise ValueError("普通APP工程缺少50_Shared分组")

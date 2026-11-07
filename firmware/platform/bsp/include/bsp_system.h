@@ -1,6 +1,6 @@
 /**
  * @file bsp_system.h
- * @brief 毫秒时间、同步原语、身份及看门狗。
+ * @brief 毫秒时间、同步原语和设备身份。
  * @note 按已评审BSP契约分阶段迁移；仅使用当前已接入的功能。
  */
 #ifndef BSP_SYSTEM_H
@@ -107,20 +107,6 @@ extern "C"
      * @note Init成功后前台调用；不解释CRC、不生成默认身份、不写回；失败后缓冲不可用。
      */
     BspResult BspSystem_ReadIdentity(uint8_t record[BSP_SYSTEM_IDENTITY_BYTES]);
-
-    /**
-     * @brief 按目标配置启动应用看门狗。
-     * @return 启动为BSP_OK；未启用为NOT_SUPPORTED；已启动为NOT_READY；硬件配置失败为IO_ERROR。
-     * @note 启动前台一次，保留原时点和重装参数；不得重配Loader继承的看门狗。
-     */
-    BspResult BspWatchdog_Start(void);
-
-    /**
-     * @brief 重装载应用已启动的看门狗。
-     * @note 仅健康判定所有者满足全部健康条件后调用；不判断业务健康、不隐式启动。
-     * @note 未启用或未启动时不操作硬件；Loader继承看门狗使用BootHw_Watchdog。
-     */
-    void BspWatchdog_Feed(void);
 
 #ifdef __cplusplus
 }

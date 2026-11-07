@@ -101,7 +101,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         """状态核心只提交迁移和安全动作；身份记录与保存协议必须留在各自实现。"""
         module = ROOT / "firmware/app"
         core = production_text(module / "motor_lifecycle.c").split(
-            "MotorState MotorStateMachine_Step(", 1
+            "MotorState MotorLifecycle_NextState(", 1
         )[1]
         for token in (
             "last_maintenance_request",
@@ -184,7 +184,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             )
             self.assertNotIn("MotorStateRules_", source)
         core = production_text(module / "motor_lifecycle.c").split(
-            "MotorState MotorStateMachine_Step(", 1
+            "MotorState MotorLifecycle_NextState(", 1
         )[1]
         self.assertNotRegex(core, r"Bsp|MotorMaintenance|MotorLifecycle|g_motor_context")
         owner = production_text(ROOT / "firmware/app/motor_lifecycle.c")

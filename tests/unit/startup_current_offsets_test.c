@@ -23,10 +23,6 @@
 #include "bsp_system.h"
 #include "application_config.h"
 #include "parameter_record.h"
-static void calibration_progress(void *context)
-{
-    (void)context;
-}
 #include "bsp_flash.h"
 
 /* 只替换启动外设/存储边界；初始化、校正、换算和PI实现采用生产体。 */
@@ -835,13 +831,13 @@ static void test_calibration_dispatch_and_publication(void)
     prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
     calibration_publication_pending = true;
-    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 1U);
-    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 1U);
     calibration_publication_pending = true;
     calibration_publication_succeeds = false;
-    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 2U);
 #if BSP_ENABLED_LINEAR_HALL
     /* Hall 随观测器闭环采集；启动、构表、停止和电零位对齐均不采样。 */
@@ -907,9 +903,9 @@ static void test_calibration_dispatch_and_publication(void)
         MotorAxis_OuterTick(&axis);
     }
     calibration_publication_pending = calibration_publication_succeeds = true;
-    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     test_ms = 201U;
-    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     assert(simulated_calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO);
     assert(axis.calibration.hall_sweep.sin_min == 200);
     MotorAxis_OuterTick(&axis);
@@ -927,7 +923,7 @@ static void test_calibration_dispatch_and_publication(void)
                                        (uint16_t)(2100.0f + 1400.0f * cosf(h))};
     }
     calibration_publication_pending = true;
-    MotorCalibration_ProcessPublication(&axis.calibration, calibration_progress, NULL);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 3 && axis.linear_hall.calibration_success);
     assert(axis.linear_hall.sin_off_counts == 1800 && axis.linear_hall.sin_amp == 1600);
     assert(axis.linear_hall.cos_off_counts == 2100 && axis.linear_hall.cos_amp == 1400);

@@ -25,7 +25,7 @@ static Device devices[2];
 
 static void publish(unsigned id)
 {
-    MotorCalibration_ProcessPublication(&apps[id].axis.calibration, NULL, NULL);
+    MotorCalibration_ProcessPublication(&apps[id].axis.calibration);
 }
 static BspResult initial_record(void *data)
 {
@@ -206,14 +206,6 @@ BspResult BspSystem_ReadIdentity(uint8_t data[BSP_SYSTEM_IDENTITY_BYTES])
 {
     (void)data;
     return BSP_NOT_READY;
-}
-BspResult BspWatchdog_Start(void)
-{
-    return BSP_NOT_SUPPORTED;
-}
-void BspWatchdog_Feed(void)
-{
-    assert(false);
 }
 uint32_t BootHw_ImageCrc32(void)
 {

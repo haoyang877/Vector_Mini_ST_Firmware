@@ -112,6 +112,6 @@
     "app_output": "outputs/build/keil/ESC-APP-STM32G431-LoaderApp",
     "app_boot_source": "firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c",
     "selection_directory": "shared/targets/vector_mini_st_g431",
-    "app_defines": "USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U"
+    "app_defines": "USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,BSP_BOARD=1U"
   }
 }

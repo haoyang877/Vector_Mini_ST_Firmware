@@ -75,14 +75,8 @@ static void publish_joint_lut_when_stopped(MotorCalibration *calibration, uint32
 }
 #endif
 
-void MotorCalibration_ProcessPublication(MotorCalibration *calibration,
-                                         OutputEncoderCalibrationProgress progress,
-                                         void *progress_context)
+void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 {
-#if !BSP_ENABLED_LINEAR_HALL
-    (void)progress;
-    (void)progress_context;
-#endif
     uint32_t mask = BspSystem_EnterCritical();
     uint32_t epoch;
     if (!MotorLifecycle_ReadPendingCalibrationPublication(calibration->lifecycle, &epoch))
@@ -135,9 +129,7 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration,
         !OutputEncoder_CalibEnd(&output,
                                 &calibration->output_calibration,
                                 &hall,
-                                &calibration->drive.configuration->device.encoder,
-                                progress,
-                                progress_context) &&
+                                &calibration->drive.configuration->device.encoder) &&
         fault == MOTOR_FAULT_NONE)
     {
         fault = MOTOR_FAULT_ENCODER;

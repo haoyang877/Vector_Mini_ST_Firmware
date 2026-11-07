@@ -2,7 +2,26 @@
 #define APP_H
 
 #include <stdint.h>
-#include "app_context.h"
+#include "motor_axis.h"
+#include "app_protocol.h"
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+#include "app_loader.h"
+#endif
+#include "device_identity.h"
+
+/** @brief 由板级静态分配并零初始化，绑定后地址稳定；每个实例独占这些对象。 */
+typedef struct
+{
+    MotorAxis axis;
+    AppProtocol protocol;
+    ProtocolEndpoint endpoint;
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    AppLoader loader;
+#endif
+    DeviceIdentity identity;
+    bool communication_ready;
+    bool initialized;
+} AppContext;
 
 /**
  * @brief 装载配置、初始化电机和通信对象，不开放采样或功率输出。
@@ -13,7 +32,7 @@
 void App_Init(AppContext *app);
 
 /**
- * @brief 在BSP采样启动后开放通信并开始应用健康监督。
+ * @brief 在BSP采样启动后开放通信。
  * @note main前台一次调用；失败保持关相，不恢复运动。
  * @param app 板级零初始化的应用实例。
  */
@@ -26,14 +45,6 @@ void App_Start(AppContext *app);
  * @param app 板级零初始化的应用实例。
  */
 void App_Process(AppContext *app);
-
-/**
- * @brief 执行一次电机监督及主状态推进。
- * @note 仅由平台监督中断调用；不阻塞。
- * @param axis 当前轴。
- * @param progress 维护时钟的进展计数。
- */
-void App_SupervisorTick(MotorAxis *axis, volatile uint32_t *progress);
 
 /**
  * @brief 初始化位置环反馈 RTT 上行通道。

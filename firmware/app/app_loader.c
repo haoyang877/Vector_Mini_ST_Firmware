@@ -151,22 +151,14 @@ void AppLoader_Init(AppLoader *loader)
     loader->supported = BootHw_IsAvailable();
     loader->publish_identity(loader->identity_context);
 }
-#else
-void AppLoader_Init(AppLoader *loader)
-{
-    (void)loader;
-}
-#endif
-
 /**
  * @brief 推进Loader停机事务，并按100 ms间隔检查应用健康以维护继承看门狗。
  * @param now_ms 通信服务执行之后读取的当前毫秒计数，允许32位自然回绕。
  * @note 前台调用；健康要求监督拍数有进展、生命周期输入有效且通信就绪。
- *       连续11次健康才满足镜像确认门槛，任一次失败清零；独立APP编译为空操作。
+ *       连续11次健康才满足镜像确认门槛，任一次失败清零。
  */
 void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
 {
-#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     poll_entry(loader, now_ms);
     if ((uint32_t)(now_ms - loader->health_checked_ms) < BOOT_HEALTH_INTERVAL_MS)
     {
@@ -191,8 +183,5 @@ void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
         loader->healthy_intervals = BOOT_REQUIRED_HEALTHY_INTERVALS;
     }
     BootHw_Watchdog(healthy);
-#else
-    (void)loader;
-    (void)now_ms;
-#endif
 }
+#endif

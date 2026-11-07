@@ -16,9 +16,9 @@
 两板入口分别为 `projects/stm32g4/application/main.c` 和
 `projects/at32f456/application/main.c`。启动顺序为
 `Bsp_Init → App_Init → Bsp_Start → App_Start`，主循环调用 `App_Process`。
-AT32 ADC 入口确认完成后直接执行 `MotorAxis_SampleFast → MotorAxis_ControlFast` 并递增 `g_app.fast_samples`；
+AT32 ADC 入口确认完成后直接执行 `MotorAxis_SampleFast → MotorAxis_ControlFast`，生命周期登记本拍；
 STM32 保留 HAL 完成回调，经 `BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast`；
-监督事件经 `BspApp_OnControlTick → App_SupervisorTick → MotorAxis_SupervisorTick`。
+监督事件经 `BspApp_OnControlTick → MotorAxis_SupervisorTick`。
 
 当前 APP 开放零目标启动、STOP、清错和三类编码器标定。
 同模式目标通过 116 提交；三类角度标定完成后在关相前台自动保存到 Flash。在线参数读写/保存与标定进度查询返回不支持。

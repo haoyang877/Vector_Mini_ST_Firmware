@@ -21,7 +21,7 @@
 
 - [motor_state_machine.c](../../firmware/app/motor_lifecycle.c)：
   唯一五态纯迁移函数；不访问硬件、不拥有通信、任务或运行上下文。
-- [motor_state_machine.h](../../firmware/app/motor_state_machine.h)：
+- [motor_lifecycle.h](../../firmware/app/motor_lifecycle.h)：
   六个单一事件与纯函数接口，没有事件位图、动作位图或通用规则引擎。
 - [motor_lifecycle.c](../../firmware/app/motor_lifecycle.c)：
   唯一运行上下文，直接实现启停、标定、状态监督及功率保护。
@@ -32,7 +32,7 @@
   标定分支复用已有算法；主循环调用ProcessCalibrationPublication发布已验证的LUT。
 
 原motor_state_rules、motor_state_internal及同目录runtime/requests/maintenance实现均已删除。
-外部APP调用改为MotorLifecycle_*；MotorStateMachine_*仅剩Step纯函数。
+外部APP调用改为MotorLifecycle_*；五态纯迁移为 MotorLifecycle_NextState。
 
 ## 运行约束
 

@@ -1,18 +1,16 @@
+/* 记录生产前台入口的事件顺序：普通 APP 仅读取协议时钟，LoaderApp 交接前再读取一次。 */
 #include "app.h"
 #include "boot_hw.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
 #include <assert.h>
-#include <setjmp.h>
 #include <stdio.h>
 #include <string.h>
 
 static uint32_t trace = 2166136261U, now_ms, failure_stage;
-static unsigned feeds, disables, enters, confirms, depth;
-static bool expect_halt, stopped, lock_allowed = true, healthy = true, link_ready = true;
+static unsigned time_reads, disables, enters, confirms, depth;
+static bool stopped, lock_allowed = true, healthy = true, link_ready = true;
 static uint32_t progress = 1U;
-static BspResult watchdog_result = BSP_OK;
-static jmp_buf halt_return;
 static AppContext app;
 static const MotorAxisHardware hardware = {.power.disable = BspPwm_Disable};
 #define boot_service app.endpoint.loader
@@ -58,23 +56,10 @@ bool Protocol_Start(ProtocolEndpoint *instance)
 void BspPwm_Disable(void)
 {
     event(6, ++disables);
-    if (expect_halt)
-    {
-        assert(depth == 1);
-        longjmp(halt_return, 1);
-    }
-}
-BspResult BspWatchdog_Start(void)
-{
-    event(7, watchdog_result);
-    return watchdog_result;
-}
-void BspWatchdog_Feed(void)
-{
-    event(8, ++feeds);
 }
 uint32_t BspSystem_TimeMs(void)
 {
+    ++time_reads;
     event(9, now_ms);
     return now_ms;
 }
@@ -197,12 +182,9 @@ void MotorAxis_ProcessPositionPlan(MotorAxis *instance)
 {
     (void)instance;
 }
-void MotorCalibration_ProcessPublication(MotorCalibration *cal,
-                                         OutputEncoderCalibrationProgress progress,
-                                         void *context)
+void MotorCalibration_ProcessPublication(MotorCalibration *cal)
 {
-    assert(cal == &app.axis.calibration && context == &app);
-    (void)progress;
+    assert(cal == &app.axis.calibration);
     event(41, 0);
 }
 void AppProtocol_Refresh(AppProtocol *protocol)
@@ -222,12 +204,12 @@ void MotorAxis_SampleFast(MotorAxis *instance)
 }
 void MotorAxis_ControlFast(MotorAxis *instance)
 {
-    (void)instance;
+    ++instance->lifecycle.fast_sample_ticks;
     event(44, 0);
 }
 void MotorAxis_SupervisorTick(MotorAxis *instance)
 {
-    (void)instance;
+    ++instance->lifecycle.supervisor_ticks;
     event(45, 0);
 }
 void Protocol_RxInterrupt(ProtocolEndpoint *instance)
@@ -240,7 +222,6 @@ static void fast_sample(void)
 {
     MotorAxis_SampleFast(&app.axis);
     MotorAxis_ControlFast(&app.axis);
-    ++app.fast_samples;
 }
 static void check_startup(void)
 {
@@ -255,75 +236,24 @@ static void check_startup(void)
         assert(disables == before + !init_ok);
         App_Start(&app);
         assert(app.communication_ready == (init_ok && failure_stage != 5));
-        assert(app.watchdog_enabled);
     }
     failure_stage = 0;
-    watchdog_result = BSP_NOT_SUPPORTED;
     app = (AppContext){0};
     App_Init(&app);
     App_Start(&app);
-    assert(!app.watchdog_enabled);
-    unsigned before = feeds;
-    App_Process(&app);
-    assert(feeds == before);
-    watchdog_result = BSP_IO_ERROR;
-    expect_halt = true;
-    if (setjmp(halt_return) == 0)
-    {
-        App_Start(&app);
-        assert(false);
-    }
-    expect_halt = false;
-    depth = 0;
-    watchdog_result = BSP_OK;
 }
 static void process_at(uint32_t time)
 {
     now_ms = time;
     App_Process(&app);
 }
-static void check_watchdog(void)
+static void check_foreground(void)
 {
-    now_ms = 0;
-    app = (AppContext){0};
-    App_Init(&app);
-    App_Start(&app);
-    unsigned before = feeds;
     fast_sample();
-    App_SupervisorTick(&app.axis, &app.supervisor_ticks);
-    process_at(8);
-    assert(feeds == before);
-    process_at(9);
-    assert(feeds == before + 1);
-    /* 协议服务推进时钟；看门狗必须使用服务后的时刻。 */
-    assert(app.watchdog_last_ms == 10);
-    for (unsigned stalled = 0; stalled < 3; ++stalled)
-    {
-        if (stalled == 0)
-            fast_sample();
-        if (stalled == 1)
-            App_SupervisorTick(&app.axis, &app.supervisor_ticks);
-        unsigned old_feeds = feeds, old_disables = disables;
-        expect_halt = true;
-        if (setjmp(halt_return) == 0)
-        {
-            process_at(app.watchdog_last_ms + 9U);
-            assert(false);
-        }
-        expect_halt = false;
-        depth = 0;
-        assert(feeds == old_feeds && disables == old_disables + 1);
-        now_ms = 20;
-        App_Start(&app);
-    }
-    now_ms = UINT32_MAX - 5U;
-    App_Start(&app);
-    fast_sample();
-    App_SupervisorTick(&app.axis, &app.supervisor_ticks);
-    before = feeds;
-    process_at(3);
-    assert(feeds == before + 1 && app.watchdog_last_ms == 4);
-    app.watchdog_enabled = false;
+    MotorAxis_SupervisorTick(&app.axis);
+    unsigned before = time_reads;
+    process_at(10U);
+    assert(time_reads - before == (YG_APP_LOADER_IMAGE ? 2U : 1U));
     Protocol_RxInterrupt(&app.endpoint);
 }
 #if YG_APP_LOADER_IMAGE
@@ -432,13 +362,12 @@ static void check_loader(void)
 int main(void)
 {
     check_startup();
-    check_watchdog();
+    check_foreground();
 #if YG_APP_LOADER_IMAGE
     check_loader();
 #endif
-    printf("PASS APP trace=%08x feeds=%u disables=%u enters=%u confirms=%u\n",
+    printf("PASS APP trace=%08x disables=%u enters=%u confirms=%u\n",
            trace,
-           feeds,
            disables,
            enters,
            confirms);

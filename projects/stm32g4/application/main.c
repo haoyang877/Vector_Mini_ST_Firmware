@@ -17,7 +17,6 @@ void BspApp_OnFastSample(void)
 {
     MotorAxis_SampleFast(&g_app.axis);
     MotorAxis_ControlFast(&g_app.axis);
-    ++g_app.fast_samples;
 }
 
 static void startup_failed(void)
@@ -32,7 +31,7 @@ static void startup_failed(void)
 /** @brief 在BSP确认监督事件后执行应用慢环。 */
 void BspApp_OnControlTick(void)
 {
-    App_SupervisorTick(&g_app.axis, &g_app.supervisor_ticks);
+    MotorAxis_SupervisorTick(&g_app.axis);
 }
 
 /** @brief 将ADC向量交给本板BSP，保留完成确认与回调顺序。 */

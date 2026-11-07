@@ -26,9 +26,6 @@ def fixture() -> str:
 #include "motor_sensing.h"
 #include "encoder_calibration.h"
 #include "parameter_record.h"
-#if BSP_ENABLED_LINEAR_HALL
-static void calibration_progress(void *context) { (void)context; }
-#endif
 #include "parameter_values.h"
 #include "bsp_flash.h"
 #include "bsp_system.h"
@@ -254,8 +251,8 @@ int main(void) {
  LinearHall_CalibrationSample(&calibration.hall_sweep,3400,3600);
  kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
  state=MOTOR_STATE_CALIBRATION; stopped=true; publication=true; released=false;
- MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL); assert(!released && !writes);
- now_ms=201; MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+ MotorCalibration_ProcessPublication(&calibration); assert(!released && !writes);
+ now_ms=201; MotorCalibration_ProcessPublication(&calibration);
  assert(released && kind==MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO && !publication && !writes);
  assert(calibration.hall_sweep.sin_min==200 && calibration.hall_sweep.cos_max==3600);
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
@@ -268,7 +265,7 @@ int main(void) {
    (uint16_t)(1800-1600*sinf(h)),(uint16_t)(2100+1500*cosf(h))};
  }
  publication=true;
- MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+ MotorCalibration_ProcessPublication(&calibration);
  assert(completions==1 && writes==1 && s_motor_state.fault_code==MOTOR_FAULT_NONE);
  assert(stored_record.hall_tag_status==0x48410180U && stored_record.encoder_calib_flag==ENC_CALIB_ALL);
  assert(stored_axis.output.hall_lut_status==LINEAR_HALL_LUT_OK);
@@ -280,21 +277,21 @@ int main(void) {
  assert(hall.sin_off_counts==1800 && hall.cos_off_counts==2100);
  kind=MOTOR_CALIBRATION_ELECTRICAL_ZERO; publication=true;
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
- MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+ MotorCalibration_ProcessPublication(&calibration);
  assert(writes==2 && stored_record.encoder_calib_flag==ENC_CALIB_ALL && stored_record.hall_tag_status==0x48410180U);
  kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; publication=true;
  LinearHall_CalibrationBegin(&calibration.hall_sweep);
- MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+ MotorCalibration_ProcessPublication(&calibration);
  assert(writes==3 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_LINEAR_HALL_CALIBRATION);
  assert(!memcmp((uint8_t *)&stored_record+HALL_OFFSET,no_samples,sizeof no_samples));
  LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
  assert(!hall.calibration_success && hall.calibration_faults==LINEAR_HALL_CAL_FAULT_NO_SAMPLES);
  assert(hall.sin_amp==1600 && hall.cos_off_counts==2100);
  s_motor_state.fault_code=MOTOR_FAULT_NONE; publication=true; kind=MOTOR_CALIBRATION_MECHANICAL_ZERO;
- write_result=BSP_IO_ERROR; MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+ write_result=BSP_IO_ERROR; MotorCalibration_ProcessPublication(&calibration);
  assert(writes==4 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_CALIBRATION_STORAGE);
  s_motor_state.fault_code=MOTOR_FAULT_NONE; write_result=BSP_OK;
- publication=true; cancel_during_upload=true; MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+ publication=true; cancel_during_upload=true; MotorCalibration_ProcessPublication(&calibration);
  assert(!publication && writes==4 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_NONE);
  stored_record.hall_tag_status=1U; LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
  assert(!hall.calibration_success && !hall.calibration_faults && hall.sin_amp==1829.5f);
@@ -307,7 +304,7 @@ int main(void) {
   cancel_during_upload=mode==0; replace_during_upload=mode==1;
   inject_fault=mode==2; inject_start=mode==3;
   unsigned before=writes, completed=completions;
-  MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+  MotorCalibration_ProcessPublication(&calibration);
   assert(writes==before && completions==completed);
  }
  cancel_during_upload=replace_during_upload=inject_fault=inject_start=false;
@@ -315,68 +312,12 @@ int main(void) {
  for(unsigned i=0;i<sizeof(failures)/sizeof(failures[0]);++i) {
   publication=true; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE; write_result=failures[i];
   unsigned before=writes, completed=completions;
-  MotorCalibration_ProcessPublication(&calibration, calibration_progress, NULL);
+  MotorCalibration_ProcessPublication(&calibration);
   assert(writes==before+1 && completions==completed);
   assert(s_motor_state.fault_code==MOTOR_FAULT_CALIBRATION_STORAGE);
  }
 #endif
  puts("PASS calibration publication: cancellation, stale session, schema14, Hall thresholds and Flash errors");
- return 0;
-}
-"""
-    )
-
-
-def watchdog_fixture() -> str:
-    """验证AT32仅停机擦写时扩展WDT窗口，完成或失败后恢复，不在等待中喂狗。"""
-    source = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf-8")
-    return (
-        r"""
-#include <assert.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdio.h>
-static struct { uint32_t cmd, rld, div; volatile uint32_t sts; } watchdog;
-#define WDT (&watchdog)
-static bool s_watchdog_started, s_flash_watchdog_active;
-static uint32_t s_flash_watchdog_reload;
-static bool off = true;
-static uint32_t masked = 1U, exception;
-bool BspPwm_ArePhasesDisabled(void) { return off; }
-uint32_t __get_PRIMASK(void) { return masked; }
-uint32_t __get_IPSR(void) { return exception; }
-"""
-        + function_source(source, "set_watchdog_reload")
-        + function_source(source, "McuSystem_SetFlashWatchdog")
-        + r"""
-int main(void) {
- watchdog.rld = 511U; watchdog.div = 0U;
- assert(McuSystem_SetFlashWatchdog(true) && McuSystem_SetFlashWatchdog(false));
- assert(watchdog.rld == 511U && watchdog.cmd == 0U && !s_flash_watchdog_active);
- s_watchdog_started = true;
- off = false; assert(!McuSystem_SetFlashWatchdog(true)); off = true;
- masked = 0U; assert(!McuSystem_SetFlashWatchdog(true)); masked = 1U;
- exception = 17U; assert(!McuSystem_SetFlashWatchdog(true)); exception = 0U;
- assert(watchdog.rld == 511U && watchdog.cmd == 0U);
- for (uint32_t reload = 511U; reload <= 4095U; reload = reload * 2U + 1U) {
-  watchdog.rld = reload;
-  assert(McuSystem_SetFlashWatchdog(true));
-  assert(s_flash_watchdog_active && watchdog.rld == 4095U && watchdog.cmd == 0xAAAAU);
-  assert(watchdog.div == 0U && s_flash_watchdog_reload == reload);
-  assert(!McuSystem_SetFlashWatchdog(true));
-  assert(McuSystem_SetFlashWatchdog(false));
-  assert(!s_flash_watchdog_active && watchdog.rld == reload && watchdog.cmd == 0xAAAAU);
- }
- watchdog.sts = 1U;
- assert(!McuSystem_SetFlashWatchdog(true) && !s_flash_watchdog_active);
- watchdog.sts = 0U;
- assert(McuSystem_SetFlashWatchdog(true));
- watchdog.sts = 1U;
- assert(!McuSystem_SetFlashWatchdog(false));
- assert(s_flash_watchdog_active && watchdog.cmd == 0x5555U);
- watchdog.sts = 0U;
- assert(McuSystem_SetFlashWatchdog(false) && !s_flash_watchdog_active);
- puts("PASS AT32 Flash watchdog: off-only, masked foreground, bounded window, restore, no busy-loop feeds");
  return 0;
 }
 """
@@ -403,7 +344,6 @@ def main() -> None:
     ]
     for board in (1, 2):
         run_c(args, f"calibration_save_{board}", fixture(), board, extra)
-    run_c(args, "flash_watchdog", watchdog_fixture(), 2)
 
 
 if __name__ == "__main__":

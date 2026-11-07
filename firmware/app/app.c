@@ -1,5 +1,4 @@
 #include "app.h"
-#include "app_context.h"
 
 #include "app_protocol.h"
 #include "motor_axis.h"
@@ -21,26 +20,18 @@
 /* 应用组合层：前台组织通信与Loader事务，中断仅推进电机及进展计数。
  * 硬件操作经BSP，运行准入和停机判定归MotorLifecycle，协议业务与状态换算归AppProtocol。 */
 
-/* 应用看门狗观察双环进展；Loader健康确认另用独立的100 ms观察窗口。 */
-#define APP_WATCHDOG_INTERVAL_MS 10U
-
-static void start_watchdog(AppContext *app);
-static void service_watchdog(AppContext *app);
 static bool bind_device_description(AppContext *app);
 
 static void publish_identity(void *context);
 
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
 /* Loader 提交前读取活动轴的节点号，沿用板级交接时的身份。 */
 static uint8_t read_node_id(void *context)
 {
     AppContext *app = context;
     return MotorAxis_NodeId(&app->axis);
 }
-
-static void watchdog_progress(void *context)
-{
-    service_watchdog(context);
-}
+#endif
 
 /**
  * @brief 初始化电机、CAN 节点及运行时设备信息；协议回调和快照地址已静态配置。
@@ -55,29 +46,31 @@ void App_Init(AppContext *app)
         return;
     }
     app->initialized = true;
-    app->fast_samples = app->supervisor_ticks = 0U;
-    app->watchdog_enabled = false;
     MotorAxis_Init(&app->axis);
     AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.lifecycle);
 
     app->communication_ready =
         Protocol_Init(&app->endpoint, MotorAxis_NodeId(&app->axis)) && bind_device_description(app);
-    app->loader.lifecycle = &app->axis.lifecycle;
-    app->loader.endpoint = &app->endpoint;
-    app->loader.communication_ready = &app->communication_ready;
-    app->loader.read_node_id = read_node_id;
-    app->loader.publish_identity = publish_identity;
-    app->loader.identity_context = app;
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    app->loader = (AppLoader){.lifecycle = &app->axis.lifecycle,
+                              .endpoint = &app->endpoint,
+                              .communication_ready = &app->communication_ready,
+                              .read_node_id = read_node_id,
+                              .publish_identity = publish_identity,
+                              .identity_context = app};
+    if (app->communication_ready)
+    {
+        AppLoader_Init(&app->loader);
+    }
+#endif
     if (!app->communication_ready)
     {
         app->axis.hardware->power.disable();
-        return;
     }
-    AppLoader_Init(&app->loader);
 }
 
 /**
- * @brief 启动已绑定的通信入口，并建立应用看门狗的双环观察窗口。
+ * @brief 启动已绑定的通信入口。
  * @note main在Bsp_Start后调用一次；通信未就绪时保持关相。
  */
 void App_Start(AppContext *app)
@@ -87,90 +80,22 @@ void App_Start(AppContext *app)
     {
         app->axis.hardware->power.disable();
     }
-    start_watchdog(app);
 }
 
 /**
- * @brief 按顺序推进标定发布、状态刷新、通信、Loader事务和看门狗检查。
+ * @brief 按顺序推进标定发布、状态刷新、通信及可选的 Loader 事务。
  * @note 仅由main前台循环调用。通信与Loader分别读取执行当时的时钟，
  *       避免用通信处理之前的时间判定其后的交接超时。
  */
 void App_Process(AppContext *app)
 {
     MotorAxis_ProcessPositionPlan(&app->axis);
-    MotorCalibration_ProcessPublication(&app->axis.calibration, watchdog_progress, app);
+    MotorCalibration_ProcessPublication(&app->axis.calibration);
     AppProtocol_Refresh(&app->protocol);
     Protocol_Process(&app->endpoint, BspSystem_TimeMs());
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     AppLoader_Process(&app->loader, BspSystem_TimeMs());
-    service_watchdog(app);
-}
-
-/**
- * @brief 执行一次电机监督任务，完成后递增监督进展计数。
- * @note 由监督定时器中断调用；与快环计数一起供前台判断任务是否持续推进。
- */
-void App_SupervisorTick(MotorAxis *axis, volatile uint32_t *progress)
-{
-    MotorAxis_SupervisorTick(axis);
-    ++*progress;
-}
-
-/**
- * @brief 在应用健康监督失败时关相并永久停止正常执行。
- * @note 屏蔽可屏蔽中断后关闭PWM，不再喂狗；本函数不返回。
- */
-static void halt_disabled(AppContext *app)
-{
-    (void)BspSystem_EnterCritical();
-    app->axis.hardware->power.disable();
-    for (;;)
-    {
-        /* 应用失败停止健康喂狗；硬件故障IRQ由BSP独立关断。 */
-    }
-}
-
-/**
- * @brief 启动BSP应用看门狗，并记录当前时间及双环进展作为首次检查基线。
- * @note 未配置看门狗时允许继续运行；其他启动错误进入关相停留路径。
- *       仅在App_Start的前台启动阶段调用。
- */
-static void start_watchdog(AppContext *app)
-{
-    BspResult result = BspWatchdog_Start();
-    if (result != BSP_OK && result != BSP_NOT_SUPPORTED)
-    {
-        halt_disabled(app);
-    }
-    app->watchdog_enabled = result == BSP_OK;
-    app->watchdog_last_ms = BspSystem_TimeMs();
-    app->watchdog_last_fast = app->fast_samples;
-    app->watchdog_last_slow = app->supervisor_ticks;
-}
-
-/**
- * @brief 每满10 ms检查快环和监督任务均有进展，满足条件后喂应用看门狗。
- * @note 前台调用；任一任务停滞即关相停留。无符号时间差保留毫秒计数回绕语义。
- */
-static void service_watchdog(AppContext *app)
-{
-    if (!app->watchdog_enabled)
-    {
-        return;
-    }
-    uint32_t now_ms = BspSystem_TimeMs();
-    if ((uint32_t)(now_ms - app->watchdog_last_ms) < APP_WATCHDOG_INTERVAL_MS)
-    {
-        return;
-    }
-    if (app->fast_samples == app->watchdog_last_fast ||
-        app->supervisor_ticks == app->watchdog_last_slow)
-    {
-        halt_disabled(app);
-    }
-    app->watchdog_last_fast = app->fast_samples;
-    app->watchdog_last_slow = app->supervisor_ticks;
-    app->watchdog_last_ms = now_ms;
-    BspWatchdog_Feed();
+#endif
 }
 
 /**

@@ -22,6 +22,25 @@ import doctor
 
 
 class HarnessTests(unittest.TestCase):
+    def test_release_inventory_covers_both_products_and_excludes_bench(self):
+        """默认发布构建包含两板Loader/APP，不把台架激励工程纳入默认入口。"""
+        from build.build_firmware import RELEASE_PROJECTS
+
+        self.assertEqual(
+            set(RELEASE_PROJECTS),
+            {
+                "normal",
+                "at32f456-app-off",
+                "g431-loader",
+                "g431-loader-app",
+                "at32-loader",
+                "at32-loader-app",
+            },
+        )
+        for path in RELEASE_PROJECTS.values():
+            self.assertTrue(path.is_file())
+            self.assertNotIn("bench", path.parts)
+
     def test_interface_scanner_skips_macro_continuations(self):
         """宏续行中的调用/花括号不污染下一条声明，真实缺失契约仍被报告。"""
         source = r"""#define FILTER(value, sample) \

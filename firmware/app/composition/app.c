@@ -12,7 +12,9 @@
 #include "yg_protocol_common.h"
 
 #include "application_config.h"
-#if defined(APP_TARGET_AT32_F456) && APP_TARGET_AT32_F456
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+#include "loader_target.h"
+#elif defined(APP_TARGET_AT32_F456) && APP_TARGET_AT32_F456
 #include "at32f456_bringup.h"
 #else
 #include "vector_mini_st_g431.h"
@@ -164,12 +166,17 @@ static void halt_disabled(void)
  */
 static void start_watchdog(void)
 {
+#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
+    /* 继承Loader长周期WDT；service_boot独占健康检查、确认时限与喂狗。 */
+    s_watchdog_enabled = false;
+#else
     BspResult result = BspWatchdog_Start();
     if (result != BSP_OK && result != BSP_NOT_SUPPORTED)
     {
         halt_disabled();
     }
     s_watchdog_enabled = result == BSP_OK;
+#endif
     s_watchdog_last_ms = BspSystem_TimeMs();
     s_watchdog_last_fast = g_app_fast_samples;
     s_watchdog_last_slow = s_supervisor_ticks;

@@ -75,6 +75,38 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
 }}
 """
     outputs[target_dir / "app.sct"] = app_scatter
+    if "app_scatter_template" in build:
+        # AT32保留真实快环SRAM执行区，Flash加载副本仍完整计入APP预算。
+        source = repository_path(root, build["app_scatter_template"]).read_text(encoding="utf-8")
+        import re
+
+        source = re.sub(
+            r"LR_IROM1\s+0x[0-9A-Fa-f]+\s+0x[0-9A-Fa-f]+",
+            f"LR_APP 0x{app:08X} 0x{app_bytes:X}",
+            source,
+            count=1,
+        )
+        source = re.sub(
+            r"ER_IROM1\s+0x[0-9A-Fa-f]+\s+0x[0-9A-Fa-f]+\s*\{\s*\*\.o\s*\(RESET,\s*\+First\)",
+            f"ER_VECTORS 0x{app:08X} 0x{descriptor:X} {{ *.o (RESET, +First) }}\n"
+            f"  ER_DESCRIPTOR 0x{app + descriptor:08X} FIXED 0x60 {{ * (.app_descriptor) }}\n"
+            f"  ER_APP 0x{app + descriptor + 96:08X} FIXED 0x{app_bytes - descriptor - 96:X} {{",
+            source,
+            count=1,
+        )
+        source = source.replace("RW_IRAM1 0x2000E000 0x00009000", "RW_IRAM1 0x2000E000 0x00008FE0")
+        source = source.replace(
+            ".ANY (+RW +ZI)", ".ANY (+RW)\n  }\n  ZI_IRAM1 +0 0x00008FE0 {\n    .ANY (+ZI)"
+        )
+        source = source.rstrip().rsplit("}", 1)[0] + (
+            f"  ScatterAssert(ImageLimit(ZI_IRAM1) <= 0x{end:08X})\n"
+            "  ER_IMAGE_TAIL AlignExpr(AlignExpr(AlignExpr(ImageLimit(ER_APP), 8) + "
+            "ImageLength(ER_FAST), 8) + ImageLength(RW_IRAM1), 8) FIXED 0x8 "
+            "{ * (.app_image_tail) }\n}\n"
+        )
+        if source.count("ER_DESCRIPTOR") != 1 or len(re.findall(r"ER_FAST\s+0x", source)) != 1:
+            raise ValueError("AT32 APP链接模板缺少唯一向量/快代码区")
+        outputs[target_dir / "app.sct"] = source
     tree = ET.parse(repository_path(root, build["template"]))
     targets = tree.getroot().find("Targets")
     target = targets.find("Target")
@@ -121,6 +153,7 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
     )
     set_value(ads + "Cads/VariousControls/MiscControls", "")
     set_value(ads + "Cads/Optim", "4")
+    set_value(ads + "Cads/oTime", "0")
     # Loader无stdio/堆分配，选择ARM MicroLIB；APP沿用原运行库与栈预算。
     set_value(ads + "ArmAdsMisc/useUlib", "1")
     set_value(ads + "LDads/umfTarg", "0")

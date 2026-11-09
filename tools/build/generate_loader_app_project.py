@@ -112,15 +112,23 @@ def render_project(profile: dict, root: Path) -> str:
             else:
                 start.text, length.text = "0x0", "0x0"
     includes = target.find(ads + "Cads/VariousControls/IncludePath")
-    includes.text = (includes.text or "") + ";" + relative(build["selection_directory"])
+    includes.text = relative(build["selection_directory"]) + ";" + (includes.text or "")
     groups = target.find("Groups")
+    replacement = build.get("app_boot_replace", "boot_hw_unavailable.c")
     for file in groups.findall("Group/Files/File"):
-        if file.findtext("FileName") == "boot_hw_unavailable.c":
+        if file.findtext("FileName") == replacement:
             file.find("FileName").text = Path(build["app_boot_source"]).name
             file.find("FilePath").text = relative(build["app_boot_source"])
-    files = groups.find("Group[GroupName='50_Shared']/Files")
+    files = next(
+        (
+            group.find("Files")
+            for group in groups
+            if group.findtext("GroupName") in ("50_Shared", "Shared")
+        ),
+        None,
+    )
     if files is None:
-        raise ValueError("普通APP工程缺少50_Shared分组")
+        raise ValueError("普通APP工程缺少共享源码分组")
     # APP 只保留进 Loader 的 RAM 邮箱与内嵌描述符；镜像校验与启动判据归 Loader。
     for source in (
         "shared/boot/image_mailbox.c",

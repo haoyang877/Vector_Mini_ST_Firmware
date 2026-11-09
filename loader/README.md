@@ -1,8 +1,11 @@
 # YG2026-ESC-LOADER
 
-当前实现是独立G431 Loader、CAN FD 1M/5M、公司Type1与50..55、单槽CRC32升级，
+当前开发候选为 G431 与 YG_ESC_V1.0 / AT32F456CCU7 的独立 Loader，共用升级核心。
+通信仍为 CAN FD 1M/5M、公司Type1与50..55、单槽CRC32升级，
 含持久激活门槛与一次试运行确认。配套APP支持56停机交接及57健康确认。
-源码与离线验证不等于实机验收；当前候选的实机范围见[验收记录](../docs/reports/2026-10/loader_storage_optimization_20261020.md)。
+Loader v2.2.0 / APP v1.6.0 为开发候选；本轮不执行硬件下载。
+功能、128 KiB 布局及维护步骤见[双板指南](../docs/guides/dual_board_loader.md)。
+历史 G431 实机结果见[验收记录](../docs/reports/2026-10/loader_storage_optimization_20261020.md)，不能代替本轮双板验收。
 
 - [软件框图、紧凑流程图与内存分配](../docs/architecture/loader/loader_product_v3.md)
 - [更换 MCU：资料、适配步骤和验收标准](../docs/guides/loader_mcu_porting_v1.md)
@@ -12,9 +15,9 @@
 - [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)
 - `core/`：单事务、5s租约、主机nonce/session与精确ACTIVATE发送票据。
 - `runtime/`：安全启动、50ms窗口、现场校验、GET_INFO与升级路由。
-- `ports/include/`：公共平台接口；`ports/stm32g4/`：当前芯片驱动。
+- `ports/include/`：公共平台接口；`ports/stm32g4/` 与 `ports/at32f456/`：两板芯片驱动。
 - `product/`：只读参数识别和节点策略；`boards/`：板级时钟、引脚、关相与状态核对。
-- `targets/`：独立 Keil 工程及 layout 6 的 16 KiB Loader/96 KiB APP/16 KiB 参数与身份布局。
+- `targets/`：两套独立 Keil 工程；G431 layout 6、AT32 layout 7，均为前128 KiB内的16/96/16 KiB布局。
 - `tools/package_image.py`：96B描述符回填、CRC与目标检查；原始占位BIN不能直接升级。
 - `tools/build/keil_loader_app.py`：LoaderApp Keil 构建后生成可直下的调试 AXF/HEX/BIN，
   同时生成标记未激活的 CAN 升级包；两者用途不同。
@@ -26,7 +29,7 @@
 `python tools/run.py build_loader_bundle --uv4 ... --fromelf ... --token ... --output outputs/...`
 独立构建两端，并生成双版本命名的整机 SWD HEX、单件工件、CAN 包与 SHA-256 清单。
 生成、打包、配套构建和主机 CLI 都接受 `--target`（名称或 JSON 路径），默认 G431；
-未知目标明确失败，构建前核对生成头与清单。当前仍只有一个经过验证的真实 MCU 端口。
+AT32 显式指定 `--target yg_esc_v1_at32f456`。未知目标明确失败，构建前核对生成头与清单。
 默认只产出 debug 候选，
 `release_approved=false`；需完成当前release与台架验收后再按[发布规范](../docs/guides/firmware_release_standard.md)发布。
 
@@ -34,11 +37,10 @@
 `upgrade`才打开用户指定SDK与节点，须显式UID、独占及无电机动力条件。默认验证/CI不接触设备。
 有多只 USB-CAN 时可通过 `--device-index 1` 选择第 2 只适配器；默认索引为 0，
 CAN 通道固定为 0。设备索引和通道索引不是同一个编号，不能以适配器可打开代替目标 UID 核对。
-不支持USB、UART、第二MCU、跨复位续传、旧APP回滚、维护角色或签名。
+不支持USB、UART、跨复位续传、旧APP回滚、维护角色或签名。
 layout 5 到 layout 6 必须通过受控 SWD 同时迁移 Loader 与 APP；不能混用旧址 APP
-或以 CAN 改写 Loader。当前候选为 Loader v2.1.0、APP v1.5.0，参数使用[schema14](../firmware/parameters/README.md#storage)。
-旧版本的二十轮实测不计入新候选次数。当前候选已完成三次连续升级及三项故障恢复，
-真实掉电和参数保存断电仍未覆盖。
+或以 CAN 改写 Loader。参数仍使用[schema14](../firmware/parameters/README.md#storage)。
+本轮实机预检因SWD回读不稳定停止，尚未进入安装或升级；历史次数不计入双板候选。
 APP 的 READY 回复必须关联队列入队位置，并等待该帧真实发送完成后才能复位；
 修复与验证见[交接队列修复计划](../docs/plans/completed/2026-10-20-loader-handoff-queue-v1.md)。
 

@@ -133,8 +133,9 @@ BspResult BspSystem_ReadIdentity(uint8_t record[64])
     {
         return BSP_INVALID_ARGUMENT;
     }
-    /* 新板生产身份布局尚未分配；明确无有效记录，不借用旧板或参数区。 */
-    return BSP_NOT_SUPPORTED;
+    /* 固定生产身份页只读；未知/未配置的内容由设备身份解码器拒绝。 */
+    memcpy(record, (const void *)0x0801F800U, 64U);
+    return BSP_OK;
 }
 
 #if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE

@@ -53,6 +53,16 @@ def load_target(selection: str | Path | None = None, *, directory: Path | None =
     values = {key: target_value(target, key) for key in target["constants"]}
     if values["TARGET_PROGRAM_BYTES"] != 8 or not 0 < values["TARGET_APP_BYTES"] <= 131072:
         raise ValueError("目标不兼容现有 v3 写入单位或 APP 容量上限")
+    budget = target.get("deployment_bytes")
+    if budget is not None and (
+        budget != 131072
+        or values["TARGET_LOADER_BYTES"] != 16384
+        or values["TARGET_APP_BYTES"] != 98304
+        or values["TARGET_PARAM_BYTES"] != 16384
+        or values["TARGET_PARAM_BASE"] + values["TARGET_PARAM_BYTES"]
+        != values["TARGET_FLASH_BASE"] + budget
+    ):
+        raise ValueError("双板部署必须采用前128 KiB的16/96/16 KiB布局")
     for name in (
         "TARGET_LAYOUT",
         "TARGET_MCU",

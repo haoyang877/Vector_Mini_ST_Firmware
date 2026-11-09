@@ -1,15 +1,27 @@
 {
   "source": "https://github.com/SEGGERMicro/RTT",
   "revision": "4d8feab3150f86f37a9d323ddc88d6cdf5673072",
-  "license": "BSD-1-Clause",
+  "license": "BSD-1-Clause AND BSD-3-Clause",
   "files": [
     {
       "path": "SEGGER_RTT.c",
-      "sha256": "caf3d20bc2def30e176f937a56c878a363dec3cd805334ea8173f22e097f1106"
+      "sha256": "7006e52d10e802885e992d2e62497ec3b1e2dfc5095d4d7e884e0ed86473441a",
+      "license": "BSD-3-Clause",
+      "local_change": {
+        "commit": "d6572b555d7d1605753f47cf3884cf109dcfa0ba",
+        "original_sha256": "caf3d20bc2def30e176f937a56c878a363dec3cd805334ea8173f22e097f1106",
+        "description": "用户替换的 RTT 实现，保留文件内版权与许可；此文件不再对应清单所列上游 revision。"
+      }
     },
     {
       "path": "SEGGER_RTT.h",
-      "sha256": "b8b6c29abd72c42082502306fe7cdaa0ca90ca2a9b7821dceaa3b023b75f4d95"
+      "sha256": "6f15eb3c4c0d25ad0c4c2a61ef3476d34dffb3d746c0b88dfc59f419d5dd8b4d",
+      "license": "BSD-3-Clause",
+      "local_change": {
+        "commit": "d6572b555d7d1605753f47cf3884cf109dcfa0ba",
+        "description": "用户提供的 RTT 配套文件，保留文件内版权与许可；此文件不对应清单所列上游 revision。",
+        "original_sha256": "b8b6c29abd72c42082502306fe7cdaa0ca90ca2a9b7821dceaa3b023b75f4d95"
+      }
     },
     {
       "path": "SEGGER_RTT_ConfDefaults.h",
@@ -18,6 +30,24 @@
     {
       "path": "LICENSE.md",
       "sha256": "e033779c697246a7a89eb411eca41cabb791dbf0b23619cfbd6d42429191baa8"
+    },
+    {
+      "path": "SEGGER_RTT_Conf.h",
+      "sha256": "4215174297aa3b83e0a555e0763b507d2c9f3f7575a3d7ef3fc23a90c0ffd9e1",
+      "license": "BSD-3-Clause",
+      "local_change": {
+        "commit": "d6572b555d7d1605753f47cf3884cf109dcfa0ba",
+        "description": "用户提供的 RTT 配套文件，保留文件内版权与许可；此文件不对应清单所列上游 revision。"
+      }
+    },
+    {
+      "path": "SEGGER_RTT_printf.c",
+      "sha256": "ffbc6a82f1a752b61b302f91b8950eb8bc5d093691ea581b6aa0b45d3367e9fd",
+      "license": "BSD-3-Clause",
+      "local_change": {
+        "commit": "d6572b555d7d1605753f47cf3884cf109dcfa0ba",
+        "description": "用户提供的 RTT 配套文件，保留文件内版权与许可；此文件不对应清单所列上游 revision。"
+      }
     }
   ]
 }

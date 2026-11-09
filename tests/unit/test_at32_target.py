@@ -36,8 +36,18 @@ class At32TargetTests(unittest.TestCase):
         shared_groups = ("00_App", "10_Motor", "20_Parameters", "30_Communication", "50_Shared")
 
         def files_by_group(tree, project):
+            # AT32工程去掉显示序号并将厂商组命名为Mcu_SDK；源码/编译选项仍完整核对。
+            names = {
+                "App": "00_App",
+                "Motor": "10_Motor",
+                "Parameters": "20_Parameters",
+                "Communication": "30_Communication",
+                "Platform": "40_Platform",
+                "Shared": "50_Shared",
+                "Mcu_SDK": "90_Vendor",
+            }
             return {
-                group.findtext("GroupName"): [
+                names.get(group.findtext("GroupName"), group.findtext("GroupName")): [
                     (
                         (project.parent / file.findtext("FilePath").replace("\\", "/"))
                         .resolve()
@@ -392,7 +402,7 @@ class At32TargetTests(unittest.TestCase):
         self.assertLessEqual(values["AT32_PARAM_RAW_BYTES"], 2 * values["AT32_FLASH_SECTOR_BYTES"])
         self.assertEqual(
             values["AT32_PARAM_BASE"] + values["AT32_PARAM_BYTES"],
-            values["AT32_FLASH_BASE"] + values["AT32_FLASH_BYTES"],
+            values["AT32_FLASH_BASE"] + 128 * 1024,
         )
 
     def test_vendor_import_retains_manifest_content(self):

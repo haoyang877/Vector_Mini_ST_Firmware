@@ -186,10 +186,20 @@ def main() -> int:
             ram_region = re.search(r"Execution Region RW_\w+ \(.*?Size: (0x[0-9a-fA-F]+)", map_text)
             if flash_region is None or ram_region is None:
                 raise RuntimeError("MAP缺少固定Flash/RAM区域，无法冻结资源证据")
+            ram_bytes = sum(
+                int(size, 16)
+                for base, size in re.findall(
+                    r"Execution Region \S+ \(Exec base: (0x[0-9a-fA-F]+), Load base: 0x[0-9a-fA-F]+, Size: (0x[0-9a-fA-F]+)",
+                    map_text,
+                )
+                if int(constants["TARGET_RAM_BASE"].removesuffix("U"), 0)
+                <= int(base, 16)
+                < int(constants["TARGET_RAM_END"].removesuffix("U"), 0)
+            )
             report["resources"][product] = {
                 "flash_region_bytes": int(flash_region[1], 16),
                 "download_bytes": binary.stat().st_size,
-                "ram_region_bytes": int(ram_region[1], 16),
+                "ram_region_bytes": ram_bytes,
             }
         flash_base = int(constants["TARGET_FLASH_BASE"].removesuffix("U"), 0)
         loader_bytes = int(constants["TARGET_LOADER_BYTES"].removesuffix("U"), 0)

@@ -1,5 +1,9 @@
 # YG_MC_HOST
 
+双板开发候选增加目标选择与SWD维护入口，复用`loader/tools/device_maintenance.py`完成全片备份、
+保存参数/LUT查看、保护区比较和AT32原样迁移/初装。启动工作台时以仓库根目录为工作目录，
+或在维护页显式填写Python及脚本路径；详见[双板指南](../docs/guides/dual_board_loader.md)。
+
 Rust实机候选v2.1.2位于`rust/`，配套版本、layout、schema及ABI读取shared目标契约；
 原GUI计划的APP1.5.1是历史验收起点，当前工作树声明已到APP1.5.7，须按实际候选重新冻结。
 保留七工作区与深色工具主题。连接页显式填写CAN设备索引与节点；

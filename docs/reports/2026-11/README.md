@@ -1,5 +1,11 @@
 # 2026-11报告
 
+- [AT32 Loader压测前置复测](dual_board_loader_stress_20261103.md)：完整备份前9轮通过、第10轮失败；暂停CPU且冻结WDT时仍读错，未安装或升级，等待Keil对照。
+
+- [AT32 Loader首次实机预检](dual_board_loader_at32_bench_20261102.md)：J-Link连接成功但SWD回读不稳定；保护门槛阻止安装，零Flash写入，已恢复运行状态。
+
+- [双板Loader离线开发](dual_board_loader_development_20261102.md)：双板128 KiB布局、配套工程、维护工具和验证记录；未上板。
+
 - [正式速度参数与 0～200 rad/s 阶梯实测](speed_profile_ladder_20261105.md)记录各档平均反馈、稳态波动、峰值电流和末次设备回读。
 
 - [10 rad/s 运行中 q 轴与低延迟测速验证](speed_pll_120hz_20261105.md)记录 90/300/600 Hz 速度反馈、分级调参、速度开环裕量及 CAN 入口复核。

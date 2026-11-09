@@ -59,10 +59,7 @@ impl PreviewRun {
         if single.is_some() {
             steps.truncate(1);
         } else {
-            for (name, mode) in [
-                ("maintenance-loader", UpgradeMode::Loader),
-                ("maintenance-combined", UpgradeMode::Combined),
-            ] {
+            for (name, mode) in [("maintenance-combined", UpgradeMode::Combined)] {
                 steps.push(Step {
                     name,
                     page: Page::Maintenance,

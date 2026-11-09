@@ -8,18 +8,14 @@
   <WorkspaceName>YG-ESC</WorkspaceName>
 
   <project>
-    <PathAndName>.\projects\stm32g4\MDK-ARM\ESC-APP-STM32G431.uvprojx</PathAndName>
+    <PathAndName>.\projects\stm32g4\MDK-ARM\ESC-APP-STM32G431-LoaderApp.uvprojx</PathAndName>
     <NodeIsExpanded>1</NodeIsExpanded>
   </project>
 
   <project>
-    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456.uvprojx</PathAndName>
+    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456-LoaderApp.uvprojx</PathAndName>
     <NodeIsActive>1</NodeIsActive>
     <NodeIsExpanded>1</NodeIsExpanded>
-  </project>
-
-  <project>
-    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456-Commissioning.uvprojx</PathAndName>
   </project>
 
 </ProjectWorkspace>

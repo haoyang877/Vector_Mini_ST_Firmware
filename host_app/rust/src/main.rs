@@ -3,6 +3,7 @@
 mod can;
 mod capture;
 mod device;
+mod maintenance;
 mod package;
 mod target;
 mod ui;
@@ -13,8 +14,17 @@ use anyhow::Result;
 use std::path::Path;
 
 fn main() -> Result<()> {
-    let target = target::Target::bundled()?;
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let target = if let Some(at) = args.iter().position(|value| value == "--target") {
+        let name = args
+            .get(at + 1)
+            .ok_or_else(|| anyhow::anyhow!("--target缺少目标名称"))?
+            .clone();
+        args.drain(at..=at + 1);
+        target::Target::named(&name)?
+    } else {
+        target::Target::bundled()?
+    };
     if args.len() == 3 && args[1] == "--inspect" {
         let package = package::UpgradePackage::load(Path::new(&args[2]), &target)?;
         println!(

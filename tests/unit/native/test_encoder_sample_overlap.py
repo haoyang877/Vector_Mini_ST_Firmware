@@ -30,6 +30,7 @@ static void step(unsigned n) {steps[count++]=n;}
 #define MotorCurrent_Update(a) ((void)(a),step(5))
 #define Clarke_Transform(a,b) ((void)(a),(void)(b),step(6))
 #define FluxObserver_Update(a,b,c,d) ((void)(a),(void)(b),(void)(c),(void)(d),step(7))
+#define MotorCalibration_PublishLutFast(cal) assert(!(cal)->lut_request_epoch)
 #define Encoder_Update(a) ((void)(a),step(8))
 #define MotorLifecycle_BeginFastTick(life) step(9)
 #define MotorLifecycle_WorkEpoch(life) (step(10),17U)

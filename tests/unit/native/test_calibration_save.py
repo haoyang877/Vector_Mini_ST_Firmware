@@ -42,7 +42,8 @@ static MotorState state;
 static bool stopped, released, inject_fault, inject_start;
 static bool publication, cancel_during_upload, replace_during_upload;
 static uint32_t session_epoch = 33;
-static uint32_t critical;
+static uint32_t critical, control_depth;
+static bool in_adc;
 #if BSP_ENABLED_LINEAR_HALL
 """
         + f"\n#define HALL_OFFSET {golden['offset']}U\n{vectors}\n"
@@ -64,6 +65,8 @@ bool EncoderCalibration_IsIdle(const EncoderCalibrationSession *instance) {
     (void)instance; return released; }
 uint32_t BspSystem_EnterCritical(void) { return critical++; }
 void BspSystem_ExitCritical(uint32_t previous) { assert(critical==previous+1); critical=previous; }
+uint32_t BspSystem_EnterControlCritical(void) { return control_depth++; }
+void BspSystem_ExitControlCritical(uint32_t previous) { assert(control_depth==previous+1); control_depth=previous; }
 bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *instance, uint32_t *epoch) {
     (void)instance;
  if (!publication || state!=MOTOR_STATE_CALIBRATION || !stopped || s_motor_state.fault_code!=MOTOR_FAULT_NONE) return false;
@@ -77,18 +80,18 @@ uint32_t BspSystem_TimeMs(void) { return now_ms; }
 float Encoder_GetMechVelContinuous(const EncoderState *encoder) { return encoder->mechanical_velocity_continuous_rad_s; }
 void MotorLifecycle_ContinueElectricalZero(MotorLifecycle *instance) {
     (void)instance;
- assert(released && critical && publication);
+ assert(released && in_adc && !critical && publication);
  kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; publication=false;
 }
 bool EncoderCalibration_PublishLut(EncoderCalibrationSession *instance, EncoderCalibration *cal, EncoderState *encoder) {
     (void)instance;
- assert(critical && publication && encoder==&s_rotor_encoder);
+ assert(in_adc && !critical && publication && encoder==&s_rotor_encoder);
  if(encoder_publish_ok) { cal->calib_flag=ENC_CALIB_LINEARIZED; released=true; }
  return encoder_publish_ok;
 }
 void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *instance, uint32_t epoch, bool ok) {
     (void)instance;
- assert(epoch==session_epoch && critical && publication);
+ assert(epoch==session_epoch && (critical || control_depth || in_adc) && publication);
  publication=false; if(ok) ++completions;
 }
 void MotorFault_Report(MotorControlState *motor,MotorFaultCode fault) { motor->fault_code=fault; }
@@ -115,8 +118,10 @@ void observed_upload(InterfaceParam *record, const MotorConfiguration *configura
 """
         + "\n#define Param_Upload observed_upload\n"
         + "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(axis, "publish_joint_lut_when_stopped")
+        + function_source(axis, "request_joint_lut_when_stopped")
         + "\n#endif\n"
+        + function_source(axis, "MotorCalibration_PublishLutFast")
+        + "\n"
         + function_source(axis, "MotorCalibration_ProcessPublication")
         + r"""
 #undef Param_Upload
@@ -253,6 +258,14 @@ int main(void) {
  state=MOTOR_STATE_CALIBRATION; stopped=true; publication=true; released=false;
  MotorCalibration_ProcessPublication(&calibration); assert(!released && !writes);
  now_ms=201; MotorCalibration_ProcessPublication(&calibration);
+ assert(!released && !writes && calibration.lut_request_epoch == session_epoch);
+ ++session_epoch;
+ in_adc=true; MotorCalibration_PublishLutFast(&calibration); in_adc=false;
+ assert(!released && !writes && !calibration.lut_request_epoch);
+ MotorCalibration_ProcessPublication(&calibration);
+ now_ms+=201; MotorCalibration_ProcessPublication(&calibration);
+ assert(calibration.lut_request_epoch == session_epoch);
+ in_adc=true; MotorCalibration_PublishLutFast(&calibration); in_adc=false;
  assert(released && kind==MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO && !publication && !writes);
  assert(calibration.hall_sweep.sin_min==200 && calibration.hall_sweep.cos_max==3600);
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;

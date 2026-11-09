@@ -37,7 +37,7 @@ void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
  * @param motor_state 当前控制模式及故障所有者，非关相、原码或均值越界时锁存零偏故障。
  * @return 本拍首次完成并发布返回true，其余返回false；失败状态由calibration报告。
  * @note 仅由INIT状态的20kHz快拍调用；不启相、不重试、不写Flash。
- *       三相累加域与母线单次域分别求均值，在短临界区复核关相后统一发布。
+ *       在最高优先级 ADC 中复核关相，写完全部零偏后才标记完成。
  */
 bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
                                    MotorConfiguration *configuration,

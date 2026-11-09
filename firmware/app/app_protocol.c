@@ -281,7 +281,11 @@ scale_measurement(float value, uint32_t scale, int32_t maximum, uint16_t bit, ui
 static bool read_motor_feedback(void *context, ProtocolFeedback *values)
 {
     AppProtocol *adapter = context;
-    MotorStatus status = MotorLifecycle_ReadStatus(adapter->lifecycle);
+    MotorStatus status;
+    if (!MotorLifecycle_ReadStatus(adapter->lifecycle, &status))
+    {
+        return false;
+    }
     values->fault_code = fault_bits((MotorFaultCode)status.fault);
     values->control_mode = encode_control_mode((MotorControlMode)status.mode);
     values->motor_state = status.fault != MOTOR_FAULT_NONE ? 8U : protocol_state(status.state);

@@ -16,15 +16,15 @@ bool McuTemperature_IsFresh(const volatile McuTemperatureTelemetry *temperature)
 static MotorLifecycle life = {.drive = {.motor = &motor, .foc = &foc, .rotor_encoder = &encoder},
                               .state = MOTOR_STATE_IDLE,
                               .fast_samples_fresh = true};
-static unsigned depth;
-uint32_t BspSystem_EnterCritical(void)
+static unsigned barriers, interrupts;
+void BspSystem_MemoryBarrier(void)
 {
-    return depth++;
-}
-void BspSystem_ExitCritical(uint32_t saved)
-{
-    assert(depth == saved + 1U);
-    depth = saved;
+    if (++barriers % 2U == 0U && interrupts != 0U)
+    {
+        --interrupts;
+        ++life.fast_sample_ticks;
+        motor.control_mode = MOTOR_CONTROL_CURRENT;
+    }
 }
 /* REAL_FUNCTIONS */
 int main(void)
@@ -34,15 +34,22 @@ int main(void)
         life.state = (MotorState)i;
         motor.control_mode = MOTOR_CONTROL_SPEED;
         motor.fault_code = MOTOR_FAULT_OVERCURRENT;
-        MotorStatus status = MotorLifecycle_ReadStatus(&life);
+        MotorStatus status;
+        assert(MotorLifecycle_ReadStatus(&life, &status));
         assert(status.state == life.state && status.mode == MOTOR_CONTROL_SPEED &&
-               status.fault == MOTOR_FAULT_OVERCURRENT && depth == 0U);
+               status.fault == MOTOR_FAULT_OVERCURRENT);
     }
     life.state = MOTOR_STATE_RUNNING;
     motor.control_mode = MOTOR_CONTROL_POSITION;
     motor.position_target_rad = 1.5f;
     motor.position_reference_rad = 0.3f;
-    assert(MotorLifecycle_ReadStatus(&life).position_reference_rad == 0.3f);
+    MotorStatus sample;
+    assert(MotorLifecycle_ReadStatus(&life, &sample) && sample.position_reference_rad == 0.3f);
+    interrupts = 1U;
+    assert(MotorLifecycle_ReadStatus(&life, &sample) && sample.mode == MOTOR_CONTROL_CURRENT);
+    interrupts = 2U;
+    sample.mode = MOTOR_CONTROL_SPEED;
+    assert(!MotorLifecycle_ReadStatus(&life, &sample) && sample.mode == MOTOR_CONTROL_SPEED);
     assert(protocol_state(MOTOR_STATE_CALIBRATION) == 4U);
     assert(protocol_state(MOTOR_STATE_IDLE) == 5U);
     assert(protocol_state(MOTOR_STATE_RUNNING) == 6U);

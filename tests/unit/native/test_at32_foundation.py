@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main() -> int:
@@ -177,6 +178,41 @@ def main() -> int:
         check=True,
     )
     subprocess.run([str(keil_executable)], check=True)
+    bench = ROOT / "tests/bench/at32f456"
+    source = (bench / "openloop_main.c").read_text(encoding="utf-8")
+    mailbox_start = source.index("volatile struct", source.index("/* 独立验证目标"))
+    mailbox_end = source.index(";", source.index(".version = 1U", mailbox_start)) + 1
+    request_start = source.rindex("typedef struct", 0, source.index("} BenchControlRequest;"))
+    request_end = source.index("static void consume_controls(void);", request_start)
+    handoff = "\n".join(
+        [source[mailbox_start:mailbox_end], source[request_start:request_end]]
+        + [
+            function_source(source, name)
+            for name in ("apply_command", "post_controls", "consume_controls")
+        ]
+    )
+    fixture = (native / "bench_control_handoff_test.c").read_text(encoding="utf-8")
+    generated = args.out / "bench_control_handoff.c"
+    generated.write_text(fixture.replace("/* REAL_HANDOFF */", handoff), encoding="utf-8")
+    executable = args.out.resolve() / "bench_control_handoff.exe"
+    subprocess.run(
+        command[: command.index("-I")]
+        + [
+            "-I",
+            str(bench),
+            "-DAT32_KEIL_OPENLOOP=1",
+            "-DAT32_OPENLOOP_POWER_ENABLED=1",
+            str(generated),
+            str(bench / "openloop_keil_control.c"),
+            str(bench / "openloop_model.c"),
+            str(motor / "math/control_math.c"),
+            "-lm",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+    )
+    subprocess.run([str(executable)], check=True)
     rtt_executable = args.out.resolve() / "at32f456_rtt.exe"
     subprocess.run(
         command[: command.index("-I")]

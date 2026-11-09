@@ -44,6 +44,7 @@ static MotorCalibrationType simulated_calibration_type = MOTOR_CALIBRATION_NONE;
 static MotorTaskResult simulated_calibration_outcome;
 static bool calibration_publication_pending, calibration_publication_succeeds;
 static unsigned calibration_cycle_calls, calibration_publication_calls;
+static uint32_t publication_epoch = 1U;
 static EncoderCalibrationPhase simulated_phase;
 EncoderCalibrationPhase EncoderCalibration_GetPhase(const EncoderCalibrationSession *instance)
 {
@@ -142,7 +143,7 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *inst
     {
         return false;
     }
-    *calibration_epoch = 1U;
+    *calibration_epoch = publication_epoch;
     return true;
 }
 
@@ -151,7 +152,7 @@ void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *instance,
                                                    bool publication_succeeded)
 {
     (void)instance;
-    assert(calibration_epoch == 1U && output_off);
+    assert(calibration_epoch == publication_epoch && output_off);
     assert(publication_succeeded == calibration_publication_succeeds);
     calibration_publication_pending = false;
     ++calibration_publication_calls;
@@ -220,14 +221,6 @@ static void record_fast_call(char event)
 
 uint32_t BspSystem_EnterCritical(void)
 {
-    if (enable_on_commit)
-    {
-        output_off = false;
-    }
-    if (mode_on_commit)
-    {
-        axis.motor.control_mode = MOTOR_CONTROL_CURRENT;
-    }
     return critical_depth++;
 }
 
@@ -235,6 +228,10 @@ void BspSystem_ExitCritical(uint32_t previous)
 {
     assert(critical_depth == previous + 1U);
     critical_depth = previous;
+}
+
+void BspSystem_MemoryBarrier(void)
+{
     inject_hall_after_snapshot();
 }
 
@@ -296,6 +293,14 @@ bool BspPwm_ArePhasesDisabled(void)
 static float bsp_offsets[3];
 float BspAdc_ReadRawChannel(BspAdcChannel channel)
 {
+    if (channel == BSP_ADC_PHASE_CURRENT_C && enable_on_commit)
+    {
+        output_off = false;
+    }
+    if (channel == BSP_ADC_PHASE_CURRENT_C && mode_on_commit)
+    {
+        axis.motor.control_mode = MOTOR_CONTROL_CURRENT;
+    }
     if (channel == BSP_ADC_LINEAR_HALL_SIN || channel == BSP_ADC_LINEAR_HALL_COS)
     {
         return channel == BSP_ADC_LINEAR_HALL_SIN ? hall_raw_sin : hall_raw_cos;
@@ -315,13 +320,14 @@ float BspAdc_ReadRawChannel(BspAdcChannel channel)
 }
 void BspAdc_SetPhaseOffsets(const float offsets[3])
 {
-    assert(output_off && critical_depth == 1U);
+    assert(output_off && critical_depth == 0U && !axis.current_offsets.complete);
     ++phase_offset_writes;
     memcpy(bsp_offsets, offsets, sizeof(bsp_offsets));
 }
 void BspAdc_SetBusCurrentOffset(float offset_counts)
 {
-    assert(output_off && critical_depth == 1U && phase_offset_writes == 1U);
+    assert(output_off && critical_depth == 0U && !axis.current_offsets.complete &&
+           phase_offset_writes == 1U);
     ++bus_offset_writes;
     bsp_bus_offset = offset_counts;
 }
@@ -832,12 +838,17 @@ static void test_calibration_dispatch_and_publication(void)
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
     calibration_publication_pending = true;
     MotorCalibration_ProcessPublication(&axis.calibration);
+    assert(calibration_publication_calls == 0U);
+    MotorAxis_SampleFast(&axis);
+    MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 1U);
     MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 1U);
     calibration_publication_pending = true;
     calibration_publication_succeeds = false;
+    ++publication_epoch;
     MotorCalibration_ProcessPublication(&axis.calibration);
+    MotorAxis_SampleFast(&axis);
     assert(calibration_publication_calls == 2U);
 #if BSP_ENABLED_LINEAR_HALL
     /* Hall 随观测器闭环采集；启动、构表、停止和电零位对齐均不采样。 */
@@ -906,6 +917,7 @@ static void test_calibration_dispatch_and_publication(void)
     MotorCalibration_ProcessPublication(&axis.calibration);
     test_ms = 201U;
     MotorCalibration_ProcessPublication(&axis.calibration);
+    MotorAxis_SampleFast(&axis);
     assert(simulated_calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO);
     assert(axis.calibration.hall_sweep.sin_min == 200);
     MotorAxis_OuterTick(&axis);
@@ -1053,8 +1065,10 @@ static void inject_hall_after_snapshot(void)
     {
         /* 复制完成立即抢占，消费者仍须使用同一个旧三元组。 */
         update_hall_on_unlock = false;
-        axis.hall_sample = (OutputEncoderCalibSample){2345, 333, 444};
+        hall_raw_sin = 333;
+        hall_raw_cos = 444;
         axis.rotor_encoder.directed_q15 = 2345;
+        MotorAxis_SampleFast(&axis);
     }
 #else
     (void)update_hall_on_unlock;

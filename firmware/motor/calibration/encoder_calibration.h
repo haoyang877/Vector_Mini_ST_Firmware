@@ -145,12 +145,11 @@ void EncoderCalibration_Cancel(EncoderCalibrationSession *session);
 bool EncoderCalibration_IsIdle(const EncoderCalibrationSession *session);
 
 /**
- * @brief 在关相后台发布已构建的候选LUT并释放标定引用。
+ * @brief 关相时安装已构建的候选 LUT 并释放标定引用。
  * @param calibration 独占的设备标定对象。
  * @param encoder 独占的角度运行状态。
  * @return 候选有效且发布成功返回true，否则保持原标定返回false。
- * @note 两个对象必须有效。所有者须持有全中断临界区并复核会话、STOP、故障和关相，
- *       发布完成后才能恢复中断；在前台调用。
+ * @note 生产调用者在 ADC 上下文中先复核会话、STOP、故障和关相，再安装固定长度的表。
  * @param session 调用方持有的实例状态。
  */
 bool EncoderCalibration_PublishLut(EncoderCalibrationSession *session,

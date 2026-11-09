@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from _bsp_test_support import run_c
-from run_position_servo_tests import ROOT
+from run_position_servo_tests import ROOT, function_source
 
 
 def main() -> None:
@@ -22,6 +22,19 @@ def main() -> None:
     current = (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
     loader_source = (ROOT / "firmware/app/app_loader.c").read_text(encoding="utf-8")
     extra = [ROOT / "shared/boot/device_identity.c", ROOT / "shared/checksum/crc32.c"]
+    entry = (ROOT / "firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c").read_text(
+        encoding="utf-8"
+    )
+    deadline_test = (
+        Path(__file__).with_name("boot_entry_deadline_test.c").read_text(encoding="utf-8")
+    )
+    run_c(
+        args,
+        "entry_deadline",
+        deadline_test.replace("/* REAL_ENTRY */", function_source(entry, "BootHw_EnterLoader")),
+        1,
+        [ROOT / "shared/boot/image_mailbox.c", ROOT / "shared/checksum/crc32.c"],
+    )
     if args.reference_source:
         tree = next(
             p for p in args.reference_source.resolve().parents if (p / "tests/run.py").exists()

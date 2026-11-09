@@ -16,11 +16,12 @@ static MotorLifecycle life;
 static MotorStatus s_status;
 static unsigned s_status_reads;
 
-MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *instance)
+bool MotorLifecycle_ReadStatus(const MotorLifecycle *instance, MotorStatus *status)
 {
     assert(instance == &life);
     ++s_status_reads;
-    return s_status;
+    *status = s_status;
+    return true;
 }
 
 bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)

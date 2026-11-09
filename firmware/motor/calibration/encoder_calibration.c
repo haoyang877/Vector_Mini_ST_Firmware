@@ -215,7 +215,7 @@ bool EncoderCalibration_PublishLut(EncoderCalibrationSession *session,
     {
         return false;
     }
-    /* 调用方持有全中断临界区，反馈在整张表发布后恢复。 */
+    /* ADC 在读取本拍角度前一次安装整张候选表，慢环和前台无法抢占。 */
     memcpy(calibration->linearization_lut_q15,
            session->lut.workspace->bins.candidate,
            sizeof(calibration->linearization_lut_q15));

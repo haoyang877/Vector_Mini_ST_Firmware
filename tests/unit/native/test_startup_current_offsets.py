@@ -50,9 +50,10 @@ def main() -> None:
     production += function_source(calibration, "MotorCalibration_StepFast")
     production += (
         "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(calibration, "publish_joint_lut_when_stopped")
+        + function_source(calibration, "request_joint_lut_when_stopped")
         + "\n#endif\n"
     )
+    production += function_source(calibration, "MotorCalibration_PublishLutFast")
     production += function_source(calibration, "MotorCalibration_ProcessPublication")
     start = production.index("    /* 固定启动暂存区")
     end = production.index("    MotorCurrentOffsets_Init(", start)

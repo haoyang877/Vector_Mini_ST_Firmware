@@ -17,10 +17,12 @@ extern "C"
     /**
      * @brief 写RAM ENTER邮箱并复位进入Loader。
      * @param node 当前合法节点，0..254。
+     * @param started_ms 停机事务登记时刻。
+     * @param timeout_ms 允许交接的时限，底层在写邮箱前再次核对。
      * @return 未由Loader启动、节点非法或邮箱失败为false；成功复位不返回。
      * @note 通信所有者先核对维护授权、停机和数字关相；邮箱失败不复位或恢复运动。
      */
-    bool BootHw_EnterLoader(uint8_t node);
+    bool BootHw_EnterLoader(uint8_t node, uint32_t started_ms, uint32_t timeout_ms);
 
     /**
      * @brief 按健康状态处理Loader留下的继承看门狗。

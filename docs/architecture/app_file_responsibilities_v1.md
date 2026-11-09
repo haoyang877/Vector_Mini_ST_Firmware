@@ -7,7 +7,7 @@
 | 上电与前台 | AppContext | 板级 main → App_Init / App_Start / App_Process |
 | 快采样、控制、外环 | MotorAxis | ADC → SampleFast → ControlFast；监督或 PendSV → OuterTick → BeginOuter / CommitOuter |
 | 启停与故障 | MotorLifecycle | 协议请求 → 生命周期准入 → 快拍复核 → 实际 PWM 输出；五态迁移在同一编译单元内按值执行 |
-| 标定与保存 | MotorCalibration | StepFast → PostOutcome → 关相 → ProcessPublication → 原会话复核 → 参数槽写入 |
+| 标定与保存 | MotorCalibration | 关相后由前台登记 LUT 会话，ADC 在本拍读角前复核并安装，前台复核同一会话后保存参数 |
 | CAN 反馈 | ProtocolEndpoint、AppProtocol | 108 查询或 116 目标处理 → 读取所属轴一次 → 直接填写 108 或 124 回复 |
 | 请求停机 | MotorLifecycle | 110 或失能 → 撤销启相许可 → 按实际关相状态回报 |
 | 升级与试运行 | AppLoader | 56 请求锁定停机，票据实际发出后复核并交接。57 在连续健康且关相后确认镜像 |

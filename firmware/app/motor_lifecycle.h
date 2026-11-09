@@ -104,21 +104,40 @@ typedef struct
     const MotorPowerOutput *power;
 } MotorLifecycleBindings;
 
-/** @brief 一根轴的功率许可、故障、请求和会话编号。 */
+typedef struct MotorLifecycle MotorLifecycle;
+
+/** @brief 外环一次调用的栈上副本。owner 和 epoch 标识可提交的轴与会话。 */
 typedef struct
+{
+    const MotorLifecycle *owner;
+    uint32_t epoch;
+    MotorControlState motor;
+    PiController speed_pi;
+    bool allowed;
+} MotorOuterWork;
+
+/** @brief 一根轴的功率许可、故障、请求和会话编号。 */
+struct MotorLifecycle
 {
     MotorState state;
     MotorLifecycleBindings drive;
     MotorFaultRecovery recovery;
     MotorCalibrationType calibration_type;
     uint32_t epoch;
-    volatile uint32_t supervisor_ticks;
+    volatile uint32_t supervisor_ticks, outer_ticks;
     volatile uint32_t power_enable_epoch, fast_sample_ticks;
     uint32_t observed_fast_sample_ticks;
     volatile bool stop_pending;
     volatile MotorCalibrationHandoff calibration_handoff;
     bool enable_pending, fault_locked, fast_samples_fresh, starts_locked;
-} MotorLifecycle;
+    /* 单写者先准备非活动槽，最后发布序号；ADC 只消费完整的本轴结果。 */
+    MotorTarget fast_targets[2];
+    uint32_t target_epochs[2];
+    volatile uint32_t published_target, consumed_target;
+    MotorOuterWork outer_result;
+    volatile bool outer_pending;
+    bool outer_updates_control, outer_requests_enable;
+};
 
 /**
  * @brief 建立单轴空闲生命周期，在采样开放前调用一次。
@@ -148,7 +167,7 @@ void MotorLifecycle_PostOutcome(MotorLifecycle *life, MotorTaskResult outcome, u
 /**
  * @brief 读取运行所有者的生命周期状态。
  * @return 当前内部状态，数值不能直接用作线上枚举。
- * @note 只读；与其他电机测量关联采样时调用方须置于同一短临界区。
+ * @note 只读；与其他电机测量关联采样使用 MotorLifecycle_ReadStatus。
  * @param life 调用方持有的实例状态。
  */
 MotorState MotorLifecycle_GetState(const MotorLifecycle *life);
@@ -172,10 +191,10 @@ void MotorLifecycle_RequestStop(MotorLifecycle *life);
 MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *life, MotorControlMode mode);
 
 /**
- * @brief 在原模式运行时校验并直接提交易失目标，不启动或切换模式。
+ * @brief 在原模式运行时校验并发布目标，不启动或切换模式。
  * @param target 调用期间有效的目标值；单位见MotorTarget，未使用字段须为零。
- * @return ACCEPTED表示已写入目标；故障、停机、模式不符或越限时保持原目标。
- * @note 前台调用，短临界区与快慢环互斥；不保存Flash，不等待机械响应。
+ * @return ACCEPTED 表示目标已受理；拒绝不覆盖上次目标。
+ * @note 速度和位置目标交给外环，其余目标由 ADC 拍首整组消费；停机或换代后丢弃。
  * @param life 调用方持有的实例状态。
  */
 MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTarget *target);
@@ -217,7 +236,7 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *life
 
 /**
  * @brief 关相发布编码器结果后，在同一联合标定会话内转入电零位对齐。
- * @note 前台持全中断临界区调用；调用方已确认本会话待发布、支持 Hall 且 LUT 发布成功。
+ * @note 由 ADC 安装 LUT 后在同一快拍调用，已确认会话、实际关相和 Hall 能力。
  *       下一快拍仍检查启相条件，STOP 或故障不能重新启相。
  * @param life 调用方持有的实例状态。
  */
@@ -227,7 +246,7 @@ void MotorLifecycle_ContinueElectricalZero(MotorLifecycle *life);
  * @brief 提交原会话的发布结果，成功后由监督层触发COMPLETE。
  * @param calibration_epoch ReadPendingCalibrationPublication返回的原代际。
  * @param publication_succeeded 候选是否已经成功发布到活动配置。
- * @note 进入全中断临界区后复核原会话；过期结果忽略，候选发布失败锁存编码器故障。
+ * @note ADC 或前台复核原会话；Flash 提交时由调用方持事务保护。过期结果忽略。
  * @param life 调用方持有的实例状态。
  */
 void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *life,
@@ -267,16 +286,6 @@ uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *life);
  */
 void MotorLifecycle_SupervisorTick(MotorLifecycle *life);
 
-/** @brief 外环一次调用的栈上副本。owner 和 epoch 标识可提交的轴与会话。 */
-typedef struct
-{
-    const MotorLifecycle *owner;
-    uint32_t epoch;
-    MotorControlState motor;
-    PiController speed_pi;
-    bool allowed;
-} MotorOuterWork;
-
 /**
  * @brief 在控制临界区取得本拍外环输入。
  * @param life 所属轴的生命周期。
@@ -288,7 +297,7 @@ void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work);
  * @brief 处理停止和故障，再以原会话身份提交外环结果。
  * @param life 所属轴的生命周期。
  * @param work 来自 BeginOuter 的本拍结果。
- * @note 外环上下文调用，同一实例每拍仅有一个计算者。
+ * @note 每轴一个外环计算者，结果发布后由 ADC 复核代际、STOP、故障和模式再生效。
  */
 void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work);
 /**
@@ -313,12 +322,13 @@ bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life);
  */
 bool MotorLifecycle_IsStopped(const MotorLifecycle *life);
 /**
- * @brief 一次性读取主状态、控制模式、故障和现有测量。
- * @return 同一临界区的值快照；无效测量为NAN，measurements_valid表示采样新鲜。
- * @note 前台调用；内部短暂屏蔽中断，不编码或发送数据。
- * @param life 调用方持有的实例状态。
+ * @brief 在前台读取同一时刻的生命周期、反馈与目标。
+ * @param life 本轴实例。
+ * @param status 成功时写入一致快照，连续两次被抢占时保持原值。
+ * @return 本次取得完整快照时返回 true。
+ * @note 仅串行前台调用，不屏蔽 ADC、外环或监督中断。
  */
-MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *life);
+bool MotorLifecycle_ReadStatus(const MotorLifecycle *life, MotorStatus *status);
 /**
  * @brief 计算五态的下一状态，非法状态或事件统一进入故障。
  * @param state 当前状态；上电由运行层置为IDLE，自检仅预留。

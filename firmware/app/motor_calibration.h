@@ -16,6 +16,8 @@ typedef struct
     OutputEncoder *output;
     MotorAxisRecord *record;
     BspResult (*write_record)(const void *data, size_t length);
+    /* 前台登记待发布 LUT 的会话，ADC 在下一拍安装并确认。零值无请求。 */
+    volatile uint32_t lut_request_epoch, lut_published_epoch;
     EncoderCalibrationSession session;
     EncoderCalibrationWorkspace workspace;
 #if BSP_ENABLED_LINEAR_HALL
@@ -24,6 +26,13 @@ typedef struct
     uint32_t coast_epoch, coast_start_ms, stable_since_ms;
 #endif
 } MotorCalibration;
+
+/**
+ * @brief 在 ADC 拍内安装前台已确认停稳的 LUT，重新核对会话与实际关相。
+ * @param calibration 本轴的标定工作区。
+ * @note 在读取本拍编码器之前调用。只提交固定长度的已建表结果，Flash 由前台处理。
+ */
+void MotorCalibration_PublishLutFast(MotorCalibration *calibration);
 
 /**
  * @brief 推进当前轴的一次快拍标定。

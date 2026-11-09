@@ -117,30 +117,23 @@ static void handle_entry(void *context, const BootEntryRequest *request, BootEnt
  * @param context 初始化时绑定的 Loader 实例。
  * @param ticket 通信层返回的64位交接票据，必须匹配当前READY事务。
  * @param success 对应回复帧是否物理发送成功；仅入队不能视为成功。
- * @note 前台回调；最终复核和票据失效化在同一临界区内完成。
+ * @note 前台回调；同一端点前台串行消费票据，已登记的停机锁禁止再次启动。
  *       发送或复位失败均不恢复票据，防止重复消费旧发送结果。
  */
 static void handle_tx_complete(void *context, uint64_t ticket, bool success)
 {
     AppLoader *loader = context;
-    uint32_t saved_interrupt_mask;
-    bool entry_permitted;
     if (ticket == 0U || ticket != loader->request.boot_epoch || loader->result != BOOT_ENTRY_READY)
     {
         return;
     }
-    saved_interrupt_mask = BspSystem_EnterCritical();
-    /* 最终二次复核后撤销票据使用权限；复位失败也不能再次消费旧TX结果。 */
-    entry_permitted =
-        success && loader->result == BOOT_ENTRY_READY &&
-        (uint32_t)(BspSystem_TimeMs() - loader->entry_started_ms) < BOOT_ENTRY_TIMEOUT_MS &&
-        MotorLifecycle_IsStopped(loader->lifecycle);
     loader->result = BOOT_ENTRY_FAILED;
-    if (entry_permitted)
+    if (success &&
+        (uint32_t)(BspSystem_TimeMs() - loader->entry_started_ms) < BOOT_ENTRY_TIMEOUT_MS &&
+        MotorLifecycle_IsStopped(loader->lifecycle))
     {
-        (void)BootHw_EnterLoader(*loader->node_id);
+        (void)BootHw_EnterLoader(*loader->node_id, loader->entry_started_ms, BOOT_ENTRY_TIMEOUT_MS);
     }
-    BspSystem_ExitCritical(saved_interrupt_mask);
 }
 
 /** @brief 记录本次运行时读取的 Loader 可用状态，并刷新身份信息。 */

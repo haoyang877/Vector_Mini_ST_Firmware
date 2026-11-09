@@ -15,7 +15,9 @@ def main() -> None:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     source = (ROOT / "firmware/app/motor_lifecycle.c").read_text(encoding="utf-8")
-    functions = "\n".join(function_source(source, name) for name in ("MotorLifecycle_ReadStatus",))
+    functions = "\n".join(
+        function_source(source, name) for name in ("sample_status", "MotorLifecycle_ReadStatus")
+    )
     status_adapter = (ROOT / "firmware/app/app_protocol.c").read_text(encoding="utf-8")
     functions += "\n" + function_source(status_adapter, "protocol_state")
     fixture = (ROOT / "tests/unit/native/motor_status_snapshot_test.c").read_text(encoding="utf-8")

@@ -41,11 +41,12 @@ bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
     (void)life;
     return stopped;
 }
-MotorStatus MotorLifecycle_ReadStatus(const MotorLifecycle *instance)
+bool MotorLifecycle_ReadStatus(const MotorLifecycle *instance, MotorStatus *status)
 {
     (void)instance;
-    return (MotorStatus){
-        .state = MOTOR_STATE_IDLE, .mode = reported_mode, .fault = MOTOR_FAULT_NONE};
+    *status =
+        (MotorStatus){.state = MOTOR_STATE_IDLE, .mode = reported_mode, .fault = MOTOR_FAULT_NONE};
+    return true;
 }
 
 MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,

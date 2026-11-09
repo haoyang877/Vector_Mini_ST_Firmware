@@ -144,10 +144,10 @@ static void update_output_feedback(MotorAxis *axis)
 #if BSP_ENABLED_LINEAR_HALL
     if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
     {
-        /* ADC 快环优先级为 0，BASEPRI 控制临界区不能保护这 8 字节快照。 */
-        uint32_t mask = BspSystem_EnterCritical();
-        OutputEncoderCalibSample sample = axis->hall_sample;
-        BspSystem_ExitCritical(mask);
+        uint8_t slot = axis->hall_published_slot;
+        axis->hall_read_slot = slot;
+        BspSystem_MemoryBarrier();
+        OutputEncoderCalibSample sample = axis->hall_samples[slot];
         float sin_counts = (float)sample.sin_counts;
         float cos_counts = (float)sample.cos_counts;
         if (MotorLifecycle_GetCalibrationType(&axis->lifecycle) ==
@@ -235,14 +235,21 @@ void MotorAxis_SampleFast(MotorAxis *axis)
             &axis->configuration.model, &axis->foc.current_ab_a, &voltage_ab_v, &axis->observer);
     }
 
+    if (axis->calibration.lut_request_epoch != 0U)
+    {
+        MotorCalibration_PublishLutFast(&axis->calibration);
+    }
     Encoder_Update(&axis->rotor_encoder);
 #if BSP_ENABLED_LINEAR_HALL
     if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
     {
-        axis->hall_sample =
+        uint8_t slot = axis->hall_read_slot ^ 1U;
+        axis->hall_samples[slot] =
             (OutputEncoderCalibSample){axis->rotor_encoder.directed_q15,
                                        (uint16_t)BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN),
                                        (uint16_t)BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS)};
+        BspSystem_MemoryBarrier();
+        axis->hall_published_slot = slot;
     }
 #endif
 }

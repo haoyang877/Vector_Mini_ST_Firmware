@@ -5,7 +5,6 @@
 #include "application_config.h"
 #include "motor_fault.h"
 #include "bsp_adc.h"
-#include "bsp_system.h"
 #include "bsp_pwm.h"
 #include "control_math.h"
 
@@ -94,11 +93,9 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
         fail_current_offset_calibration(calibration, motor_state);
         return false;
     }
-    uint32_t key = BspSystem_EnterCritical();
     if (!calibration->phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
     {
         fail_current_offset_calibration(calibration, motor_state);
-        BspSystem_ExitCritical(key);
         return false;
     }
     BspAdc_SetPhaseOffsets(offsets);
@@ -110,7 +107,6 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
     configuration->device.phase_b_offset_counts = offsets[1];
     configuration->device.phase_c_offset_counts = offsets[2];
     calibration->complete = true;
-    BspSystem_ExitCritical(key);
     return true;
 }
 

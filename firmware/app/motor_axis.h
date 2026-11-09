@@ -38,8 +38,9 @@ typedef struct
     /* 启动装载和停机前台保存串行复用，避免再分配整条记录。 */
     MotorAxisRecord record;
 #if BSP_ENABLED_LINEAR_HALL
-    /* 快环写、外环短临界区读取；只保存本拍三元组，不增加扫圈工作区。 */
-    volatile OutputEncoderCalibSample hall_sample;
+    /* 外环选定读槽后，ADC 只更新另一槽。两槽均在启动时清零。 */
+    volatile OutputEncoderCalibSample hall_samples[2];
+    volatile uint8_t hall_read_slot, hall_published_slot;
 #endif
 
     MotorOuterLoop outer;

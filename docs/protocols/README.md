@@ -18,7 +18,7 @@
 一次命令由 `ProtocolExchange` 保存，`request` 是解码后的消息，`reply` 是本次回复。
 分发器及各命令处理函数接收同一个对象。业务参数使用 `ProtocolCommand`、
 `ProtocolJobRequest` 等值结构体，执行结果通过对应的结果结构体返回。
-`ProtocolMotor` 提供 `start/target/stop/clear_fault` 和 `read_feedback`。108 查询及 116 对应的 124 反馈各自在回包时读取一次所属轴；目标请求先处理，再取反馈。
+`ProtocolMotor` 提供 `start/target/stop/clear_fault` 和 `read_feedback`。108 查询及 116 对应的 124 反馈各自在回包时读取一次所属轴；目标请求先处理，再取反馈。若连续两次读取都被控制中断打断，108 回 BUSY，124 保留本条目标的结果码并清除测量有效位。
 六个业务编码函数统一接收 `ProtocolResponse`，填写其中的 `data` 和 `length`。
 线路字段仍按约定的小端字节顺序逐项编码。
 

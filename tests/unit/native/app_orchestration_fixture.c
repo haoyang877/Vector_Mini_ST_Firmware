@@ -155,9 +155,10 @@ bool MotorLifecycle_LockStop(MotorLifecycle *instance)
     event(36, lock_allowed);
     return lock_allowed;
 }
-bool BootHw_EnterLoader(uint8_t node)
+bool BootHw_EnterLoader(uint8_t node, uint32_t started_ms, uint32_t timeout_ms)
 {
-    assert(depth == 1 && stopped && node == app.axis.configuration.device.node_id);
+    assert(depth == 0 && stopped && node == app.axis.configuration.device.node_id);
+    assert(now_ms - started_ms < timeout_ms);
     event(37, node);
     ++enters;
     return false;

@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=ROOT / "outputs/motor_status_snapshot")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    source = (ROOT / "firmware/app/motor_lifecycle.c").read_text(encoding="utf-8")
+    source = (ROOT / "firmware/app/motor_lifecycle_exchange.c").read_text(encoding="utf-8")
     functions = "\n".join(
         function_source(source, name) for name in ("sample_status", "MotorLifecycle_ReadStatus")
     )

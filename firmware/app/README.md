@@ -6,14 +6,16 @@
 | --- | --- | --- |
 | [app.h](app.h)、[app.c](app.c) | `App_Init` 装配轴、协议和 Loader，`App_Start` 启动通信，`App_Process` 推进前台；`app.h` 同时定义板级 `AppContext` | 启动、前台、监督 |
 | [motor_axis.h](motor_axis.h)、[motor_axis.c](motor_axis.c) | `SampleFast` 采样，`ControlFast` 执行控制或标定，`SupervisorTick` 监督，`OuterTick` 计算外环，`ProcessPositionPlan` 在前台建表 | ADC、监督、外环、前台 |
-| [motor_lifecycle.h](motor_lifecycle.h)、[motor_lifecycle.c](motor_lifecycle.c) | `RequestEnable/RequestStop/RequestClear/SetTarget` 处理请求，`BeginFastTick/PostOutcome` 交接快拍，`BeginOuter/CommitOuter` 复核并提交外环。五态迁移只读取状态和事件 | 前台请求、快拍、慢拍 |
+| [motor_state_machine.h](motor_state_machine.h)、[motor_state_machine.c](motor_state_machine.c) | `MotorStateMachine_NextState` 从当前状态和一个事件计算下一状态 | 纯函数 |
+| [motor_lifecycle.h](motor_lifecycle.h)、[motor_lifecycle.c](motor_lifecycle.c) | 根据启动许可、实际输出、STOP、故障和标定进展提交事件，保存本轴主状态 | 前台请求、ADC、监督与外环 |
+| [motor_lifecycle_exchange.c](motor_lifecycle_exchange.c) | 同一生命周期模块的控制交接实现。校验目标、传递外环结果、按拍读回反馈 | 前台、ADC、外环 |
 | [motor_calibration.h](motor_calibration.h)、[motor_calibration.c](motor_calibration.c) | `StepFast` 推进 LUT、电气零位或机械零位；`ProcessPublication` 处理停稳、发布、保存和失败 | ADC、停机前台 |
 | [app_protocol.h](app_protocol.h)、[app_protocol.c](app_protocol.c) | `Init` 绑定本端点的请求和状态读取回调；108 查询或 124 回包各读一次所属轴的快照；目标重发记录属于本端点，STOP 按实际关相状态回复 | 前台 |
 | [app_loader.h](app_loader.h)、[app_loader.c](app_loader.c) | `Init/Process` 管理 G431 LoaderApp 的停机票据、发送完成、超时复核和镜像确认 | 前台 |
 
 ## 镜像边界
 
-普通 G431 和 AT32F456 工程只编入五个生产模块：app、motor_axis、motor_lifecycle、motor_calibration、app_protocol。普通 APP 没有应用看门狗，前台或双环进展停滞不再触发由它发起的自动复位。采样新鲜度、功率保护、STOP 和 Flash 事务仍由轴与 BSP 执行。
+普通 G431 和 AT32F456 共享 app、motor_axis、motor_state_machine、motor_lifecycle、motor_calibration、app_protocol 六个生产模块。生命周期模块由两个编译单元组成。各事件的提交时机见[五态主线](../../docs/architecture/motor_state_machine_v1.md)。普通 APP 没有应用看门狗。采样新鲜度、功率保护、STOP 和 Flash 事务仍由轴与 BSP 执行。
 
 独立 Loader 负责接收并写入升级镜像；配套 LoaderApp 通过 `YG_APP_LOADER_IMAGE` 编入 app_loader，保留停机交接、健康窗口、镜像确认和继承看门狗。AT32 以相同协议为后续移植目标，当前分支提供普通 AT32 APP 和调试口下载。[Loader 说明](../../loader/README.md)
 

@@ -1,4 +1,4 @@
-#include "motor_lifecycle.h"
+#include "motor_lifecycle_exchange.h"
 
 #include <math.h>
 #include <string.h>
@@ -11,8 +11,32 @@
 #include "motor_sensing.h"
 #include "parameter_values.h"
 
-/* 拥有启停、标定、目标提交和功率安全；无目标邮箱或协议请求身份。 */
-static bool state_inputs_valid(MotorLifecycle *life)
+static void apply_state_event(MotorLifecycle *life, MotorStateEvent event)
+{
+    life->state = MotorStateMachine_NextState(life->state, event);
+}
+
+void MotorLifecycle_Init(MotorLifecycle *life, const MotorLifecycleBindings *bindings)
+{
+    memset(life, 0, sizeof(*life));
+    life->drive = *bindings;
+    life->state = MOTOR_STATE_IDLE;
+    life->epoch = 2U;
+    bindings->motor->control_mode = MOTOR_CONTROL_NONE;
+}
+
+MotorState MotorLifecycle_GetState(const MotorLifecycle *life)
+{
+    return life->state;
+}
+
+uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *life)
+{
+    return life->epoch;
+}
+
+/* 启动和标定准入都读取本轴的实测输入。启相前由 ADC 再次复核。 */
+static bool measurements_valid(MotorLifecycle *life)
 {
     return life->fast_samples_fresh && MotorCurrentOffsets_IsValid(life->drive.configuration) &&
            isfinite(life->drive.foc->bus_voltage_v) &&
@@ -24,101 +48,24 @@ static bool state_inputs_valid(MotorLifecycle *life)
                                               isfinite(life->drive.foc->temperature_c)));
 }
 
-static void clear_running_data(MotorLifecycle *life)
-{
-    life->drive.motor->id_target_a = 0.0f;
-    life->drive.motor->iq_target_a = 0.0f;
-    life->drive.motor->vq_target_v = 0.0f;
-    life->drive.motor->vd_target_v = 0.0f;
-    life->drive.motor->open_loop_frequency_hz = 0.0f;
-    life->drive.motor->open_loop_angle_rad = 0.0f;
-    life->drive.motor->speed_target_rad_s = 0.0f;
-    life->drive.motor->speed_ramped_rad_s = 0.0f;
-    life->drive.motor->position_reference_rad = 0.0f;
-    life->drive.motor->position_target_reached = false;
-    life->drive.motor->position_velocity_filtered_rad_s = 0.0f;
-    life->drive.foc->current_dq_a.d = 0.0f;
-    life->drive.foc->current_dq_a.q = 0.0f;
-    Foc_ResetCurrent(life->drive.foc);
-    PiController_Reset(life->drive.speed_pi);
-    SensorlessStartup_Reset(life->drive.sensorless_startup);
-    MotorOuterLoop_RequestReset(life->drive.outer);
-}
-
-static bool state_vbus_in_enable_window(float bus_voltage_v)
+static bool bus_voltage_in_enable_range(float bus_voltage_v)
 {
     /* 两端均为有限阈值；NaN 与无穷也无法同时满足闭区间比较。 */
     return bus_voltage_v >= BUS_VOLTAGE_ENABLE_MIN_V && bus_voltage_v <= BUS_VOLTAGE_ENABLE_MAX_V;
 }
 
-static bool new_epoch(MotorLifecycle *life)
+static bool power_supply_valid(const MotorLifecycle *life)
 {
-    if (life->epoch == UINT32_MAX)
-    {
-        life->fault_locked = true;
-        MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
-        return false;
-    }
-    ++life->epoch;
-    return true;
+    const FocState *foc = life->drive.foc;
+    return bus_voltage_in_enable_range(foc->bus_voltage_filtered_v) &&
+           foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V;
 }
 
-static void stop_motor(MotorLifecycle *life, MotorStateEvent event)
+static bool control_inputs_valid(MotorLifecycle *life, MotorControlMode mode)
 {
-    bool calibration_was_active = life->calibration_type != MOTOR_CALIBRATION_NONE;
-    life->power_enable_epoch = 0U;
-    life->enable_pending = false;
-    life->calibration_type = MOTOR_CALIBRATION_NONE;
-    life->calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
-    BspSystem_MemoryBarrier();
-    life->drive.power->disable();
-    if (calibration_was_active)
-    {
-        EncoderCalibration_Cancel(life->drive.calibration);
-    }
-    life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
-    clear_running_data(life);
-    (void)new_epoch(life);
-    if (!life->drive.power->phases_disabled())
-    {
-        life->fault_locked = true;
-        MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
-    }
-    life->state = MotorLifecycle_NextState(
-        life->state,
-        life->drive.motor->fault_code == MOTOR_FAULT_NONE ? event : MOTOR_STATE_EVENT_FAULT);
-}
-
-static void enter_fault(MotorLifecycle *life, MotorFaultCode fault)
-{
-    MotorFault_Report(life->drive.motor,
-                      fault == MOTOR_FAULT_NONE ? MOTOR_FAULT_CONTROL_OVERRUN : fault);
-    if (life->state != MOTOR_STATE_FAULT)
-    {
-        stop_motor(life, MOTOR_STATE_EVENT_FAULT);
-    }
-    else if (!life->drive.power->phases_disabled())
-    {
-        life->drive.power->disable();
-    }
-}
-
-static void fast_fault_stop(MotorLifecycle *life)
-{
-    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE && !life->drive.power->phases_disabled())
-    {
-        life->drive.power->disable();
-    }
-}
-
-static bool output_inputs_valid(MotorLifecycle *life)
-{
-    MotorControlMode mode = life->drive.motor->control_mode;
     bool sensorless = mode == MOTOR_CONTROL_CURRENT && life->drive.motor->uses_sensorless_feedback;
-    return state_inputs_valid(life) && life->drive.configuration->application.axis_profile_valid &&
-           life->drive.configuration->configuration_confirmed &&
-           state_vbus_in_enable_window(life->drive.foc->bus_voltage_filtered_v) &&
-           life->drive.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V &&
+    return measurements_valid(life) && life->drive.configuration->application.axis_profile_valid &&
+           life->drive.configuration->configuration_confirmed && power_supply_valid(life) &&
            (sensorless || Encoder_IsOnline(life->drive.rotor_encoder)) &&
            (sensorless || MotorControlMode_IsOpenLoop(mode) ||
             (Encoder_GetCalibrationFlag(&life->drive.configuration->device.encoder) &
@@ -132,19 +79,19 @@ static bool calibration_requires_power(MotorCalibrationType calibration_type)
            calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
 }
 
-static bool calibration_inputs_valid(MotorLifecycle *life)
+static bool calibration_inputs_valid(MotorLifecycle *life, MotorCalibrationType kind)
 {
-    if (!state_inputs_valid(life) || !life->drive.configuration->application.axis_profile_valid ||
+    if (!measurements_valid(life) || !life->drive.configuration->application.axis_profile_valid ||
         !Encoder_IsOnline(life->drive.rotor_encoder))
     {
         return false;
     }
-    if (!calibration_requires_power(life->calibration_type))
+    if (!calibration_requires_power(kind))
     {
         return true;
     }
     const MotorConfiguration *config = life->drive.configuration;
-    if (life->calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION && config->preset != NULL)
+    if (kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION && config->preset != NULL)
     {
         const SensorlessStartupConfig *startup = config->preset->startup;
         float budget =
@@ -156,93 +103,173 @@ static bool calibration_inputs_valid(MotorLifecycle *life)
             return false;
         }
     }
-    return config->configuration_confirmed &&
-           state_vbus_in_enable_window(life->drive.foc->bus_voltage_filtered_v) &&
-           life->drive.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V &&
-           ((life->calibration_type != MOTOR_CALIBRATION_ELECTRICAL_ZERO &&
-             life->calibration_type != MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO) ||
+    return config->configuration_confirmed && power_supply_valid(life) &&
+           ((kind != MOTOR_CALIBRATION_ELECTRICAL_ZERO &&
+             kind != MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO) ||
             (Encoder_GetCalibrationFlag(&life->drive.configuration->device.encoder) &
              ENC_CALIB_LINEARIZED) != 0U);
 }
 
-void MotorLifecycle_Init(MotorLifecycle *life, const MotorLifecycleBindings *bindings)
+static bool advance_session_epoch(MotorLifecycle *life)
 {
-    memset(life, 0, sizeof(*life));
-    life->drive = *bindings;
-    life->state = MOTOR_STATE_IDLE;
-    life->epoch = 2U;
-    bindings->motor->control_mode = MOTOR_CONTROL_NONE;
+    if (life->epoch == UINT32_MAX)
+    {
+        life->fault_locked = true;
+        MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
+        return false;
+    }
+    ++life->epoch;
+    return true;
 }
 
-/* 本拍运行在最高优先级。STOP 或故障期间只丢弃已发布结果，不恢复旧目标。 */
-static void consume_outer_result(MotorLifecycle *life)
+static void reset_control_state(MotorLifecycle *life)
 {
-    if (!life->outer_pending)
+    MotorControlState *motor = life->drive.motor;
+    motor->id_target_a = 0.0f;
+    motor->iq_target_a = 0.0f;
+    motor->vq_target_v = 0.0f;
+    motor->vd_target_v = 0.0f;
+    motor->open_loop_frequency_hz = 0.0f;
+    motor->open_loop_angle_rad = 0.0f;
+    motor->speed_target_rad_s = 0.0f;
+    motor->speed_ramped_rad_s = 0.0f;
+    motor->position_reference_rad = 0.0f;
+    motor->position_target_reached = false;
+    motor->position_velocity_filtered_rad_s = 0.0f;
+    life->drive.foc->current_dq_a.d = 0.0f;
+    life->drive.foc->current_dq_a.q = 0.0f;
+    Foc_ResetCurrent(life->drive.foc);
+    PiController_Reset(life->drive.speed_pi);
+    SensorlessStartup_Reset(life->drive.sensorless_startup);
+    MotorOuterLoop_RequestReset(life->drive.outer);
+}
+
+static void disable_phases_on_fault(MotorLifecycle *life)
+{
+    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE && !life->drive.power->phases_disabled())
+    {
+        life->drive.power->disable();
+    }
+}
+
+/* IDLE → RUNNING：前台登记，外环发布许可，ADC 确认实际启相。 */
+static void process_pending_stop(MotorLifecycle *life);
+static void stop_on_unsafe_conditions(MotorLifecycle *life, bool configuration_valid);
+static MotorControlResult accept_start_request(MotorLifecycle *life, MotorControlMode mode)
+{
+    MotorControlState *motor = life->drive.motor;
+    if (motor->fault_code != MOTOR_FAULT_NONE)
+    {
+        return MOTOR_CONTROL_FAULT;
+    }
+    if (life->start_pending || life->starts_locked)
+    {
+        return MOTOR_CONTROL_BUSY;
+    }
+    if (life->state != MOTOR_STATE_IDLE || life->stop_pending ||
+        motor->control_mode != MOTOR_CONTROL_NONE || motor->fault_code != MOTOR_FAULT_NONE ||
+        !life->drive.power->phases_disabled() || motor->uses_sensorless_feedback ||
+        !ParameterValue_ConfigurationValid(life->drive.configuration) ||
+        !control_inputs_valid(life, mode))
+    {
+        return MOTOR_CONTROL_DENIED;
+    }
+    float start_position_rad = 0.0f;
+    if (mode == MOTOR_CONTROL_POSITION)
+    {
+        start_position_rad = Encoder_GetMechPos(life->drive.rotor_encoder);
+        const MotorConfiguration *config = life->drive.configuration;
+        if (!MotorAxisProfile_AllowsPosition(&config->application.axis_profile,
+                                             config->application.axis_profile_valid,
+                                             start_position_rad,
+                                             start_position_rad))
+        {
+            return motor->fault_code == MOTOR_FAULT_NONE ? MOTOR_CONTROL_DENIED
+                                                         : MOTOR_CONTROL_FAULT;
+        }
+    }
+    if (!advance_session_epoch(life))
+    {
+        return MOTOR_CONTROL_FAULT;
+    }
+    reset_control_state(life);
+    if (mode == MOTOR_CONTROL_POSITION)
+    {
+        motor->position_target_rad = start_position_rad;
+        motor->position_reference_rad = start_position_rad;
+    }
+    motor->control_mode = mode;
+    life->start_pending = true;
+    return MOTOR_CONTROL_ACCEPTED;
+}
+
+MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *life, MotorControlMode mode)
+{
+    if (!MotorControlMode_IsValid(mode))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+    uint32_t mask = BspSystem_EnterControlCritical();
+    MotorControlResult result = accept_start_request(life, mode);
+    BspSystem_ExitControlCritical(mask);
+    return result;
+}
+
+void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work)
+{
+    if (work->owner != life)
     {
         return;
     }
-    life->outer_pending = false;
-    BspSystem_MemoryBarrier();
-    const MotorOuterWork *work = &life->outer_result;
-    if (work->epoch != life->epoch || work->motor.control_mode != life->drive.motor->control_mode ||
-        life->stop_pending || life->starts_locked ||
-        life->drive.motor->fault_code != MOTOR_FAULT_NONE)
+    bool configuration_valid = ParameterValue_ConfigurationValid(life->drive.configuration);
+    uint32_t mask = BspSystem_EnterControlCritical();
+    process_pending_stop(life);
+    bool same_session =
+        work->epoch == life->epoch && work->motor.control_mode == life->drive.motor->control_mode;
+    if (work->allowed && same_session && work->motor.fault_code != MOTOR_FAULT_NONE)
+    {
+        MotorFault_Report(life->drive.motor, (MotorFaultCode)work->motor.fault_code);
+    }
+    stop_on_unsafe_conditions(life, configuration_valid);
+    bool uses_outer_loop = life->drive.motor->control_mode == MOTOR_CONTROL_SPEED ||
+                           life->drive.motor->control_mode == MOTOR_CONTROL_POSITION;
+    bool outer_ready = !uses_outer_loop || MotorOuterLoop_IsReady(life->drive.outer);
+    bool can_enable = outer_ready && life->state == MOTOR_STATE_IDLE && life->start_pending &&
+                      control_inputs_valid(life, life->drive.motor->control_mode);
+    bool can_commit = work->allowed && same_session &&
+                      life->drive.motor->fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
+                      !life->starts_locked;
+    MotorLifecycle_PublishOuterResult(
+        life, work, can_commit && uses_outer_loop && outer_ready, can_commit && can_enable);
+    if (!can_commit && work->allowed)
     {
         MotorOuterLoop_RequestReset(life->drive.outer);
-        return;
     }
-    if (life->outer_updates_control)
-    {
-        MotorControlState *motor = life->drive.motor;
-        motor->id_target_a = work->motor.id_target_a;
-        motor->iq_target_a = work->motor.iq_target_a;
-        motor->uses_speed_ramp = work->motor.uses_speed_ramp;
-        motor->speed_ramped_rad_s = work->motor.speed_ramped_rad_s;
-        motor->position_reference_rad = work->motor.position_reference_rad;
-        motor->position_target_reached = work->motor.position_target_reached;
-        motor->position_velocity_filtered_rad_s = work->motor.position_velocity_filtered_rad_s;
-        motor->position_trajectory_speed_rad_s = work->motor.position_trajectory_speed_rad_s;
-        motor->position_trajectory_acceleration_rad_s2 =
-            work->motor.position_trajectory_acceleration_rad_s2;
-        *life->drive.speed_pi = work->speed_pi;
-    }
-    if (life->outer_requests_enable && life->state == MOTOR_STATE_IDLE && life->enable_pending)
-    {
-        life->power_enable_epoch = work->epoch;
-    }
+    ++life->outer_ticks;
+    BspSystem_ExitControlCritical(mask);
 }
 
-static void consume_fast_target(MotorLifecycle *life)
+static bool can_enable_phases(MotorLifecycle *life, uint32_t epoch)
 {
-    uint32_t revision = life->published_target;
-    if (revision == life->consumed_target)
+    if (epoch != life->epoch || life->starts_locked)
     {
-        return;
+        return false;
     }
-    life->consumed_target = revision;
-    BspSystem_MemoryBarrier();
-    unsigned slot = revision & 1U;
-    const MotorTarget *target = &life->fast_targets[slot];
-    MotorControlState *motor = life->drive.motor;
-    if (life->target_epochs[slot] != life->epoch || life->state != MOTOR_STATE_RUNNING ||
-        life->stop_pending || life->starts_locked || motor->fault_code != MOTOR_FAULT_NONE ||
-        target->mode != motor->control_mode)
+    switch (life->state)
     {
-        return;
+    case MOTOR_STATE_IDLE:
+    {
+        MotorControlMode mode = life->drive.motor->control_mode;
+        bool uses_outer = mode == MOTOR_CONTROL_SPEED || mode == MOTOR_CONTROL_POSITION;
+        return life->start_pending && control_inputs_valid(life, mode) &&
+               (!uses_outer || MotorOuterLoop_IsReady(life->drive.outer));
     }
-    if (MotorControlMode_IsVoltage(motor->control_mode))
-    {
-        motor->vd_target_v = target->vd_v;
-        motor->vq_target_v = target->vq_v;
-    }
-    else
-    {
-        motor->id_target_a = target->id_a;
-        motor->iq_target_a = target->iq_a;
-    }
-    if (MotorControlMode_IsOpenLoop(motor->control_mode))
-    {
-        motor->open_loop_frequency_hz = target->frequency_hz;
+    case MOTOR_STATE_CALIBRATION:
+        return calibration_requires_power(life->calibration_type) &&
+               life->calibration_handoff == MOTOR_CALIBRATION_NO_HANDOFF &&
+               calibration_inputs_valid(life, life->calibration_type);
+    default:
+        return false;
     }
 }
 
@@ -260,271 +287,157 @@ void MotorLifecycle_BeginFastTick(MotorLifecycle *life)
     {
         MotorFault_Report(life->drive.motor, MOTOR_FAULT_INVALID_PARAMETERS);
     }
-    fast_fault_stop(life);
-    consume_outer_result(life);
-    consume_fast_target(life);
+    disable_phases_on_fault(life);
+    uint32_t enable_epoch = MotorLifecycle_ApplyPendingControl(life);
+    if (enable_epoch != 0U)
+    {
+        life->phase_enable_epoch = enable_epoch;
+    }
     if (life->stop_pending || life->drive.motor->fault_code != MOTOR_FAULT_NONE)
     {
-        life->power_enable_epoch = 0U;
+        life->phase_enable_epoch = 0U;
         if (!life->drive.power->phases_disabled())
         {
             life->drive.power->disable();
         }
         return;
     }
-    uint32_t epoch = life->power_enable_epoch;
+    uint32_t epoch = life->phase_enable_epoch;
     if (epoch == 0U)
     {
         return;
     }
-    life->power_enable_epoch = 0U;
-    bool outer = life->drive.motor->control_mode == MOTOR_CONTROL_SPEED ||
-                 life->drive.motor->control_mode == MOTOR_CONTROL_POSITION;
-    bool starting_control = life->state == MOTOR_STATE_IDLE && life->enable_pending;
-    bool starting_calibration = life->state == MOTOR_STATE_CALIBRATION &&
-                                calibration_requires_power(life->calibration_type) &&
-                                life->calibration_handoff == MOTOR_CALIBRATION_NO_HANDOFF;
-    bool permitted = epoch == life->epoch && !life->starts_locked &&
-                     ((starting_control && output_inputs_valid(life) &&
-                       (!outer || MotorOuterLoop_IsReady(life->drive.outer))) ||
-                      (starting_calibration && calibration_inputs_valid(life)));
-    if (permitted)
+    life->phase_enable_epoch = 0U;
+    if (can_enable_phases(life, epoch))
     {
         life->drive.power->enable();
-        permitted = !life->drive.power->phases_disabled();
+        if (!life->drive.power->phases_disabled())
+        {
+            if (life->state == MOTOR_STATE_IDLE)
+            {
+                apply_state_event(life, MOTOR_STATE_EVENT_RUN);
+                life->start_pending = false;
+            }
+            return;
+        }
     }
-    if (!permitted)
-    {
-        MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
-        fast_fault_stop(life);
-        return;
-    }
-    if (starting_control)
-    {
-        life->state = MotorLifecycle_NextState(life->state, MOTOR_STATE_EVENT_RUN);
-        life->enable_pending = false;
-    }
+    MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
+    disable_phases_on_fault(life);
 }
 
-/* ADC 快拍或持有控制临界区的调用方撤销许可，监督拍随后完成停机。 */
-static void request_stop(MotorLifecycle *life)
+/* STOP 先撤销启相许可。慢拍关相并结束会话，已有故障优先回到 FAULT。 */
+static void mark_stop_pending(MotorLifecycle *life)
 {
     life->stop_pending = true;
-    life->power_enable_epoch = 0U;
-    life->enable_pending = false;
+    life->phase_enable_epoch = 0U;
+    life->start_pending = false;
     BspSystem_MemoryBarrier();
     life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
-}
-
-void MotorLifecycle_PostOutcome(MotorLifecycle *life, MotorTaskResult outcome, uint32_t epoch)
-{
-    ++life->fast_sample_ticks;
-    if (epoch == life->epoch && !life->stop_pending)
-    {
-        if (outcome.result == MOTOR_TASK_FAILED)
-        {
-            MotorFault_Report(life->drive.motor,
-                              outcome.error == MOTOR_FAULT_NONE ? MOTOR_FAULT_CONTROL_OVERRUN
-                                                                : outcome.error);
-        }
-        else if (outcome.result == MOTOR_TASK_STOP_REQUESTED)
-        {
-            request_stop(life);
-        }
-        else if (life->state == MOTOR_STATE_CALIBRATION &&
-                 life->calibration_type != MOTOR_CALIBRATION_NONE &&
-                 (outcome.result == MOTOR_TASK_COMPLETED ||
-                  (outcome.result == MOTOR_TASK_FINALIZE &&
-                   life->calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION)))
-        {
-            life->power_enable_epoch = 0U;
-            life->drive.power->disable();
-            BspSystem_MemoryBarrier();
-            if (!life->drive.power->phases_disabled())
-            {
-                MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
-            }
-            else
-            {
-                /* 两类传动的标定结果均经停机前台保存后才报告完成。 */
-                life->calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
-            }
-        }
-    }
-    fast_fault_stop(life);
 }
 
 void MotorLifecycle_RequestStop(MotorLifecycle *life)
 {
     uint32_t mask = BspSystem_EnterControlCritical();
-    request_stop(life);
+    mark_stop_pending(life);
     BspSystem_ExitControlCritical(mask);
 }
 
-MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *life, MotorControlMode mode)
+static void stop_motor(MotorLifecycle *life, MotorStateEvent event)
 {
-    if (!MotorControlMode_IsValid(mode))
+    bool calibration_was_active = life->calibration_type != MOTOR_CALIBRATION_NONE;
+    life->phase_enable_epoch = 0U;
+    life->start_pending = false;
+    life->calibration_type = MOTOR_CALIBRATION_NONE;
+    life->calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
+    BspSystem_MemoryBarrier();
+    life->drive.power->disable();
+    if (calibration_was_active)
     {
-        return MOTOR_CONTROL_INVALID;
+        EncoderCalibration_Cancel(life->drive.calibration);
     }
-    uint32_t mask = BspSystem_EnterControlCritical();
-    MotorControlResult result = MOTOR_CONTROL_DENIED;
+    life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
+    reset_control_state(life);
+    (void)advance_session_epoch(life);
+    if (!life->drive.power->phases_disabled())
+    {
+        life->fault_locked = true;
+        MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
+    }
     if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
     {
-        result = MOTOR_CONTROL_FAULT;
+        event = MOTOR_STATE_EVENT_FAULT;
     }
-    else if (life->enable_pending || life->starts_locked)
+    apply_state_event(life, event);
+}
+
+static void process_pending_stop(MotorLifecycle *life)
+{
+    if (life->stop_pending)
     {
-        result = MOTOR_CONTROL_BUSY;
+        stop_motor(life, MOTOR_STATE_EVENT_STOP);
+        life->stop_pending = false;
     }
-    else if (life->state == MOTOR_STATE_IDLE && !life->stop_pending &&
-             life->drive.motor->control_mode == MOTOR_CONTROL_NONE &&
-             life->drive.motor->fault_code == MOTOR_FAULT_NONE &&
-             life->drive.power->phases_disabled() && !life->drive.motor->uses_sensorless_feedback &&
-             ParameterValue_ConfigurationValid(life->drive.configuration) &&
-             state_inputs_valid(life) && life->drive.configuration->configuration_confirmed &&
-             Encoder_IsOnline(life->drive.rotor_encoder) &&
-             state_vbus_in_enable_window(life->drive.foc->bus_voltage_filtered_v) &&
-             life->drive.foc->bus_voltage_v < BUS_VOLTAGE_HARD_OVERVOLTAGE_V &&
-             (MotorControlMode_IsOpenLoop(mode) ||
-              (Encoder_GetCalibrationFlag(&life->drive.configuration->device.encoder) &
-               ENC_CALIB_ALL) == ENC_CALIB_ALL))
+}
+
+bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
+{
+    return life->drive.power->phases_disabled();
+}
+
+bool MotorLifecycle_IsStopped(const MotorLifecycle *life)
+{
+    return (life->state == MOTOR_STATE_IDLE || life->state == MOTOR_STATE_FAULT) &&
+           !life->stop_pending && !life->start_pending &&
+           life->drive.motor->control_mode == MOTOR_CONTROL_NONE &&
+           life->drive.power->phases_disabled();
+}
+
+bool MotorLifecycle_LockStop(MotorLifecycle *life)
+{
+    uint32_t mask = BspSystem_EnterControlCritical();
+    bool accepted = !life->fault_locked;
+    if (accepted)
     {
-        float position_rad =
-            mode == MOTOR_CONTROL_POSITION ? Encoder_GetMechPos(life->drive.rotor_encoder) : 0.0f;
-        bool position_valid = mode != MOTOR_CONTROL_POSITION ||
-                              MotorAxisProfile_AllowsPosition(
-                                  &life->drive.configuration->application.axis_profile,
-                                  life->drive.configuration->application.axis_profile_valid,
-                                  position_rad,
-                                  position_rad);
-        if (position_valid && new_epoch(life))
-        {
-            clear_running_data(life);
-            if (mode == MOTOR_CONTROL_POSITION)
-            {
-                life->drive.motor->position_target_rad = life->drive.motor->position_reference_rad =
-                    position_rad;
-            }
-            life->drive.motor->control_mode = mode;
-            life->enable_pending = true;
-            result = MOTOR_CONTROL_ACCEPTED;
-        }
-        else if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
-        {
-            result = MOTOR_CONTROL_FAULT;
-        }
+        life->starts_locked = true;
+        mark_stop_pending(life);
     }
     BspSystem_ExitControlCritical(mask);
-    return result;
+    return accepted;
 }
 
-static bool dq_target_within_limit(float d, float q, float limit)
+/* IDLE → CALIBRATION：完成算法、关相、发布和保存后，监督拍才结束标定。 */
+static MotorControlResult accept_calibration_request(MotorLifecycle *life,
+                                                     MotorCalibrationType kind)
 {
-    return isfinite(limit) && limit > 0.0f && d * d + q * q <= limit * limit;
-}
-
-/* 前台先核对所有字段；速度和位置归外环，其余成组目标由下一 ADC 快拍消费。 */
-static MotorControlResult apply_running_target(MotorLifecycle *life, const MotorTarget *target)
-{
-    const MotorLifecycleBindings *drive = &life->drive;
-    MotorControlMode mode = (MotorControlMode)target->mode;
-    bool current_mode = mode == MOTOR_CONTROL_CURRENT || mode == MOTOR_CONTROL_OPEN_CURRENT;
-    bool voltage_mode = MotorControlMode_IsVoltage(mode);
-    bool open_loop = MotorControlMode_IsOpenLoop(mode);
-    if ((mode != MOTOR_CONTROL_POSITION && target->position_rad != 0.0f) ||
-        (mode != MOTOR_CONTROL_SPEED && target->speed_rad_s != 0.0f) ||
-        (!current_mode && target->iq_a != 0.0f) || (!voltage_mode && target->vq_v != 0.0f) ||
-        (!open_loop && target->frequency_hz != 0.0f) ||
-        (mode != MOTOR_CONTROL_OPEN_CURRENT && target->id_a != 0.0f) ||
-        (mode != MOTOR_CONTROL_OPEN_VOLTAGE && target->vd_v != 0.0f))
+    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
     {
-        return MOTOR_CONTROL_INVALID;
+        return MOTOR_CONTROL_FAULT;
     }
-
-    const MotorConfiguration *configuration = drive->configuration;
-    MotorControlState *motor = drive->motor;
-    if (open_loop &&
-        !(fabsf(target->frequency_hz) <=
-          MotorConfiguration_OpenLoopLimitHz(configuration, MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ)))
+    if (life->start_pending || life->stop_pending || life->starts_locked ||
+        !EncoderCalibration_IsIdle(life->drive.calibration))
     {
-        return MOTOR_CONTROL_OUT_OF_RANGE;
+        return MOTOR_CONTROL_BUSY;
     }
-    if (current_mode)
+    if (life->state != MOTOR_STATE_IDLE || !life->drive.power->phases_disabled() ||
+        !ParameterValue_ConfigurationValid(life->drive.configuration) ||
+        !calibration_inputs_valid(life, kind))
     {
-        float limit_a = configuration->application.current_limit_a;
-        if (motor->thermal_limit_active)
-        {
-            limit_a = fminf(limit_a, motor->thermal_current_limit_a);
-        }
-        if (!dq_target_within_limit(target->id_a, target->iq_a, limit_a))
-        {
-            return MOTOR_CONTROL_OUT_OF_RANGE;
-        }
+        return MOTOR_CONTROL_DENIED;
     }
-    else if (voltage_mode)
+    if (!advance_session_epoch(life))
     {
-        float limit_v = Foc_MaxVoltage(drive->foc->bus_voltage_filtered_v);
-        if (!dq_target_within_limit(target->vd_v, target->vq_v, limit_v))
-        {
-            return MOTOR_CONTROL_OUT_OF_RANGE;
-        }
+        return MOTOR_CONTROL_FAULT;
     }
-    else if (mode == MOTOR_CONTROL_SPEED)
+    reset_control_state(life);
+    life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
+    life->calibration_type = kind;
+    apply_state_event(life, MOTOR_STATE_EVENT_CALIBRATE);
+    if (calibration_requires_power(kind))
     {
-        float limit_rad_s = configuration->application.speed_limit_rad_s;
-        if (!isfinite(limit_rad_s) || fabsf(target->speed_rad_s) > limit_rad_s)
-        {
-            return MOTOR_CONTROL_OUT_OF_RANGE;
-        }
-        motor->speed_target_rad_s = target->speed_rad_s;
-    }
-    else
-    {
-        if (!MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
-                                             configuration->application.axis_profile_valid,
-                                             Encoder_GetMechPos(drive->rotor_encoder),
-                                             target->position_rad))
-        {
-            return MOTOR_CONTROL_OUT_OF_RANGE;
-        }
-        motor->position_target_rad = target->position_rad;
-    }
-    if (current_mode || voltage_mode)
-    {
-        uint32_t revision = life->published_target + 1U;
-        unsigned slot = revision & 1U;
-        life->fast_targets[slot] = *target;
-        life->target_epochs[slot] = life->epoch;
         BspSystem_MemoryBarrier();
-        life->published_target = revision;
+        life->phase_enable_epoch = life->epoch;
     }
     return MOTOR_CONTROL_ACCEPTED;
-}
-
-MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTarget *target)
-{
-    if (target == NULL || !MotorControlMode_IsValid((MotorControlMode)target->mode) ||
-        !isfinite(target->position_rad) || !isfinite(target->speed_rad_s) ||
-        !isfinite(target->iq_a) || !isfinite(target->vq_v) || !isfinite(target->frequency_hz) ||
-        !isfinite(target->id_a) || !isfinite(target->vd_v))
-    {
-        return MOTOR_CONTROL_INVALID;
-    }
-
-    uint32_t mask = BspSystem_EnterControlCritical();
-    MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
-    {
-        result = MOTOR_CONTROL_FAULT;
-    }
-    else if (life->state == MOTOR_STATE_RUNNING && !life->stop_pending && !life->starts_locked &&
-             target->mode == life->drive.motor->control_mode)
-    {
-        result = apply_running_target(life, target);
-    }
-    BspSystem_ExitControlCritical(mask);
-    return result;
 }
 
 MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *life,
@@ -536,42 +449,7 @@ MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *life,
         return MOTOR_CONTROL_INVALID;
     }
     uint32_t mask = BspSystem_EnterControlCritical();
-    MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
-    {
-        result = MOTOR_CONTROL_FAULT;
-    }
-    else if (life->enable_pending || life->stop_pending || life->starts_locked ||
-             !EncoderCalibration_IsIdle(life->drive.calibration))
-    {
-        result = MOTOR_CONTROL_BUSY;
-    }
-    else if (life->state == MOTOR_STATE_IDLE && life->drive.power->phases_disabled() &&
-             ParameterValue_ConfigurationValid(life->drive.configuration))
-    {
-        life->calibration_type = calibration_type;
-        bool inputs_valid = calibration_inputs_valid(life);
-        if (inputs_valid && new_epoch(life))
-        {
-            clear_running_data(life);
-            life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
-            life->state = MotorLifecycle_NextState(life->state, MOTOR_STATE_EVENT_CALIBRATE);
-            if (calibration_requires_power(calibration_type))
-            {
-                BspSystem_MemoryBarrier();
-                life->power_enable_epoch = life->epoch;
-            }
-            result = MOTOR_CONTROL_ACCEPTED;
-        }
-        else if (inputs_valid)
-        {
-            result = MOTOR_CONTROL_FAULT;
-        }
-        if (result != MOTOR_CONTROL_ACCEPTED)
-        {
-            life->calibration_type = MOTOR_CALIBRATION_NONE;
-        }
-    }
+    MotorControlResult result = accept_calibration_request(life, calibration_type);
     BspSystem_ExitControlCritical(mask);
     return result;
 }
@@ -595,6 +473,56 @@ bool MotorLifecycle_IsCalibrationRunnable(const MotorLifecycle *life)
                : life->drive.power->phases_disabled();
 }
 
+/* ADC 已完成标定算法。只有实际关相后，才把发布资格交给前台。 */
+static void disable_phases_for_publication(MotorLifecycle *life)
+{
+    life->phase_enable_epoch = 0U;
+    life->drive.power->disable();
+    BspSystem_MemoryBarrier();
+    if (life->drive.power->phases_disabled())
+    {
+        life->calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+    }
+    else
+    {
+        MotorFault_Report(life->drive.motor, MOTOR_FAULT_CONTROL_OVERRUN);
+    }
+}
+
+void MotorLifecycle_PostOutcome(MotorLifecycle *life, MotorTaskResult outcome, uint32_t epoch)
+{
+    ++life->fast_sample_ticks;
+    if (epoch != life->epoch || life->stop_pending)
+    {
+        disable_phases_on_fault(life);
+        return;
+    }
+    switch (outcome.result)
+    {
+    case MOTOR_TASK_FAILED:
+        MotorFault_Report(life->drive.motor,
+                          outcome.error == MOTOR_FAULT_NONE ? MOTOR_FAULT_CONTROL_OVERRUN
+                                                            : outcome.error);
+        break;
+    case MOTOR_TASK_STOP_REQUESTED:
+        mark_stop_pending(life);
+        break;
+    case MOTOR_TASK_COMPLETED:
+    case MOTOR_TASK_FINALIZE:
+        if (life->state == MOTOR_STATE_CALIBRATION &&
+            life->calibration_type != MOTOR_CALIBRATION_NONE &&
+            (outcome.result == MOTOR_TASK_COMPLETED ||
+             life->calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION))
+        {
+            disable_phases_for_publication(life);
+        }
+        break;
+    default:
+        break;
+    }
+    disable_phases_on_fault(life);
+}
+
 bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *life,
                                                       uint32_t *calibration_epoch)
 {
@@ -613,7 +541,7 @@ void MotorLifecycle_ContinueElectricalZero(MotorLifecycle *life)
     life->calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
     life->calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
     BspSystem_MemoryBarrier();
-    life->power_enable_epoch = life->epoch;
+    life->phase_enable_epoch = life->epoch;
 }
 
 void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *life,
@@ -635,7 +563,7 @@ void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *life,
     {
         life->calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
         MotorFault_Report(life->drive.motor, MOTOR_FAULT_ENCODER);
-        fast_fault_stop(life);
+        disable_phases_on_fault(life);
     }
 }
 
@@ -653,10 +581,25 @@ static void finish_calibration(MotorLifecycle *life)
     }
 }
 
+/* FAULT → IDLE：显式清错，源已恢复且输出关闭；失败仍锁存故障。 */
+static void enter_fault(MotorLifecycle *life, MotorFaultCode fault)
+{
+    MotorFault_Report(life->drive.motor,
+                      fault == MOTOR_FAULT_NONE ? MOTOR_FAULT_CONTROL_OVERRUN : fault);
+    if (life->state != MOTOR_STATE_FAULT)
+    {
+        stop_motor(life, MOTOR_STATE_EVENT_FAULT);
+    }
+    else if (!life->drive.power->phases_disabled())
+    {
+        life->drive.power->disable();
+    }
+}
+
 static bool clear_fault(MotorLifecycle *life)
 {
     MotorFaultCode fault = (MotorFaultCode)life->drive.motor->fault_code;
-    if (life->fault_locked || !life->drive.power->phases_disabled() || !state_inputs_valid(life) ||
+    if (life->fault_locked || !life->drive.power->phases_disabled() || !measurements_valid(life) ||
         !EncoderCalibration_IsIdle(life->drive.calibration) ||
         !ParameterValue_ConfigurationValid(life->drive.configuration))
     {
@@ -677,10 +620,10 @@ static bool clear_fault(MotorLifecycle *life)
     }
     /* 外层已挡住监督拍；先准备空闲状态，最后才释放快环的故障门禁。 */
     life->drive.motor->control_mode = MOTOR_CONTROL_NONE;
-    life->state = MotorLifecycle_NextState(life->state, MOTOR_STATE_EVENT_CLEAR);
+    apply_state_event(life, MOTOR_STATE_EVENT_CLEAR);
     if (!BspSystem_CompareExchange32(&life->drive.motor->fault_code, fault, MOTOR_FAULT_NONE))
     {
-        life->state = MOTOR_STATE_FAULT;
+        apply_state_event(life, MOTOR_STATE_EVENT_FAULT);
         return false;
     }
     return true;
@@ -690,7 +633,7 @@ MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *life)
 {
     uint32_t mask = BspSystem_EnterControlCritical();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (life->enable_pending || life->stop_pending || life->starts_locked)
+    if (life->start_pending || life->stop_pending || life->starts_locked)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -704,35 +647,28 @@ MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *life)
     return result;
 }
 
-static void check_running_conditions(MotorLifecycle *life, bool configuration_valid)
+/* 监督拍处理 STOP、标定完成和故障，Loader 仅读取健康进展。 */
+static void stop_on_unsafe_conditions(MotorLifecycle *life, bool configuration_valid)
 {
     if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
     {
         enter_fault(life, (MotorFaultCode)life->drive.motor->fault_code);
     }
-    else if ((life->state == MOTOR_STATE_RUNNING || life->enable_pending) &&
-             (!configuration_valid || !output_inputs_valid(life) ||
+    else if ((life->state == MOTOR_STATE_RUNNING || life->start_pending) &&
+             (!configuration_valid ||
+              !control_inputs_valid(life, life->drive.motor->control_mode) ||
               (life->state == MOTOR_STATE_RUNNING && life->drive.power->phases_disabled())))
     {
         enter_fault(life, MOTOR_FAULT_CONTROL_OVERRUN);
     }
     else if (life->state == MOTOR_STATE_CALIBRATION &&
              life->calibration_handoff == MOTOR_CALIBRATION_NO_HANDOFF &&
-             (!configuration_valid || !calibration_inputs_valid(life) ||
+             (!configuration_valid || !calibration_inputs_valid(life, life->calibration_type) ||
               (calibration_requires_power(life->calibration_type)
-                   ? life->power_enable_epoch == 0U && life->drive.power->phases_disabled()
+                   ? life->phase_enable_epoch == 0U && life->drive.power->phases_disabled()
                    : !life->drive.power->phases_disabled())))
     {
         enter_fault(life, MOTOR_FAULT_CONTROL_OVERRUN);
-    }
-}
-
-static void consume_stop(MotorLifecycle *life)
-{
-    if (life->stop_pending)
-    {
-        stop_motor(life, MOTOR_STATE_EVENT_STOP);
-        life->stop_pending = false;
     }
 }
 
@@ -741,93 +677,15 @@ void MotorLifecycle_SupervisorTick(MotorLifecycle *life)
     uint32_t sample_ticks = life->fast_sample_ticks;
     life->fast_samples_fresh = sample_ticks != life->observed_fast_sample_ticks;
     life->observed_fast_sample_ticks = sample_ticks;
-    consume_stop(life);
+    process_pending_stop(life);
     MotorFault_UpdateRecovery(
         &life->recovery, life->drive.foc, (MotorFaultCode)life->drive.motor->fault_code);
     bool configuration_valid = ParameterValue_ConfigurationValid(life->drive.configuration);
     uint32_t mask = BspSystem_EnterControlCritical();
     finish_calibration(life);
-    check_running_conditions(life, configuration_valid);
+    stop_on_unsafe_conditions(life, configuration_valid);
     ++life->supervisor_ticks;
     BspSystem_ExitControlCritical(mask);
-}
-
-void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work)
-{
-    uint32_t mask = BspSystem_EnterControlCritical();
-    work->owner = life;
-    work->allowed = false;
-    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
-    {
-        uint32_t fast = life->fast_sample_ticks;
-        BspSystem_MemoryBarrier();
-        work->epoch = life->epoch;
-        work->motor = *life->drive.motor;
-        work->speed_pi = *life->drive.speed_pi;
-        BspSystem_MemoryBarrier();
-        if (fast == life->fast_sample_ticks)
-        {
-            work->allowed = (life->state == MOTOR_STATE_RUNNING || life->enable_pending) &&
-                            work->motor.control_mode != MOTOR_CONTROL_NONE &&
-                            work->motor.fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
-                            !life->starts_locked;
-            break;
-        }
-    }
-    BspSystem_ExitControlCritical(mask);
-}
-
-void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work)
-{
-    if (work->owner != life)
-    {
-        return;
-    }
-    bool configuration_valid = ParameterValue_ConfigurationValid(life->drive.configuration);
-    uint32_t mask = BspSystem_EnterControlCritical();
-    consume_stop(life);
-    bool same_session =
-        work->epoch == life->epoch && work->motor.control_mode == life->drive.motor->control_mode;
-    if (work->allowed && same_session && work->motor.fault_code != MOTOR_FAULT_NONE)
-    {
-        MotorFault_Report(life->drive.motor, (MotorFaultCode)work->motor.fault_code);
-    }
-    check_running_conditions(life, configuration_valid);
-    bool uses_outer_loop = life->drive.motor->control_mode == MOTOR_CONTROL_SPEED ||
-                           life->drive.motor->control_mode == MOTOR_CONTROL_POSITION;
-    bool outer_ready = !uses_outer_loop || MotorOuterLoop_IsReady(life->drive.outer);
-    bool can_enable = outer_ready && life->state == MOTOR_STATE_IDLE && life->enable_pending &&
-                      output_inputs_valid(life);
-    /* ADC 可在写入任何字段时抢占；只有写完整的结果才向下一快拍发布。 */
-    bool can_commit = work->allowed && same_session &&
-                      life->drive.motor->fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
-                      !life->starts_locked;
-    life->outer_pending = false;
-    if (can_commit && ((uses_outer_loop && outer_ready) || can_enable))
-    {
-        BspSystem_MemoryBarrier();
-        life->outer_result = *work;
-        life->outer_updates_control = uses_outer_loop && outer_ready;
-        life->outer_requests_enable = can_enable;
-        BspSystem_MemoryBarrier();
-        life->outer_pending = true;
-    }
-    if (!can_commit && work->allowed)
-    {
-        MotorOuterLoop_RequestReset(life->drive.outer);
-    }
-    ++life->outer_ticks;
-    BspSystem_ExitControlCritical(mask);
-}
-
-uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *life)
-{
-    return life->epoch;
-}
-
-MotorState MotorLifecycle_GetState(const MotorLifecycle *life)
-{
-    return life->state;
 }
 
 bool MotorLifecycle_ReadBootHealth(MotorLifecycle *life, uint32_t *progress)
@@ -838,137 +696,13 @@ bool MotorLifecycle_ReadBootHealth(MotorLifecycle *life, uint32_t *progress)
     }
     uint32_t mask = BspSystem_EnterControlCritical();
     *progress = life->supervisor_ticks;
-    bool healthy = state_inputs_valid(life) && !life->fault_locked;
+    bool healthy = measurements_valid(life) && !life->fault_locked;
     BspSystem_ExitControlCritical(mask);
     return healthy;
 }
 
-bool MotorLifecycle_LockStop(MotorLifecycle *life)
-{
-    uint32_t mask = BspSystem_EnterControlCritical();
-    bool accepted = !life->fault_locked;
-    if (accepted)
-    {
-        life->starts_locked = true;
-        request_stop(life);
-    }
-    BspSystem_ExitControlCritical(mask);
-    return accepted;
-}
-
-bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
-{
-    return life->drive.power->phases_disabled();
-}
-
-bool MotorLifecycle_IsStopped(const MotorLifecycle *life)
-{
-    return (life->state == MOTOR_STATE_IDLE || life->state == MOTOR_STATE_FAULT) &&
-           !life->stop_pending && !life->enable_pending &&
-           life->drive.motor->control_mode == MOTOR_CONTROL_NONE &&
-           life->drive.power->phases_disabled();
-}
-
-static MotorStatus sample_status(const MotorLifecycle *life)
-{
-    const MotorControlState *motor = life->drive.motor;
-    const FocState *foc = life->drive.foc;
-    const EncoderState *encoder = life->drive.rotor_encoder;
-    bool active = life->state == MOTOR_STATE_RUNNING && motor->control_mode != MOTOR_CONTROL_NONE;
-    bool current = active && motor->control_mode != MOTOR_CONTROL_OPEN_VOLTAGE &&
-                   motor->control_mode != MOTOR_CONTROL_VQ;
-    bool position = active && motor->control_mode == MOTOR_CONTROL_POSITION;
-    bool speed = active && motor->control_mode == MOTOR_CONTROL_SPEED;
-    MotorStatus status = {
-        .state = life->state,
-        .mode = (uint16_t)motor->control_mode,
-        .fault = (uint16_t)motor->fault_code,
-        .measurements_valid = life->fast_samples_fresh,
-        .position_reference_rad = position ? motor->position_reference_rad : NAN,
-        .position_rad = encoder->has_valid_sample ? encoder->mechanical_position_rad : NAN,
-        .speed_reference_rad_s = speed      ? motor->speed_target_rad_s
-                                 : position ? motor->speed_ramped_rad_s
-                                            : NAN,
-        .speed_rad_s =
-            encoder->has_valid_sample ? encoder->mechanical_velocity_continuous_rad_s : NAN,
-        .bus_voltage_v = foc->bus_voltage_filtered_v,
-        .bus_current_a = foc->bus_current_filtered_a,
-        .iq_reference_a = current ? motor->iq_target_a : NAN,
-        .iq_a = active ? foc->current_dq_a.q : NAN,
-        .temperature_c = McuTemperature_IsFresh(life->drive.temperature) ? foc->temperature_c : NAN,
-        .vq_v = active ? foc->voltage_dq_v.q : NAN,
-        .vd_v = active ? foc->voltage_dq_v.d : NAN,
-    };
-    /* 116 回复报告已经受理的电流参考，快环随后在拍首成组消费。 */
-    uint32_t revision = life->published_target;
-    unsigned slot = revision & 1U;
-    if (current && !life->stop_pending && motor->fault_code == MOTOR_FAULT_NONE &&
-        revision != life->consumed_target && life->target_epochs[slot] == life->epoch &&
-        life->fast_targets[slot].mode == motor->control_mode)
-    {
-        status.iq_reference_a = life->fast_targets[slot].iq_a;
-    }
-    return status;
-}
-
-bool MotorLifecycle_ReadStatus(const MotorLifecycle *life, MotorStatus *status)
-{
-    /* 每个计数只有对应 ISR 写。前台被抢占后重读一次，连续争用则报告本帧不可用。 */
-    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
-    {
-        uint32_t fast = life->fast_sample_ticks;
-        uint32_t outer = life->outer_ticks;
-        uint32_t supervisor = life->supervisor_ticks;
-        BspSystem_MemoryBarrier();
-        MotorStatus sample = sample_status(life);
-        BspSystem_MemoryBarrier();
-        if (fast == life->fast_sample_ticks && outer == life->outer_ticks &&
-            supervisor == life->supervisor_ticks)
-        {
-            *status = sample;
-            return true;
-        }
-    }
-    return false;
-}
-
-/* 五态纯迁移；自检仅占位，所有输出和请求资格由APP运行层处理。 */
+/* 已公开的生命周期查询入口，新代码直接使用独立状态机。 */
 MotorState MotorLifecycle_NextState(MotorState state, MotorStateEvent event)
 {
-    if ((unsigned)state > MOTOR_STATE_FAULT || (unsigned)event > MOTOR_STATE_EVENT_CLEAR ||
-        event == MOTOR_STATE_EVENT_FAULT)
-    {
-        return MOTOR_STATE_FAULT;
-    }
-    switch (state)
-    {
-    case MOTOR_STATE_IDLE:
-        if (event == MOTOR_STATE_EVENT_RUN)
-        {
-            return MOTOR_STATE_RUNNING;
-        }
-        if (event == MOTOR_STATE_EVENT_CALIBRATE)
-        {
-            return MOTOR_STATE_CALIBRATION;
-        }
-        break;
-    case MOTOR_STATE_SELF_TEST:
-        break;
-    case MOTOR_STATE_CALIBRATION:
-    case MOTOR_STATE_RUNNING:
-        if (event == MOTOR_STATE_EVENT_COMPLETE || event == MOTOR_STATE_EVENT_STOP)
-        {
-            return MOTOR_STATE_IDLE;
-        }
-        break;
-    case MOTOR_STATE_FAULT:
-        if (event == MOTOR_STATE_EVENT_CLEAR)
-        {
-            return MOTOR_STATE_IDLE;
-        }
-        break;
-    default:
-        return MOTOR_STATE_FAULT;
-    }
-    return state;
+    return MotorStateMachine_NextState(state, event);
 }

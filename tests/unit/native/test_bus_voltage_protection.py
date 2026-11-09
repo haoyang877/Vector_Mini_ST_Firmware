@@ -52,7 +52,7 @@ static void test_enable_window(void) {
         uint32_t center = i == 0 ? lower_bits : upper_bits;
         for (bits = center - 4096; bits <= center + 4096; ++bits) {
             memcpy(&s_foc_state.bus_voltage_filtered_v, &bits, sizeof(bits));
-            assert(state_vbus_in_enable_window(s_foc_state.bus_voltage_filtered_v) == (bits >= lower_bits && bits <= upper_bits));
+            assert(bus_voltage_in_enable_range(s_foc_state.bus_voltage_filtered_v) == (bits >= lower_bits && bits <= upper_bits));
             ++compared;
         }
     }
@@ -61,7 +61,7 @@ static void test_enable_window(void) {
             for (fraction = 0; fraction < sizeof(fractions) / sizeof(fractions[0]); ++fraction) {
                 bits = (sign << 31) | (exponent << 23) | fractions[fraction];
                 memcpy(&s_foc_state.bus_voltage_filtered_v, &bits, sizeof(bits));
-                assert(state_vbus_in_enable_window(s_foc_state.bus_voltage_filtered_v) == (bits >= lower_bits && bits <= upper_bits));
+                assert(bus_voltage_in_enable_range(s_foc_state.bus_voltage_filtered_v) == (bits >= lower_bits && bits <= upper_bits));
                 ++compared;
             }
         }
@@ -72,7 +72,7 @@ static void test_enable_window(void) {
         random_bits ^= random_bits << 5;
         bits = random_bits;
         memcpy(&s_foc_state.bus_voltage_filtered_v, &bits, sizeof(bits));
-        assert(state_vbus_in_enable_window(s_foc_state.bus_voltage_filtered_v) == (bits >= lower_bits && bits <= upper_bits));
+        assert(bus_voltage_in_enable_range(s_foc_state.bus_voltage_filtered_v) == (bits >= lower_bits && bits <= upper_bits));
         ++compared;
     }
     printf("PASS %u enable-window values, all exponent/sign classes and endpoint neighbors\n", compared);
@@ -127,7 +127,7 @@ def main():
         + "\n"
         + function_source(
             (ROOT / "firmware/app/motor_lifecycle.c").read_text(encoding="utf-8"),
-            "state_vbus_in_enable_window",
+            "bus_voltage_in_enable_range",
         )
         + CASES
     )

@@ -344,7 +344,7 @@ static void stop_between_snapshot_and_commit(void)
     MotorLifecycle_CommitOuter(&axis->lifecycle, &work);
     assert(devices[0].disabled && axis->motor.iq_target_a == 0.0f &&
            axis->speed_pi.integral_output == 0.0f);
-    assert(axis->lifecycle.power_enable_epoch == 0 && axis->lifecycle.epoch != work.epoch);
+    assert(axis->lifecycle.phase_enable_epoch == 0 && axis->lifecycle.epoch != work.epoch);
     motor->stop(motor->context, &command, &reply);
     assert(reply.status == PROTOCOL_OK && reply.detail == 0U);
     BspCanFrame frame = {.identifier = 17};

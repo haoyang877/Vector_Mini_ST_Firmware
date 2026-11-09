@@ -26,7 +26,8 @@ APP、Loader、主机应用保持独立可构建。shared 不依赖 APP、硬件
 | --- | --- | --- |
 | projects/main | 板级入口、中断连接、调用启动和主循环 | 寄存器操作与领域算法 |
 | app 的 app、app_protocol、app_loader | 组装、前台调度、协议值转换、Loader 交接 | 底层算法与 MCU 寄存器 |
-| app 的 motor_axis、motor_lifecycle、motor_calibration | 独立轴数据、五态及功率许可、标定发布和保存 | 协议字节布局、厂商驱动 |
+| app 的 motor_state_machine | 五态和单事件迁移规则 | 轴实例、PWM、ADC、协议和标定实现 |
+| app 的 motor_axis、motor_lifecycle、motor_calibration | 独立轴数据、状态事件提交与功率许可、标定发布和保存 | 协议字节布局、厂商驱动 |
 | motor | 控制、测量、反馈、标定、保护等领域功能 | APP 调度实现和具体厂商依赖 |
 | communication | 接收、解包、通过约定接口交付业务、打包回复 | 直接访问 APP 运行私有对象或 Watch 入口 |
 | parameters / config | 参数默认值、验证、存储转换及板型/电机配置 | 在线控制状态或重复的活动参数所有权 |
@@ -52,7 +53,7 @@ motor 和 parameters 不依赖 APP 实现。纯数学/PI 等计算模块不依�
 ## 数据所有权与调试
 
 - MotorAxis 持有单轴活动配置、控制状态、FOC 和反馈对象；
-  MotorLifecycle 持有生命周期上下文；状态机只计算迁移。
+  MotorLifecycle 持有本轴主状态并决定事件的提交时机。独立模块 [motor_state_machine](firmware/app/motor_state_machine.c) 只根据当前状态和事件计算迁移。
   具体字段归属见[参数所有权](docs/architecture/parameter_ownership_v1.md)。
 - 配置、命令、运行状态和存储记录分别建模；同一有效事实有一个维护者。
   小对象可在同一结构体中分组，不为分类增加状态副本或机械拆分。

@@ -248,35 +248,6 @@ static void reset(void)
     tick();
 }
 
-static void test_five_states(void)
-{
-    for (unsigned state = 0; state <= MOTOR_STATE_FAULT; ++state)
-    {
-        assert(MotorLifecycle_NextState((MotorState)state, MOTOR_STATE_EVENT_FAULT) ==
-               MOTOR_STATE_FAULT);
-        for (unsigned event = 0; event <= MOTOR_STATE_EVENT_CLEAR; ++event)
-        {
-            assert(MotorLifecycle_NextState((MotorState)state, (MotorStateEvent)event) <=
-                   MOTOR_STATE_FAULT);
-        }
-    }
-    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN) ==
-           MOTOR_STATE_RUNNING);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_CALIBRATE) ==
-           MOTOR_STATE_CALIBRATION);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_RUNNING, MOTOR_STATE_EVENT_STOP) ==
-           MOTOR_STATE_IDLE);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_CALIBRATION, MOTOR_STATE_EVENT_COMPLETE) ==
-           MOTOR_STATE_IDLE);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_FAULT, MOTOR_STATE_EVENT_STOP) ==
-           MOTOR_STATE_FAULT);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_FAULT, MOTOR_STATE_EVENT_CLEAR) ==
-           MOTOR_STATE_IDLE);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_SELF_TEST, MOTOR_STATE_EVENT_RUN) ==
-           MOTOR_STATE_SELF_TEST);
-    assert(MotorLifecycle_NextState((MotorState)99, MOTOR_STATE_EVENT_RUN) == MOTOR_STATE_FAULT);
-    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, (MotorStateEvent)99) == MOTOR_STATE_FAULT);
-}
 static void test_control_and_stop(void)
 {
     reset();
@@ -408,7 +379,7 @@ static void test_fast_handoff(void)
     motor.fault_code = MOTOR_FAULT_OVERCURRENT;
     MotorLifecycle_BeginFastTick(&life);
     assert(!life.outer_pending && phases_disabled && motor.iq_target_a != 5.0f &&
-           pi.integral_output != 4.0f && life.power_enable_epoch == 0U);
+           pi.integral_output != 4.0f && life.phase_enable_epoch == 0U);
 }
 
 static void test_calibration_completes_to_idle(void)
@@ -480,7 +451,7 @@ static void test_calibration_stop_fault_and_late_result(void)
     uint32_t cancelled_epoch = MotorLifecycle_WorkEpoch(&life);
     MotorLifecycle_BeginFastTick(&life);
     MotorLifecycle_RequestStop(&life);
-    assert(life.stop_pending && life.power_enable_epoch == 0U);
+    assert(life.stop_pending && life.phase_enable_epoch == 0U);
     tick();
     MotorLifecycle_PostOutcome(
         &life, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, cancelled_epoch);
@@ -558,7 +529,7 @@ static void test_linearization_waits_for_publication(void)
     MotorLifecycle_PostOutcome(
         &life, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
     MotorLifecycle_RequestStop(&life);
-    assert(life.stop_pending && life.power_enable_epoch == 0U);
+    assert(life.stop_pending && life.phase_enable_epoch == 0U);
     interrupt_mask = BspSystem_EnterCritical();
     assert(!MotorLifecycle_ReadPendingCalibrationPublication(&life, &publication_epoch));
     MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, true);
@@ -591,7 +562,7 @@ static void test_joint_zero_rechecks_power(void)
         if (condition == 1)
         {
             MotorLifecycle_RequestStop(&life);
-            assert(life.stop_pending && life.power_enable_epoch == 0U);
+            assert(life.stop_pending && life.phase_enable_epoch == 0U);
         }
         if (condition == 2)
         {
@@ -663,6 +634,59 @@ static void test_calibration_communication_to_idle(void)
     }
     puts(
         "PASS calibration communication: three wire kinds -> real lifecycle -> completion -> IDLE");
+}
+
+static void test_target_fields_by_mode(void)
+{
+    /* 每次仅置一个非零字段，通过生产准入入口检查六个模式各自接受的字段。 */
+    static const struct
+    {
+        MotorControlMode mode;
+        bool allowed[7]; /* position, speed, Id, Iq, Vd, Vq, frequency */
+    } cases[] = {
+        {MOTOR_CONTROL_CURRENT, {false, false, false, true, false, false, false}},
+        {MOTOR_CONTROL_SPEED, {false, true, false, false, false, false, false}},
+        {MOTOR_CONTROL_POSITION, {true, false, false, false, false, false, false}},
+        {MOTOR_CONTROL_VQ, {false, false, false, false, false, true, false}},
+        {MOTOR_CONTROL_OPEN_VOLTAGE, {false, false, false, false, true, true, true}},
+        {MOTOR_CONTROL_OPEN_CURRENT, {false, false, true, true, false, false, true}},
+    };
+    for (unsigned i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
+    {
+        reset();
+        assert(MotorLifecycle_RequestEnable(&life, cases[i].mode) == MOTOR_CONTROL_ACCEPTED);
+        tick();
+        MotorTarget target = {.mode = (uint16_t)cases[i].mode};
+        float *fields[] = {&target.position_rad,
+                           &target.speed_rad_s,
+                           &target.id_a,
+                           &target.iq_a,
+                           &target.vd_v,
+                           &target.vq_v,
+                           &target.frequency_hz};
+        for (unsigned j = 0U; j < sizeof(fields) / sizeof(fields[0]); ++j)
+        {
+            *fields[j] = 0.125f;
+            uint32_t revision = life.published_target;
+            MotorControlResult result = MotorLifecycle_SetTarget(&life, &target);
+            assert(result ==
+                   (cases[i].allowed[j] ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_INVALID));
+            if (!cases[i].allowed[j])
+            {
+                assert(life.published_target == revision);
+            }
+            *fields[j] = 0.0f;
+        }
+        if (cases[i].mode == MOTOR_CONTROL_CURRENT || cases[i].mode == MOTOR_CONTROL_OPEN_CURRENT)
+        {
+            motor.thermal_limit_active = true;
+            motor.thermal_current_limit_a = 0.125f;
+            target.iq_a = 0.125f;
+            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+            target.iq_a = 0.25f;
+            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+        }
+    }
 }
 
 static void test_live_targets(void)
@@ -793,7 +817,7 @@ static void test_wheel_position_targets(void)
         assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
         assert(motor.position_target_rad == 14.0f);
         MotorLifecycle_RequestStop(&life);
-        assert(life.stop_pending && life.power_enable_epoch == 0U);
+        assert(life.stop_pending && life.phase_enable_epoch == 0U);
         tick();
         assert(MotorLifecycle_IsStopped(&life) && phases_disabled);
     }
@@ -802,9 +826,11 @@ static void test_wheel_position_targets(void)
 int main(void)
 {
     AppProtocol_Init(&adapter, &endpoint, &life);
+    test_target_fields_by_mode();
     test_live_targets();
     test_wheel_position_targets();
-    test_five_states();
+    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN) ==
+           MOTOR_STATE_RUNNING);
     test_control_and_stop();
     test_bus_current_snapshot();
     test_faults_and_safety();

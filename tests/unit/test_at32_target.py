@@ -60,6 +60,7 @@ class At32TargetTests(unittest.TestCase):
             if path.name in (
                 "motor_state_machine.c",
                 "motor_lifecycle.c",
+                "motor_lifecycle_exchange.c",
             ):
                 options = ET.fromstring(ET.tostring(options))
                 for tag in ("Optim", "oTime"):
@@ -100,6 +101,7 @@ class At32TargetTests(unittest.TestCase):
                     if file.findtext("FileName") in (
                         "motor_state_machine.c",
                         "motor_lifecycle.c",
+                        "motor_lifecycle_exchange.c",
                     ):
                         self.assertEqual(file.findtext(".//Cads/Optim"), "4")
                         self.assertEqual(file.findtext(".//Cads/oTime"), "1")
@@ -226,6 +228,7 @@ class At32TargetTests(unittest.TestCase):
                 ):
                     self.assertIn(f"{obj} (+RO)", fast)
                 self.assertIn("encoder_calibration.o (i.EncoderCalibration_PublishLut)", flash)
+                self.assertIn("motor_state_machine.o (i.MotorStateMachine_NextState)", fast)
 
     def test_app_stack_is_separate_from_vendor(self):
         base = ROOT / "projects/at32f456/application"
@@ -259,6 +262,8 @@ class At32TargetTests(unittest.TestCase):
             "app_protocol.c",
             "motor_axis.c",
             "motor_lifecycle.c",
+            "motor_lifecycle_exchange.c",
+            "motor_state_machine.c",
             "motor_calibration.c",
             "system.c",
             "boot.c",

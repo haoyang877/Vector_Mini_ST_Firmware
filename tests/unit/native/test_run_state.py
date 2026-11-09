@@ -18,8 +18,31 @@ def main() -> None:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
+    # 只链接五态规则，独立测试没有 BSP、配置或生命周期依赖。
+    machine = ROOT / "firmware/app/motor_state_machine.c"
+    pure_test = args.out / "motor_state_machine.exe"
+    subprocess.run(
+        compiler
+        + [
+            "-std=c99",
+            "-O1",
+            "-UNDEBUG",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(machine.parent),
+            str(machine),
+            str(ROOT / "tests/unit/native/motor_state_machine_test.c"),
+            "-o",
+            str(pure_test),
+        ],
+        check=True,
+    )
+    subprocess.run([str(pure_test)], check=True)
     sources = [
         ROOT / "tests/unit/native/five_state_lifecycle_test.c",
+        machine,
         *sorted((ROOT / "firmware/app").glob("motor_lifecycle*.c")),
         ROOT / "firmware/motor/protection/motor_fault.c",
         ROOT / "firmware/app/app_protocol.c",

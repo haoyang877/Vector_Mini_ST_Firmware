@@ -1,0 +1,349 @@
+#include "motor_lifecycle_exchange.h"
+
+#include <math.h>
+#include "application_config.h"
+#include "axis_config.h"
+#include "bsp_system.h"
+
+/* 前台发布目标，外环发布计算结果，只有 ADC 消费。所有槽属于当前轴。 */
+static bool dq_target_within_limit(float d, float q, float limit)
+{
+    return isfinite(limit) && limit > 0.0f && d * d + q * q <= limit * limit;
+}
+
+static MotorControlResult apply_running_target(MotorLifecycle *life, const MotorTarget *target)
+{
+    const MotorLifecycleBindings *drive = &life->drive;
+    const MotorConfiguration *configuration = drive->configuration;
+    MotorControlState *motor = drive->motor;
+
+    switch ((MotorControlMode)target->mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+    {
+        if (target->position_rad != 0.0f || target->speed_rad_s != 0.0f || target->vd_v != 0.0f ||
+            target->vq_v != 0.0f || target->frequency_hz != 0.0f || target->id_a != 0.0f)
+        {
+            return MOTOR_CONTROL_INVALID;
+        }
+        float limit_a = configuration->application.current_limit_a;
+        if (motor->thermal_limit_active)
+        {
+            limit_a = fminf(limit_a, motor->thermal_current_limit_a);
+        }
+        if (!dq_target_within_limit(target->id_a, target->iq_a, limit_a))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        break;
+    }
+    case MOTOR_CONTROL_SPEED:
+    {
+        if (target->position_rad != 0.0f || target->id_a != 0.0f || target->iq_a != 0.0f ||
+            target->vd_v != 0.0f || target->vq_v != 0.0f || target->frequency_hz != 0.0f)
+        {
+            return MOTOR_CONTROL_INVALID;
+        }
+        float limit_rad_s = configuration->application.speed_limit_rad_s;
+        if (!isfinite(limit_rad_s) || fabsf(target->speed_rad_s) > limit_rad_s)
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        motor->speed_target_rad_s = target->speed_rad_s;
+        return MOTOR_CONTROL_ACCEPTED;
+    }
+    case MOTOR_CONTROL_POSITION:
+        if (target->speed_rad_s != 0.0f || target->id_a != 0.0f || target->iq_a != 0.0f ||
+            target->vd_v != 0.0f || target->vq_v != 0.0f || target->frequency_hz != 0.0f)
+        {
+            return MOTOR_CONTROL_INVALID;
+        }
+        if (!MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
+                                             configuration->application.axis_profile_valid,
+                                             Encoder_GetMechPos(drive->rotor_encoder),
+                                             target->position_rad))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        motor->position_target_rad = target->position_rad;
+        return MOTOR_CONTROL_ACCEPTED;
+    case MOTOR_CONTROL_VQ:
+        if (target->position_rad != 0.0f || target->speed_rad_s != 0.0f || target->id_a != 0.0f ||
+            target->iq_a != 0.0f || target->vd_v != 0.0f || target->frequency_hz != 0.0f)
+        {
+            return MOTOR_CONTROL_INVALID;
+        }
+        if (!dq_target_within_limit(
+                target->vd_v, target->vq_v, Foc_MaxVoltage(drive->foc->bus_voltage_filtered_v)))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        break;
+    case MOTOR_CONTROL_OPEN_VOLTAGE:
+        if (target->position_rad != 0.0f || target->speed_rad_s != 0.0f || target->id_a != 0.0f ||
+            target->iq_a != 0.0f)
+        {
+            return MOTOR_CONTROL_INVALID;
+        }
+        if (!(fabsf(target->frequency_hz) <=
+              MotorConfiguration_OpenLoopLimitHz(configuration,
+                                                 MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ)) ||
+            !dq_target_within_limit(
+                target->vd_v, target->vq_v, Foc_MaxVoltage(drive->foc->bus_voltage_filtered_v)))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        break;
+    case MOTOR_CONTROL_OPEN_CURRENT:
+    {
+        if (target->position_rad != 0.0f || target->speed_rad_s != 0.0f || target->vd_v != 0.0f ||
+            target->vq_v != 0.0f)
+        {
+            return MOTOR_CONTROL_INVALID;
+        }
+        float limit_a = configuration->application.current_limit_a;
+        if (motor->thermal_limit_active)
+        {
+            limit_a = fminf(limit_a, motor->thermal_current_limit_a);
+        }
+        if (!(fabsf(target->frequency_hz) <=
+              MotorConfiguration_OpenLoopLimitHz(configuration,
+                                                 MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ)) ||
+            !dq_target_within_limit(target->id_a, target->iq_a, limit_a))
+        {
+            return MOTOR_CONTROL_OUT_OF_RANGE;
+        }
+        break;
+    }
+    default:
+        return MOTOR_CONTROL_INVALID;
+    }
+
+    /* 电流和电压目标都在下一次 ADC 拍首成组生效。 */
+    uint32_t revision = life->published_target + 1U;
+    unsigned slot = revision & 1U;
+    life->fast_targets[slot] = *target;
+    life->target_epochs[slot] = life->epoch;
+    BspSystem_MemoryBarrier();
+    life->published_target = revision;
+    return MOTOR_CONTROL_ACCEPTED;
+}
+
+MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTarget *target)
+{
+    if (target == NULL || !MotorControlMode_IsValid((MotorControlMode)target->mode) ||
+        !isfinite(target->position_rad) || !isfinite(target->speed_rad_s) ||
+        !isfinite(target->iq_a) || !isfinite(target->vq_v) || !isfinite(target->frequency_hz) ||
+        !isfinite(target->id_a) || !isfinite(target->vd_v))
+    {
+        return MOTOR_CONTROL_INVALID;
+    }
+
+    uint32_t mask = BspSystem_EnterControlCritical();
+    MotorControlResult result = MOTOR_CONTROL_DENIED;
+    if (life->drive.motor->fault_code != MOTOR_FAULT_NONE)
+    {
+        result = MOTOR_CONTROL_FAULT;
+    }
+    else if (life->state == MOTOR_STATE_RUNNING && !life->stop_pending && !life->starts_locked &&
+             target->mode == life->drive.motor->control_mode)
+    {
+        result = apply_running_target(life, target);
+    }
+    BspSystem_ExitControlCritical(mask);
+    return result;
+}
+
+void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work)
+{
+    uint32_t mask = BspSystem_EnterControlCritical();
+    work->owner = life;
+    work->allowed = false;
+    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
+    {
+        uint32_t fast = life->fast_sample_ticks;
+        BspSystem_MemoryBarrier();
+        work->epoch = life->epoch;
+        work->motor = *life->drive.motor;
+        work->speed_pi = *life->drive.speed_pi;
+        BspSystem_MemoryBarrier();
+        if (fast == life->fast_sample_ticks)
+        {
+            work->allowed = (life->state == MOTOR_STATE_RUNNING || life->start_pending) &&
+                            work->motor.control_mode != MOTOR_CONTROL_NONE &&
+                            work->motor.fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
+                            !life->starts_locked;
+            break;
+        }
+    }
+    BspSystem_ExitControlCritical(mask);
+}
+
+void MotorLifecycle_PublishOuterResult(MotorLifecycle *life,
+                                       const MotorOuterWork *work,
+                                       bool update_control,
+                                       bool request_phase_enable)
+{
+    life->outer_pending = false;
+    if (!update_control && !request_phase_enable)
+    {
+        return;
+    }
+    BspSystem_MemoryBarrier();
+    life->outer_result = *work;
+    life->outer_updates_control = update_control;
+    life->outer_requests_enable = request_phase_enable;
+    BspSystem_MemoryBarrier();
+    life->outer_pending = true;
+}
+
+static uint32_t consume_outer_result(MotorLifecycle *life)
+{
+    if (!life->outer_pending)
+    {
+        return 0U;
+    }
+    life->outer_pending = false;
+    BspSystem_MemoryBarrier();
+    const MotorOuterWork *work = &life->outer_result;
+    if (work->epoch != life->epoch || work->motor.control_mode != life->drive.motor->control_mode ||
+        life->stop_pending || life->starts_locked ||
+        life->drive.motor->fault_code != MOTOR_FAULT_NONE)
+    {
+        MotorOuterLoop_RequestReset(life->drive.outer);
+        return 0U;
+    }
+    if (life->outer_updates_control)
+    {
+        MotorControlState *motor = life->drive.motor;
+        motor->id_target_a = work->motor.id_target_a;
+        motor->iq_target_a = work->motor.iq_target_a;
+        motor->uses_speed_ramp = work->motor.uses_speed_ramp;
+        motor->speed_ramped_rad_s = work->motor.speed_ramped_rad_s;
+        motor->position_reference_rad = work->motor.position_reference_rad;
+        motor->position_target_reached = work->motor.position_target_reached;
+        motor->position_velocity_filtered_rad_s = work->motor.position_velocity_filtered_rad_s;
+        motor->position_trajectory_speed_rad_s = work->motor.position_trajectory_speed_rad_s;
+        motor->position_trajectory_acceleration_rad_s2 =
+            work->motor.position_trajectory_acceleration_rad_s2;
+        *life->drive.speed_pi = work->speed_pi;
+    }
+    if (life->outer_requests_enable && life->state == MOTOR_STATE_IDLE && life->start_pending)
+    {
+        return work->epoch;
+    }
+    return 0U;
+}
+
+static void consume_fast_target(MotorLifecycle *life)
+{
+    uint32_t revision = life->published_target;
+    if (revision == life->consumed_target)
+    {
+        return;
+    }
+    life->consumed_target = revision;
+    BspSystem_MemoryBarrier();
+    unsigned slot = revision & 1U;
+    const MotorTarget *target = &life->fast_targets[slot];
+    MotorControlState *motor = life->drive.motor;
+    if (life->target_epochs[slot] != life->epoch || life->state != MOTOR_STATE_RUNNING ||
+        life->stop_pending || life->starts_locked || motor->fault_code != MOTOR_FAULT_NONE ||
+        target->mode != motor->control_mode)
+    {
+        return;
+    }
+    switch (motor->control_mode)
+    {
+    case MOTOR_CONTROL_CURRENT:
+        motor->id_target_a = target->id_a;
+        motor->iq_target_a = target->iq_a;
+        break;
+    case MOTOR_CONTROL_VQ:
+        motor->vd_target_v = target->vd_v;
+        motor->vq_target_v = target->vq_v;
+        break;
+    case MOTOR_CONTROL_OPEN_VOLTAGE:
+        motor->vd_target_v = target->vd_v;
+        motor->vq_target_v = target->vq_v;
+        motor->open_loop_frequency_hz = target->frequency_hz;
+        break;
+    case MOTOR_CONTROL_OPEN_CURRENT:
+        motor->id_target_a = target->id_a;
+        motor->iq_target_a = target->iq_a;
+        motor->open_loop_frequency_hz = target->frequency_hz;
+        break;
+    default:
+        break;
+    }
+}
+
+uint32_t MotorLifecycle_ApplyPendingControl(MotorLifecycle *life)
+{
+    uint32_t enable_epoch = consume_outer_result(life);
+    consume_fast_target(life);
+    return enable_epoch;
+}
+
+static MotorStatus sample_status(const MotorLifecycle *life)
+{
+    const MotorControlState *motor = life->drive.motor;
+    const FocState *foc = life->drive.foc;
+    const EncoderState *encoder = life->drive.rotor_encoder;
+    bool active = life->state == MOTOR_STATE_RUNNING && motor->control_mode != MOTOR_CONTROL_NONE;
+    bool current = active && motor->control_mode != MOTOR_CONTROL_OPEN_VOLTAGE &&
+                   motor->control_mode != MOTOR_CONTROL_VQ;
+    bool position = active && motor->control_mode == MOTOR_CONTROL_POSITION;
+    bool speed = active && motor->control_mode == MOTOR_CONTROL_SPEED;
+    MotorStatus status = {
+        .state = life->state,
+        .mode = (uint16_t)motor->control_mode,
+        .fault = (uint16_t)motor->fault_code,
+        .measurements_valid = life->fast_samples_fresh,
+        .position_reference_rad = position ? motor->position_reference_rad : NAN,
+        .position_rad = encoder->has_valid_sample ? encoder->mechanical_position_rad : NAN,
+        .speed_reference_rad_s = speed      ? motor->speed_target_rad_s
+                                 : position ? motor->speed_ramped_rad_s
+                                            : NAN,
+        .speed_rad_s =
+            encoder->has_valid_sample ? encoder->mechanical_velocity_continuous_rad_s : NAN,
+        .bus_voltage_v = foc->bus_voltage_filtered_v,
+        .bus_current_a = foc->bus_current_filtered_a,
+        .iq_reference_a = current ? motor->iq_target_a : NAN,
+        .iq_a = active ? foc->current_dq_a.q : NAN,
+        .temperature_c = McuTemperature_IsFresh(life->drive.temperature) ? foc->temperature_c : NAN,
+        .vq_v = active ? foc->voltage_dq_v.q : NAN,
+        .vd_v = active ? foc->voltage_dq_v.d : NAN,
+    };
+    /* 116 回复报告已经受理的电流参考，快环随后在拍首成组消费。 */
+    uint32_t revision = life->published_target;
+    unsigned slot = revision & 1U;
+    if (current && !life->stop_pending && motor->fault_code == MOTOR_FAULT_NONE &&
+        revision != life->consumed_target && life->target_epochs[slot] == life->epoch &&
+        life->fast_targets[slot].mode == motor->control_mode)
+    {
+        status.iq_reference_a = life->fast_targets[slot].iq_a;
+    }
+    return status;
+}
+
+bool MotorLifecycle_ReadStatus(const MotorLifecycle *life, MotorStatus *status)
+{
+    /* 每个计数只有对应 ISR 写。前台被抢占后重读一次，连续争用则报告本帧不可用。 */
+    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
+    {
+        uint32_t fast = life->fast_sample_ticks;
+        uint32_t outer = life->outer_ticks;
+        uint32_t supervisor = life->supervisor_ticks;
+        BspSystem_MemoryBarrier();
+        MotorStatus sample = sample_status(life);
+        BspSystem_MemoryBarrier();
+        if (fast == life->fast_sample_ticks && outer == life->outer_ticks &&
+            supervisor == life->supervisor_ticks)
+        {
+            *status = sample;
+            return true;
+        }
+    }
+    return false;
+}

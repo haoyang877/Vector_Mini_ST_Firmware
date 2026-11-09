@@ -23,7 +23,9 @@
 | app/app_protocol.c | 服务绑定、协议与领域请求映射、按请求生成反馈 |
 | app/composition/app_rtt.c | 可选RTT波形的静态缓冲、初始化和监督拍读取最近的外环输出 |
 | app/motor_axis.c | 单份配置、运行对象、采样/控制/标定调度 |
-| app/motor_lifecycle.c | 状态、启停、三类标定、会话代际、故障和功率许可 |
+| app/motor_state_machine.c | 五态及单事件迁移规则，按值计算下一状态 |
+| app/motor_lifecycle.c | 启停和标定事件的提交时机、本轴状态、会话代际、故障和功率许可 |
+| app/motor_lifecycle_exchange.c | 同一轴实例上的目标校验、跨拍结果交接与反馈快照 |
 | app/motor_calibration.c | 标定快拍、关相发布、停稳计时和保存 |
 | app/app_loader.c | 进入 Loader 的停机票据、超时和镜像确认 |
 | motor/control | 位置/速度外环、控制模式、PI、FOC 与无感启动 |
@@ -52,7 +54,7 @@ ADC、监督和SysTick向量统一放在各板projects目录的main.c，由各BS
 MotorAxis 持有 MotorConfiguration、MotorControlState、FocState、编码器及观测器。
 配置分 model/application/device；LUT 和零位只存一份，位于 device.encoder。
 FocState 直接持有电流、电压、温度及控制量，测量没有第二份所有者。
-生命周期属于 g_app.axis.lifecycle。五态迁移只读取状态和事件，在 motor_lifecycle.c 内执行。
+生命周期属于 g_app.axis.lifecycle。motor_lifecycle.c 提交事件，motor_state_machine.c 只读取状态和事件并计算下一状态。
 
 观测器状态与接口归 [flux_observer.h](../../firmware/motor/feedback/flux_observer.h)，
 无感启动阶段与状态归 [sensorless_startup.h](../../firmware/motor/control/sensorless_startup.h)；

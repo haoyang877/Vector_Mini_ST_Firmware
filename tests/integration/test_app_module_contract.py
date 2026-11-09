@@ -6,12 +6,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[2] / "firmware/app"
-MODULES = {
+SOURCE_PREFIXES = {
     "app": "App",
     "app_loader": "AppLoader",
     "app_protocol": "AppProtocol",
     "motor_axis": "MotorAxis",
     "motor_lifecycle": "MotorLifecycle",
+    "motor_lifecycle_exchange": "MotorLifecycle",
+    "motor_state_machine": "MotorStateMachine",
     "motor_calibration": "MotorCalibration",
 }
 
@@ -45,8 +47,8 @@ class AppModuleContractTests(unittest.TestCase):
             self.assertEqual("YG_APP_LOADER_IMAGE=1" in defines.split(","), loader_enabled, project)
 
     def test_public_names_and_modules(self):
-        self.assertEqual({p.stem for p in APP.glob("*.c")}, set(MODULES))
-        for name, prefix in MODULES.items():
+        self.assertEqual({p.stem for p in APP.glob("*.c")}, set(SOURCE_PREFIXES))
+        for name, prefix in SOURCE_PREFIXES.items():
             with self.subTest(module=name):
                 source = (APP / f"{name}.h").read_text(encoding="utf-8")
                 declarations = re.findall(r"^\w+[ \t*]+(\w+)\s*\(", source, re.MULTILINE)
@@ -56,7 +58,7 @@ class AppModuleContractTests(unittest.TestCase):
 
     def test_module_state_is_instance_owned(self):
         # C 函数体与函数声明均不匹配；检查文件级和函数内静态工作对象。
-        for name in MODULES:
+        for name in SOURCE_PREFIXES:
             text = (APP / f"{name}.c").read_text(encoding="utf-8")
             text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
             self.assertNotRegex(
@@ -64,7 +66,13 @@ class AppModuleContractTests(unittest.TestCase):
             )
 
     def test_runtime_modules_do_not_import_composition(self):
-        for name in ("motor_axis", "motor_lifecycle", "motor_calibration"):
+        for name in (
+            "motor_axis",
+            "motor_state_machine",
+            "motor_lifecycle",
+            "motor_lifecycle_exchange",
+            "motor_calibration",
+        ):
             for suffix in ("c", "h"):
                 text = (APP / f"{name}.{suffix}").read_text(encoding="utf-8")
                 self.assertNotRegex(text, r'#include\s+"(?:app(?:_\w+)?|yg_protocol)\.h"')

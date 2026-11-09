@@ -1,6 +1,7 @@
 #ifndef MOTOR_LIFECYCLE_H
 #define MOTOR_LIFECYCLE_H
 #include "motor_types.h"
+#include "motor_state_machine.h"
 #include "foc.h"
 #include "pi_controller.h"
 #include "encoder_feedback.h"
@@ -10,26 +11,6 @@
 #include "motor_control.h"
 #include "encoder_calibration.h"
 #include "motor_sensing.h"
-
-typedef enum
-{
-    MOTOR_STATE_IDLE,
-    MOTOR_STATE_SELF_TEST,
-    MOTOR_STATE_CALIBRATION,
-    MOTOR_STATE_RUNNING,
-    MOTOR_STATE_FAULT
-} MotorState;
-
-/* 每次只处理一个已由运行层校验的事件；无硬件、配置或任务依赖。 */
-typedef enum
-{
-    MOTOR_STATE_EVENT_RUN,
-    MOTOR_STATE_EVENT_CALIBRATE,
-    MOTOR_STATE_EVENT_COMPLETE,
-    MOTOR_STATE_EVENT_STOP,
-    MOTOR_STATE_EVENT_FAULT,
-    MOTOR_STATE_EVENT_CLEAR
-} MotorStateEvent;
 
 /** @brief 请求受理结果；受理不代表已经启相或标定完成。 */
 typedef enum
@@ -125,11 +106,13 @@ struct MotorLifecycle
     MotorCalibrationType calibration_type;
     uint32_t epoch;
     volatile uint32_t supervisor_ticks, outer_ticks;
-    volatile uint32_t power_enable_epoch, fast_sample_ticks;
+    volatile uint32_t phase_enable_epoch; /* 本会话待 ADC 复核的启相许可，零表示无许可。 */
+    volatile uint32_t fast_sample_ticks;
     uint32_t observed_fast_sample_ticks;
     volatile bool stop_pending;
     volatile MotorCalibrationHandoff calibration_handoff;
-    bool enable_pending, fault_locked, fast_samples_fresh, starts_locked;
+    bool start_pending; /* 普通启动已受理，尚未确认三相输出开启。 */
+    bool fault_locked, fast_samples_fresh, starts_locked;
     /* 单写者先准备非活动槽，最后发布序号；ADC 只消费完整的本轴结果。 */
     MotorTarget fast_targets[2];
     uint32_t target_epochs[2];
@@ -155,8 +138,8 @@ void MotorLifecycle_Init(MotorLifecycle *life, const MotorLifecycleBindings *bin
 void MotorLifecycle_BeginFastTick(MotorLifecycle *life);
 
 /**
- * @brief 上报本周期 worker 结果并关闭本拍故障输出，由2 kHz状态机消费结果。
- * @param epoch worker 执行前捕获的原始身份。
+ * @brief 快拍结束时处理控制或标定结果，本拍发生故障时立即关相。
+ * @param epoch 执行控制或标定前读取的会话号，用来识别过期结果。
  * @param outcome 本周期控制或标定结果；标定完成和候选发布请求由监督/前台接续。
  * @note 仅由20 kHz快速采样上下文末尾调用；每拍登记感测处理进展，
  *       原代故障立即锁存并关相，停止交给监督清理，标定完成仅发布有界标志。
@@ -173,9 +156,8 @@ void MotorLifecycle_PostOutcome(MotorLifecycle *life, MotorTaskResult outcome, u
 MotorState MotorLifecycle_GetState(const MotorLifecycle *life);
 
 /**
- * @brief 由后台提出远程停机请求，下一监督拍执行正常关相路径。
- * @note 撤销待启相请求；运行在关相后回IDLE，故障保持锁存。
- *       与监督中断通过短临界区交接。
+ * @brief 登记停机请求并立即撤销本轴的启动和启相许可。
+ * @note ADC 遇到待停请求先关相。监督拍或外环处理停机，确认关相后回空闲，已有故障优先。
  * @param life 调用方持有的实例状态。
  */
 void MotorLifecycle_RequestStop(MotorLifecycle *life);
@@ -184,8 +166,7 @@ void MotorLifecycle_RequestStop(MotorLifecycle *life);
  * @brief 请求以零目标或当前位置启动明确控制模式。
  * @param mode 业务模式，不接受线上或历史编号。
  * @return 受理、参数错误、忙、故障或守卫拒绝；受理不代表已启相。
- * @note 前台消费调用，有界非阻塞；功率迁移仍在监督调度提交。
- *       受理只登记模式和启动意图，准备期间保持IDLE，ADC实际启相后进入RUNNING。
+ * @note 前台调用。启动受理后保持 IDLE，外环发布启相意图，ADC 确认三相开启后进入 RUNNING。
  * @param life 调用方持有的实例状态。
  */
 MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *life, MotorControlMode mode);
@@ -272,9 +253,9 @@ MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *life);
 bool MotorLifecycle_ReadBootHealth(MotorLifecycle *life, uint32_t *progress);
 
 /**
- * @brief 读取 worker 开始执行时的会话身份。
- * @return 当前运行代际；停止或取消后立即失效原worker代际。
- * @note 在调用 worker 前读取，并原样传给 PostOutcome。
+ * @brief 读取本轴当前会话号。
+ * @return 当前会话号。停机收尾后旧会话的结果失效。
+ * @note ADC 执行本拍控制或标定前读取，结束时原样传给 MotorLifecycle_PostOutcome。
  * @param life 调用方持有的实例状态。
  */
 uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *life);
@@ -317,7 +298,7 @@ bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life);
 /**
  * @brief 查询是否已停止且数字输出实际关闭。
  * @return 无待启动/停止且处于空闲或故障、模式失能和关相时返回true。
- * @note 只读；升级复位前须由调用方在同一最终临界区复核。
+ * @note 只读；升级交接在启动锁保持期间复核停机，底层在复位前再次确认关相和时限。
  * @param life 调用方持有的实例状态。
  */
 bool MotorLifecycle_IsStopped(const MotorLifecycle *life);
@@ -334,7 +315,7 @@ bool MotorLifecycle_ReadStatus(const MotorLifecycle *life, MotorStatus *status);
  * @param state 当前状态；上电由运行层置为IDLE，自检仅预留。
  * @param event 单个事件；运行层负责健康校验、关相和资源释放。
  * @return 下一状态；清错回空闲，自检占位保持原状态。
- * @note 纯函数；RUN事件仅在实际启相确认后提交，完成/停止前必须关闭输出。
+ * @note 保留既有 C 接口。迁移规则由 MotorStateMachine_NextState 实现。
  */
 MotorState MotorLifecycle_NextState(MotorState state, MotorStateEvent event);
 #endif

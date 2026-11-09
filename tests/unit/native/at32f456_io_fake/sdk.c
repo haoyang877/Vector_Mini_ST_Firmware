@@ -232,10 +232,9 @@ void adc_preempt_channel_set(adc_type *a,
                              uint8_t rank,
                              adc_sampletime_select_type sample)
 {
-    assert((a == ADC1 && ch <= ADC_CHANNEL_3 &&
-            sample == (ch == ADC_CHANNEL_3 ? ADC_SAMPLETIME_24_5 : ADC_SAMPLETIME_12_5)) ||
+    assert((a == ADC1 && ch <= ADC_CHANNEL_2 && sample == ADC_SAMPLETIME_12_5) ||
            (a == ADC2 && ch == ADC_CHANNEL_4 && sample == ADC_SAMPLETIME_92_5) ||
-           (a == ADC2 && (ch == ADC_CHANNEL_5 || ch == ADC_CHANNEL_6) &&
+           (a == ADC2 && (ch == ADC_CHANNEL_3 || ch == ADC_CHANNEL_5 || ch == ADC_CHANNEL_6) &&
             sample == ADC_SAMPLETIME_24_5));
     sim_adc[index_of(a)].channels[rank - 1U] = ch;
     sim_adc[index_of(a)].sample_times[rank - 1U] = sample;

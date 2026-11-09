@@ -18,7 +18,7 @@ int main(void) {
     BspAdc_SetBusCurrentOffset(2010.5f);
     for(unsigned sum=0;sum<=16380;sum++) {
         MCU_ADC_PHASE_A_RESULT=sum; MCU_ADC_PHASE_B_RESULT=sum; MCU_ADC_PHASE_C_RESULT=sum;
-        MCU_ADC_BUS_VOLTAGE_RESULT=sum;
+        MCU_ADC_BUS_VOLTAGE_RESULT=BSP_BOARD==1 ? sum : sum/4U;
         float counts=(float)sum/4.0f;
         for(unsigned phase=0;phase<3;phase++) {
             assert(BspAdc_ReadRawChannel((BspAdcChannel)phase)==counts);
@@ -26,7 +26,9 @@ int main(void) {
                           (BSP_BOARD==1 ? 0.060f : 0.080f);
             assert(fabsf(BspAdc_ReadChannel((BspAdcChannel)phase)-expected)<0.00002f);
         }
-        float volts=counts*3.3f/4095.0f*(BSP_BOARD==1 ? 11.0f : 103.3f/3.3f);
+        float bus_counts=BSP_BOARD==1 ? counts : (float)(sum/4U);
+        assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE)==bus_counts);
+        float volts=bus_counts*3.3f/4095.0f*(BSP_BOARD==1 ? 11.0f : 103.3f/3.3f);
         assert(fabsf(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE)-volts)<0.00003f);
     }
 #if BSP_BOARD==2

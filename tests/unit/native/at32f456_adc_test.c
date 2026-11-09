@@ -29,14 +29,15 @@ int main(void)
     assert(sim_analog_pins == 0xFFU);
     assert(sim_adc_common.div == ADC_HCLK_DIV_3 && !sim_adc_common.tempervintrv_state);
     assert(sim_adc[0].enabled && sim_adc[1].enabled);
-    for (unsigned rank = 0; rank < 4; rank++)
+    assert(sim_adc[0].length == 3);
+    for (unsigned rank = 0; rank < 3; rank++)
     {
         assert(sim_adc[0].channels[rank] == rank);
     }
     assert(sim_adc[0].sample_times[0] == ADC_SAMPLETIME_12_5);
-    assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_24_5);
+    assert(sim_adc[1].channels[3] == 3 && sim_adc[1].sample_times[3] == ADC_SAMPLETIME_24_5);
     assert(sim_adc[1].channels[0] == 4 && sim_adc[1].sample_times[0] == ADC_SAMPLETIME_92_5);
-    assert(sim_adc[1].length == 3 && sim_adc[1].channels[1] == 5 && sim_adc[1].channels[2] == 6);
+    assert(sim_adc[1].length == 4 && sim_adc[1].channels[1] == 5 && sim_adc[1].channels[2] == 6);
     assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);
@@ -55,6 +56,9 @@ int main(void)
     sim_adc[0].flags = sim_adc[1].flags = ADC_PCCE_FLAG;
     assert(BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
+    ADC1->pdt4 = 0;
+    ADC2->pdt4 = 1206;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 1206);
     ADC2->pdt1 = 1999;
     ADC2->pdt2 = 1234;
     ADC2->pdt3 = 2345;

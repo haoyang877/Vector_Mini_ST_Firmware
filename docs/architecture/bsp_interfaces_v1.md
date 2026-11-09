@@ -164,7 +164,7 @@ bool BootHw_IsAvailable(void);
 
 | 功能 | AT32F456 | STM32G4 |
 | --- | --- | --- |
-| 三相电流/母线电压 | ADC1注入四rank、各四次累加，PWM同步 | ADC2注入四rank、各四次累加，原TIM1 CH4触发 |
+| 三相电流/母线电压 | TMR1 CH1 同步触发。ADC1 三相电流各四次累加，ADC2 在抢占序列末位单采 PA3 母线电压 | ADC2注入四rank、各四次累加，原TIM1 CH4触发 |
 | 独立母线电流 | ADC2 PA4注入序列，与ADC1同次PWM事件 | 未布置，返回NOT_SUPPORTED |
 | 辅助模拟量 | PA7 NTC、可选sin/cos、内部温度/VREF | 内部温度/VREF；其它未布置 |
 | 编码器 | MT6835、SPI2四线，APP沿用DMA | TLE5012B、SPI2三线换向 |
@@ -191,7 +191,7 @@ Flash双方沿用各自存储处理；两板编码器均不提供配置缓存和
 CAN按调用方提供的合法经典/FD元数据读写硬件；上层协议仍只使用原扩展FD+BRS及原过滤器。
 
 一次性通电窗口及相关功率契约已删除；电流零点由`MotorCurrentOffsets_Calibrate`统一处理，
-三相与母线电流采样及母线滤波由`MotorCurrent_Update`统一处理，均位于`motor/sensing/motor_current.c`。
+三相与母线电流由 `MotorCurrent_Update` 处理；母线电压由 [MotorVoltage_Update](../../firmware/motor/sensing/motor_voltage.c) 读取和滤波。
 没有驱动注册表、运行时板检测、虚表或为对称而制造的MCU空文件。
 
 ## 验证入口

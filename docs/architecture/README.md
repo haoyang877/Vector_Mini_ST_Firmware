@@ -13,6 +13,7 @@
 | 双板采样初始化、IRQ、原码及存储协调 | [完整采样链路](sampling_chain_v1.md) |
 | 双板编码器接口、器件协议与SPI传输 | [编码器三层链路](encoder_chain_v1.md) |
 | PWM比较值、功率启停及目标许可 | [PWM与功率链路](pwm_power_chain_v1.md) |
+| AT32F456 上下桥极性、死区、ADC 触发窗口与 FOC 写入截止 | [AT32F456 电机驱动说明与单周期时序图](at32f456_pwm_adc_driver.md) |
 | CAN初始化、收发、发送完成与错误恢复 | [双板CAN链路](can_chain_v1.md) |
 | 新旧板适配对象、改动范围与冻结边界 | [统一框架适配范围草案](dual_board_adaptation_scope_v1.md) |
 | 系统职责与产品支持范围 | [软件架构](software_architecture.md) |

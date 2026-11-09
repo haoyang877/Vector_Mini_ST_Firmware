@@ -24,7 +24,7 @@
 | W相PWM（上 / 下桥） | PA10 / PB1，CH3 / CH3N | PA11 / PB4，CH4 / CH4C |
 | ADC触发 / 监督时基 | TIM1_CH4 / TIM7，2kHz | TMR1_CH1 / TMR6，2kHz |
 | 三相电流ADC | PA5、PA6、PC4 / ADC2 | PA0、PA1、PA2 / ADC1 |
-| 母线电压ADC | PA4 / ADC2 | PA3 / ADC1 |
+| 母线电压ADC | PA4 / ADC2 | PA3 / ADC2 通道3 |
 | 母线电流ADC | 无独立采样 | PA4 / ADC2 |
 | 电机温度ADC | PA3预留，当前未用 | PA7 / ADC2 |
 | MCU温度 | ADC1内部温度及VREF | ADC1内部温度及VREF原码；物理量仍需实板校准 |

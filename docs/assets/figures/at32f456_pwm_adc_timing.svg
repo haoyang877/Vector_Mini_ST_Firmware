@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="916" height="926" viewBox="0 0 916 926" role="img" aria-labelledby="title desc">
+  <title id="title">AT32F456 全部 ADC 通道、PWM 与快环时序</title>
+  <desc id="desc">TMR1 在 22.50 µs 同时触发 ADC1 三相电流和 ADC2 母线电流、Hall sin、Hall cos、母线电压。TMR6 独立每 500 µs 触发 ADC2 普通组 PA7 电机温度，图下部以该触发为零点。</desc>
+  <defs>
+    <pattern id="budget" width="9" height="9" patternUnits="userSpaceOnUse">
+      <rect width="9" height="9" fill="#ecf1fa"/><path d="M-3 3L3 -3M0 9L9 0M6 12L12 6" stroke="#a8b9d7"/>
+    </pattern>
+  </defs>
+  <style>
+    text {font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;font-size:15px;fill:#1b3040}
+    .caption {font-size:13px;fill:#485d69}
+    .wave {stroke-width:2.6;fill:none;stroke-linejoin:round}
+  </style>
+  <rect width="916" height="926" fill="#fff"/>
+  <text x="24" y="31" font-weight="bold" style="font-size:19px">一个 PWM 周期 · 已启相，单相占空比 50%</text>
+  <text x="24" y="70">时间 / µs</text>
+  <g stroke="#d6e0e5"><path d="M218 81V683"/><path d="M380.5 81V683"/><path d="M543 81V683"/><path d="M705.5 81V683"/><path d="M868 81V683"/></g>
+  <g text-anchor="middle"><text x="218" y="70">0</text><text x="380.5" y="70">12.5</text><text x="543" y="70">25</text><text x="705.5" y="70">37.5</text><text x="868" y="70">50</text></g>
+  <text x="24" y="115">TMR1 计数</text>
+  <text x="24" y="135" class="caption">0 → 4500 → 0</text>
+  <path class="wave" stroke="#617482" d="M218 139L543 91L868 139"/>
+  <text x="24" y="178">MCU 上桥引脚</text>
+  <path class="wave" stroke="#2269a4" d="M218 162H380.5V188H708.1V162H868"/>
+  <text x="24" y="226">MCU 下桥引脚</text>
+  <path class="wave" stroke="#2269a4" d="M218 239H383.1V213H705.5V239H868"/>
+  <text x="24" y="283">CH1 / TRGOUT</text>
+  <path class="wave" stroke="#187961" d="M218 296H510.5V270H575.5V296H868"/>
+  <circle cx="510.5" cy="270" r="4" fill="#187961"/>
+  <text x="497" y="265" text-anchor="end" class="caption">22.50 触发</text>
+  <text x="587" y="265" class="caption">27.50 下降沿</text>
+  <text x="24" y="322" class="caption">ADC1 抢占组 · 每相 4 次</text>
+  <text x="24" y="354">1　PA0 · 相 A 电流</text>
+  <text x="591" y="354" class="caption">22.50～24.17 µs</text>
+  <rect x="510.5" y="342" width="21.667" height="17" fill="#bce1da"/>
+  <g fill="#187961">
+      <rect x="510.5" y="342" width="2.708" height="17"/>
+      <rect x="515.917" y="342" width="2.708" height="17"/>
+      <rect x="521.333" y="342" width="2.708" height="17"/>
+      <rect x="526.75" y="342" width="2.708" height="17"/>
+  </g>
+  <text x="24" y="394">2　PA1 · 相 B 电流</text>
+  <text x="591" y="394" class="caption">24.17～25.83 µs</text>
+  <rect x="532.167" y="382" width="21.667" height="17" fill="#bce1da"/>
+  <g fill="#187961">
+      <rect x="532.167" y="382" width="2.708" height="17"/>
+      <rect x="537.583" y="382" width="2.708" height="17"/>
+      <rect x="543" y="382" width="2.708" height="17"/>
+      <rect x="548.417" y="382" width="2.708" height="17"/>
+  </g>
+  <text x="24" y="434">3　PA2 · 相 C 电流</text>
+  <text x="591" y="434" class="caption">25.83～27.50 µs</text>
+  <rect x="553.833" y="422" width="21.667" height="17" fill="#bce1da"/>
+  <g fill="#187961">
+      <rect x="553.833" y="422" width="2.708" height="17"/>
+      <rect x="559.25" y="422" width="2.708" height="17"/>
+      <rect x="564.667" y="422" width="2.708" height="17"/>
+      <rect x="570.083" y="422" width="2.708" height="17"/>
+  </g>
+  <g transform="translate(0 32)">
+    <text x="24" y="434" class="caption">ADC2 抢占组 · 每路 1 次</text>
+  <g id="adc2-rank1">
+    <text x="24" y="457">1　PA4 · 母线电流</text>
+    <rect x="510.500" y="445" width="22.750" height="17" fill="#f2d8ac"/>
+    <rect x="510.500" y="445" width="20.042" height="17" fill="#a16318"/>
+    <text x="591" y="457" class="caption">22.50～24.25 µs</text>
+  </g>
+  <g id="adc2-rank2">
+    <text x="24" y="491">2　PA5 · Hall sin</text>
+    <rect x="533.250" y="479" width="8.017" height="17" fill="#f2d8ac"/>
+    <rect x="533.250" y="479" width="5.308" height="17" fill="#a16318"/>
+    <text x="591" y="491" class="caption">24.25～24.87 µs</text>
+  </g>
+  <g id="adc2-rank3">
+    <text x="24" y="525">3　PA6 · Hall cos</text>
+    <rect x="541.267" y="513" width="8.017" height="17" fill="#f2d8ac"/>
+    <rect x="541.267" y="513" width="5.308" height="17" fill="#a16318"/>
+    <text x="591" y="525" class="caption">24.87～25.48 µs</text>
+  </g>
+  <g id="adc2-rank4">
+    <text x="24" y="559">4　PA3 · 母线电压</text>
+    <rect x="549.283" y="547" width="8.017" height="17" fill="#f2d8ac"/>
+    <rect x="549.283" y="547" width="5.308" height="17" fill="#a16318"/>
+    <text x="591" y="559" class="caption">25.48～26.10 µs</text>
+  </g>
+  </g>
+  <g transform="translate(0 144)">
+  <text x="24" y="486">快环 / FOC 写入预算</text>
+  <rect x="575.5" y="466" width="292.5" height="28" fill="url(#budget)"/>
+  <text x="721" y="485" text-anchor="middle">≤ 22.50 µs</text>
+  <text x="24" y="535">新比较值装载</text>
+  <path d="M218 531H868" stroke="#a5b1bb"/>
+  <circle cx="868" cy="531" r="5" fill="#2269a4"/>
+  <text x="855" y="522" text-anchor="end" class="caption">三相按时写完时</text>
+  <text x="24" y="565" class="caption">桥臂换向死区 0.20 µs；ADC 深色为采样保持，浅色块为含转换的区间；斜线为可用时间。</text>
+  </g>
+  <path d="M24 733H887" stroke="#d6e0e5"/>
+  <text x="24" y="770" font-weight="bold" style="font-size:18px">电机温度 · TMR6 独立触发</text>
+  <text x="24" y="797" class="caption">时间从本次 TMR6 溢出算起；下次触发在 500 µs。仅展开转换开始后的 12 µs。</text>
+  <text x="24" y="830">时间 / µs</text>
+  <g text-anchor="middle"><text x="218" y="830">0</text><text x="434.667" y="830">4</text><text x="651.333" y="830">8</text><text x="868" y="830">12</text></g>
+  <g stroke="#d6e0e5"><path d="M218 837V880"/><path d="M434.667 837V880"/><path d="M651.333 837V880"/><path d="M868 837V880"/></g>
+  <text x="24" y="860">PA7 · 电机 NTC</text>
+  <text x="24" y="881" class="caption">ADC2 普通组 · 单次</text>
+  <g id="adc2-ntc">
+    <rect x="218" y="845" width="589.514" height="23" fill="#f2d8ac"/>
+    <rect x="218" y="845" width="578.229" height="23" fill="#a16318"/>
+  </g>
+  <text x="24" y="909" class="caption">采样保持 0～10.675 µs，约 10.883 µs 转换完成；按无抢占、无触发同步延迟估算。</text>
+</svg>

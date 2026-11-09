@@ -88,15 +88,63 @@ PITCH 和 YAW 配有独立的正交双线性霍尔。当前分支已包含 Hall 
 
 在允许输出轴连续转动的工装上，对 PITCH 或 YAW 发起编码器 LUT 标定。在观测器闭环下按内部编码器净位移扫满电机轴 100 圈，同时用 4 kHz 外环记录两路 Hall 原始极值。只在编码器采样阶段采集 Hall，启动、构表和减速阶段不计入极值。关相停稳后发布 LUT，再完成电零位对齐，不再额外扫 Hall 圈。任一路最低低于 10、最高高于 4086 或半峰峰值小于 800 count 时，保留原系数并记录故障。正常结束后关相保存编码器结果、Hall 四个系数、`calibration_success` 和 `calibration_faults`，完成 Flash 回读后报告结果。中止扫圈不自动写 Flash。机械零位仍须在已知工装零点单独设置。
 
-## 离线配参
+## 五块新板首次配参
 
-在重构工作树运行，例如生成左轮记录：
+**适用镜像**为重构分支的独立 `ESC-APP-AT32F456`。五块板烧同一个 APP，每块另写一条与安装位置匹配的参数记录。APP 从 `0x08000000` 启动，参数区为 `0x0803C000..0x0803FFFF`（16 KiB）。空白板启动时内部节点值为 255，预设指针为空，协议不注册产品地址。首次分配 ID 通过 SWD 完成。使用配套 LoaderApp 时应依其目标布局操作。[独立 APP 布局](../../shared/targets/at32f456_bringup.h)
 
-    uv run python tools/run.py make_axis_record --node 0x03 --speed 2 --output left.bin
+### 1. 在电脑上生成五份记录
 
-输出为一条 2288 字节记录，工具用生产代码导出并重新装载检查。默认不确认型号；完成实际配置核对后可用 --confirm-model 生成已确认记录。两种记录的编码器标志均为零。工具不下载、不擦除 Flash。YQ 需显式提供 --thermal 七项经核对的输入，依次为持续 A、峰值 A、热时间常数 s、进入/退出/跳闸/清除比。三个关节省略 --travel 时使用上表的机械全行程。可用 --output-shaft --travel MIN MAX 以输出轴 rad 收窄行程。默认行程和速度单位为电机轴 rad、rad/s；--output-shaft 接收输出轴单位，并通过选定减速比转换一次。现有 CAN 控制和反馈仍使用电机轴单位。左右轮安装方向、双边反馈和关节绝对原点须逐台确认，当前控制使用电机端编码器。
+从仓库根目录在 PowerShell 中运行。示例使用前表中的输出轴速度上限，省略 `--travel` 使用各关节全行程。工装把输出轴速度、行程乘减速比一次。首次调试需要更低速度时可调小 `--speed`，重启后的活动限速也应相应调小。
 
-原记录、未知节点、CRC 损坏、节点和轴角色或电机模型冲突时，产品 APP 关相且不注册整车地址。迁移须先备份原参数区、显式选择角色并生成新记录。Hall 轴联合标定结束后，固件在关相状态下自动将结果写入 Flash，无需单独发送保存命令。
+```powershell
+New-Item -ItemType Directory -Force outputs/first-fit | Out-Null
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x03 --output-shaft --speed 20 --output outputs/first-fit/03-left.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x04 --output-shaft --speed 20 --output outputs/first-fit/04-right.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x05 --output-shaft --speed 3.14159265 --output outputs/first-fit/05-roll.bin
+```
+
+PITCH 和 YAW 各自填写经核实的七个热参数。顺序为持续电流 A、峰值电流 A、热时间常数 s、降额进入比、降额退出比、跳闸比、清除比。输入用空格分隔，小数使用小数点。缺少实测或已核实的热参数时，该轴留待补齐。
+
+```powershell
+$pitchHeat = (Read-Host 'PITCH 七个热参数').Trim() -split '\s+'
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x06 --output-shaft --speed 2.0943951 --thermal @pitchHeat --output outputs/first-fit/06-pitch.bin
+$yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x07 --output-shaft --speed 2.0943951 --thermal @yawHeat --output outputs/first-fit/07-yaw.bin
+```
+
+每条命令退出码应为 0，生成文件应为 2288 字节。工装用生产代码生成并回读 schema14 基础记录，遇到同名输出会拒绝覆盖。上述命令用于先核对身份，生成的型号确认位为 0。已核实本机型号和参数、准备进入标定时，在对应生成命令中加 `--confirm-model`，输出到新文件名并选用该文件。两种文件都不含本机标定，首次标定前编码器有效标志应为 0。[记录生成器](../../tools/build/make_axis_record.py)
+
+### 2. 将参数写入对应的物理板
+
+1. 逐块连接 SWD，隔离动力，核对 MCU 为 AT32F456CCU7，并记录板序号或 UID、安装位置、预期 ID 和文件名。先备份本机参数区。发现已有记录或标定数据时，转入已有设备的备份、迁移流程。基础记录只包含前 2288 字节，已标定的设备还可能在其后保存输出编码器和 Hall LUT 扩展。
+2. 向新板烧录同一 APP，选择按扇区擦除，保留参数区。随后把该板的 bin 作为原始二进制从 `0x0803C000` 写入。以下为 J-Link Commander 的左轮示例，在仓库根目录连接目标后逐行执行。其他四块依次替换为步骤 1 的文件名，同时给备份文件加上该板自己的编号。先读备份并确认参数区为出厂擦除态，再执行写入。
+
+   ```text
+   h
+   savebin outputs/first-fit/03-before.bin, 0x0803C000, 0x4000
+   loadbin outputs/first-fit/03-left.bin, 0x0803C000
+   verifybin outputs/first-fit/03-left.bin, 0x0803C000
+   ```
+
+3. 要求逐字节校验成功，记录所写文件的 SHA-256。随后执行复位并运行（Commander 中依次输入 `r`、`g`），或断电重启。若校验失败，保留备份和读回结果，先定位地址或文件错误。每块单板核对通过后再接入同一条 CAN 总线。
+
+### 3. 重启后核对节点和实际加载的参数
+
+用与所烧 APP 匹配的 AXF 符号连接 Keil，待初始化完成后在 Watch 展开 `s_motor_configuration`。先看 `configuration_source == MOTOR_CONFIGURATION_STORED`（1）、`application.axis_profile_valid == true`、`preset != NULL`。再看 `device.node_id`、`preset->node_id` 和 `application.axis_profile.identity.numeric.joint_type`。前两者应等于本板 CAN 节点，后者应等于下表角色。未确认文件应读到 `configuration_confirmed == false`，确认文件应为 true。[启动装载](../../firmware/app/runtime/motor_axis.c)
+
+| 写入文件 | 预期节点 / 角色 | `model.motor_pole_pairs` / `preset->electrical->gear_ratio` | `application.speed_kp / speed_ki` | `application.speed_limit_rad_s` 电机轴 rad/s | `preset->calibration_speed_rad_s` 电机轴 rad/s |
+|---|---|---:|---:|---:|---:|
+| 03-left.bin | 0x03 / 5 左轮 | 21 / 1 | 0.05 / 0.5 | 20 | 15 |
+| 04-right.bin | 0x04 / 4 右轮 | 21 / 1 | 0.05 / 0.5 | 20 | 15 |
+| 05-roll.bin | 0x05 / 1 ROLL | 21 / 1 | 0.5 / 1 | ≈3.14159 | 15 |
+| 06-pitch.bin | 0x06 / 2 PITCH | 14 / 8 | 0.048 / 0.5 | ≈16.75516 | 24 |
+| 07-yaw.bin | 0x07 / 3 YAW | 14 / 8 | 0.048 / 0.5 | ≈16.75516 | 30 |
+
+同时核对 `s_rotor_encoder.speed_pll_hz` 为 600，`model.calibration_current_a` 分别为 3/3/3/1.6/1.6 A。示例新记录的 `application.current_limit_a` 应为 7 A 与所配热峰值中的较小者。用 `application.axis_profile.minimum_position_rad` 和 `maximum_position_rad` 对照上文“记录内等效电机轴 rad”列，车轮两项应均为 0。
+
+CAN 核对使用主站 `0x02`，逐一向 `0x03..0x07` 单播无载荷的 Type 108（GET_MOTOR_STATE）。成功回复的源节点和 45 字节载荷的第 42 字节（从 0 计）都应为目标板的 ID。该查询验证通信地址，电机型号、标定 PI 和行程用 Watch 确认。当前 APP 的 Type 120/121/122 参数读写和保存返回不支持。[状态查询及反馈布局](../protocols/README.md#feedback)
+
+若 Watch 显示 `device.node_id == 255` 或 `preset == NULL`，先核对镜像布局、写入起址、原始 bin 和读回结果，再查记录 CRC、节点与角色配对及型号字段。若收到合法回复但角色与实物不符，记录可能属于另一块板，按安装位置重新选文件。ID 与参数核对完成后，再在各轴适用的工装上执行逐台标定。联合标定正常完成后，固件在关相状态下自动保存结果。
 
 ## 后续改参
 
@@ -108,6 +156,24 @@ PITCH 和 YAW 配有独立的正交双线性霍尔。当前分支已包含 Hall 
 | 单台设备记录 | 用[工装](../../tools/build/make_axis_record.py)选择目标节点，用[装载代码](../../firmware/parameters/parameter_record.c)核对启动时生效的值。记录装配方向、零位、LUT 和 YQ 热参数的来源，标定数据按设备保存。 |
 
 每次变更在同一提交内更新本页对应的 ID 行或参数行，注明核对日期、单位和适用轴。改动影响持久化记录时，同时核对[五轴 CRC 向量](../../tests/fixtures/protocol/at32f456_axis_rev2_vectors.json)及[逐节点装载回归](../../tests/unit/native/five_axis_records.inc)。固件改参后运行 `uv run python tools/run.py verify --profile pr`，复核五个节点的记录生成、启动回读和旧记录兼容结果。
+
+## 上位机维护功能建议
+
+建议扩展仓库的 Rust 上位机维护页。界面负责选择目标板、轴角色和包，展示将写入的区域与前后差异。SWD 烧录、CAN 升级和参数编解码分别复用已有实现。五轴始终共用同一 APP，初装时按角色生成单板参数文件。[现有上位机](../../host_app/README.md)
+
+| 用户操作 | 通道与输入 | 完成条件 |
+|---|---|---|
+| 烧录大包（工厂初装） | SWD。这里的大包指含目标清单、Loader、匹配的 LoaderApp 和文件哈希的工厂包。选中物理板 UID 和节点后，空白板使用该轴新记录，已有板先备份并预览迁移差异。 | 各段地址符合所选目标，完成写后回读，复位并确认 APP、节点和轴角色。 |
+| 升级固件（日常更新） | CAN FD。选节点并核对 UID、目标布局和版本，使用 `image.bin`、`manifest.bin`、`package.json`。配套 APP 停机后通过 Type 56 进入 Loader，沿用 Type 50–55 升级和 Type 57 试运行确认。 | 同一设备报告目标版本与镜像 CRC，节点及单板参数保留。单槽升级中断时重新进入 Loader 并完整下载。 |
+| 读取、比较、烧录参数 | 首版使用 SWD。分别提供“读取板上保存值”“新板配置”“修改已有板”三种操作。界面按节点显示角色、型号、有效范围、单位和标定状态。 | 先读原始分区并验证 CRC，预览字段差异，再写入并回读。备份与写入使用同一 UID。保存文件 SHA-256，并记录重启后的实际配置。 |
+
+**实施顺序**
+
+1. **先交付参数读写。** 以当前独立 APP 的首次配参流程为基线，接入五轴记录生成器、SWD 读取及只读解码。已有板修改限值时，从本机备份派生候选记录，保留方向、零位和 LUT，并核对仍适用于该轴的标定。schema14 基础记录的 CRC 与输出编码器扩展的 `motor_crc32` 相互绑定。应复用固件记录规则，重新编码适用的扩展及其 CRC。改变型号或装配而使标定失效时，提示逐台重标。已保存值与当前运行值分别标明来源。[记录及扩展布局](../../firmware/parameters/parameter_record.h)
+2. **接入 SWD 大包安装。** `codex/dual-board-loader` 工作树已有 Rust 维护页、`loader/tools/device_maintenance.py` 的备份、迁移、安装和只读参数解析，以及 AT32 专用目标。这些是待集成候选。先与当前五轴版本对齐，核对最新 Hall/OEN3，再补充新板参数写入。该候选的 layout 7 将 APP 放在 `0x08004000`、参数放在 `0x0801C000`、生产身份放在 `0x0801F800`。工具必须按目标清单选择布局，保护身份区，并显式处理独立 APP 旧参数区迁移。[双板 Loader 计划](../plans/active/2026-11-02-dual-board-loader-v1.md)
+3. **最后接入 AT32 的 CAN 升级。** 复用[包校验](../../host_app/rust/src/package.rs)及[升级客户端](../../host_app/rust/src/upgrade.rs)，按 UID、目标和实际 Loader 能力启用操作。当前独立 APP 的现场固件更新可先用 SWD 仅重刷 APP 并验证参数区保留。需要通过 CAN 在线查看或调参时，另行接入 APP 参数服务、空闲态写入和停机保存，再开放对应按钮。
+
+验收先在离线记录和模拟 Flash 上覆盖五节点首次配参、节点与角色错配、坏 CRC、错误板型/布局、较窄旧限位及 Hall 扩展保留。上板后逐块完成写入、断电重启、读回，再验证仅升级 APP 后参数及身份区逐字节一致，并验证升级中断后重新下载。
 
 ## Excel 参数快照
 

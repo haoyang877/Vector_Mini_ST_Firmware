@@ -34,6 +34,16 @@ class At32TargetTests(unittest.TestCase):
         old = ET.parse(old_path)
         group_names = [group.findtext("GroupName") for group in old.findall(".//Group")]
         shared_groups = ("00_App", "10_Motor", "20_Parameters", "30_Communication", "50_Shared")
+        # AT32 使用用户整理后的显示名称；共享源码、选项及板级隔离仍逐项比较。
+        at32_group_names = {
+            "00_App": "App",
+            "10_Motor": "Motor",
+            "20_Parameters": "Parameters",
+            "30_Communication": "Communication",
+            "40_Platform": "Platform",
+            "50_Shared": "Shared",
+            "90_Vendor": "Mcu_SDK",
+        }
 
         def files_by_group(tree, project):
             return {
@@ -72,14 +82,14 @@ class At32TargetTests(unittest.TestCase):
             tree = ET.parse(project)
             with self.subTest(target=name):
                 actual = files_by_group(tree, project)
-                self.assertEqual(list(actual), [*group_names, "RTT"])
+                self.assertEqual(list(actual), [*(at32_group_names[g] for g in group_names), "RTT"])
                 self.assertEqual(
                     [path.as_posix() for path, _ in actual["RTT"]],
                     ["firmware/third_party/segger_rtt/SEGGER_RTT.c"],
                 )
                 self.assertIn(
                     Path("firmware/app/composition/app_rtt.c"),
-                    [path for path, _ in actual["00_App"]],
+                    [path for path, _ in actual["App"]],
                 )
                 for setting in ("ToolsetNumber", "ToolsetName", "pCCUsed", "uAC6"):
                     self.assertEqual(tree.findtext(f".//{setting}"), old.findtext(f".//{setting}"))
@@ -88,7 +98,7 @@ class At32TargetTests(unittest.TestCase):
                     self.assertEqual(
                         sorted(
                             (path, shared_options(path, options))
-                            for path, options in actual[group]
+                            for path, options in actual[at32_group_names[group]]
                             if path != Path("firmware/app/composition/app_rtt.c")
                         ),
                         sorted(
@@ -125,7 +135,7 @@ class At32TargetTests(unittest.TestCase):
                     canonical(tree.find(".//TargetArmAds/Aads")),
                     canonical(old.find(".//TargetArmAds/Aads")),
                 )
-                for path, _ in actual["40_Platform"]:
+                for path, _ in actual["Platform"]:
                     self.assertTrue(
                         path.as_posix().startswith(
                             (
@@ -143,7 +153,7 @@ class At32TargetTests(unittest.TestCase):
                             "firmware/platform/bsp/pwm_output_permit.c",
                         }
                     )
-                for path, _ in actual["90_Vendor"]:
+                for path, _ in actual["Mcu_SDK"]:
                     self.assertTrue(
                         path.as_posix().startswith(
                             ("firmware/third_party/", "firmware/platform/sdk/")
@@ -415,8 +425,16 @@ class At32TargetTests(unittest.TestCase):
                 (ROOT / f"projects/at32f456/bench/{name}.uvprojx").read_text(),
             )
         vendor = ROOT / "firmware/third_party/segger_rtt"
-        manifest = json.loads((vendor / "manifest.json").read_text())
+        manifest = json.loads((vendor / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(len(manifest["revision"]), 40)
+        self.assertEqual(
+            {entry["path"] for entry in manifest["files"]},
+            {
+                path.name
+                for pattern in ("*.c", "*.h", "LICENSE.md")
+                for path in vendor.glob(pattern)
+            },
+        )
         for entry in manifest["files"]:
             self.assertEqual(
                 hashlib.sha256((vendor / entry["path"]).read_bytes()).hexdigest(), entry["sha256"]

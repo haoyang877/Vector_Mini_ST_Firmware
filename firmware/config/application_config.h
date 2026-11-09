@@ -7,10 +7,9 @@
 #include "motor_profile_config.h"
 #include <stdbool.h>
 
-/* AT32正式工程的应用装配与执行预算。 */
+/* AT32 正式工程的应用装配。 */
 #if defined(FIRMWARE_TARGET_AT32_OFF)
 #define APP_TARGET_AT32_F456 1
-#define APP_FAST_MAX_CYCLES (AT32_CORE_HZ / FOC_FREQ)
 #endif
 
 #define CONFIG_TWO_PI  6.2831853072f

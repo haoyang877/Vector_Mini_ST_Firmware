@@ -97,7 +97,8 @@ allows = ["platform_internal", "target_profile", "platform_api", "motor", "param
 
 [architecture.layers.platform_at32]
 paths = ["firmware/platform/bsp/mcu/at32f456"]
-allows = ["platform_internal", "platform_api", "platform_config", "platform_at32", "app_config"]
+# Loader启动端口使用共享邮箱、镜像ABI及显式目标；不依赖APP或电机模块。
+allows = ["platform_internal", "platform_api", "platform_config", "platform_at32", "app_config", "shared", "target_profile"]
 
 # 应用仅可读取不含SDK类型的向量映射，不因此开放其它MCU实现头。
 [architecture.layers.platform_interrupt_map]

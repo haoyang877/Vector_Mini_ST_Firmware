@@ -92,13 +92,12 @@
 #define AT32_CAN_DATA_SEG1     (AT32_CAN_DATA_SEG2 * 3U)
 
 
-/* AT32F456CCU7 256KiB主Flash，末16KiB仅供参数。与旧板物理地址隔离。
- * 当前整轴记录4372字节（含OEN3），擦除只覆盖前三个2KiB扇区，后续扩展区保持原样。
- * 完整APP身份/Loader布局仍由后续目标打包定义，不在这里伪造产品描述符。 */
+/* 物理Flash为256KiB，运行分区位于前128KiB，参数和身份共16KiB。
+ * 整轴记录4372字节（含OEN3），参数写入覆盖前三个2KiB扇区。 */
 #define AT32_FLASH_BASE          0x08000000U
 #define AT32_FLASH_BYTES         0x00040000U
 #define AT32_FLASH_SECTOR_BYTES  0x800U
-#define AT32_PARAM_BASE          0x0803C000U
+#define AT32_PARAM_BASE          0x0801C000U
 #define AT32_PARAM_BYTES         0x4000U
 #define AT32_PARAM_RAW_BYTES     4372U
 

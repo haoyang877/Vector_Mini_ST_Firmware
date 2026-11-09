@@ -34,20 +34,20 @@ class At32TargetTests(unittest.TestCase):
         old = ET.parse(old_path)
         group_names = [group.findtext("GroupName") for group in old.findall(".//Group")]
         shared_groups = ("00_App", "10_Motor", "20_Parameters", "30_Communication", "50_Shared")
-        # AT32 使用用户整理后的显示名称；共享源码、选项及板级隔离仍逐项比较。
-        at32_group_names = {
-            "00_App": "App",
-            "10_Motor": "Motor",
-            "20_Parameters": "Parameters",
-            "30_Communication": "Communication",
-            "40_Platform": "Platform",
-            "50_Shared": "Shared",
-            "90_Vendor": "Mcu_SDK",
-        }
 
         def files_by_group(tree, project):
+            # AT32工程去掉显示序号并将厂商组命名为Mcu_SDK；源码/编译选项仍完整核对。
+            names = {
+                "App": "00_App",
+                "Motor": "10_Motor",
+                "Parameters": "20_Parameters",
+                "Communication": "30_Communication",
+                "Platform": "40_Platform",
+                "Shared": "50_Shared",
+                "Mcu_SDK": "90_Vendor",
+            }
             return {
-                group.findtext("GroupName"): [
+                names.get(group.findtext("GroupName"), group.findtext("GroupName")): [
                     (
                         (project.parent / file.findtext("FilePath").replace("\\", "/"))
                         .resolve()
@@ -82,14 +82,14 @@ class At32TargetTests(unittest.TestCase):
             tree = ET.parse(project)
             with self.subTest(target=name):
                 actual = files_by_group(tree, project)
-                self.assertEqual(list(actual), [*(at32_group_names[g] for g in group_names), "RTT"])
+                self.assertEqual(list(actual), [*group_names, "RTT"])
                 self.assertEqual(
                     [path.as_posix() for path, _ in actual["RTT"]],
                     ["firmware/third_party/segger_rtt/SEGGER_RTT.c"],
                 )
                 self.assertIn(
                     Path("firmware/app/composition/app_rtt.c"),
-                    [path for path, _ in actual["App"]],
+                    [path for path, _ in actual["00_App"]],
                 )
                 for setting in ("ToolsetNumber", "ToolsetName", "pCCUsed", "uAC6"):
                     self.assertEqual(tree.findtext(f".//{setting}"), old.findtext(f".//{setting}"))
@@ -98,7 +98,7 @@ class At32TargetTests(unittest.TestCase):
                     self.assertEqual(
                         sorted(
                             (path, shared_options(path, options))
-                            for path, options in actual[at32_group_names[group]]
+                            for path, options in actual[group]
                             if path != Path("firmware/app/composition/app_rtt.c")
                         ),
                         sorted(
@@ -135,7 +135,7 @@ class At32TargetTests(unittest.TestCase):
                     canonical(tree.find(".//TargetArmAds/Aads")),
                     canonical(old.find(".//TargetArmAds/Aads")),
                 )
-                for path, _ in actual["Platform"]:
+                for path, _ in actual["40_Platform"]:
                     self.assertTrue(
                         path.as_posix().startswith(
                             (
@@ -153,7 +153,7 @@ class At32TargetTests(unittest.TestCase):
                             "firmware/platform/bsp/pwm_output_permit.c",
                         }
                     )
-                for path, _ in actual["Mcu_SDK"]:
+                for path, _ in actual["90_Vendor"]:
                     self.assertTrue(
                         path.as_posix().startswith(
                             ("firmware/third_party/", "firmware/platform/sdk/")
@@ -402,7 +402,7 @@ class At32TargetTests(unittest.TestCase):
         self.assertLessEqual(values["AT32_PARAM_RAW_BYTES"], 3 * values["AT32_FLASH_SECTOR_BYTES"])
         self.assertEqual(
             values["AT32_PARAM_BASE"] + values["AT32_PARAM_BYTES"],
-            values["AT32_FLASH_BASE"] + values["AT32_FLASH_BYTES"],
+            values["AT32_FLASH_BASE"] + 128 * 1024,
         )
 
     def test_vendor_import_retains_manifest_content(self):

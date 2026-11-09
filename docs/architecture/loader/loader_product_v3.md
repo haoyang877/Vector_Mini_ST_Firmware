@@ -1,8 +1,14 @@
 # Loader 设计：启动、升级与存储
 
-更新：2026-10-20。本文说明当前 G431 Loader 设计。实现支持 CAN FD 升级；
-UART 和其他 MCU 尚未实现。layout 6 将 Loader 缩为 16 KiB、APP 扩为 96 KiB，
-新配套包需重新构建及实机验证，不能复用旧布局的测试结论。
+更新：2026-11-02。本文说明两板共用的Loader设计。G431为layout 6，
+新增AT32F456CCU7为layout 7，分别编译MCU/板级端口；UART尚未实现。
+两板均采用前128 KiB中的16 KiB Loader、96 KiB APP和16 KiB参数/身份区。
+新配套包需重新构建及实机验证，不能复用旧布局的测试结论；
+操作流程及新目标边界见[双板指南](../../guides/dual_board_loader.md)。
+
+AT32的APP启动端口仅依赖BSP内部接口、共享邮箱/镜像格式和目标常量。
+这些依赖由`harness.toml`显式许可；不允许BSP依赖APP、电机或通信业务。
+运行态Flash写域仍只有APP，首次参数迁移归独立SWD维护工具所有。
 
 ## 设计目标
 

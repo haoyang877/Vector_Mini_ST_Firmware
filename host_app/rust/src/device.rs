@@ -529,6 +529,7 @@ impl Session {
                 let write_result = |success: bool, failure: Option<&str>| -> Result<()> {
                     let report = serde_json::json!({
                         "success": success,
+                        "protected_regions_verified": false,
                         "failure": failure,
                         "uid": hex::encode(uid),
                         "version": package.version,

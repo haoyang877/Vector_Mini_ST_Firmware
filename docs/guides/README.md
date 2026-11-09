@@ -6,6 +6,7 @@
 | 文档新增、同步、合并和归档 | [文档维护](documentation.md) |
 | 命名、版本、产物和正式发布 | [发布标准](firmware_release_standard.md) |
 | 仅下载匹配LoaderApp | [Keil调试](keil_loader_app_debug.md) |
+| 双板Loader、原样参数迁移和保护区检查 | [双板Loader](dual_board_loader.md) |
 | 更换MCU的输入与验收边界 | [Loader移植](loader_mcu_porting_v1.md) |
 | 单项LUT/零位与真实保存 | [标定流程](calibration_process.md) |
 | 当前运行层标定入口与完成事件 | [标定请求接口](motor_calibration_request.md) |

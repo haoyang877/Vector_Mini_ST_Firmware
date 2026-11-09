@@ -39,6 +39,7 @@ NATIVE = (
     "test_numeric_encoding",
     "test_loader_upgrade",
     "test_loader_runtime",
+    "test_at32_loader",
     "test_run_state",
     "test_motor_state_request",
     "test_sensorless_transitions",

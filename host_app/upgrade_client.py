@@ -511,7 +511,11 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=False)
     from ports.controlcanfd import ControlCanFd
 
-    report = {"success": False, "package_sha256": hashlib.sha256(package.image).hexdigest()}
+    report = {
+        "success": False,
+        "protected_regions_verified": False,
+        "package_sha256": hashlib.sha256(package.image).hexdigest(),
+    }
     client = None
     try:
         uid = bytes.fromhex(args.uid)

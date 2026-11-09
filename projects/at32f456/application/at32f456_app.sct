@@ -1,7 +1,7 @@
 ; 普通APP：与调试APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
-; 32KiB热代码、60KiB数据，容纳Hall配对标定；总RAM边界保持不变。
-LR_IROM1 0x08000000 0x0003C000 {
-  ER_IROM1 0x08000000 0x0003C000 {
+; 32KiB热代码、60KiB数据；运行区限制在前128KiB。
+LR_IROM1 0x08000000 0x0001C000 {
+  ER_IROM1 0x08000000 0x0001C000 {
     *.o (RESET, +First)
     *(InRoot$$Sections)
     ; Flash事务边界在控制器空闲时执行，初始化也不占用快环SRAM。

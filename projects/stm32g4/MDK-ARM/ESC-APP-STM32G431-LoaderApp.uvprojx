@@ -333,10 +333,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U,BSP_BOARD=1U,FIRMWARE_TARGET_STM32_APP</Define>
+              <MiscControls>--diag_suppress=1 -DFIRMWARE_TARGET_STM32_APP --preinclude ..\..\..\firmware\config\board_config.h</MiscControls>
+              <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,BSP_BOARD=1U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\platform\bsp;..\..\..\shared\targets\vector_mini_st_g431</IncludePath>
+              <IncludePath>..\..\..\shared\targets\vector_mini_st_g431;..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1784,14 +1784,6 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\communication\yg_protocol_boot.c</FilePath>
             </File>
-
-
-
-
-
-
-
-
           </Files>
         </Group>
         <Group>
@@ -2030,7 +2022,7 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Src\tim.c</FilePath>
             </File>
-            </Files>
+          </Files>
         </Group>
         <Group>
           <GroupName>50_Shared</GroupName>

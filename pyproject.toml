@@ -6,6 +6,9 @@ requires-python = ">=3.13,<3.14"
 dependencies = []
 
 [project.optional-dependencies]
+maintenance = [
+  "pylink-square==2.0.2",
+]
 test = [
   "numpy==2.5.3",
 ]

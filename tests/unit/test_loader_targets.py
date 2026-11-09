@@ -41,6 +41,108 @@ class LoaderTargetTests(unittest.TestCase):
         """默认目标与显式名称产生同一个契约。"""
         self.assertEqual(self.target, load_target("vector_mini_st_g431"))
 
+    def test_both_boards_share_the_entire_deployment_geometry(self):
+        """两板运行分区地址、容量和逻辑擦写粒度一致，物理Flash容量独立保留。"""
+        first = load_target("vector_mini_st_g431")
+        second = load_target("yg_esc_v1_at32f456")
+        for key in (
+            "TARGET_FLASH_BASE",
+            "TARGET_LOADER_BYTES",
+            "TARGET_APP_BASE",
+            "TARGET_APP_BYTES",
+            "TARGET_PARAM_BASE",
+            "TARGET_PARAM_BYTES",
+            "TARGET_IDENTITY_BASE",
+            "TARGET_IDENTITY_BYTES",
+            "TARGET_ERASE_BYTES",
+            "TARGET_PROGRAM_BYTES",
+        ):
+            with self.subTest(field=key):
+                self.assertEqual(target_value(first, key), target_value(second, key))
+
+    def test_loader_apps_keep_latest_template_sources_and_replace_boot_port(self):
+        """两板配套APP继承普通工程全部当前源码，仅替换启动端口并加入镜像契约。"""
+        for name in ("vector_mini_st_g431", "yg_esc_v1_at32f456"):
+            target = load_target(name)
+            build = target["build"]
+            template = ROOT / build["template"]
+            project = ROOT / build["app_project"]
+            expected = {
+                (
+                    ROOT / build["app_boot_source"]
+                    if file.findtext("FileName")
+                    == build.get("app_boot_replace", "boot_hw_unavailable.c")
+                    else template.parent / file.findtext("FilePath").replace("\\", "/")
+                ).resolve()
+                for file in ET.parse(template).findall(".//File")
+            }
+            expected.update(
+                {
+                    ROOT / "shared/boot/image_mailbox.c",
+                    ROOT / build["descriptor_source"],
+                }
+            )
+            generated = ET.fromstring(generate_loader_app_project.render_project(target, ROOT))
+            actual = {
+                (project.parent / node.text.replace("\\", "/")).resolve()
+                for node in generated.findall(".//FilePath")
+            }
+            with self.subTest(target=name):
+                self.assertEqual(actual, expected)
+                self.assertTrue(all(path.is_file() for path in actual))
+                includes = generated.findtext(".//Cads/VariousControls/IncludePath")
+                self.assertEqual(
+                    (project.parent / includes.split(";")[0].replace("\\", "/")).resolve(),
+                    ROOT / build["selection_directory"],
+                )
+
+    def test_two_boards_stay_in_first_128k_and_reject_each_other(self):
+        """同一黄金负载按各板身份打包；另一板必须在离线装载时拒绝。"""
+        fixture = json.loads(
+            (ROOT / "tests/fixtures/loader_image_v3.json").read_text(encoding="utf-8")
+        )
+        names = ("vector_mini_st_g431", "yg_esc_v1_at32f456")
+        for name in names:
+            target = load_target(name)
+            self.assertEqual(target_value(target, "TARGET_APP_BASE"), 0x08004000)
+            self.assertEqual(target_value(target, "TARGET_APP_BYTES"), 98304)
+            self.assertEqual(
+                target_value(target, "TARGET_PARAM_BASE")
+                + target_value(target, "TARGET_PARAM_BYTES"),
+                0x08020000,
+            )
+            raw = bytearray.fromhex(fixture["source_hex"])
+            struct.pack_into("<II", raw, 0, target_value(target, "TARGET_RAM_END"), 0x08004261)
+            for offset, key in (
+                (12, "TARGET_LAYOUT"),
+                (16, "TARGET_MCU"),
+                (20, "TARGET_PRODUCT"),
+                (24, "TARGET_HARDWARE"),
+                (28, "TARGET_APP_VERSION"),
+                (36, "TARGET_PARAM_ABI"),
+            ):
+                struct.pack_into(">I", raw, 512 + offset, target_value(target, key))
+            struct.pack_into(
+                ">HH",
+                raw,
+                552,
+                target_value(target, "TARGET_SCHEMA"),
+                target_value(target, "TARGET_SCHEMA"),
+            )
+            image, manifest, report = package_image.build_package(raw, 7, target)
+            directory = self.root / name
+            directory.mkdir()
+            (directory / "image.bin").write_bytes(image)
+            (directory / "manifest.bin").write_bytes(manifest)
+            (directory / "package.json").write_text(json.dumps(report), encoding="utf-8")
+            self.assertEqual(UpgradePackage.load(directory, name).image, image)
+            with self.assertRaises(ValueError):
+                UpgradePackage.load(directory, names[1 - names.index(name)])
+            invalid = copy.deepcopy(target)
+            invalid["constants"]["TARGET_PARAM_BASE"] = "0x0803C000U"
+            with self.assertRaises(ValueError):
+                load_target(self.save(invalid))
+
     def test_project_name_accepts_hyphens_but_not_paths_or_commands(self):
         """工程名支持连字符，不放宽路径、命令字符或发布MCU约束。"""
         target = copy.deepcopy(self.target)

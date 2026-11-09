@@ -6,11 +6,13 @@ use std::collections::HashMap;
 
 #[derive(Deserialize)]
 struct Contract {
+    target: String,
     constants: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Target {
+    pub name: String,
     pub mcu: u32,
     pub product: u32,
     pub hardware: u32,
@@ -29,9 +31,18 @@ pub struct Target {
 
 impl Target {
     pub fn bundled() -> Result<Self> {
-        let document: Contract = serde_json::from_str(include_str!(
-            "../../../shared/targets/vector_mini_st_g431.json"
-        ))?;
+        Self::named("vector_mini_st_g431")
+    }
+
+    pub fn named(name: &str) -> Result<Self> {
+        let raw = match name {
+            "vector_mini_st_g431" => {
+                include_str!("../../../shared/targets/vector_mini_st_g431.json")
+            }
+            "yg_esc_v1_at32f456" => include_str!("../../../shared/targets/yg_esc_v1_at32f456.json"),
+            _ => bail!("未知目标，不能回退到默认板卡"),
+        };
+        let document: Contract = serde_json::from_str(raw)?;
         let value = |name: &str| -> Result<u32> {
             let text = document
                 .constants
@@ -45,6 +56,7 @@ impl Target {
             }
         };
         let target = Self {
+            name: document.target.clone(),
             mcu: value("TARGET_MCU")?,
             product: value("TARGET_PRODUCT")?,
             hardware: value("TARGET_HARDWARE")?,
@@ -63,6 +75,9 @@ impl Target {
         if target.app_base != 0x0800_0000 + target.loader_bytes
             || target.app_base + target.app_bytes > target.identity_base
             || target.layout == 0
+            || target.loader_bytes != 16384
+            || target.app_bytes != 98304
+            || target.identity_base != 0x0801F800
         {
             bail!("目标清单的 Flash 分区不连续或重叠");
         }

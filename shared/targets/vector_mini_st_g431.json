@@ -30,8 +30,8 @@
     "TARGET_RAW_MAGIC": "0x454E4332U",
     "TARGET_RAW_BYTES": "4372U",
     "TARGET_PROGRAM_BYTES": "8U",
-    "TARGET_APP_VERSION": "0x0001050CU",
-    "TARGET_LOADER_VERSION": "0x00020100U",
+    "TARGET_APP_VERSION": "0x00010600U",
+    "TARGET_LOADER_VERSION": "0x00020200U",
     "TARGET_BOOT_API": "3U",
     "TARGET_IDENTITY_BASE": "0x0801F800U",
     "TARGET_IDENTITY_BYTES": "0x800U"
@@ -99,6 +99,7 @@
   "image_architecture": "cortex-m",
   "build": {
     "artifact_mcu": "STM32G431CB",
+    "jlink_device": "STM32G431CB",
     "cpu": "CLOCK(8000000) FPU2 CPUTYPE(\"Cortex-M4\")",
     "defines": "USE_HAL_DRIVER,STM32G431xx",
     "template": "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx",
@@ -112,6 +113,7 @@
     "app_output": "outputs/build/keil/ESC-APP-STM32G431-LoaderApp",
     "app_boot_source": "firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c",
     "selection_directory": "shared/targets/vector_mini_st_g431",
-    "app_defines": "USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U"
-  }
+    "app_defines": "USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,BSP_BOARD=1U"
+  },
+  "deployment_bytes": 131072
 }

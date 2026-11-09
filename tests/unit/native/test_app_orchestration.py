@@ -39,7 +39,8 @@ def fixture(source: str, loader: bool) -> str:
 #include <string.h>
 
 static uint32_t trace = 2166136261U, now_ms, failure_stage;
-static unsigned feeds, disables, enters, confirms, depth;
+static unsigned feeds, disables, enters, confirms, depth, watchdog_starts, boot_feeds;
+static bool last_boot_health;
 static bool expect_halt, stopped, lock_allowed = true, healthy = true, link_ready = true;
 static uint32_t progress = 1U;
 static BspResult watchdog_result = BSP_OK;
@@ -67,7 +68,7 @@ void BspPwm_Disable(void) {
  event(6, ++disables);
  if (expect_halt) { assert(depth == 1); longjmp(halt_return, 1); }
 }
-BspResult BspWatchdog_Start(void) { event(7, watchdog_result); return watchdog_result; }
+BspResult BspWatchdog_Start(void) { ++watchdog_starts; event(7, watchdog_result); return watchdog_result; }
 void BspWatchdog_Feed(void) { event(8, ++feeds); }
 uint32_t BspSystem_TimeMs(void) { event(9, now_ms); return now_ms; }
 uint32_t BspSystem_EnterCritical(void) { event(10, depth); return depth++; }
@@ -105,7 +106,7 @@ bool MotorLifecycle_IsStopped(void) { event(35, stopped); return stopped; }
 bool MotorLifecycle_LockStop(void) { event(36, lock_allowed); return lock_allowed; }
 bool BootHw_EnterLoader(uint8_t node) { assert(depth == 1 && stopped); event(37, node); ++enters; return false; }
 bool BootHw_Confirm(uint32_t version, uint32_t crc) { event(38, version); event(39, crc); ++confirms; return true; }
-void BootHw_Watchdog(bool valid) { event(40, valid); }
+void BootHw_Watchdog(bool valid) { last_boot_health = valid; boot_feeds += valid; event(40, valid); }
 void MotorAxis_ProcessPositionPlan(void) {}
 void MotorAxis_ProcessCalibrationPublication(OutputEncoderCalibrationProgress progress) { (void)progress; event(41, 0); }
 void AppProtocol_Refresh(void) { event(42, 0); }
@@ -129,7 +130,11 @@ static void check_startup(void) {
   assert(disables == before + !init_ok);
   App_Start();
   assert(s_communication_ready == (init_ok && failure_stage != 5));
+#if YG_APP_LOADER_IMAGE
+  assert(!s_watchdog_enabled && watchdog_starts == 0);
+#else
   assert(s_watchdog_enabled);
+#endif
  }
  failure_stage = 0;
  watchdog_result = BSP_NOT_SUPPORTED;
@@ -138,13 +143,43 @@ static void check_startup(void) {
  unsigned before = feeds;
  App_Process(); assert(feeds == before);
  watchdog_result = BSP_IO_ERROR;
+#if YG_APP_LOADER_IMAGE
+ App_Start();
+ assert(!s_watchdog_enabled && watchdog_starts == 0);
+#else
  expect_halt = true;
  if (setjmp(halt_return) == 0) { App_Start(); assert(false); }
  expect_halt = false; depth = 0;
+#endif
  watchdog_result = BSP_OK;
 }
 static void process_at(uint32_t time) { now_ms = time; App_Process(); }
 static void check_watchdog(void) {
+#if YG_APP_LOADER_IMAGE
+ now_ms = 0;
+ App_Init(); App_Start();
+ s_health_checked_ms = 0; s_observed_supervisor_ticks = 0;
+ unsigned before = feeds, inherited_before = boot_feeds;
+ BspApp_OnFastSample(); App_SupervisorTick();
+ process_at(99);
+ assert(last_boot_health && boot_feeds == inherited_before + 1);
+ assert(!s_watchdog_enabled && watchdog_starts == 0 && feeds == before);
+ healthy = false; ++progress;
+ BspApp_OnFastSample(); App_SupervisorTick(); process_at(199);
+ assert(!last_boot_health && boot_feeds == inherited_before + 1);
+ healthy = true; link_ready = false; ++progress;
+ BspApp_OnFastSample(); App_SupervisorTick(); process_at(299);
+ assert(!last_boot_health && boot_feeds == inherited_before + 1);
+ link_ready = true;
+ BspApp_OnFastSample(); App_SupervisorTick(); process_at(399);
+ assert(!last_boot_health && boot_feeds == inherited_before + 1);
+ s_communication_ready = false; ++progress; process_at(499);
+ assert(!last_boot_health && boot_feeds == inherited_before + 1);
+ s_communication_ready = true; ++progress;
+ s_health_checked_ms = UINT32_MAX - 49U; process_at(49);
+ assert(last_boot_health && boot_feeds == inherited_before + 2);
+ assert(watchdog_starts == 0 && feeds == before);
+#else
  now_ms = 0;
  App_Init(); App_Start();
  unsigned before = feeds;
@@ -168,6 +203,7 @@ static void check_watchdog(void) {
  before = feeds;
  process_at(3); assert(feeds == before + 1 && s_watchdog_last_ms == 4);
  s_watchdog_enabled = false;
+#endif
  BspApp_OnCanReceive();
 }
 #if YG_APP_LOADER_IMAGE

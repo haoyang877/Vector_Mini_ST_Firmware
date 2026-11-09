@@ -29,6 +29,10 @@ fn reading(value: Option<f64>, unit: &str, fresh: bool) -> String {
 
 impl HostApp {
     pub(super) fn connection(&mut self, ui: &mut egui::Ui) {
+        if self.maintenance_panel.busy() {
+            ui.label("SWD作业正在进行，完成后才能连接CAN或切换设备。");
+            return;
+        }
         let available = ui.available_rect_before_wrap();
         let width = available.width().min(860.0);
         let area = egui::Rect::from_min_size(
@@ -38,6 +42,26 @@ impl HostApp {
         ui.scope_builder(egui::UiBuilder::new().max_rect(area),|ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("连接设备");
+            ui.add_enabled_ui(!self.connected, |ui| {
+                let mut selected = self.target.name.clone();
+                egui::ComboBox::from_label("板卡目标")
+                    .selected_text(&selected)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut selected, "vector_mini_st_g431".into(), "G431");
+                        ui.selectable_value(&mut selected, "yg_esc_v1_at32f456".into(), "AT32F456");
+                    });
+                if selected != self.target.name {
+                    match Target::named(&selected) {
+                        Ok(target) => {
+                            self.target = target;
+                            self.package = None;
+                            self.bound_uid.clear();
+                            self.acknowledged = false;
+                        }
+                        Err(error) => self.note(error.to_string()),
+                    }
+                }
+            });
             ui.label("配置接口 → 指定节点 → 识别身份与能力 → 进入工作区");
             ui.add_space(12.0);
             Self::panel(ui, "CAN FD / 通道 0 / 1M–5M", |ui| {
@@ -85,7 +109,7 @@ impl HostApp {
                 ui.label("CAN FD 指定节点连接：可用，待实机验收。");
                 ui.label("自动发现 / 多设备选择：未接入。RS-485：暂无后端。");
                 ui.label("APP 识别成功进入首页；Loader 独立驻留/救援连接尚待完善。");
-                ui.label(format!("本地目标：G431 / layout {} / schema {} / Loader {}",self.target.layout,self.target.schema,version(self.target.loader_version)));
+                ui.label(format!("本地目标：{} / layout {} / schema {} / Loader {}",self.target.name,self.target.layout,self.target.schema,version(self.target.loader_version)));
             });
         });
         });
@@ -734,11 +758,6 @@ impl HostApp {
                     ui.selectable_value(&mut self.upgrade_mode, UpgradeMode::App, "APP / CAN");
                     ui.selectable_value(
                         &mut self.upgrade_mode,
-                        UpgradeMode::Loader,
-                        "Loader / SWD",
-                    );
-                    ui.selectable_value(
-                        &mut self.upgrade_mode,
                         UpgradeMode::Combined,
                         "Loader + APP / SWD",
                     );
@@ -746,19 +765,11 @@ impl HostApp {
             });
             ui.add_space(8.0);
             if self.upgrade_mode != UpgradeMode::App {
-                Self::panel(ui, "安装工具尚未接入", |ui| {
-                    ui.label("当前 Loader 仅允许在线写 APP 槽，不能覆盖自身。");
-                    ui.label(if self.upgrade_mode == UpgradeMode::Loader {
-                        "Loader 单独安装需独占 SWD，仅写 Loader 槽。"
-                    } else {
-                        "联合安装需独占 SWD，分别核对 Loader 与 APP 的写域。"
-                    });
-                    ui.label(
-                        "执行工具、参数备份、身份保护及写后读回将在后续阶段接入；禁止整片擦除。",
-                    );
-                    let response = ui.add_enabled(false, egui::Button::new("执行安装 · 未接入"));
-                    self.control("swd_install", &response);
-                });
+                self.maintenance_panel.show(
+                    ui,
+                    &self.target,
+                    !self.connected && !self.upgrading && !self.fixture_mode,
+                );
             } else {
                 Self::panel(ui, "1 选择完整 APP 包", |ui| {
                     ui.add_enabled_ui(!self.upgrading, |ui| {
@@ -860,7 +871,9 @@ impl HostApp {
                     if ui.button("在线参数区").clicked() {
                         self.page = Page::Parameters;
                     }
-                    ui.add_enabled(false, egui::Button::new("原始参数备份 / 恢复 · 未接入"));
+                    if ui.button("完整Flash备份 / 保存参数查看").clicked() {
+                        self.upgrade_mode = UpgradeMode::Combined;
+                    }
                 });
                 ui.label("在线标量读写和 SWD 原始页备份使用独立流程。");
             });

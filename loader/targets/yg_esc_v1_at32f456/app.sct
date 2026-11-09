@@ -1,0 +1,65 @@
+; 普通APP：与调试APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
+; 32KiB热代码、60KiB数据；运行区限制在前128KiB。
+LR_APP 0x08004000 0x18000 {
+  ER_VECTORS 0x08004000 0x200 { *.o (RESET, +First) }
+  ER_DESCRIPTOR 0x08004200 FIXED 0x60 { * (.app_descriptor) }
+  ER_APP 0x08004260 FIXED 0x17DA0 {
+    *(InRoot$$Sections)
+    ; Flash事务边界在控制器空闲时执行，初始化也不占用快环SRAM。
+    system.o (i.Bsp_Init)
+    system.o (i.McuSystem_Init)
+    system.o (i.McuSystem_Start)
+    adc.o (i.McuAdc_Init)
+    pwm.o (i.McuPwm_Init)
+    ; LUT发布仅在关相后台调用，不占用快速中断代码区。
+    encoder_calibration.o (i.EncoderCalibration_PublishLut)
+    .ANY (+RO)
+  }
+  ER_FAST 0x20000000 0x00008000 {
+    system.o (+RO)
+    can.o (+RO)
+    motor_axis.o (+RO)
+    motor_control.o (+RO)
+    motor_state_machine.o (+RO)
+    motor_thermal*.o (+RO)
+    adc.o (+RO)
+    pwm.o (+RO)
+    parameter_values.o (+RO)
+    encoder_feedback.o (+RO)
+    encoder*.o (+RO)
+    sensorless_startup.o (+RO)
+    flux_observer.o (+RO)
+    foc*.o (+RO)
+    pi_controller.o (+RO)
+    motor_current.o (+RO)
+    motor_voltage.o (+RO)
+    mcu_temperature_sensing.o (+RO)
+    speed*.o (+RO)
+    control_math.o (+RO)
+    ; APP向量移到main后仍在SRAM执行，避免Flash到SRAM跳板。
+    main.o (i.ADC1_2_IRQHandler)
+    main.o (i.TMR6_DAC_GLOBAL_IRQHandler)
+    main.o (i.SysTick_Handler)
+    ; SystemInit在scatterload之前调用CRM，CRM及启动用库函数必须留在Flash。
+    at32f45x_adc.o (+RO)
+    at32f45x_can.o (+RO)
+    at32f45x_dma.o (+RO)
+    at32f45x_gpio.o (+RO)
+    at32f45x_spi.o (+RO)
+    at32f45x_tmr.o (+RO)
+    sqrtf.o (+RO)
+    ; BSP快帧与编码器结果复制不能经Flash跳板；保留原库实现与计算顺序。
+    rt_memcpy_v6.o (+RO)
+    rt_memcpy_w.o (+RO)
+    rt_memclr.o (+RO)
+    rt_memclr_w.o (+RO)
+  }
+  RW_IRAM1 0x20008000 0x0000EFE0 {
+    .ANY (+RW)
+  }
+  ZI_IRAM1 +0 0x0000EFE0 {
+    .ANY (+ZI)
+  }
+  ScatterAssert(ImageLimit(ZI_IRAM1) <= 0x20016FE0)
+  ER_IMAGE_TAIL AlignExpr(AlignExpr(AlignExpr(ImageLimit(ER_APP), 8) + ImageLength(ER_FAST), 8) + ImageLength(RW_IRAM1), 8) FIXED 0x8 { * (.app_image_tail) }
+}

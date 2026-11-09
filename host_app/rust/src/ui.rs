@@ -40,7 +40,6 @@ impl Page {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UpgradeMode {
     App,
-    Loader,
     Combined,
 }
 
@@ -95,6 +94,7 @@ pub enum PreviewRequest {
 }
 
 pub struct HostApp {
+    maintenance_panel: crate::maintenance::Panel,
     target: Target,
     page: Page,
     dll: String,
@@ -203,6 +203,7 @@ impl HostApp {
 
     fn disconnected(target: Target, request: Option<PreviewRequest>) -> Self {
         Self {
+            maintenance_panel: crate::maintenance::Panel::default(),
             target,
             page: Page::Connection,
             dll: String::new(),
@@ -528,7 +529,16 @@ impl eframe::App for HostApp {
             self.preview = Some(preview);
         }
         self.control_evidence.clear();
-        if self.pending_close && !self.connected && !self.hard_stop {
+        if self.maintenance_panel.busy() && ui.ctx().input(|i| i.viewport().close_requested()) {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.status = "SWD事务进行中，等待结果后关闭".into();
+        }
+        if self.pending_close
+            && !self.connected
+            && !self.hard_stop
+            && !self.maintenance_panel.busy()
+        {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if self.connected && ui.ctx().input(|i| i.viewport().close_requested()) {
@@ -623,8 +633,9 @@ impl eframe::App for HostApp {
                         .on_hover_text(&self.status);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.label(
-                            RichText::new(concat!(
-                                "G431   ·   CAN FD   ·   v",
+                            RichText::new(format!(
+                                "{}   ·   CAN FD   ·   v{}",
+                                self.target.name,
                                 env!("CARGO_PKG_VERSION")
                             ))
                             .small()

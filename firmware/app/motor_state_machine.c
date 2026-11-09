@@ -887,15 +887,18 @@ static void stop_on_unsafe_conditions(MotorStateMachine *machine, bool configura
                 return;
             }
         }
-        else if (machine->state == MOTOR_STATE_CALIBRATION &&
-                 machine->calibration_handoff == MOTOR_CALIBRATION_NO_HANDOFF)
+        else if (machine->state == MOTOR_STATE_CALIBRATION)
         {
-            bool needs_power = calibration_requires_power(machine->calibration_type);
-            if (configuration_valid &&
-                inputs_allow_calibration(machine, machine->calibration_type) &&
-                (needs_power
-                     ? machine->phase_enable_epoch != 0U || !machine->drive.power->phases_disabled()
-                     : machine->drive.power->phases_disabled()))
+            MotorCalibrationType kind = machine->calibration_type;
+            bool power_valid =
+                calibration_requires_power(kind)
+                    ? machine->phase_enable_epoch != 0U || !machine->drive.power->phases_disabled()
+                    : machine->drive.power->phases_disabled();
+            bool running_valid =
+                configuration_valid && inputs_allow_calibration(machine, kind) && power_valid;
+            /* ADC 可在监督检查期间关相并发布交接；只对同一运行阶段锁存故障。 */
+            if (running_valid || machine->calibration_handoff != MOTOR_CALIBRATION_NO_HANDOFF ||
+                machine->calibration_type != kind)
             {
                 return;
             }

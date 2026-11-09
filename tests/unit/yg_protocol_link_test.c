@@ -34,7 +34,7 @@ static size_t sent_count;
 static unsigned can_starts;
 
 static bool tracked_allowed;
-static bool hardware_busy, hardware_complete;
+static bool hardware_busy, hardware_complete, complete_on_busy_read;
 static unsigned boot_completion_calls;
 static bool boot_completion_success;
 static unsigned rx_reads;
@@ -56,6 +56,11 @@ bool BspCan_Receive(BspCanFrame *frame)
 /* 单帧硬件完成标志由夹具注入；事务关联由真实link拥有。 */
 bool BspCan_IsTransmitBusy(void)
 {
+    if (complete_on_busy_read)
+    {
+        complete_on_busy_read = hardware_busy = false;
+        hardware_complete = true;
+    }
     return hardware_busy;
 }
 bool BspCan_IsTransmitComplete(void)
@@ -947,8 +952,8 @@ static void boot_ready_queue_contract(void)
                 size_t before = sent_count;
                 Protocol_Process(&endpoint, 15U);
                 assert(boot_completion_calls == 0U && sent_count == before);
-                hardware_busy = false;
-                hardware_complete = scenario == 0U;
+                /* 成功场景在读取忙位时完成，覆盖两次寄存器查询间的竞态。 */
+                complete_on_busy_read = hardware_busy = scenario == 0U;
                 Protocol_Process(&endpoint, 16U);
                 assert(boot_completion_calls == 1U && boot_completion_success == (scenario == 0U));
             }

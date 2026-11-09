@@ -131,7 +131,7 @@ struct MotorStateMachine
     MotorState state; /* 本轴主状态，外部只读。 */
     MotorStateMachineBindings drive;
     MotorFaultRecovery recovery;
-    MotorCalibrationType calibration_type;
+    volatile MotorCalibrationType calibration_type;
     uint32_t epoch; /* 当前会话号，外部只读。 */
     volatile uint32_t supervisor_ticks, outer_ticks;
     volatile uint32_t phase_enable_epoch; /* 本会话待 ADC 复核的启相许可，零表示无许可。 */

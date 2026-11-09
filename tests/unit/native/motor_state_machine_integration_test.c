@@ -34,6 +34,7 @@ static bool phases_disabled, start_fails, stop_fails, outer_ready;
 static unsigned critical_depth, critical_calls, fault_on_enter;
 static unsigned calibration_cancel_count, config_validation_calls;
 static bool calibration_resources_released;
+static bool complete_calibration_on_power_read;
 
 void EncoderCalibration_Cancel(EncoderCalibrationSession *instance)
 {
@@ -99,6 +100,12 @@ void BspPwm_Disable(void)
 }
 bool BspPwm_ArePhasesDisabled(void)
 {
+    if (complete_calibration_on_power_read)
+    {
+        complete_calibration_on_power_read = false;
+        MotorStateMachine_FinishFastTick(
+            &machine, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, machine.epoch);
+    }
     return phases_disabled;
 }
 bool Encoder_IsOnline(const EncoderState *state)
@@ -429,9 +436,13 @@ static void test_calibration_completes_to_idle(void)
     MotorStateMachine_BeginFastTick(&machine);
     assert(!phases_disabled && machine.state == MOTOR_STATE_CALIBRATION);
     calibration_epoch = machine.epoch;
-    MotorStateMachine_FinishFastTick(
-        &machine, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, calibration_epoch);
-    assert(phases_disabled);
+    /* 监督读取功率时 ADC 抢占，完成标定并关相，随后监督应接受新的交接阶段。 */
+    complete_calibration_on_power_read = true;
+    ++machine.fast_sample_ticks;
+    MotorStateMachine_SupervisorTick(&machine);
+    assert(!complete_calibration_on_power_read && motor.fault_code == MOTOR_FAULT_NONE);
+    assert(phases_disabled &&
+           machine.calibration_handoff == MOTOR_CALIBRATION_AWAITING_PUBLICATION);
     tick();
     assert(machine.state == MOTOR_STATE_CALIBRATION);
     mask = BspSystem_EnterCritical();

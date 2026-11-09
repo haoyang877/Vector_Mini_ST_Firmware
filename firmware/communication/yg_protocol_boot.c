@@ -220,13 +220,10 @@ void ProtocolBoot_Process(ProtocolEndpoint *endpoint, CanQueue *queue, uint32_t 
         {
             finish_boot_reply(endpoint, false);
         }
-        else if (BspCan_IsTransmitComplete())
-        {
-            finish_boot_reply(endpoint, true);
-        }
         else if (!BspCan_IsTransmitBusy())
         {
-            finish_boot_reply(endpoint, false);
+            /* 先确认发送槽空闲，再读本帧终态，避免帧恰在两次读取之间完成。 */
+            finish_boot_reply(endpoint, BspCan_IsTransmitComplete());
         }
     }
     if (endpoint->boot.tx_state == BOOT_TX_QUEUED &&

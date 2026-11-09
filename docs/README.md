@@ -9,6 +9,7 @@
 | [architecture/](architecture/) | 软件职责、文件归属、状态机、控制/维护、参数与保护 |
 | [protocols/](protocols/) | 唯一现行通信协议说明 |
 | [guides/](guides/) | 当前开发、操作、标定与发布指南 |
+| [AT32F456 五轴电机配置](guides/at32f456_five_axes.md) | 电机 ID、轴角色、型号、参数对照及后续维护 |
 | [hardware/](hardware/) | 板卡PDF、器件资料与性能曲线 |
 | [analysis/](analysis/) | 专题分析及其独立基线 |
 | [reports/](reports/) | 原始日期与基线对应的验证结论，包括失败和未测项 |

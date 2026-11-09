@@ -12,7 +12,7 @@
 | 已删除的台架功能及历史记录 | [MotorBench 退役说明](unified_motor_bench.md) |
 | S 曲线位置规划与串级 | [位置控制](position_servo_control.md) |
 | AXS1/AXS2身份及应用包络 | [轴配置](motor_axis_profiles.md) |
-| AT32F456 五节点启动装载 | [五轴配置与工装](at32f456_five_axes.md) |
+| AT32F456 五轴节点分配、参数对照及改参入口 | [五轴电机 ID 与参数维护](at32f456_five_axes.md) |
 | 独立CAN地址 | [节点ID](motor_can_node_ids.md) |
 | SI单位及线路缩放 | [模型单位](motor_model_units.md) |
 | ADC过采样与计数口径 | [4×采样](current_oversampling.md) |

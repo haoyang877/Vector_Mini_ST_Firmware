@@ -2,6 +2,7 @@
 
 | 主题 | 指南 |
 | --- | --- |
+| 独立 KF600、整数均值和参数 | [测速算法](speed_estimator_module.md) |
 | 验证环境、doctor、verify | [项目工具](project_harness.md) |
 | 文档新增、同步、合并和归档 | [文档维护](documentation.md) |
 | 命名、版本、产物和正式发布 | [发布标准](firmware_release_standard.md) |

@@ -122,7 +122,7 @@ $yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
 
 ### 2. 将参数写入对应的物理板
 
-1. 逐块连接 SWD，隔离动力，核对 MCU 为 AT32F456CCU7，并记录板序号或 UID、安装位置、预期 ID 和文件名。先备份本机参数区。发现已有记录或标定数据时，转入已有设备的备份、迁移流程。基础记录只包含前 2288 字节，已标定的设备还可能在其后保存输出编码器和 Hall LUT 扩展。
+1. 逐块连接 SWD，在停机且六路输出关闭时，核对 MCU 为 AT32F456CCU7，并记录板序号或 UID、安装位置、预期 ID 和文件名。先备份本机参数区。发现已有记录或标定数据时，转入已有设备的备份、迁移流程。基础记录只包含前 2288 字节，已标定的设备还可能在其后保存输出编码器和 Hall LUT 扩展。
 2. 向新板烧录同一 APP，选择按扇区擦除，保留参数区。随后把该板的 bin 作为原始二进制从 `0x0803C000` 写入。以下为 J-Link Commander 的左轮示例，在仓库根目录连接目标后逐行执行。其他四块依次替换为步骤 1 的文件名，同时给备份文件加上该板自己的编号。先读备份并确认参数区为出厂擦除态，再执行写入。
 
    ```text
@@ -136,7 +136,7 @@ $yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
 
 ### 3. 重启后核对节点和实际加载的参数
 
-用与所烧 APP 匹配的 AXF 符号连接 Keil，待初始化完成后在 Watch 展开 `s_motor_configuration`。先看 `configuration_source == MOTOR_CONFIGURATION_STORED`（1）、`application.axis_profile_valid == true`、`preset != NULL`。再看 `device.node_id`、`preset->node_id` 和 `application.axis_profile.identity.numeric.joint_type`。前两者应等于本板 CAN 节点，后者应等于下表角色。未确认文件应读到 `configuration_confirmed == false`，确认文件应为 true。[启动装载](../../firmware/app/runtime/motor_axis.c)
+用与所烧 APP 匹配的 AXF 符号连接 Keil，待初始化完成后在 Watch 展开 `s_motor_configuration`。先看 `configuration_source == MOTOR_CONFIGURATION_STORED`（1）、`application.axis_profile_valid == true`、`preset != NULL`。再看 `device.node_id`、`preset->node_id` 和 `application.axis_profile.identity.numeric.joint_type`。前两者应等于本板 CAN 节点，后者应等于下表角色。未确认文件应读到 `configuration_confirmed == false`，确认文件应为 true。[启动装载](../../firmware/app/motor_axis.c)
 
 | 写入文件 | 预期节点 / 角色 | `model.motor_pole_pairs` / `preset->electrical->gear_ratio` | `application.speed_kp / speed_ki` | `application.speed_limit_rad_s` 电机轴 rad/s | `preset->calibration_speed_rad_s` 电机轴 rad/s |
 |---|---|---:|---:|---:|---:|

@@ -59,7 +59,7 @@ ADC2 每路各取一次，标称比 ADC1 提前 1.40 µs 完成。母线电压�
 TMR6 的同一溢出事件还触发 ADC2 普通组的 PA7 电机 NTC。单次采样保持 640.5 周期，含转换标称约 10.88 µs，
 结果在完成后才进入普通数据寄存器。监督中断入口没有等待本次 NTC 转换完成。NTC 为 B3950、R25=10 kΩ，下臂 1 kΩ。
 实现见 [ADC 初始化及完成判定](../../firmware/platform/bsp/mcu/at32f456/adc.c)、
-[正式 APP 中断入口](../../projects/at32f456/application/main.c)和[轴快环](../../firmware/app/runtime/motor_axis.c)。
+[正式 APP 中断入口](../../projects/at32f456/application/main.c)和[轴快环](../../firmware/app/motor_axis.c)。
 
 ## 数据与职责
 

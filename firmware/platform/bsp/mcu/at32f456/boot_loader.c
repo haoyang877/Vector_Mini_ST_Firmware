@@ -48,12 +48,12 @@ bool BootHw_Init(void)
     s_trial_started_ms = BspSystem_TimeMs();
     return true;
 }
-bool BootHw_EnterLoader(uint8_t node)
+bool BootHw_EnterLoader(uint8_t node, uint32_t started_ms, uint32_t timeout_ms)
 {
     BootMailboxMessage message = {YG_BOOT_ENTER, 0};
     uint8_t raw[YGIM_BYTES];
     volatile uint8_t *mailbox = (volatile uint8_t *)TARGET_MAILBOX_ADDRESS;
-    uint32_t key, i;
+    uint32_t i;
     if (!s_available || node == 255)
     {
         return false;
@@ -63,11 +63,8 @@ bool BootHw_EnterLoader(uint8_t node)
     {
         return false;
     }
-    key = __get_PRIMASK();
-    __disable_irq();
-    if (!outputs_off())
+    if ((uint32_t)(BspSystem_TimeMs() - started_ms) >= timeout_ms || !outputs_off())
     {
-        __set_PRIMASK(key);
         return false;
     }
     *(volatile uint32_t *)mailbox = 0;
@@ -77,18 +74,27 @@ bool BootHw_EnterLoader(uint8_t node)
         mailbox[i] = raw[i];
     }
     __DMB();
-    *(volatile uint32_t *)mailbox = YGIM_MAGIC;
-    __DSB();
-    for (i = 0; i < sizeof(raw); ++i)
+    for (i = 4; i < sizeof(raw); ++i)
     {
         if (mailbox[i] != raw[i])
         {
-            __set_PRIMASK(key);
             return false;
         }
     }
-    NVIC_SystemReset();
-    __set_PRIMASK(key);
+    /* 启动锁保持关相。未到期才发布有效字；失败或过期撤销邮箱。 */
+    if ((uint32_t)(BspSystem_TimeMs() - started_ms) >= timeout_ms || !outputs_off())
+    {
+        return false;
+    }
+    *(volatile uint32_t *)mailbox = YGIM_MAGIC;
+    __DSB();
+    if (*(volatile uint32_t *)mailbox == YGIM_MAGIC && outputs_off() &&
+        (uint32_t)(BspSystem_TimeMs() - started_ms) < timeout_ms)
+    {
+        NVIC_SystemReset();
+    }
+    *(volatile uint32_t *)mailbox = 0U;
+    __DSB();
     return false;
 }
 void BootHw_Watchdog(bool healthy)

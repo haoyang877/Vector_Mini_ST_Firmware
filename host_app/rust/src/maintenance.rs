@@ -62,7 +62,7 @@ impl Panel {
                 self.probe.clone(),
                 "--uid".into(),
                 self.uid.clone(),
-                "--exclusive-no-power".into(),
+                "--exclusive-bench".into(),
             ]);
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -160,7 +160,7 @@ impl Panel {
             field(ui, "输入快照文件／迁移源目录", &mut self.input);
             field(ui, "下载后完整Flash文件", &mut self.after);
             field(ui, "AT32迁移包目录（可选）", &mut self.migration);
-            ui.checkbox(&mut self.confirmed, "已核对探针和UID，设备无动力、独占SWD");
+            ui.checkbox(&mut self.confirmed, "已核对探针和UID，设备已停机、独占SWD");
             ui.horizontal(|ui| {
                 let hardware = disconnected && self.confirmed;
                 if ui

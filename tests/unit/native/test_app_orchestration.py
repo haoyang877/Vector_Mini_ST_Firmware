@@ -22,19 +22,24 @@ def main() -> None:
     current = (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
     loader_source = (ROOT / "firmware/app/app_loader.c").read_text(encoding="utf-8")
     extra = [ROOT / "shared/boot/device_identity.c", ROOT / "shared/checksum/crc32.c"]
-    entry = (ROOT / "firmware/platform/bsp/mcu/stm32g4/boot_hw_stm32g4.c").read_text(
-        encoding="utf-8"
-    )
     deadline_test = (
         Path(__file__).with_name("boot_entry_deadline_test.c").read_text(encoding="utf-8")
     )
-    run_c(
-        args,
-        "entry_deadline",
-        deadline_test.replace("/* REAL_ENTRY */", function_source(entry, "BootHw_EnterLoader")),
-        1,
-        [ROOT / "shared/boot/image_mailbox.c", ROOT / "shared/checksum/crc32.c"],
-    )
+    for board, port, clock, flag in (
+        (1, "stm32g4/boot_hw_stm32g4.c", "HAL_GetTick", "available"),
+        (2, "at32f456/boot_loader.c", "BspSystem_TimeMs", "s_available"),
+    ):
+        entry = (ROOT / "firmware/platform/bsp/mcu" / port).read_text(encoding="utf-8")
+        source = deadline_test.replace("HAL_GetTick", clock).replace(
+            "bool available", f"bool {flag}"
+        )
+        run_c(
+            args,
+            f"entry_deadline_{board}",
+            source.replace("/* REAL_ENTRY */", function_source(entry, "BootHw_EnterLoader")),
+            board,
+            [ROOT / "shared/boot/image_mailbox.c", ROOT / "shared/checksum/crc32.c"],
+        )
     if args.reference_source:
         tree = next(
             p for p in args.reference_source.resolve().parents if (p / "tests/run.py").exists()

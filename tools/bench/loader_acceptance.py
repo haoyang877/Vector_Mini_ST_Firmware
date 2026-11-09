@@ -32,10 +32,10 @@ def main() -> None:
     parser.add_argument("--jlink-dll", type=Path)
     parser.add_argument("--cycles", type=int, default=1)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--exclusive-no-power", action="store_true")
+    parser.add_argument("--exclusive-bench", "--exclusive-no-power", action="store_true")
     args = parser.parse_args()
-    if not args.exclusive_no_power or not 1 <= args.cycles <= 1000:
-        parser.error("必须明确无动力独占条件，循环次数为1..1000")
+    if not args.exclusive_bench or not 1 <= args.cycles <= 1000:
+        parser.error("必须明确停机且独占台架，循环次数为1..1000")
     if not args.out.resolve().is_relative_to((ROOT / "outputs").resolve()):
         parser.error("验收证据必须位于当前工作树outputs")
     target = load_target(args.target)
@@ -50,7 +50,7 @@ def main() -> None:
         str(args.probe),
         "--uid",
         args.uid,
-        "--exclusive-no-power",
+        "--exclusive-bench",
     ]
     if args.jlink_dll:
         snapshot_arguments += ["--jlink-dll", str(args.jlink_dll.resolve())]

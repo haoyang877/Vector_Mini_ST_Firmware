@@ -61,7 +61,7 @@ G431将目标名换成`vector_mini_st_g431`。两套工程各自生成AXF、HEX�
 安装依赖`uv sync --locked --extra dev --extra maintenance`。
 命令入口`loader/tools/device_maintenance.py`，Rust工作台“SWD维护”页使用同一脚本。
 硬件操作必须显式指定`--target`、`--probe`、24位十六进制`--uid`、新`--out`目录及
-`--exclusive-no-power`；指定单只探针，不自动切换设备。先关闭其他调试器和CAN会话并隔离电机动力。
+`--exclusive-bench`。指定单只探针，停止电机并关闭其他调试器和 CAN 会话。母线可以保持带电，维护工具核对六路输出已关闭后才继续。旧参数 `--exclusive-no-power` 仍可使用。
 无硬件参数的`parameters`、`verify`和`prepare-migration`只处理本地文件。
 
 1. `backup`读取真实UID、物理容量、六路输出状态，以每笔最多4 KiB的SWD事务读取两份完整物理Flash。

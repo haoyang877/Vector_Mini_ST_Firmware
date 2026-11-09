@@ -49,7 +49,7 @@ TMR1 是三相 PWM 和快采样的共同时间基准。在一个 50 µs 周期�
 ## 快环执行与占空比装载
 
 1. **接收完成事件。** 仅 ADC1 开抢占序列完成中断（优先级 0）。`BspAdc_CompleteFast` 检查两只 ADC 的 PCCE 标志；两者都置位才清标志并执行本拍。只有 ADC1 完成时，软件清 ADC1 标志并跳过本拍。完成标志没有序号，异常迟到时无法据此证明两个结果属于同一触发。
-2. **取反馈并计算。** `MotorAxis_SampleFast` 先启动编码器 SPI 传输，使它与母线和相电流处理重叠，再更新编码器反馈。`MotorAxis_ControlFast` 按状态执行控制；运行态 FOC 由 `Foc_Prepare` 计算三相占空比，`BspPwm_SetDuty` 顺序写 CH2/3/4，随后 `Foc_Complete` 更新诊断和积分跟踪。入口在快环返回后才递增 `g_app_fast_samples`。[中断入口](../../projects/at32f456/application/main.c) · [轴快环](../../firmware/app/runtime/motor_axis.c) · [FOC 写入顺序](../../firmware/motor/control/foc_output.c)
+2. **取反馈并计算。** `MotorAxis_SampleFast` 先启动编码器 SPI 传输，使它与母线和相电流处理重叠，再更新编码器反馈。`MotorAxis_ControlFast` 按状态执行控制；运行态 FOC 由 `Foc_Prepare` 计算三相占空比，`BspPwm_SetDuty` 顺序写 CH2/3/4，随后 `Foc_Complete` 更新诊断和积分跟踪。入口在快环返回后才递增 `g_app_fast_samples`。[中断入口](../../projects/at32f456/application/main.c) · [轴快环](../../firmware/app/motor_axis.c) · [FOC 写入顺序](../../firmware/motor/control/foc_output.c)
 3. **硬件装载。** 三个比较通道启用缓冲，TMR1 的重复计数器保持复位值 0。峰值和谷底都可发生装载。27.50 µs 收齐本拍后，最近的一次装载是 **50.00 µs 谷底**。要让三相在此一起生效，最后一个比较值也要在谷底前写完。从 ADC1 标称完成算起，上限为 **22.50 µs（4050 个内核周期）**，其中还要容纳中断响应、反馈处理和 FOC 计算。
 
 若三次写入都发生在 50 µs 谷底与 75 µs 峰值之间，它们可在该峰值一起装载；若写入横跨谷底，则可能部分相先装载，其余相等到下一次装载。装载更新的是比较阈值，对应的开关边沿由后续计数匹配产生。逆 Park 使用的 `1.5 × FOC_TS_S` 是角度预测量；实际装载时刻要看写入落在哪两个更新事件之间。[PWM 写入](../../firmware/platform/bsp/mcu/at32f456/pwm.c) · [逆 Park 与 SVPWM](../../firmware/motor/control/foc.c)

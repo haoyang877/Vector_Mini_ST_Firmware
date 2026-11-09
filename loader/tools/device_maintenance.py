@@ -351,7 +351,7 @@ def main() -> None:
     parser.add_argument("--probe", type=int)
     parser.add_argument("--uid")
     parser.add_argument("--jlink-dll", type=Path)
-    parser.add_argument("--exclusive-no-power", action="store_true")
+    parser.add_argument("--exclusive-bench", "--exclusive-no-power", action="store_true")
     args = parser.parse_args()
     target = load_target(args.target)
     if args.action == "prepare-migration":
@@ -368,13 +368,13 @@ def main() -> None:
         report = verify_protected(args.input.read_bytes(), args.after.read_bytes(), target)
     else:
         if (
-            not args.exclusive_no_power
+            not args.exclusive_bench
             or not args.probe
             or args.probe <= 0
             or not args.uid
             or not args.out
         ):
-            parser.error("SWD操作需要明确探针、UID、无动力独占条件和输出目录")
+            parser.error("SWD操作需要明确探针、UID、停机且独占台架和输出目录")
         if args.action == "install" and not args.bundle:
             parser.error("初装需要已通过校验的配套构建包")
         uid = bytes.fromhex(args.uid)

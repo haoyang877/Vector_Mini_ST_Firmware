@@ -78,6 +78,7 @@ class LoaderTargetTests(unittest.TestCase):
             }
             expected.update(
                 {
+                    ROOT / "firmware/app/app_loader.c",
                     ROOT / "shared/boot/image_mailbox.c",
                     ROOT / build["descriptor_source"],
                 }

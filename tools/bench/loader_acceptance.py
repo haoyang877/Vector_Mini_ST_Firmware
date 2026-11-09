@@ -57,7 +57,14 @@ def main() -> None:
     try:
         for cycle in range(1, args.cycles + 1):
             directory = args.out / f"cycle-{cycle:04d}"
-            run([*snapshot_arguments, "--out", str((directory / "before").resolve())])
+            run(
+                [
+                    *snapshot_arguments,
+                    "--allow-target-reset",
+                    "--out",
+                    str((directory / "before").resolve()),
+                ]
+            )
             run(
                 [
                     "host_app/upgrade_client.py",

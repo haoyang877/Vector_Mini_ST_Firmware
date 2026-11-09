@@ -352,6 +352,9 @@ def main() -> None:
     parser.add_argument("--uid")
     parser.add_argument("--jlink-dll", type=Path)
     parser.add_argument("--exclusive-bench", "--exclusive-no-power", action="store_true")
+    parser.add_argument(
+        "--allow-target-reset", action="store_true", help="备份后释放调试复位捕获，供 CAN 交接"
+    )
     args = parser.parse_args()
     target = load_target(args.target)
     if args.action == "prepare-migration":
@@ -404,6 +407,13 @@ def main() -> None:
                 if bundle is None
                 else install(probe, target, uid, bundle[1], bundle[2], args.out, args.migration)
             )
+            if args.allow_target_reset:
+                # 独占台架的下一步由 APP 或 Loader 自行复位，只释放 Cortex-M 的 VC_CORERESET。
+                demcr = 0xE000EDFC
+                probe.memory_write32(demcr, [probe.memory_read32(demcr, 1)[0] & ~1])
+                if probe.memory_read32(demcr, 1)[0] & 1:
+                    raise RuntimeError("探针仍捕获目标复位，无法开始 CAN 交接")
+                report["reset_catch_released"] = True
             report["success"] = True
         except Exception as error:
             report["error"] = str(error)

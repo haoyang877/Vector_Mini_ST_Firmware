@@ -97,6 +97,6 @@ G431将目标名换成`vector_mini_st_g431`。两套工程各自生成AXF、HEX�
 ## 验收与限制
 
 `verify --profile release`构建两板普通APP、Loader及LoaderApp，默认不连接硬件。
-显式台架脚本`tools/bench/loader_acceptance.py`复用现有CAN客户端，每轮前后备份和比较保护区；
+显式台架脚本`tools/bench/loader_acceptance.py`在升级前备份后释放调试器复位捕获，复用现有CAN客户端，每轮前后备份和比较保护区；
 每板100轮、掉电、Keil重复下载、WDT实测及重定位快环时序均须在明确台架上下文另行执行。
 方案见[双板计划](../plans/active/2026-11-02-dual-board-loader-v1.md)。

@@ -10,7 +10,8 @@
 
 static const LoaderFlashRegion s_app = {TARGET_APP_BASE, TARGET_APP_BYTES};
 static bool s_flash_failed;
-static uint32_t s_last_ticks, s_milliseconds, s_remainder;
+static uint16_t s_last_ticks;
+static uint32_t s_milliseconds, s_remainder;
 
 static bool inside(uint32_t address, uint32_t bytes, const LoaderFlashRegion *region)
 {
@@ -174,7 +175,7 @@ bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset)
     }
     crm_periph_clock_enable(CRM_TMR2_PERIPH_CLOCK, TRUE);
     tmr_reset(TMR2);
-    tmr_base_init(TMR2, UINT32_MAX, LOADER_AT32_CLOCK_HZ / 10000U - 1U);
+    tmr_base_init(TMR2, UINT16_MAX, LOADER_AT32_CLOCK_HZ / 10000U - 1U);
     tmr_counter_enable(TMR2, TRUE);
     crm_clock_source_enable(CRM_CLOCK_SOURCE_LICK, TRUE);
     uint32_t remaining = 2000000U;
@@ -205,7 +206,9 @@ bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset)
 }
 uint32_t LoaderPlatform_NowMs(void)
 {
-    uint32_t now = TMR2->cval, delta = now - s_last_ticks;
+    /* TMR2 的 10 kHz 计数器每 65536 拍回绕，前台轮询间隔短于一圈。 */
+    uint16_t now = (uint16_t)TMR2->cval;
+    uint16_t delta = (uint16_t)(now - s_last_ticks);
     s_last_ticks = now;
     s_remainder += delta % 10U;
     s_milliseconds += delta / 10U + s_remainder / 10U;

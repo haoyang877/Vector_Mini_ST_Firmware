@@ -103,6 +103,8 @@ def main():
         + "\n"
         + (ROOT / "tests/unit/at32_loader_flash_test.c").read_text(encoding="utf-8")
         + "\n"
+        + function_source(port, "LoaderPlatform_NowMs").replace("LoaderPlatform_NowMs", "timer_ms")
+        + "\n"
         + function_source(port, "inside")
         + "\n"
         + function_source(port, "flash_ready").replace(

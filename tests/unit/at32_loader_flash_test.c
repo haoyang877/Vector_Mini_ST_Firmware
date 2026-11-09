@@ -11,6 +11,14 @@ static struct
 } s_flash;
 #define FLASH (&s_flash)
 static bool s_flash_failed;
+static uint16_t s_last_ticks;
+static uint32_t s_milliseconds, s_remainder;
+static struct
+{
+    uint32_t cval;
+} s_timer;
+#define TMR2 (&s_timer)
+static uint32_t timer_ms(void);
 static uint32_t s_now, s_release;
 static bool flash_ready(bool completed);
 static bool inside(uint32_t address, uint32_t bytes, const LoaderFlashRegion *region);
@@ -36,6 +44,10 @@ static void setup(uint32_t flags)
 }
 int main(void)
 {
+    s_timer.cval = 65530U;
+    assert(timer_ms() == 6553U);
+    s_timer.cval = 4U;
+    assert(timer_ms() == 6554U);
     const LoaderFlashRegion app = {0x08004000U, 98304U};
     assert(inside(0x08004000U, 2048U, &app));
     assert(inside(0x0801BFF8U, 8U, &app));

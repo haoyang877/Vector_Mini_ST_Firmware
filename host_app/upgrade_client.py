@@ -465,7 +465,7 @@ class UpgradeClient:
 
 
 def main() -> int:
-    """包检查默认离线；upgrade须显式独占台架且逻辑电源供电。"""
+    """包检查默认离线；upgrade须显式独占台架；设备在交接时停机并确认关相。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("inspect", "upgrade"))
     parser.add_argument("--target", help="目标名称或目标 JSON；省略保持 G431")

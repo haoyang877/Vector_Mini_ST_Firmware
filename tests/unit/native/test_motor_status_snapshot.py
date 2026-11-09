@@ -16,7 +16,8 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     source = (ROOT / "firmware/app/motor_lifecycle_exchange.c").read_text(encoding="utf-8")
     functions = "\n".join(
-        function_source(source, name) for name in ("sample_status", "MotorLifecycle_ReadStatus")
+        function_source(source, name)
+        for name in ("build_motor_feedback_snapshot", "MotorLifecycle_ReadStatus")
     )
     status_adapter = (ROOT / "firmware/app/app_protocol.c").read_text(encoding="utf-8")
     functions += "\n" + function_source(status_adapter, "protocol_state")

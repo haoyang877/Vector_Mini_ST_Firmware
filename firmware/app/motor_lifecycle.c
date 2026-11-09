@@ -583,7 +583,7 @@ void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *life,
     }
 }
 
-static void finish_calibration(MotorLifecycle *life)
+static void complete_calibration_after_save(MotorLifecycle *life)
 {
     if (life->state != MOTOR_STATE_CALIBRATION ||
         life->calibration_handoff != MOTOR_CALIBRATION_AWAITING_COMPLETION)
@@ -612,7 +612,7 @@ static void enter_fault(MotorLifecycle *life, MotorFaultCode fault)
     }
 }
 
-static bool clear_fault(MotorLifecycle *life)
+static bool try_clear_recovered_fault(MotorLifecycle *life)
 {
     MotorFaultCode fault = (MotorFaultCode)life->drive.motor->fault_code;
     if (life->fault_locked || !life->drive.power->phases_disabled() || !measurements_valid(life) ||
@@ -655,7 +655,7 @@ MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *life)
     }
     else if ((life->state == MOTOR_STATE_IDLE &&
               life->drive.motor->fault_code == MOTOR_FAULT_NONE) ||
-             (life->state == MOTOR_STATE_FAULT && clear_fault(life)))
+             (life->state == MOTOR_STATE_FAULT && try_clear_recovered_fault(life)))
     {
         result = MOTOR_CONTROL_ACCEPTED;
     }
@@ -698,7 +698,7 @@ void MotorLifecycle_SupervisorTick(MotorLifecycle *life)
         &life->recovery, life->drive.foc, (MotorFaultCode)life->drive.motor->fault_code);
     bool configuration_valid = ParameterValue_ConfigurationValid(life->drive.configuration);
     uint32_t mask = BspSystem_EnterControlCritical();
-    finish_calibration(life);
+    complete_calibration_after_save(life);
     stop_on_unsafe_conditions(life, configuration_valid);
     ++life->supervisor_ticks;
     BspSystem_ExitControlCritical(mask);

@@ -11,7 +11,8 @@ static bool dq_target_within_limit(float d, float q, float limit)
     return isfinite(limit) && limit > 0.0f && d * d + q * q <= limit * limit;
 }
 
-static MotorControlResult apply_running_target(MotorLifecycle *life, const MotorTarget *target)
+static MotorControlResult validate_and_set_mode_target(MotorLifecycle *life,
+                                                       const MotorTarget *target)
 {
     const MotorLifecycleBindings *drive = &life->drive;
     const MotorConfiguration *configuration = drive->configuration;
@@ -151,7 +152,7 @@ MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTar
     else if (life->state == MOTOR_STATE_RUNNING && !life->stop_pending && !life->starts_locked &&
              target->mode == life->drive.motor->control_mode)
     {
-        result = apply_running_target(life, target);
+        result = validate_and_set_mode_target(life, target);
     }
     BspSystem_ExitControlCritical(mask);
     return result;
@@ -182,7 +183,7 @@ void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work)
     BspSystem_ExitControlCritical(mask);
 }
 
-static MotorStatus sample_status(const MotorLifecycle *life)
+static MotorStatus build_motor_feedback_snapshot(const MotorLifecycle *life)
 {
     const MotorControlState *motor = life->drive.motor;
     const FocState *foc = life->drive.foc;
@@ -223,7 +224,7 @@ bool MotorLifecycle_ReadStatus(const MotorLifecycle *life, MotorStatus *status)
         uint32_t outer = life->outer_ticks;
         uint32_t supervisor = life->supervisor_ticks;
         BspSystem_MemoryBarrier();
-        MotorStatus sample = sample_status(life);
+        MotorStatus sample = build_motor_feedback_snapshot(life);
         BspSystem_MemoryBarrier();
         if (fast == life->fast_sample_ticks && outer == life->outer_ticks &&
             supervisor == life->supervisor_ticks)

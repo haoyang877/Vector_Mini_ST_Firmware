@@ -1,4 +1,4 @@
-#include "motor_lifecycle_exchange.h"
+#include "motor_lifecycle.h"
 
 #include <math.h>
 #include <string.h>
@@ -234,14 +234,35 @@ void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work
     bool uses_outer_loop = life->drive.motor->control_mode == MOTOR_CONTROL_SPEED ||
                            life->drive.motor->control_mode == MOTOR_CONTROL_POSITION;
     bool outer_ready = !uses_outer_loop || MotorOuterLoop_IsReady(life->drive.outer);
-    bool can_enable = outer_ready && life->state == MOTOR_STATE_IDLE && life->start_pending &&
-                      control_inputs_valid(life, life->drive.motor->control_mode);
     bool can_commit = work->allowed && same_session &&
                       life->drive.motor->fault_code == MOTOR_FAULT_NONE && !life->stop_pending &&
                       !life->starts_locked;
-    MotorLifecycle_PublishOuterResult(
-        life, work, can_commit && uses_outer_loop && outer_ready, can_commit && can_enable);
-    if (!can_commit && work->allowed)
+    if (can_commit && outer_ready)
+    {
+        if (uses_outer_loop)
+        {
+            MotorControlState *motor = life->drive.motor;
+            motor->id_target_a = work->motor.id_target_a;
+            motor->iq_target_a = work->motor.iq_target_a;
+            motor->uses_speed_ramp = work->motor.uses_speed_ramp;
+            motor->speed_ramped_rad_s = work->motor.speed_ramped_rad_s;
+            motor->position_reference_rad = work->motor.position_reference_rad;
+            motor->position_target_reached = work->motor.position_target_reached;
+            motor->position_velocity_filtered_rad_s = work->motor.position_velocity_filtered_rad_s;
+            motor->position_trajectory_speed_rad_s = work->motor.position_trajectory_speed_rad_s;
+            motor->position_trajectory_acceleration_rad_s2 =
+                work->motor.position_trajectory_acceleration_rad_s2;
+            *life->drive.speed_pi = work->speed_pi;
+        }
+        /* ADC 可随时确认已有许可。只给仍待启动的轴登记一次。 */
+        if (life->phase_enable_epoch == 0U && life->state == MOTOR_STATE_IDLE &&
+            life->start_pending && control_inputs_valid(life, life->drive.motor->control_mode))
+        {
+            BspSystem_MemoryBarrier();
+            life->phase_enable_epoch = work->epoch;
+        }
+    }
+    else if (!can_commit && work->allowed)
     {
         MotorOuterLoop_RequestReset(life->drive.outer);
     }
@@ -288,11 +309,6 @@ void MotorLifecycle_BeginFastTick(MotorLifecycle *life)
         MotorFault_Report(life->drive.motor, MOTOR_FAULT_INVALID_PARAMETERS);
     }
     disable_phases_on_fault(life);
-    uint32_t enable_epoch = MotorLifecycle_ApplyPendingControl(life);
-    if (enable_epoch != 0U)
-    {
-        life->phase_enable_epoch = enable_epoch;
-    }
     if (life->stop_pending || life->drive.motor->fault_code != MOTOR_FAULT_NONE)
     {
         life->phase_enable_epoch = 0U;

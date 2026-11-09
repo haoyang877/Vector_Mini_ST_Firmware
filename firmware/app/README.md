@@ -8,7 +8,7 @@
 | [motor_axis.h](motor_axis.h)、[motor_axis.c](motor_axis.c) | `SampleFast` 采样，`ControlFast` 执行控制或标定，`SupervisorTick` 监督，`OuterTick` 计算外环，`ProcessPositionPlan` 在前台建表 | ADC、监督、外环、前台 |
 | [motor_state_machine.h](motor_state_machine.h)、[motor_state_machine.c](motor_state_machine.c) | `MotorStateMachine_NextState` 从当前状态和一个事件计算下一状态 | 纯函数 |
 | [motor_lifecycle.h](motor_lifecycle.h)、[motor_lifecycle.c](motor_lifecycle.c) | 根据启动许可、实际输出、STOP、故障和标定进展提交事件，保存本轴主状态 | 前台请求、ADC、监督与外环 |
-| [motor_lifecycle_exchange.c](motor_lifecycle_exchange.c) | 同一生命周期模块的控制交接实现。校验目标、传递外环结果、按拍读回反馈 | 前台、ADC、外环 |
+| [motor_lifecycle_exchange.c](motor_lifecycle_exchange.c) | 按模式校验并写入目标，读取外环输入和本轴反馈 | 前台、外环 |
 | [motor_calibration.h](motor_calibration.h)、[motor_calibration.c](motor_calibration.c) | `StepFast` 推进 LUT、电气零位或机械零位；`ProcessPublication` 处理停稳、发布、保存和失败 | ADC、停机前台 |
 | [app_protocol.h](app_protocol.h)、[app_protocol.c](app_protocol.c) | `Init` 绑定本端点的请求和状态读取回调；108 查询或 124 回包各读一次所属轴的快照；目标重发记录属于本端点，STOP 按实际关相状态回复 | 前台 |
 | [app_loader.h](app_loader.h)、[app_loader.c](app_loader.c) | `Init/Process` 管理 G431 LoaderApp 的停机票据、发送完成、超时复核和镜像确认 | 前台 |
@@ -23,7 +23,7 @@
 
 - 上电顺序为 `Bsp_Init → App_Init → Bsp_Start → App_Start`。一个已初始化实例再次进入 `App_Init` 会立即返回。
 - 每个有效 ADC 事件推进一次 20 kHz 快拍，监督保持 2 kHz。AT32 的 4 kHz 配置每五个有效快拍派发一次外环，其他配置从监督拍推进 2 kHz 外环。
-- 外环在栈上计算并发布完整结果。ADC 拍首先核对会话、控制模式、STOP 和故障，再更新电流参考、速度 PI 与启相许可。协议电流、电压和开环频率通过每轴两个槽整组交接；迟到的目标或结果会被丢弃。Hall 由外环选定读槽，ADC 只写另一槽。
+- 前台在目标校验成功后直接写本轴。外环在栈上计算，提交时核对会话、控制模式、STOP 和故障，然后直接更新电流参考及速度 PI。ADC 可在多字段写入期间抢占，并在启相前复核许可。Hall 由外环选定读槽，ADC 只写另一槽。
 - 标定工作区、候选和停稳计时器属于轴。关相后前台登记待安装 LUT 的会话，ADC 在读取本拍编码器前复核并安装，随后前台保存，监督拍收尾。完成后由前台复核原会话、故障及实际关相状态，将结果写入该轴绑定的参数槽。写失败锁存存储故障。
 - CAN 前台核对 ADC、外环和监督拍号，若两次读取都遭抢占，108 回 BUSY，124 保留目标结果码并使用无效测量值。
 - 通信队列、重发序号与 Loader 票据分别随应用或端点存储。生产 ISR 按物理外设固定路由。同一轴的快拍、同一端点的前台消费、同一物理 Flash 的提交均按原硬件顺序串行。不同轴可在调用中嵌套，绑定独立 PWM 和参数槽时可独立提交输出。

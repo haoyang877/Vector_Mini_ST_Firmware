@@ -17,5 +17,5 @@
 - 在 [motor_lifecycle.c](../../firmware/app/motor_lifecycle.c) 查 `apply_state_event` 的调用点，就能看到每个事件何时提交。这里是初始化之后唯一写入本轴主状态的位置。
 - 跟启动读 `RequestEnable → CommitOuter → BeginFastTick`；跟停止读 `RequestStop → process_pending_stop → stop_motor`；跟标定读 `RequestCalibration → PostOutcome → CompleteCalibrationPublication → finish_calibration`。清错入口是 `RequestClear`。启动受理、实际启相、标定结果可保存分别有各自的判定时刻。
 - 每次 ADC 采样后，[MotorAxis_ControlFast](../../firmware/app/motor_axis.c) 先调用 `BeginFastTick` 检查故障和启相许可，再读取主状态。运行态执行 `MotorControl_Step`，可执行的标定态执行 `MotorCalibration_StepFast`。最后 `PostOutcome` 接收本拍结果并检查新故障。
-- 目标的成组交接、外环副本的消费和 CAN 反馈的一致快照在 [motor_lifecycle_exchange.c](../../firmware/app/motor_lifecycle_exchange.c)。两份实现共用一个轴实例和同一个[对外接口](../../firmware/app/motor_lifecycle.h)。
+- 前台在 [motor_lifecycle_exchange.c](../../firmware/app/motor_lifecycle_exchange.c) 校验目标并直接写本轴，也从本轴读取 CAN 反馈。外环在 `MotorLifecycle_CommitOuter` 直接写有效结果。ADC 单独复核启相条件。
 - 标定的停稳、LUT 安装和 Flash 保存见 [motor_calibration.c](../../firmware/app/motor_calibration.c)，线路状态和命令编号见[协议说明](../protocols/README.md)。除 Flash 事务外，这些交接不暂缓 ADC。

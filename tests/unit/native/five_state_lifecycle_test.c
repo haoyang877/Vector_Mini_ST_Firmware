@@ -34,7 +34,6 @@ static bool phases_disabled, start_fails, stop_fails, outer_ready;
 static unsigned critical_depth, critical_calls, fault_on_enter;
 static unsigned calibration_cancel_count;
 static bool calibration_resources_released;
-static bool sample_before_publish;
 
 void EncoderCalibration_Cancel(EncoderCalibrationSession *instance)
 {
@@ -74,11 +73,6 @@ void BspSystem_ExitControlCritical(uint32_t saved)
 }
 void BspSystem_MemoryBarrier(void)
 {
-    if (sample_before_publish)
-    {
-        sample_before_publish = false;
-        MotorLifecycle_BeginFastTick(&life);
-    }
 }
 bool BspSystem_CompareExchange32(volatile uint32_t *address, uint32_t expected, uint32_t desired)
 {
@@ -346,8 +340,7 @@ static void test_commit_preemption_and_stop(void)
     assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) != MOTOR_CONTROL_ACCEPTED);
 }
 
-/* 在写新槽和发布序号之间抢占，快拍只可消费上一份完整目标。 */
-static void test_fast_handoff(void)
+static void test_direct_control_updates(void)
 {
     reset();
     assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_OPEN_CURRENT) ==
@@ -356,30 +349,41 @@ static void test_fast_handoff(void)
     MotorTarget target = {
         .mode = MOTOR_CONTROL_OPEN_CURRENT, .id_a = 1.0f, .iq_a = -1.0f, .frequency_hz = -20.0f};
     assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+    assert(motor.id_target_a == 1.0f && motor.iq_target_a == -1.0f &&
+           motor.open_loop_frequency_hz == -20.0f);
     target.id_a = 0.5f;
     target.iq_a = 0.25f;
     target.frequency_hz = 10.0f;
-    sample_before_publish = true;
     assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
-    assert(!sample_before_publish && motor.id_target_a == 1.0f && motor.iq_target_a == -1.0f &&
-           motor.open_loop_frequency_hz == -20.0f);
+    assert(motor.id_target_a == 0.5f && motor.iq_target_a == 0.25f &&
+           motor.open_loop_frequency_hz == 10.0f);
     MotorLifecycle_RequestStop(&life);
     MotorLifecycle_BeginFastTick(&life);
-    assert(phases_disabled && motor.iq_target_a == -1.0f);
+    assert(phases_disabled);
+    tick();
+    assert(motor.iq_target_a == 0.0f && motor.open_loop_frequency_hz == 0.0f);
 
     reset();
     assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
-    tick();
     MotorOuterWork work;
     MotorLifecycle_BeginOuter(&life, &work);
+    MotorOuterLoop_SlowTick(&outer, &configuration, &work.motor, &work.speed_pi, &encoder);
     work.motor.iq_target_a = 5.0f;
     work.speed_pi.integral_output = 4.0f;
     MotorLifecycle_CommitOuter(&life, &work);
-    assert(life.outer_pending && motor.iq_target_a != 5.0f);
+    assert(motor.iq_target_a == 5.0f && pi.integral_output == 4.0f);
+    assert(phases_disabled && life.state == MOTOR_STATE_IDLE);
+    MotorLifecycle_CommitOuter(&life, &work);
+    MotorLifecycle_BeginFastTick(&life);
+    MotorLifecycle_BeginFastTick(&life);
+    assert(!phases_disabled && life.state == MOTOR_STATE_RUNNING &&
+           motor.fault_code == MOTOR_FAULT_NONE);
     motor.fault_code = MOTOR_FAULT_OVERCURRENT;
     MotorLifecycle_BeginFastTick(&life);
-    assert(!life.outer_pending && phases_disabled && motor.iq_target_a != 5.0f &&
-           pi.integral_output != 4.0f && life.phase_enable_epoch == 0U);
+    assert(phases_disabled && life.phase_enable_epoch == 0U);
+    tick();
+    assert(life.state == MOTOR_STATE_FAULT && motor.iq_target_a == 0.0f &&
+           pi.integral_output == 0.0f);
 }
 
 static void test_calibration_completes_to_idle(void)
@@ -667,13 +671,14 @@ static void test_target_fields_by_mode(void)
         for (unsigned j = 0U; j < sizeof(fields) / sizeof(fields[0]); ++j)
         {
             *fields[j] = 0.125f;
-            uint32_t revision = life.published_target;
+            unsigned char before[sizeof(motor)];
+            memcpy(before, &motor, sizeof(motor));
             MotorControlResult result = MotorLifecycle_SetTarget(&life, &target);
             assert(result ==
                    (cases[i].allowed[j] ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_INVALID));
             if (!cases[i].allowed[j])
             {
-                assert(life.published_target == revision);
+                assert(memcmp(before, &motor, sizeof(motor)) == 0);
             }
             *fields[j] = 0.0f;
         }
@@ -697,7 +702,7 @@ static void test_live_targets(void)
     assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
     assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
-    assert(motor.iq_target_a == 0.0f);
+    assert(motor.iq_target_a == 0.25f);
     MotorStatus accepted;
     assert(MotorLifecycle_ReadStatus(&life, &accepted) && accepted.iq_reference_a == 0.25f);
     MotorLifecycle_BeginFastTick(&life);
@@ -835,7 +840,7 @@ int main(void)
     test_bus_current_snapshot();
     test_faults_and_safety();
     test_commit_preemption_and_stop();
-    test_fast_handoff();
+    test_direct_control_updates();
     test_calibration_completes_to_idle();
     test_calibration_stop_fault_and_late_result();
     test_linearization_waits_for_publication();

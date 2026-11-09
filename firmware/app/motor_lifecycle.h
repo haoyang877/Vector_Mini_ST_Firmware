@@ -113,13 +113,6 @@ struct MotorLifecycle
     volatile MotorCalibrationHandoff calibration_handoff;
     bool start_pending; /* 普通启动已受理，尚未确认三相输出开启。 */
     bool fault_locked, fast_samples_fresh, starts_locked;
-    /* 单写者先准备非活动槽，最后发布序号；ADC 只消费完整的本轴结果。 */
-    MotorTarget fast_targets[2];
-    uint32_t target_epochs[2];
-    volatile uint32_t published_target, consumed_target;
-    MotorOuterWork outer_result;
-    volatile bool outer_pending;
-    bool outer_updates_control, outer_requests_enable;
 };
 
 /**
@@ -172,10 +165,10 @@ void MotorLifecycle_RequestStop(MotorLifecycle *life);
 MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *life, MotorControlMode mode);
 
 /**
- * @brief 在原模式运行时校验并发布目标，不启动或切换模式。
+ * @brief 在原模式运行时校验并写入控制目标，不启动或切换模式。
  * @param target 调用期间有效的目标值；单位见MotorTarget，未使用字段须为零。
  * @return ACCEPTED 表示目标已受理；拒绝不覆盖上次目标。
- * @note 速度和位置目标交给外环，其余目标由 ADC 拍首整组消费；停机或换代后丢弃。
+ * @note 校验通过后直接写本轴。ADC 可在各字段写入之间抢占。
  * @param life 调用方持有的实例状态。
  */
 MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *life, const MotorTarget *target);
@@ -278,7 +271,7 @@ void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work);
  * @brief 处理停止和故障，再以原会话身份提交外环结果。
  * @param life 所属轴的生命周期。
  * @param work 来自 BeginOuter 的本拍结果。
- * @note 每轴一个外环计算者，结果发布后由 ADC 复核代际、STOP、故障和模式再生效。
+ * @note 每轴一个外环计算者。有效结果在此直接写入控制对象，ADC 只复核启相许可。
  */
 void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work);
 /**

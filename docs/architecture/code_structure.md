@@ -25,7 +25,7 @@
 | app/motor_axis.c | 单份配置、运行对象、采样/控制/标定调度 |
 | app/motor_state_machine.c | 五态及单事件迁移规则，按值计算下一状态 |
 | app/motor_lifecycle.c | 启停和标定事件的提交时机、本轴状态、会话代际、故障和功率许可 |
-| app/motor_lifecycle_exchange.c | 同一轴实例上的目标校验、跨拍结果交接与反馈快照 |
+| app/motor_lifecycle_exchange.c | 本轴目标的校验与写入、外环输入和反馈快照 |
 | app/motor_calibration.c | 标定快拍、关相发布、停稳计时和保存 |
 | app/app_loader.c | 进入 Loader 的停机票据、超时和镜像确认 |
 | motor/control | 位置/速度外环、控制模式、PI、FOC 与无感启动 |

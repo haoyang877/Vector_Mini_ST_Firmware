@@ -1,11 +1,11 @@
-#include "motor_lifecycle_exchange.h"
+#include "motor_lifecycle.h"
 
 #include <math.h>
 #include "application_config.h"
 #include "axis_config.h"
 #include "bsp_system.h"
 
-/* 前台发布目标，外环发布计算结果，只有 ADC 消费。所有槽属于当前轴。 */
+/* 先检查该模式的全部字段和限值，拒绝时保留原目标。 */
 static bool dq_target_within_limit(float d, float q, float limit)
 {
     return isfinite(limit) && limit > 0.0f && d * d + q * q <= limit * limit;
@@ -35,6 +35,8 @@ static MotorControlResult apply_running_target(MotorLifecycle *life, const Motor
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }
+        motor->id_target_a = target->id_a;
+        motor->iq_target_a = target->iq_a;
         break;
     }
     case MOTOR_CONTROL_SPEED:
@@ -78,6 +80,8 @@ static MotorControlResult apply_running_target(MotorLifecycle *life, const Motor
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }
+        motor->vd_target_v = target->vd_v;
+        motor->vq_target_v = target->vq_v;
         break;
     case MOTOR_CONTROL_OPEN_VOLTAGE:
         if (target->position_rad != 0.0f || target->speed_rad_s != 0.0f || target->id_a != 0.0f ||
@@ -93,6 +97,9 @@ static MotorControlResult apply_running_target(MotorLifecycle *life, const Motor
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }
+        motor->vd_target_v = target->vd_v;
+        motor->vq_target_v = target->vq_v;
+        motor->open_loop_frequency_hz = target->frequency_hz;
         break;
     case MOTOR_CONTROL_OPEN_CURRENT:
     {
@@ -113,19 +120,15 @@ static MotorControlResult apply_running_target(MotorLifecycle *life, const Motor
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }
+        motor->id_target_a = target->id_a;
+        motor->iq_target_a = target->iq_a;
+        motor->open_loop_frequency_hz = target->frequency_hz;
         break;
     }
     default:
         return MOTOR_CONTROL_INVALID;
     }
 
-    /* 电流和电压目标都在下一次 ADC 拍首成组生效。 */
-    uint32_t revision = life->published_target + 1U;
-    unsigned slot = revision & 1U;
-    life->fast_targets[slot] = *target;
-    life->target_epochs[slot] = life->epoch;
-    BspSystem_MemoryBarrier();
-    life->published_target = revision;
     return MOTOR_CONTROL_ACCEPTED;
 }
 
@@ -179,112 +182,6 @@ void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work)
     BspSystem_ExitControlCritical(mask);
 }
 
-void MotorLifecycle_PublishOuterResult(MotorLifecycle *life,
-                                       const MotorOuterWork *work,
-                                       bool update_control,
-                                       bool request_phase_enable)
-{
-    life->outer_pending = false;
-    if (!update_control && !request_phase_enable)
-    {
-        return;
-    }
-    BspSystem_MemoryBarrier();
-    life->outer_result = *work;
-    life->outer_updates_control = update_control;
-    life->outer_requests_enable = request_phase_enable;
-    BspSystem_MemoryBarrier();
-    life->outer_pending = true;
-}
-
-static uint32_t consume_outer_result(MotorLifecycle *life)
-{
-    if (!life->outer_pending)
-    {
-        return 0U;
-    }
-    life->outer_pending = false;
-    BspSystem_MemoryBarrier();
-    const MotorOuterWork *work = &life->outer_result;
-    if (work->epoch != life->epoch || work->motor.control_mode != life->drive.motor->control_mode ||
-        life->stop_pending || life->starts_locked ||
-        life->drive.motor->fault_code != MOTOR_FAULT_NONE)
-    {
-        MotorOuterLoop_RequestReset(life->drive.outer);
-        return 0U;
-    }
-    if (life->outer_updates_control)
-    {
-        MotorControlState *motor = life->drive.motor;
-        motor->id_target_a = work->motor.id_target_a;
-        motor->iq_target_a = work->motor.iq_target_a;
-        motor->uses_speed_ramp = work->motor.uses_speed_ramp;
-        motor->speed_ramped_rad_s = work->motor.speed_ramped_rad_s;
-        motor->position_reference_rad = work->motor.position_reference_rad;
-        motor->position_target_reached = work->motor.position_target_reached;
-        motor->position_velocity_filtered_rad_s = work->motor.position_velocity_filtered_rad_s;
-        motor->position_trajectory_speed_rad_s = work->motor.position_trajectory_speed_rad_s;
-        motor->position_trajectory_acceleration_rad_s2 =
-            work->motor.position_trajectory_acceleration_rad_s2;
-        *life->drive.speed_pi = work->speed_pi;
-    }
-    if (life->outer_requests_enable && life->state == MOTOR_STATE_IDLE && life->start_pending)
-    {
-        return work->epoch;
-    }
-    return 0U;
-}
-
-static void consume_fast_target(MotorLifecycle *life)
-{
-    uint32_t revision = life->published_target;
-    if (revision == life->consumed_target)
-    {
-        return;
-    }
-    life->consumed_target = revision;
-    BspSystem_MemoryBarrier();
-    unsigned slot = revision & 1U;
-    const MotorTarget *target = &life->fast_targets[slot];
-    MotorControlState *motor = life->drive.motor;
-    if (life->target_epochs[slot] != life->epoch || life->state != MOTOR_STATE_RUNNING ||
-        life->stop_pending || life->starts_locked || motor->fault_code != MOTOR_FAULT_NONE ||
-        target->mode != motor->control_mode)
-    {
-        return;
-    }
-    switch (motor->control_mode)
-    {
-    case MOTOR_CONTROL_CURRENT:
-        motor->id_target_a = target->id_a;
-        motor->iq_target_a = target->iq_a;
-        break;
-    case MOTOR_CONTROL_VQ:
-        motor->vd_target_v = target->vd_v;
-        motor->vq_target_v = target->vq_v;
-        break;
-    case MOTOR_CONTROL_OPEN_VOLTAGE:
-        motor->vd_target_v = target->vd_v;
-        motor->vq_target_v = target->vq_v;
-        motor->open_loop_frequency_hz = target->frequency_hz;
-        break;
-    case MOTOR_CONTROL_OPEN_CURRENT:
-        motor->id_target_a = target->id_a;
-        motor->iq_target_a = target->iq_a;
-        motor->open_loop_frequency_hz = target->frequency_hz;
-        break;
-    default:
-        break;
-    }
-}
-
-uint32_t MotorLifecycle_ApplyPendingControl(MotorLifecycle *life)
-{
-    uint32_t enable_epoch = consume_outer_result(life);
-    consume_fast_target(life);
-    return enable_epoch;
-}
-
 static MotorStatus sample_status(const MotorLifecycle *life)
 {
     const MotorControlState *motor = life->drive.motor;
@@ -295,7 +192,7 @@ static MotorStatus sample_status(const MotorLifecycle *life)
                    motor->control_mode != MOTOR_CONTROL_VQ;
     bool position = active && motor->control_mode == MOTOR_CONTROL_POSITION;
     bool speed = active && motor->control_mode == MOTOR_CONTROL_SPEED;
-    MotorStatus status = {
+    return (MotorStatus){
         .state = life->state,
         .mode = (uint16_t)motor->control_mode,
         .fault = (uint16_t)motor->fault_code,
@@ -315,16 +212,6 @@ static MotorStatus sample_status(const MotorLifecycle *life)
         .vq_v = active ? foc->voltage_dq_v.q : NAN,
         .vd_v = active ? foc->voltage_dq_v.d : NAN,
     };
-    /* 116 回复报告已经受理的电流参考，快环随后在拍首成组消费。 */
-    uint32_t revision = life->published_target;
-    unsigned slot = revision & 1U;
-    if (current && !life->stop_pending && motor->fault_code == MOTOR_FAULT_NONE &&
-        revision != life->consumed_target && life->target_epochs[slot] == life->epoch &&
-        life->fast_targets[slot].mode == motor->control_mode)
-    {
-        status.iq_reference_a = life->fast_targets[slot].iq_a;
-    }
-    return status;
 }
 
 bool MotorLifecycle_ReadStatus(const MotorLifecycle *life, MotorStatus *status)

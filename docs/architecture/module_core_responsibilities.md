@@ -41,7 +41,7 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 | [shared](../../shared/README.md) | 跨产品字节和值 → 纯编解码/契约 → 统一数据 | 不依赖APP或HAL，不拥有运行电机 |
 | [上位机](../../host_app/README.md) | CAN读回、速度/STOP请求与匹配APP包 → 单页展示及升级客户端 → 实际回复与结果 | 默认断开，无演示或标定入口；GUI实机控制/升级尚待验收 |
 
-runtime中的`motor_lifecycle`内部验证命令并管理生命周期；`motor/control/motor_control`独占控制执行和外环。
+APP 的 `motor_state_machine` 校验命令并管理本轴状态；`motor/control/motor_control`独占控制执行和外环。
 `motor_sensing`推进上电零偏累计，`foc`绑定PI配置与电压额度；Axis只传对象和安排顺序。
 热保护计算留在motor，功率事实和生命周期许可由APP提供，不从motor反查主状态机。
 

@@ -6,15 +6,14 @@
 | --- | --- | --- |
 | [app.h](app.h)、[app.c](app.c) | `App_Init` 装配轴、协议和 Loader，`App_Start` 启动通信，`App_Process` 推进前台；`app.h` 同时定义板级 `AppContext` | 启动、前台、监督 |
 | [motor_axis.h](motor_axis.h)、[motor_axis.c](motor_axis.c) | `SampleFast` 采样，`ControlFast` 执行控制或标定，`SupervisorTick` 监督，`OuterTick` 计算外环，`ProcessPositionPlan` 在前台建表 | ADC、监督、外环、前台 |
-| [motor_state_machine.c](motor_state_machine.c)、[motor_state_machine.h](motor_state_machine.h)、[motor_lifecycle.h](motor_lifecycle.h) | `transition_motor_state` 判断六类事件、操作功率并提交本轴主状态。`MotorStateMachine_NextState` 提供按值查询，`MotorLifecycle_*` 是轴、协议和标定的调用入口 | 前台、ADC、监督与外环 |
-| [motor_lifecycle_exchange.c](motor_lifecycle_exchange.c) | 按模式校验并写入目标，读取外环输入和本轴反馈 | 前台、外环 |
+| [motor_state_machine.c](motor_state_machine.c)、[motor_state_machine.h](motor_state_machine.h) | 在本轴处理状态事件、目标写入、外环输入与提交、反馈快照。公开入口统一使用 `MotorStateMachine_*` | 前台、ADC、监督与外环 |
 | [motor_calibration.h](motor_calibration.h)、[motor_calibration.c](motor_calibration.c) | `StepFast` 推进 LUT、电气零位或机械零位；`ProcessPublication` 处理停稳、发布、保存和失败 | ADC、停机前台 |
 | [app_protocol.h](app_protocol.h)、[app_protocol.c](app_protocol.c) | `Init` 绑定本端点的请求和状态读取回调；108 查询或 124 回包各读一次所属轴的快照；目标重发记录属于本端点，STOP 按实际关相状态回复 | 前台 |
 | [app_loader.h](app_loader.h)、[app_loader.c](app_loader.c) | `Init/Process` 管理 G431 LoaderApp 的停机票据、发送完成、超时复核和镜像确认 | 前台 |
 
 ## 镜像边界
 
-普通 G431 和 AT32F456 共享 app、motor_axis、motor_state_machine、motor_calibration、app_protocol 五个生产模块。电机状态机与控制目标读写共用本轴生命周期实例。各事件的提交时机见[五态主线](../../docs/architecture/motor_state_machine_v1.md)。普通 APP 没有应用看门狗。采样新鲜度、功率保护、STOP 和 Flash 事务仍由轴与 BSP 执行。
+普通 G431 和 AT32F456 共享 app、motor_axis、motor_state_machine、motor_calibration、app_protocol 五个生产模块。每轴的状态、功率许可和目标读写都通过 `axis.state_machine`。各事件的提交时机见[五态主线](../../docs/architecture/motor_state_machine_v1.md)。普通 APP 没有应用看门狗。采样新鲜度、功率保护、STOP 和 Flash 事务仍由轴与 BSP 执行。
 
 独立 Loader 负责接收并写入升级镜像；配套 LoaderApp 通过 `YG_APP_LOADER_IMAGE` 编入 app_loader，保留停机交接、健康窗口、镜像确认和继承看门狗。AT32 以相同协议为后续移植目标，当前分支提供普通 AT32 APP 和调试口下载。[Loader 说明](../../loader/README.md)
 
@@ -22,6 +21,7 @@
 
 - 上电顺序为 `Bsp_Init → App_Init → Bsp_Start → App_Start`。一个已初始化实例再次进入 `App_Init` 会立即返回。
 - 每个有效 ADC 事件推进一次 20 kHz 快拍，监督保持 2 kHz。AT32 的 4 kHz 配置每五个有效快拍派发一次外环，其他配置从监督拍推进 2 kHz 外环。
+- 状态和会话号可从 `axis.state_machine.state` 与 `axis.state_machine.epoch` 读取。状态机独占写入。空闲且无启动请求时，外环和监督拍跳过整套参数校验。
 - 前台在目标校验成功后直接写本轴。外环在栈上计算，提交时核对会话、控制模式、STOP 和故障，然后直接更新电流参考及速度 PI。ADC 可在多字段写入期间抢占，并在启相前复核许可。Hall 由外环选定读槽，ADC 只写另一槽。
 - 标定工作区、候选和停稳计时器属于轴。关相后前台登记待安装 LUT 的会话，ADC 在读取本拍编码器前复核并安装，随后前台保存，监督拍收尾。完成后由前台复核原会话、故障及实际关相状态，将结果写入该轴绑定的参数槽。写失败锁存存储故障。
 - CAN 前台核对 ADC、外环和监督拍号，若两次读取都遭抢占，108 回 BUSY，124 保留目标结果码并使用无效测量值。

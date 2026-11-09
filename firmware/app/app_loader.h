@@ -1,12 +1,12 @@
 #ifndef APP_LOADER_H
 #define APP_LOADER_H
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "yg_protocol.h"
 
 /** @brief 一次上电内的 Loader 停机票据与健康确认状态。 */
 typedef struct
 {
-    MotorLifecycle *lifecycle;
+    MotorStateMachine *state_machine;
     ProtocolEndpoint *endpoint;
     const bool *communication_ready;
     const uint8_t *node_id; /**< 交接时读取所属轴的当前节点号。 */
@@ -23,7 +23,7 @@ typedef struct
 
 /**
  * @brief 在协议启动前绑定本实例的交接服务。
- * @param loader 已绑定本机协议和生命周期的实例。
+ * @param loader 已绑定本机协议和状态机的实例。
  */
 void AppLoader_Init(AppLoader *loader);
 

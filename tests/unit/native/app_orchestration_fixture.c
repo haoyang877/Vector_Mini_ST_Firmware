@@ -38,9 +38,10 @@ bool Protocol_Init(ProtocolEndpoint *instance, uint8_t node)
     event(3, node);
     return failure_stage != 1;
 }
-void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorLifecycle *life)
+void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorStateMachine *machine)
 {
-    assert(protocol == &app.protocol && endpoint == &app.endpoint && life == &app.axis.lifecycle);
+    assert(protocol == &app.protocol && endpoint == &app.endpoint &&
+           machine == &app.axis.state_machine);
 }
 bool Protocol_Start(ProtocolEndpoint *instance)
 {
@@ -124,7 +125,7 @@ bool BootHw_IsAvailable(void)
     event(30, 0);
     return true;
 }
-bool MotorLifecycle_ReadBootHealth(MotorLifecycle *instance, uint32_t *value)
+bool MotorStateMachine_ReadBootHealth(MotorStateMachine *instance, uint32_t *value)
 {
     (void)instance;
     *value = progress;
@@ -137,19 +138,19 @@ bool Protocol_IsReady(ProtocolEndpoint *instance)
     event(33, link_ready);
     return link_ready;
 }
-bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
+bool MotorStateMachine_ArePhasesDisabled(const MotorStateMachine *machine)
 {
-    (void)life;
+    (void)machine;
     event(34, stopped);
     return stopped;
 }
-bool MotorLifecycle_IsStopped(const MotorLifecycle *instance)
+bool MotorStateMachine_IsStopped(const MotorStateMachine *instance)
 {
     (void)instance;
     event(35, stopped);
     return stopped;
 }
-bool MotorLifecycle_LockStop(MotorLifecycle *instance)
+bool MotorStateMachine_LockStartsAndRequestStop(MotorStateMachine *instance)
 {
     (void)instance;
     event(36, lock_allowed);
@@ -195,12 +196,12 @@ void MotorAxis_SampleFast(MotorAxis *instance)
 }
 void MotorAxis_ControlFast(MotorAxis *instance)
 {
-    ++instance->lifecycle.fast_sample_ticks;
+    ++instance->state_machine.fast_sample_ticks;
     event(44, 0);
 }
 void MotorAxis_SupervisorTick(MotorAxis *instance)
 {
-    ++instance->lifecycle.supervisor_ticks;
+    ++instance->state_machine.supervisor_ticks;
     event(45, 0);
 }
 void Protocol_RxInterrupt(ProtocolEndpoint *instance)

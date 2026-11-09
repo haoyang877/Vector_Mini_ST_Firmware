@@ -71,7 +71,8 @@ __attribute__((noinline)) void McuSystem_Start(void)
     tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
     tmr_interrupt_enable(MCU_CONTROL_TIMER, TMR_OVF_INT, TRUE);
     NVIC_SetPriority(MCU_CONTROL_IRQ, MCU_CONTROL_IRQ_PRIORITY);
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE && OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
+#if defined(BSP_APP_STATE_MACHINE) && BSP_APP_STATE_MACHINE &&                                     \
+    OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
     NVIC_SetPriority(PendSV_IRQn, MCU_CONTROL_IRQ_PRIORITY);
 #endif
     NVIC_EnableIRQ(MCU_CONTROL_IRQ);
@@ -133,7 +134,7 @@ BspResult BspSystem_ReadIdentity(uint8_t record[64])
     return BSP_NOT_SUPPORTED;
 }
 
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
+#if defined(BSP_APP_STATE_MACHINE) && BSP_APP_STATE_MACHINE
 static void halt_disabled(void)
 {
     __disable_irq();

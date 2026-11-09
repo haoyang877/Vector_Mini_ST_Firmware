@@ -14,11 +14,11 @@ APP协议适配层把三类请求映射到下述运行接口；状态机不解�
 
 ## 接口与类型
 
-包含motor_lifecycle.h，在前台调用：
+前台调用时传入当前轴的状态机。
 
 ```c
 MotorControlResult result =
-    MotorLifecycle_RequestCalibration(MOTOR_CALIBRATION_ELECTRICAL_ZERO);
+    MotorStateMachine_RequestCalibration(&axis->state_machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO);
 ```
 
 | 类型 | 实际操作 | 前提 |
@@ -32,18 +32,12 @@ ACCEPTED表示请求受理并进入CALIBRATION，不表示标定已经完成。
 
 ## 执行与结束
 
-- ADC快环复核启相许可，MotorAxis_FastTick在标定与正常控制之间只选择一个分支。
+- ADC快环复核启相许可，MotorAxis_ControlFast 在标定与正常控制之间只选择一个分支。
 - 电气/机械零位完成返回MOTOR_TASK_COMPLETED：先关相，再由监督层提交COMPLETE，返回IDLE。
 - 线性化完成返回MOTOR_TASK_FINALIZE：先关相并等待主循环发布候选；发布成功后才提交COMPLETE。
 - 失败进入FAULT；STOP取消当前标定并使旧代际失效。清错仍回IDLE，不进入自检。
 
-MotorLifecycle_GetCalibrationType返回当前类型；完成或取消后为NONE。
-标定期间参数写入和普通运行请求被拒绝。成功结果保留在RAM，配置修订只增加一次；
-不恢复Flash保存、旧维护票据、通用任务查询或自动重试。
+MotorStateMachine_GetCalibrationType返回当前类型；完成或取消后为NONE。
+标定期间参数写入和普通运行请求被拒绝。前台复核会话并保存成功后，监督拍提交完成事件。
 
-反馈状态仍使用既有协议编号：标定期间为4，完成回空闲后为5，故障为8。
-内部状态枚举不可直接作为线上编号；映射由状态适配器完成。
-
-新增名称区分主状态MotorState与标定类型MotorCalibrationType。
-辅助函数使用run_active_calibration_cycle、finish_calibration等完整动词短语，
-候选发布的参数使用calibration_epoch和publication_succeeded，避免含糊的mode或done。
+反馈状态仍使用既有协议编号。标定期间为 4，完成回空闲后为 5，故障为 8。

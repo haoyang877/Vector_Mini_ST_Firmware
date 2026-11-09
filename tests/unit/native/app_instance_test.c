@@ -258,8 +258,8 @@ static void run(bool interleave)
         AppContext *app = &apps[id];
         App_Init(app);
         assert(devices[id].reads == 1 && app->communication_ready && app->endpoint.ready);
-        assert(app->axis.lifecycle.drive.motor == &app->axis.motor &&
-               app->protocol.lifecycle == &app->axis.lifecycle);
+        assert(app->axis.state_machine.drive.motor == &app->axis.motor &&
+               app->protocol.state_machine == &app->axis.state_machine);
         assert(app->endpoint.rx_queue.storage == app->endpoint.rx_storage &&
                app->endpoint.motor.context == &app->protocol);
         app->axis.configuration.device.node_id = (uint8_t)(id + 4);
@@ -276,11 +276,11 @@ static void run(bool interleave)
     for (unsigned id = 0; id < 2; id++)
     {
         MotorAxis *axis = &apps[id].axis;
-        assert(axis->lifecycle.fast_sample_ticks == 1 && devices[id].duty_writes == 1);
+        assert(axis->state_machine.fast_sample_ticks == 1 && devices[id].duty_writes == 1);
         assert(axis->speed_pi.integral_output == (float)(id + 1));
-        axis->lifecycle.state = MOTOR_STATE_CALIBRATION;
-        axis->lifecycle.calibration_type = MOTOR_CALIBRATION_MECHANICAL_ZERO;
-        axis->lifecycle.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+        axis->state_machine.state = MOTOR_STATE_CALIBRATION;
+        axis->state_machine.calibration_type = MOTOR_CALIBRATION_MECHANICAL_ZERO;
+        axis->state_machine.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
     }
     /* 真正的零位算法与 FOC 在提交 PWM 的途中进入第二根轴的同一算法。 */
     calibrating = true;
@@ -313,7 +313,7 @@ static void run(bool interleave)
     {
         MotorAxis *axis = &apps[id].axis;
         assert(devices[id].record_writes == 1 &&
-               axis->lifecycle.calibration_handoff == MOTOR_CALIBRATION_AWAITING_COMPLETION);
+               axis->state_machine.calibration_handoff == MOTOR_CALIBRATION_AWAITING_COMPLETION);
         assert(devices[id].saved.motor.record_crc32 == Param_RecordCrc(&devices[id].saved.motor));
     }
     assert(memcmp(&devices[0].saved, &devices[1].saved, sizeof(MotorAxisRecord)) != 0);
@@ -324,27 +324,28 @@ static void stop_between_snapshot_and_commit(void)
 {
     MotorAxis *axis = &apps[0].axis;
     MotorAxis *other = &apps[1].axis;
-    axis->lifecycle.state = MOTOR_STATE_RUNNING;
-    axis->lifecycle.calibration_type = MOTOR_CALIBRATION_NONE;
+    axis->state_machine.state = MOTOR_STATE_RUNNING;
+    axis->state_machine.calibration_type = MOTOR_CALIBRATION_NONE;
     axis->motor.control_mode = MOTOR_CONTROL_SPEED;
     MotorOuterWork work;
-    MotorLifecycle_BeginOuter(&axis->lifecycle, &work);
+    MotorStateMachine_ReadOuterInputs(&axis->state_machine, &work);
     assert(work.allowed);
     work.motor.iq_target_a = 31.0f;
     work.speed_pi.integral_output = 19.0f;
-    MotorLifecycle_CommitOuter(&other->lifecycle, &work);
+    MotorStateMachine_CommitOuterResult(&other->state_machine, &work);
     assert(other->motor.iq_target_a != 31.0f && other->speed_pi.integral_output == 2.0f);
     ProtocolCommand command = {0};
     ProtocolReply reply = {0};
     ProtocolMotor *motor = &apps[0].endpoint.motor;
     devices[0].disabled = false;
     motor->stop(motor->context, &command, &reply);
-    assert(reply.status == PROTOCOL_ACCEPTED && reply.detail == 1U && axis->lifecycle.stop_pending);
-    assert(!other->lifecycle.stop_pending);
-    MotorLifecycle_CommitOuter(&axis->lifecycle, &work);
+    assert(reply.status == PROTOCOL_ACCEPTED && reply.detail == 1U &&
+           axis->state_machine.stop_pending);
+    assert(!other->state_machine.stop_pending);
+    MotorStateMachine_CommitOuterResult(&axis->state_machine, &work);
     assert(devices[0].disabled && axis->motor.iq_target_a == 0.0f &&
            axis->speed_pi.integral_output == 0.0f);
-    assert(axis->lifecycle.phase_enable_epoch == 0 && axis->lifecycle.epoch != work.epoch);
+    assert(axis->state_machine.phase_enable_epoch == 0 && axis->state_machine.epoch != work.epoch);
     motor->stop(motor->context, &command, &reply);
     assert(reply.status == PROTOCOL_OK && reply.detail == 0U);
     BspCanFrame frame = {.identifier = 17};

@@ -12,6 +12,6 @@
 - 故障 + 明确清错且恢复条件满足 → 空闲。
 
 SELF_TEST仅保留枚举。未实现进入、执行或自动通过逻辑，诊断的自检完成位固定为零。
-标定由MotorLifecycle_RequestCalibration请求，支持编码器线性化、电气零位和机械零位。
+标定由MotorStateMachine_RequestCalibration请求，支持编码器线性化、电气零位和机械零位。
 完成时先关相，再由监督层提交COMPLETE返回空闲；线性化还须等待前台发布已验证的LUT。
 STOP和故障使原会话代际失效。结果仅更新RAM，不恢复SAVE或旧维护任务协议。

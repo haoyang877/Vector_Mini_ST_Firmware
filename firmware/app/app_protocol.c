@@ -1,5 +1,5 @@
 #include "app_protocol.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "yg_protocol.h"
 #include "scaled_integer.h"
 #include <limits.h>
@@ -52,7 +52,8 @@ static void request_motor_start(void *context, const ProtocolCommand *request, P
     {
         return;
     }
-    reply->status = encode_control_result(MotorLifecycle_RequestEnable(adapter->lifecycle, mode));
+    reply->status =
+        encode_control_result(MotorStateMachine_RequestStart(adapter->state_machine, mode));
     if (reply->status == PROTOCOL_DENIED)
     {
         reply->detail = 0x0105U;
@@ -90,10 +91,9 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
             reply->status = PROTOCOL_INVALID_ARGUMENT;
             if (target_values_match(&adapter->last_target, request))
             {
-                reply->status =
-                    adapter->last_target_epoch == MotorLifecycle_WorkEpoch(adapter->lifecycle)
-                        ? PROTOCOL_OK
-                        : PROTOCOL_DENIED;
+                reply->status = adapter->last_target_epoch == adapter->state_machine->epoch
+                                    ? PROTOCOL_OK
+                                    : PROTOCOL_DENIED;
             }
             return;
         }
@@ -112,8 +112,8 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
                           .id_a = request->id_mA * 0.001f,
                           .vd_v = request->vd_mV * 0.001f};
     /* 只有前台能启动新会话；STOP 可在目标提交后抢占，重发仍须属于原会话。 */
-    uint32_t epoch = MotorLifecycle_WorkEpoch(adapter->lifecycle);
-    MotorControlResult result = MotorLifecycle_SetTarget(adapter->lifecycle, &target);
+    uint32_t epoch = adapter->state_machine->epoch;
+    MotorControlResult result = MotorStateMachine_SetTarget(adapter->state_machine, &target);
     reply->status = result == MOTOR_CONTROL_ACCEPTED ? PROTOCOL_OK : encode_control_result(result);
     if (result == MOTOR_CONTROL_ACCEPTED)
     {
@@ -126,8 +126,8 @@ static void request_motor_stop(void *context, const ProtocolCommand *request, Pr
 {
     AppProtocol *adapter = context;
     (void)request;
-    MotorLifecycle_RequestStop(adapter->lifecycle);
-    bool disabled = MotorLifecycle_ArePhasesDisabled(adapter->lifecycle);
+    MotorStateMachine_RequestStop(adapter->state_machine);
+    bool disabled = MotorStateMachine_ArePhasesDisabled(adapter->state_machine);
     *reply = (ProtocolReply){.status = disabled ? PROTOCOL_OK : PROTOCOL_ACCEPTED,
                              .detail = disabled ? 0U : 1U};
 }
@@ -138,7 +138,7 @@ request_motor_fault_clear(void *context, const ProtocolCommand *request, Protoco
     AppProtocol *adapter = context;
     *reply = (ProtocolReply){.status = PROTOCOL_UNSUPPORTED};
     (void)request;
-    MotorControlResult result = MotorLifecycle_RequestClear(adapter->lifecycle);
+    MotorControlResult result = MotorStateMachine_RequestFaultClear(adapter->state_machine);
     /* 清错仅回空闲，启动必须再次明确请求。 */
     reply->status = result == MOTOR_CONTROL_ACCEPTED ? PROTOCOL_OK
                     : result == MOTOR_CONTROL_BUSY   ? PROTOCOL_BUSY
@@ -181,7 +181,7 @@ static void request_encoder_calibration(void *context,
     }
 
     MotorControlResult result =
-        MotorLifecycle_RequestCalibration(adapter->lifecycle, calibration_type);
+        MotorStateMachine_RequestCalibration(adapter->state_machine, calibration_type);
     reply->status = encode_control_result(result);
     if (result == MOTOR_CONTROL_ACCEPTED)
     {
@@ -283,7 +283,7 @@ static bool read_motor_feedback(void *context, ProtocolFeedback *values)
 {
     AppProtocol *adapter = context;
     MotorStatus status;
-    if (!MotorLifecycle_ReadStatus(adapter->lifecycle, &status))
+    if (!MotorStateMachine_ReadStatus(adapter->state_machine, &status))
     {
         return false;
     }
@@ -320,9 +320,9 @@ static bool read_motor_feedback(void *context, ProtocolFeedback *values)
     return true;
 }
 
-void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorLifecycle *life)
+void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorStateMachine *machine)
 {
-    adapter->lifecycle = life;
+    adapter->state_machine = machine;
     endpoint->motor = (ProtocolMotor){.context = adapter,
                                       .start = request_motor_start,
                                       .target = set_motor_target,

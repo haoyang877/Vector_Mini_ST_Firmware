@@ -53,7 +53,7 @@ motor 和 parameters 不依赖 APP 实现。纯数学/PI 等计算模块不依�
 ## 数据所有权与调试
 
 - MotorAxis 持有单轴活动配置、控制状态、FOC 和反馈对象；
-  每轴 MotorLifecycle 持有运行状态。[电机状态机](firmware/app/motor_state_machine.c) 在事件发生的上下文判断启相、关相、标定完成和故障恢复条件，并提交主状态。
+  每轴 MotorStateMachine 持有运行状态。[电机状态机](firmware/app/motor_state_machine.c) 在事件发生的上下文判断启相、关相、标定完成和故障恢复条件，并提交主状态。
   具体字段归属见[参数所有权](docs/architecture/parameter_ownership_v1.md)。
 - 配置、命令、运行状态和存储记录分别建模；同一有效事实有一个维护者。
   小对象可在同一结构体中分组，不为分类增加状态副本或机械拆分。

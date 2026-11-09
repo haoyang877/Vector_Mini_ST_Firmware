@@ -13,7 +13,7 @@ Loader 和主机程序独立构建，只通过 shared 契约与 APP 协作。
 | 所有者 | 数据与责任 |
 | --- | --- |
 | MotorAxis | 单份配置、MotorControlState、FocState、编码器、观测器和标定工作区 |
-| 电机状态机 | 在本轴 MotorLifecycle 实例上处理启停、标定、故障与清错事件，持有主状态、功率许可和会话代际 |
+| 电机状态机 | 在本轴 MotorStateMachine 实例上处理启停、标定、故障与清错事件，持有主状态、功率许可和会话代际 |
 | motor/control | PI 与外环内部状态；不决定启相和生命周期 |
 | parameters | 默认值、配置校验及记录转换；不保存运行状态 |
 | communication | 帧队列、分片、命令和回复；不直接读写 Watch 对象 |

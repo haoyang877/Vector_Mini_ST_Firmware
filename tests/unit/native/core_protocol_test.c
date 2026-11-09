@@ -1,19 +1,18 @@
 /* 真实APP适配：控制和三类标定返回受理；保存及通用任务操作不支持。 */
 #include <assert.h>
 #include <stdio.h>
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "app_protocol.h"
 #include "../../../firmware/communication/yg_protocol.c"
 #include "../../../firmware/communication/yg_protocol_boot.c"
 #include "motor_axis.h"
 
-static MotorLifecycle life;
+static MotorStateMachine machine = {.epoch = 1U};
 static ProtocolEndpoint endpoint;
 static AppProtocol adapter;
 static unsigned starts, target_calls;
 static bool stopped = true;
 static unsigned stop_requests;
-static uint32_t target_epoch = 1U;
 static bool stop_after_target;
 static MotorTarget last_target;
 static MotorControlMode reported_mode = MOTOR_CONTROL_NONE;
@@ -31,17 +30,17 @@ static void print_vector(const char *name, const uint8_t *data, size_t length)
     puts("");
 }
 
-void MotorLifecycle_RequestStop(MotorLifecycle *instance)
+void MotorStateMachine_RequestStop(MotorStateMachine *instance)
 {
-    assert(instance == &life);
+    assert(instance == &machine);
     ++stop_requests;
 }
-bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
+bool MotorStateMachine_ArePhasesDisabled(const MotorStateMachine *machine)
 {
-    (void)life;
+    (void)machine;
     return stopped;
 }
-bool MotorLifecycle_ReadStatus(const MotorLifecycle *instance, MotorStatus *status)
+bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus *status)
 {
     (void)instance;
     *status =
@@ -49,8 +48,8 @@ bool MotorLifecycle_ReadStatus(const MotorLifecycle *instance, MotorStatus *stat
     return true;
 }
 
-MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,
-                                                     MotorCalibrationType calibration_type)
+MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *instance,
+                                                        MotorCalibrationType calibration_type)
 {
     (void)instance;
     ++calibration_requests;
@@ -58,14 +57,15 @@ MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,
     return calibration_result;
 }
 
-MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *instance, MotorControlMode mode)
+MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *instance,
+                                                  MotorControlMode mode)
 {
     (void)instance;
     assert(mode == MOTOR_CONTROL_SPEED);
     ++starts;
     return start_result;
 }
-MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *instance)
+MotorControlResult MotorStateMachine_RequestFaultClear(MotorStateMachine *instance)
 {
     (void)instance;
     return MOTOR_CONTROL_ACCEPTED;
@@ -218,7 +218,7 @@ static void test_target_mode_mapping(void)
 
 int main(void)
 {
-    AppProtocol_Init(&adapter, &endpoint, &life);
+    AppProtocol_Init(&adapter, &endpoint, &machine);
     assert(Protocol_Init(&endpoint, 1U));
     ProtocolReply reply;
     const uint16_t parameter_types[] = {
@@ -270,7 +270,7 @@ int main(void)
     request.sequence = 0U;
     endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK && target_calls == 2U);
-    ++target_epoch;
+    ++machine.epoch;
     endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_DENIED && target_calls == 2U);
     stopped = false;
@@ -294,20 +294,16 @@ int main(void)
     return 0;
 }
 
-MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *instance, const MotorTarget *target)
+MotorControlResult MotorStateMachine_SetTarget(MotorStateMachine *instance,
+                                               const MotorTarget *target)
 {
     (void)instance;
     ++target_calls;
     last_target = *target;
     if (stop_after_target)
     {
-        ++target_epoch;
+        ++machine.epoch;
         stop_after_target = false;
     }
     return MOTOR_CONTROL_ACCEPTED;
-}
-uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)
-{
-    (void)instance;
-    return target_epoch;
 }

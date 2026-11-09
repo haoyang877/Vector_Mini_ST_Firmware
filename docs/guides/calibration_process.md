@@ -14,7 +14,7 @@ Hall 幅值/偏置标定和电零位对齐，完成后统一保存。机械零�
 | 电角度零位 | Type160，kind 2 | d 轴对齐并平均线性化角度，写入电零位和有效位 |
 | 机械零位 | Type160，kind 6 | 将当前线性化角度设为机械参考，慢环更新多圈位置原点 |
 
-APP 将请求交给 `MotorLifecycle_RequestCalibration()`。生命周期负责空闲状态、
+APP 将请求交给 `MotorStateMachine_RequestCalibration()`。状态机负责空闲状态、
 配置有效性、采样、编码器、母线电压和功率输出准入。电零位标定要求已有有效 LUT。
 回复 `ACCEPTED` 表示请求受理，运行状态随后报告标定、空闲或故障。
 停止请求使用 Type110，STOP 会取消当前标定。请求字段见[协议说明](../protocols/README.md#parameters)。
@@ -67,7 +67,7 @@ LUT 使用相对角度参考。稳速结束时记录的起始角会引入整体�
 共用无感启动入口完成控制器初始化，标定首拍负责建立会话。
 
 `MotorAxis_ControlFast()` 在标定和正常控制之间选择当前执行路径。
-`MotorLifecycle_PostOutcome()` 处理完成和失败结果，统一管理关相。
+`MotorStateMachine_FinishFastTick()` 处理完成和失败结果，统一管理关相。
 主循环在同一全中断临界区检查待发布会话、STOP、故障和关相状态，再调用
 `EncoderCalibration_PublishLut()`。发布函数检查待发布阶段，复制候选表，
 将有效位设为 `ENC_CALIB_LINEARIZED`。外层临界区覆盖完整发布过程。

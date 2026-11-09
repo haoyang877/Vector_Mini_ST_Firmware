@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "axis_config.h"
 #include "control_math.h"
 #include "motor_control.h"

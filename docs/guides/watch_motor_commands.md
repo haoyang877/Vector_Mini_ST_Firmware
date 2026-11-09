@@ -53,12 +53,12 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
-| `g_app.axis.lifecycle.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方五态映射 |
+| `g_app.axis.state_machine.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方五态映射 |
 | `g_app.axis.motor.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
 | `g_app.axis.motor.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
 | `g_app.axis.configuration.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
 | `g_app.axis.configuration.configuration_source` | 配置来源枚举 | 默认值、存储值、损坏/不支持记录等来源 |
-| `g_app.axis.lifecycle.fast_sample_ticks` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
+| `g_app.axis.state_machine.fast_sample_ticks` | 采样计数 | CPU 运行时持续推进；Watch 不能证明每拍均按期执行 |
 | `g_app.axis.foc.bus_voltage_v` | V | 与外部电压读数核对，确认启动窗口与保护边界 |
 | `g_app.axis.foc.bus_current_estimated_a` | A | 软件估算值，不替代电源读数或外部电流测量 |
 | `g_app.axis.foc.bus_current_a` | A | 硬件实测母线电流；未提供或未校零时为 NaN |

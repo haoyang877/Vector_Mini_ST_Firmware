@@ -5,7 +5,7 @@
 
 MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
 {
-    switch (MotorLifecycle_GetCalibrationType(calibration->lifecycle))
+    switch (MotorStateMachine_GetCalibrationType(calibration->state_machine))
     {
     case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:
         if (EncoderCalibration_GetPhase(&calibration->session) == CS_NULL)
@@ -57,7 +57,8 @@ static void request_joint_lut_install_when_stopped(MotorCalibration *calibration
     {
         if (now_ms - calibration->coast_start_ms >= 6000U)
         {
-            MotorLifecycle_CompleteCalibrationPublication(calibration->lifecycle, epoch, false);
+            MotorStateMachine_CompleteCalibrationPublication(
+                calibration->state_machine, epoch, false);
         }
         return;
     }
@@ -70,9 +71,9 @@ void MotorCalibration_PublishLutFast(MotorCalibration *calibration)
     uint32_t requested = calibration->lut_request_epoch;
     calibration->lut_request_epoch = 0U;
     uint32_t epoch;
-    if (MotorLifecycle_GetCalibrationType(calibration->lifecycle) !=
+    if (MotorStateMachine_GetCalibrationType(calibration->state_machine) !=
             MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
-        !MotorLifecycle_ReadPendingCalibrationPublication(calibration->lifecycle, &epoch) ||
+        !MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine, &epoch) ||
         epoch != requested || calibration->lut_published_epoch == epoch)
     {
         return;
@@ -81,7 +82,7 @@ void MotorCalibration_PublishLutFast(MotorCalibration *calibration)
                                        &calibration->drive.configuration->device.encoder,
                                        calibration->drive.encoder))
     {
-        MotorLifecycle_CompleteCalibrationPublication(calibration->lifecycle, epoch, false);
+        MotorStateMachine_CompleteCalibrationPublication(calibration->state_machine, epoch, false);
         return;
     }
     calibration->lut_published_epoch = epoch;
@@ -89,25 +90,26 @@ void MotorCalibration_PublishLutFast(MotorCalibration *calibration)
     if (MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
     {
         OutputEncoder_Init(calibration->output, calibration->output->params.gear_ratio);
-        MotorLifecycle_ContinueElectricalZero(calibration->lifecycle);
+        MotorStateMachine_ContinueElectricalZero(calibration->state_machine);
     }
 #endif
 }
 
 void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 {
-    uint32_t epoch;
-    if (!MotorLifecycle_ReadPendingCalibrationPublication(calibration->lifecycle, &epoch))
+    /* 无待发布结果时直接退出；进入控制临界区后再复核会话、STOP、故障及关相。 */
+    if (calibration->state_machine->calibration_handoff != MOTOR_CALIBRATION_AWAITING_PUBLICATION)
     {
         return;
     }
+    uint32_t epoch;
     uint32_t mask = BspSystem_EnterControlCritical();
-    if (!MotorLifecycle_ReadPendingCalibrationPublication(calibration->lifecycle, &epoch))
+    if (!MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine, &epoch))
     {
         BspSystem_ExitControlCritical(mask);
         return;
     }
-    MotorCalibrationType kind = MotorLifecycle_GetCalibrationType(calibration->lifecycle);
+    MotorCalibrationType kind = MotorStateMachine_GetCalibrationType(calibration->state_machine);
     bool publishing_lut = kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
 #if BSP_ENABLED_LINEAR_HALL
     if (publishing_lut && MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
@@ -170,8 +172,10 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 #endif
     mask = BspSystem_EnterCritical();
     uint32_t pending_epoch;
-    if (MotorLifecycle_ReadPendingCalibrationPublication(calibration->lifecycle, &pending_epoch) &&
-        pending_epoch == epoch && MotorLifecycle_GetCalibrationType(calibration->lifecycle) == kind)
+    if (MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine,
+                                                            &pending_epoch) &&
+        pending_epoch == epoch &&
+        MotorStateMachine_GetCalibrationType(calibration->state_machine) == kind)
     {
         *calibration->output = output;
 #if BSP_ENABLED_LINEAR_HALL
@@ -186,7 +190,8 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
         }
         else
         {
-            MotorLifecycle_CompleteCalibrationPublication(calibration->lifecycle, epoch, true);
+            MotorStateMachine_CompleteCalibrationPublication(
+                calibration->state_machine, epoch, true);
         }
     }
     BspSystem_ExitCritical(mask);

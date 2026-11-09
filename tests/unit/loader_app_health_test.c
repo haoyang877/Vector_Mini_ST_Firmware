@@ -8,7 +8,7 @@
 #include "yg_protocol.h"
 #include "app_protocol.h"
 #include "boot_hw.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "bsp_can.h"
 #include "bsp_pwm.h"
 
@@ -94,13 +94,13 @@ static bool model_healthy, model_link, last_healthy;
 static bool model_idle = true, model_off = true;
 static uint32_t confirm_calls;
 
-bool MotorLifecycle_ReadBootHealth(MotorLifecycle *instance, uint32_t *progress)
+bool MotorStateMachine_ReadBootHealth(MotorStateMachine *instance, uint32_t *progress)
 {
     (void)instance;
     *progress = model_progress;
     return model_healthy;
 }
-bool MotorLifecycle_IsStopped(const MotorLifecycle *instance)
+bool MotorStateMachine_IsStopped(const MotorStateMachine *instance)
 {
     (void)instance;
     return false;
@@ -109,9 +109,9 @@ bool MotorAxis_SaveIdle(void)
 {
     return model_idle;
 }
-bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
+bool MotorStateMachine_ArePhasesDisabled(const MotorStateMachine *machine)
 {
-    (void)life;
+    (void)machine;
     return model_off;
 }
 bool BootHw_Confirm(uint32_t version, uint32_t crc32)
@@ -133,7 +133,7 @@ void BootHw_Watchdog(bool healthy)
 }
 int main(void)
 {
-    g_app.loader = (AppLoader){.lifecycle = &g_app.axis.lifecycle,
+    g_app.loader = (AppLoader){.state_machine = &g_app.axis.state_machine,
                                .communication_ready = &g_app.communication_ready,
                                .endpoint = &g_app.endpoint,
                                .publish_identity = publish_identity};

@@ -39,7 +39,7 @@ Keil Watch 展开 `g_protocol_command` 可看 APP 最近一次解析的有效请
 它记录 APP 收到的命令；独立 Loader 固件中的升级数据由 Loader 自己处理。
 
 以 117 启动命令为例：`Protocol_Process → handle_can_request → handle_command →
-handle_start_command → start_motor → MotorLifecycle_RequestEnable`。
+handle_start_command → request_motor_start → MotorStateMachine_RequestStart`。
 `handle_start_command` 检查主机来源、4 字节长度和三个保留字节，直接从 `payload[0]` 读取模式。
 它将模式、来源和序号填入 `ProtocolCommand`，调用静态绑定到 `start_motor` 的 `Protocol_Motor.start`。
 业务返回后，它把结果码与细节写入 `exchange.reply`。`handle_can_request` 组好回复，
@@ -274,7 +274,7 @@ GET_INFO 不延长默认启动窗口；空 STATUS 用于驻留发现，事务 ST
 
 通信位于一个目录：`yg_protocol.c` 负责 CAN 收发流程、设备查询、启停、目标、反馈、标定和参数拒绝；
 `yg_protocol_boot.c` 负责 Loader 命令与发送握手，公共头为 `yg_protocol.h`。APP 通过 `Protocol_Init/Start/Process`、`Protocol_RxInterrupt` 接入，
-业务交给 AppProtocol/MotorLifecycle，硬件收发使用 BspCan。
+业务交给 AppProtocol/MotorStateMachine，硬件收发使用 BspCan。
 RX/TX 各 8 帧；一次 ISR 最多取 3 帧，一次前台最多处理/发送各 8 帧。
 执行前为回复和反馈预留空间；发送忙时保留帧，不重复执行业务。
 升级票据、具体发送槽位、超时和完成回调都由 Boot 单元持有，普通业务不维护 Loader 状态。

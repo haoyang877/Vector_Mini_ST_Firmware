@@ -35,7 +35,7 @@ STM32 保留 HAL 完成回调，经 `BspApp_OnFastSample → MotorAxis_SampleFas
 | `g_app.axis.motor` | app/motor_axis.c | 模式、故障、目标和动态控制状态 |
 | `g_app.axis.foc` | app/motor_axis.c | 测量值、PI、坐标变换、调制和估算量 |
 | `g_app.axis.rotor_encoder` | app/motor_axis.c | 角度、位置和速度估计；不含独立硬件错误诊断 |
-| `g_app.axis.lifecycle` | app/motor_state_machine.c | 生命周期、启停意图、标定类型和会话代际 |
+| `g_app.axis.state_machine` | app/motor_state_machine.c | 状态机、启停意图、标定类型和会话代际 |
 
 见[Watch 指南](../docs/guides/watch_motor_commands.md)。调试前确认板上镜像与 AXF 匹配；
 源码检查不代表实机验收，电机出力时不通过暂停 CPU 停车。

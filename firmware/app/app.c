@@ -2,7 +2,7 @@
 
 #include "app_protocol.h"
 #include "motor_axis.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "yg_protocol.h"
 
 #include "boot_hw.h"
@@ -18,7 +18,7 @@
 #endif
 
 /* 应用组合层：前台组织通信与Loader事务，中断仅推进电机及进展计数。
- * 硬件操作经BSP，运行准入和停机判定归MotorLifecycle，协议业务与状态换算归AppProtocol。 */
+ * 硬件操作经BSP，运行准入和停机判定归MotorStateMachine，协议业务与状态换算归AppProtocol。 */
 
 static bool configure_protocol_device_info(AppContext *app);
 
@@ -38,7 +38,7 @@ void App_Init(AppContext *app)
     }
     app->initialized = true;
     MotorAxis_Init(&app->axis);
-    AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.lifecycle);
+    AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.state_machine);
 
     app->communication_ready =
         Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
@@ -47,7 +47,7 @@ void App_Init(AppContext *app)
         app->communication_ready = configure_protocol_device_info(app);
     }
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-    app->loader = (AppLoader){.lifecycle = &app->axis.lifecycle,
+    app->loader = (AppLoader){.state_machine = &app->axis.state_machine,
                               .endpoint = &app->endpoint,
                               .communication_ready = &app->communication_ready,
                               .node_id = &app->axis.configuration.device.node_id,

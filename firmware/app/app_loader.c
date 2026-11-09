@@ -23,9 +23,9 @@ static bool try_confirm_trial_image(void *context, uint32_t version, uint32_t cr
     bool confirmed = false;
     if (loader->supported && loader->request.boot_epoch == 0U &&
         loader->healthy_intervals >= BOOT_REQUIRED_HEALTHY_INTERVALS &&
-        MotorLifecycle_ReadBootHealth(loader->lifecycle, &supervisor_ticks) &&
+        MotorStateMachine_ReadBootHealth(loader->state_machine, &supervisor_ticks) &&
         *loader->communication_ready && Protocol_IsReady(loader->endpoint) &&
-        MotorLifecycle_ArePhasesDisabled(loader->lifecycle))
+        MotorStateMachine_ArePhasesDisabled(loader->state_machine))
     {
         confirmed = BootHw_Confirm(version, crc32);
     }
@@ -63,7 +63,7 @@ static void update_loader_entry_readiness(AppLoader *loader, uint32_t now_ms)
     {
         loader->result = BOOT_ENTRY_FAILED;
     }
-    else if (MotorLifecycle_IsStopped(loader->lifecycle))
+    else if (MotorStateMachine_IsStopped(loader->state_machine))
     {
         loader->result = BOOT_ENTRY_READY;
     }
@@ -108,8 +108,9 @@ static void register_or_query_loader_entry(void *context,
     {
         loader->request = *request;
         loader->entry_started_ms = now_ms;
-        loader->result =
-            MotorLifecycle_LockStop(loader->lifecycle) ? BOOT_ENTRY_PENDING : BOOT_ENTRY_DENIED;
+        loader->result = MotorStateMachine_LockStartsAndRequestStop(loader->state_machine)
+                             ? BOOT_ENTRY_PENDING
+                             : BOOT_ENTRY_DENIED;
     }
     update_loader_entry_readiness(loader, now_ms);
     reply->result = loader->result;
@@ -134,7 +135,7 @@ static void try_enter_loader_after_ack_sent(void *context, uint64_t ticket, bool
     loader->result = BOOT_ENTRY_FAILED;
     if (success &&
         (uint32_t)(BspSystem_TimeMs() - loader->entry_started_ms) < BOOT_ENTRY_TIMEOUT_MS &&
-        MotorLifecycle_IsStopped(loader->lifecycle))
+        MotorStateMachine_IsStopped(loader->state_machine))
     {
         (void)BootHw_EnterLoader(*loader->node_id, loader->entry_started_ms, BOOT_ENTRY_TIMEOUT_MS);
     }
@@ -165,7 +166,7 @@ void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
     }
     uint32_t supervisor_ticks = 0U;
     loader->health_checked_ms = now_ms;
-    bool healthy = MotorLifecycle_ReadBootHealth(loader->lifecycle, &supervisor_ticks);
+    bool healthy = MotorStateMachine_ReadBootHealth(loader->state_machine, &supervisor_ticks);
     healthy = healthy && supervisor_ticks != loader->observed_supervisor_ticks &&
               *loader->communication_ready && Protocol_IsReady(loader->endpoint);
     loader->observed_supervisor_ticks = supervisor_ticks;

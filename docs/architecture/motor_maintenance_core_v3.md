@@ -1,7 +1,7 @@
 # 标定与已退役维护功能的边界
 
 2026-10-30：运行层保留编码器线性化、电气零位、机械零位，完成关相后回空闲。
-通信160的kind 1、2、6由APP协议适配层映射到MotorLifecycle_RequestCalibration。
+通信160的kind 1、2、6由APP协议适配层映射到MotorStateMachine_RequestCalibration。
 算法归motor/calibration，专用工作区归Axis，状态机不解析协议。
 
 默认恢复、Flash保存、通用任务查询/按编号取消及旧维护模块继续退役。

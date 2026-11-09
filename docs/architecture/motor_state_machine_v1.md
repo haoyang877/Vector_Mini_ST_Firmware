@@ -1,6 +1,6 @@
 # 电机五态与功率交接
 
-核对日期 2026-11-09。STM32G431 和 AT32F456 共用一套状态机，每根轴持有自己的 `MotorLifecycle`。上电进入 `IDLE`。`SELF_TEST` 保留枚举值，当前没有生产入口。
+核对日期 2026-11-09。STM32G431 和 AT32F456 共用一套状态机，每根轴持有自己的 `MotorStateMachine`。上电进入 `IDLE`。`SELF_TEST` 保留枚举值，当前没有生产入口。
 
 | 主线 | 谁提出 | 何时改变主状态 |
 | --- | --- | --- |
@@ -15,6 +15,6 @@
 
 - 从 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 的 `transition_motor_state` 开始读。它按 RUN、CALIBRATE、COMPLETE、STOP、FAULT、CLEAR 处理实际事件。初始化之后的主状态写入全部在这里。`MotorStateMachine_NextState` 给出五态之间允许的转换。
 - 启动请求登记后，外环批准本次启相，ADC 在 `BeginFastTick` 处理 RUN。STOP、标定保存成功后的 COMPLETE、首次 FAULT 共用关相和会话收尾。CLEAR 在关相和故障源恢复后才回空闲，若同时发生新故障则仍锁存 FAULT。
-- 每次 ADC 采样后，[MotorAxis_ControlFast](../../firmware/app/motor_axis.c) 先调用 `BeginFastTick` 检查故障和启相许可，再读取主状态。运行态执行 `MotorControl_Step`，可执行的标定态执行 `MotorCalibration_StepFast`。最后 `PostOutcome` 接收本拍结果并检查新故障。
-- 前台在 [motor_lifecycle_exchange.c](../../firmware/app/motor_lifecycle_exchange.c) 校验目标并直接写本轴，也从本轴读取 CAN 反馈。外环在 `MotorLifecycle_CommitOuter` 直接写有效结果。ADC 单独复核启相条件。
+- 每次 ADC 采样后，[MotorAxis_ControlFast](../../firmware/app/motor_axis.c) 先调用 `BeginFastTick` 检查故障和启相许可，再读取主状态。运行态执行 `MotorControl_Step`，可执行的标定态执行 `MotorCalibration_StepFast`。最后 `FinishFastTick` 接收本拍结果并检查新故障。
+- 前台在 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 校验目标并直接写本轴，也从本轴读取 CAN 反馈。外环在 `MotorStateMachine_CommitOuterResult` 直接写有效结果。ADC 单独复核启相条件。
 - 标定的停稳、LUT 安装和 Flash 保存见 [motor_calibration.c](../../firmware/app/motor_calibration.c)，线路状态和命令编号见[协议说明](../protocols/README.md)。除 Flash 事务外，这些交接不暂缓 ADC。

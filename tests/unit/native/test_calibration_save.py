@@ -22,7 +22,7 @@ def fixture() -> str:
 #include <string.h>
 #include "motor_axis.h"
 #include "linear_hall.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "motor_sensing.h"
 #include "encoder_calibration.h"
 #include "parameter_record.h"
@@ -37,10 +37,10 @@ static InterfaceParam stored_record;
 static MotorAxisRecord stored_axis;
 static OutputEncoder s_output_encoder;
 static MotorCalibration calibration;
-static MotorLifecycle life;
+static MotorStateMachine machine;
 static MotorState state;
 static bool stopped, released, inject_fault, inject_start;
-static bool publication, cancel_during_upload, replace_during_upload;
+static bool cancel_during_upload, replace_during_upload;
 static uint32_t session_epoch = 33;
 static uint32_t critical, control_depth;
 static bool in_adc;
@@ -57,9 +57,7 @@ static bool encoder_publish_ok;
 static unsigned completions;
 static unsigned writes, uploads;
 static BspResult write_result;
-MotorState MotorLifecycle_GetState(const MotorLifecycle *instance) {
-    (void)instance; return state; }
-bool MotorLifecycle_IsStopped(const MotorLifecycle *instance) {
+bool MotorStateMachine_IsStopped(const MotorStateMachine *instance) {
     (void)instance; return stopped; }
 bool EncoderCalibration_IsIdle(const EncoderCalibrationSession *instance) {
     (void)instance; return released; }
@@ -67,36 +65,36 @@ uint32_t BspSystem_EnterCritical(void) { return critical++; }
 void BspSystem_ExitCritical(uint32_t previous) { assert(critical==previous+1); critical=previous; }
 uint32_t BspSystem_EnterControlCritical(void) { return control_depth++; }
 void BspSystem_ExitControlCritical(uint32_t previous) { assert(control_depth==previous+1); control_depth=previous; }
-bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *instance, uint32_t *epoch) {
+bool MotorStateMachine_ReadPendingCalibrationPublication(const MotorStateMachine *instance, uint32_t *epoch) {
     (void)instance;
- if (!publication || state!=MOTOR_STATE_CALIBRATION || !stopped || s_motor_state.fault_code!=MOTOR_FAULT_NONE) return false;
+ if (machine.calibration_handoff!=MOTOR_CALIBRATION_AWAITING_PUBLICATION || state!=MOTOR_STATE_CALIBRATION || !stopped || s_motor_state.fault_code!=MOTOR_FAULT_NONE) return false;
  *epoch=session_epoch; return true;
 }
-MotorCalibrationType MotorLifecycle_GetCalibrationType(const MotorLifecycle *instance) {
+MotorCalibrationType MotorStateMachine_GetCalibrationType(const MotorStateMachine *instance) {
     (void)instance; return kind; }
 static EncoderState s_rotor_encoder;
 static uint32_t now_ms;
 uint32_t BspSystem_TimeMs(void) { return now_ms; }
 float Encoder_GetMechVelContinuous(const EncoderState *encoder) { return encoder->mechanical_velocity_continuous_rad_s; }
-void MotorLifecycle_ContinueElectricalZero(MotorLifecycle *instance) {
+void MotorStateMachine_ContinueElectricalZero(MotorStateMachine *instance) {
     (void)instance;
- assert(released && in_adc && !critical && publication);
- kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; publication=false;
+ assert(released && in_adc && !critical && machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION);
+ kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF;
 }
 bool EncoderCalibration_PublishLut(EncoderCalibrationSession *instance, EncoderCalibration *cal, EncoderState *encoder) {
     (void)instance;
- assert(in_adc && !critical && publication && encoder==&s_rotor_encoder);
+ assert(in_adc && !critical && machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION && encoder==&s_rotor_encoder);
  if(encoder_publish_ok) { cal->calib_flag=ENC_CALIB_LINEARIZED; released=true; }
  return encoder_publish_ok;
 }
-void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *instance, uint32_t epoch, bool ok) {
+void MotorStateMachine_CompleteCalibrationPublication(MotorStateMachine *instance, uint32_t epoch, bool ok) {
     (void)instance;
- assert(epoch==session_epoch && (critical || control_depth || in_adc) && publication);
- publication=false; if(ok) ++completions;
+ assert(epoch==session_epoch && (critical || control_depth || in_adc) && machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION);
+ machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF; if(ok) ++completions;
 }
 void MotorFault_Report(MotorControlState *motor,MotorFaultCode fault) { motor->fault_code=fault; }
 BspResult BspFlash_Write(const void *data, size_t length) {
- assert(critical && released && ((state == MOTOR_STATE_IDLE && stopped) || publication));
+ assert(critical && released && ((state == MOTOR_STATE_IDLE && stopped) || machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION));
  assert(s_motor_state.fault_code == MOTOR_FAULT_NONE);
  assert(data == &s_axis_record && length == sizeof(MotorAxisRecord));
  assert(s_axis_record.motor.record_crc32 == Param_RecordCrc(&s_axis_record.motor));
@@ -110,7 +108,7 @@ BspResult BspFlash_Write(const void *data, size_t length) {
 void observed_upload(InterfaceParam *record, const MotorConfiguration *configuration) {
  ++uploads;
  Param_Upload(record, configuration);
- if (cancel_during_upload) { publication=false; }
+ if (cancel_during_upload) { machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF; }
  if (inject_fault) { s_motor_state.fault_code = MOTOR_FAULT_ENCODER; }
  if (inject_start) { stopped = false; }
  if (replace_during_upload) { ++session_epoch; }
@@ -126,7 +124,7 @@ void observed_upload(InterfaceParam *record, const MotorConfiguration *configura
         + r"""
 #undef Param_Upload
 static void reset(void) {
- calibration = (MotorCalibration){.write_record=BspFlash_Write,.lifecycle=&life, .drive={.configuration=&s_motor_configuration,.encoder=&s_rotor_encoder,.motor=&s_motor_state}, .record=&s_axis_record, .output=&s_output_encoder};
+ calibration = (MotorCalibration){.write_record=BspFlash_Write,.state_machine=&machine, .drive={.configuration=&s_motor_configuration,.encoder=&s_rotor_encoder,.motor=&s_motor_state}, .record=&s_axis_record, .output=&s_output_encoder};
 #if BSP_ENABLED_LINEAR_HALL
  calibration.hall=&s_linear_hall;
 #endif
@@ -154,7 +152,7 @@ static void reset(void) {
  inject_fault = inject_start = false;
  write_result = BSP_OK;
  writes = uploads = 0U;
- publication=false; cancel_during_upload=replace_during_upload=false; session_epoch=33; encoder_publish_ok=true; completions=0; kind=MOTOR_CALIBRATION_NONE;
+ machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF; cancel_during_upload=replace_during_upload=false; session_epoch=33; encoder_publish_ok=true; completions=0; kind=MOTOR_CALIBRATION_NONE;
  assert(ParameterValue_ConfigurationValid(&s_motor_configuration));
 }
 int main(void) {
@@ -255,7 +253,7 @@ int main(void) {
  LinearHall_CalibrationSample(&calibration.hall_sweep,200,600);
  LinearHall_CalibrationSample(&calibration.hall_sweep,3400,3600);
  kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
- state=MOTOR_STATE_CALIBRATION; stopped=true; publication=true; released=false;
+ state=MOTOR_STATE_CALIBRATION; stopped=true; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
  MotorCalibration_ProcessPublication(&calibration); assert(!released && !writes);
  now_ms=201; MotorCalibration_ProcessPublication(&calibration);
  assert(!released && !writes && calibration.lut_request_epoch == session_epoch);
@@ -266,7 +264,7 @@ int main(void) {
  now_ms+=201; MotorCalibration_ProcessPublication(&calibration);
  assert(calibration.lut_request_epoch == session_epoch);
  in_adc=true; MotorCalibration_PublishLutFast(&calibration); in_adc=false;
- assert(released && kind==MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO && !publication && !writes);
+ assert(released && kind==MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO && machine.calibration_handoff!=MOTOR_CALIBRATION_AWAITING_PUBLICATION && !writes);
  assert(calibration.hall_sweep.sin_min==200 && calibration.hall_sweep.cos_max==3600);
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  memset(s_motor_configuration.device.encoder.linearization_lut_q15,0,sizeof s_motor_configuration.device.encoder.linearization_lut_q15);
@@ -277,7 +275,7 @@ int main(void) {
   calibration.output_calibration.samples[i]=(OutputEncoderCalibSample){counts,
    (uint16_t)(1800-1600*sinf(h)),(uint16_t)(2100+1500*cosf(h))};
  }
- publication=true;
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
  MotorCalibration_ProcessPublication(&calibration);
  assert(completions==1 && writes==1 && s_motor_state.fault_code==MOTOR_FAULT_NONE);
  assert(stored_record.hall_tag_status==0x48410180U && stored_record.encoder_calib_flag==ENC_CALIB_ALL);
@@ -288,11 +286,11 @@ int main(void) {
  LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
  assert(hall.calibration_success && hall.calibration_faults==0 && hall.sin_amp==1600 && hall.cos_amp==1500);
  assert(hall.sin_off_counts==1800 && hall.cos_off_counts==2100);
- kind=MOTOR_CALIBRATION_ELECTRICAL_ZERO; publication=true;
+ kind=MOTOR_CALIBRATION_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  MotorCalibration_ProcessPublication(&calibration);
  assert(writes==2 && stored_record.encoder_calib_flag==ENC_CALIB_ALL && stored_record.hall_tag_status==0x48410180U);
- kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; publication=true;
+ kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
  LinearHall_CalibrationBegin(&calibration.hall_sweep);
  MotorCalibration_ProcessPublication(&calibration);
  assert(writes==3 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_LINEAR_HALL_CALIBRATION);
@@ -300,12 +298,12 @@ int main(void) {
  LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
  assert(!hall.calibration_success && hall.calibration_faults==LINEAR_HALL_CAL_FAULT_NO_SAMPLES);
  assert(hall.sin_amp==1600 && hall.cos_off_counts==2100);
- s_motor_state.fault_code=MOTOR_FAULT_NONE; publication=true; kind=MOTOR_CALIBRATION_MECHANICAL_ZERO;
+ s_motor_state.fault_code=MOTOR_FAULT_NONE; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; kind=MOTOR_CALIBRATION_MECHANICAL_ZERO;
  write_result=BSP_IO_ERROR; MotorCalibration_ProcessPublication(&calibration);
  assert(writes==4 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_CALIBRATION_STORAGE);
  s_motor_state.fault_code=MOTOR_FAULT_NONE; write_result=BSP_OK;
- publication=true; cancel_during_upload=true; MotorCalibration_ProcessPublication(&calibration);
- assert(!publication && writes==4 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_NONE);
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; cancel_during_upload=true; MotorCalibration_ProcessPublication(&calibration);
+ assert(machine.calibration_handoff!=MOTOR_CALIBRATION_AWAITING_PUBLICATION && writes==4 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_NONE);
  stored_record.hall_tag_status=1U; LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
  assert(!hall.calibration_success && !hall.calibration_faults && hall.sin_amp==1829.5f);
  stored_record.hall_tag_status=0x48410180U; stored_record.hall_cos_amp=NAN;
@@ -313,7 +311,7 @@ int main(void) {
 
  /* 编码期间允许中断；取消、新会话、故障和启相均不得写入旧结果。 */
  for(unsigned mode=0;mode<4;++mode) {
-  publication=true; session_epoch=33; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE;
+  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; session_epoch=33; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE;
   cancel_during_upload=mode==0; replace_during_upload=mode==1;
   inject_fault=mode==2; inject_start=mode==3;
   unsigned before=writes, completed=completions;
@@ -323,7 +321,7 @@ int main(void) {
  cancel_during_upload=replace_during_upload=inject_fault=inject_start=false;
  const BspResult failures[] = {BSP_NOT_SUPPORTED, BSP_NOT_READY, BSP_INVALID_ARGUMENT, BSP_IO_ERROR, BSP_REJECTED};
  for(unsigned i=0;i<sizeof(failures)/sizeof(failures[0]);++i) {
-  publication=true; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE; write_result=failures[i];
+  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE; write_result=failures[i];
   unsigned before=writes, completed=completions;
   MotorCalibration_ProcessPublication(&calibration);
   assert(writes==before+1 && completions==completed);

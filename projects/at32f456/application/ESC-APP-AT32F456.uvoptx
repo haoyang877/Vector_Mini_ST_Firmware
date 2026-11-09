@@ -152,12 +152,12 @@
         <Ww>
           <count>0</count>
           <WinNumber>1</WinNumber>
-          <ItemText>g_app.axis.lifecycle.fast_sample_ticks,0x0A</ItemText>
+          <ItemText>g_app.axis.state_machine.fast_sample_ticks,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>1</count>
           <WinNumber>1</WinNumber>
-          <ItemText>g_app.axis.lifecycle,0x0A</ItemText>
+          <ItemText>g_app.axis.state_machine,0x0A</ItemText>
         </Ww>
         <Ww>
           <count>2</count>

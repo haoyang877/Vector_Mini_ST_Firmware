@@ -15,7 +15,7 @@ AT32：`MCU ADC IRQ → BspAdc_CompleteFast → MotorAxis_SampleFast → MotorAx
 BSP公开接口负责主/辅ADC配对和清标志；main依次调用采样、控制并递增计数。
 SampleFast包含三相/母线电流、电压、零偏校正及编码器反馈，ControlFast只消费本拍结果。
 STM32保留`BspAdc_HandleInterrupt → HAL完成回调 → BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast`，
-仍先执行快环再清JEOS。两板由 MotorLifecycle_PostOutcome 登记采样进展。
+仍先执行快环再清JEOS。两板由 MotorStateMachine_FinishFastTick 登记采样进展。
 AT32链接脚本将整个main ADC入口保留在快速SRAM区。
 
 | 项目 | AT32F456 | STM32G4 |

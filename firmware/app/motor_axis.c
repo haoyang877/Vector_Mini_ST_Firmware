@@ -14,7 +14,7 @@
 #include "motor_fault.h"
 #include "pi_controller.h"
 #include "motor_control.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "flux_observer.h"
 #include "sensorless_startup.h"
 #include "linear_hall.h"
@@ -80,22 +80,22 @@ void MotorAxis_Init(MotorAxis *axis)
                                                           &axis->rotor_encoder,
                                                           &axis->observer,
                                                           &axis->startup};
-    axis->calibration.lifecycle = &axis->lifecycle;
+    axis->calibration.state_machine = &axis->state_machine;
     axis->calibration.outer = &axis->outer;
     axis->calibration.hall = &axis->linear_hall;
     axis->calibration.output = &axis->output_encoder;
     axis->calibration.record = &axis->record;
-    const MotorLifecycleBindings bindings = {.configuration = &axis->configuration,
-                                             .motor = &axis->motor,
-                                             .foc = &axis->foc,
-                                             .speed_pi = &axis->speed_pi,
-                                             .rotor_encoder = &axis->rotor_encoder,
-                                             .sensorless_startup = &axis->startup,
-                                             .outer = &axis->outer,
-                                             .calibration = &axis->calibration.session,
-                                             .temperature = &axis->temperature,
-                                             .power = &axis->hardware->power};
-    MotorLifecycle_Init(&axis->lifecycle, &bindings);
+    const MotorStateMachineBindings bindings = {.configuration = &axis->configuration,
+                                                .motor = &axis->motor,
+                                                .foc = &axis->foc,
+                                                .speed_pi = &axis->speed_pi,
+                                                .rotor_encoder = &axis->rotor_encoder,
+                                                .sensorless_startup = &axis->startup,
+                                                .outer = &axis->outer,
+                                                .calibration = &axis->calibration.session,
+                                                .temperature = &axis->temperature,
+                                                .power = &axis->hardware->power};
+    MotorStateMachine_Init(&axis->state_machine, &bindings);
     Encoder_InitFeedback(&axis->configuration.device.encoder,
                          &axis->configuration.model.motor_pole_pairs,
                          &axis->configuration.application.axis_profile,
@@ -132,7 +132,7 @@ void MotorAxis_SupervisorTick(MotorAxis *axis)
 #if BSP_ENABLED_MCU_TEMPERATURE
     McuTemperature_Update(&axis->temperature, &axis->foc, &axis->motor);
 #endif
-    MotorLifecycle_SupervisorTick(&axis->lifecycle);
+    MotorStateMachine_SupervisorTick(&axis->state_machine);
 #if OUTER_LOOP_DIVIDER == SUPERVISOR_DIVIDER
     MotorAxis_OuterTick(axis);
 #endif
@@ -150,7 +150,7 @@ static void update_outer_loop_encoder_feedback(MotorAxis *axis)
         OutputEncoderCalibSample sample = axis->hall_samples[slot];
         float sin_counts = (float)sample.sin_counts;
         float cos_counts = (float)sample.cos_counts;
-        if (MotorLifecycle_GetCalibrationType(&axis->lifecycle) ==
+        if (MotorStateMachine_GetCalibrationType(&axis->state_machine) ==
                 MOTOR_CALIBRATION_ENCODER_LINEARIZATION &&
             EncoderCalibration_GetPhase(&axis->calibration.session) == CS_OBS_SAMPLE_CW)
         {
@@ -167,7 +167,7 @@ static void update_outer_loop_encoder_feedback(MotorAxis *axis)
     if (!axis->current_offsets.complete || !Encoder_IsOnline(&axis->rotor_encoder) ||
         (axis->configuration.device.encoder.calib_flag & ENC_CALIB_LINEARIZED) == 0U ||
         (axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) == 0U ||
-        MotorLifecycle_GetState(&axis->lifecycle) == MOTOR_STATE_CALIBRATION)
+        axis->state_machine.state == MOTOR_STATE_CALIBRATION)
     {
         return;
     }
@@ -189,13 +189,13 @@ void MotorAxis_OuterTick(MotorAxis *axis)
 {
     update_outer_loop_encoder_feedback(axis);
     MotorOuterWork work;
-    MotorLifecycle_BeginOuter(&axis->lifecycle, &work);
+    MotorStateMachine_ReadOuterInputs(&axis->state_machine, &work);
     if (work.allowed)
     {
         MotorOuterLoop_SlowTick(
             &axis->outer, &axis->configuration, &work.motor, &work.speed_pi, &axis->rotor_encoder);
     }
-    MotorLifecycle_CommitOuter(&axis->lifecycle, &work);
+    MotorStateMachine_CommitOuterResult(&axis->state_machine, &work);
 }
 
 void MotorAxis_OuterOverrun(MotorAxis *axis)
@@ -212,7 +212,7 @@ void MotorAxis_SampleFast(MotorAxis *axis)
     MotorVoltage_Update(&axis->foc);
     Foc_UpdateCurrentLimits(&axis->foc);
     /* 自检暂未实现；上电零偏采样在空闲且输出关闭时继续完成。 */
-    if (MotorLifecycle_GetState(&axis->lifecycle) == MOTOR_STATE_IDLE)
+    if (axis->state_machine.state == MOTOR_STATE_IDLE)
     {
         (void)MotorCurrentOffsets_Calibrate(
             &axis->current_offsets, &axis->configuration, &axis->motor);
@@ -257,26 +257,24 @@ void MotorAxis_SampleFast(MotorAxis *axis)
 void MotorAxis_ControlFast(MotorAxis *axis)
 {
     /* 采样阶段已完成编码器事务，再检查故障并处理本拍启相。 */
-    MotorLifecycle_BeginFastTick(&axis->lifecycle);
+    MotorStateMachine_BeginFastTick(&axis->state_machine);
 
     /* 捕获本拍代际；标定和正常控制互斥执行。 */
-    uint32_t work_epoch = MotorLifecycle_WorkEpoch(&axis->lifecycle);
+    uint32_t work_epoch = axis->state_machine.epoch;
     MotorTaskResult outcome = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     if (axis->current_offsets.complete && axis->motor.fault_code == MOTOR_FAULT_NONE)
     {
-        MotorState state = MotorLifecycle_GetState(&axis->lifecycle);
-        if (state == MOTOR_STATE_CALIBRATION &&
-            MotorLifecycle_IsCalibrationRunnable(&axis->lifecycle))
-        {
-            outcome = MotorCalibration_StepFast(&axis->calibration);
-        }
-        else if (state == MOTOR_STATE_RUNNING)
+        if (axis->state_machine.state == MOTOR_STATE_RUNNING)
         {
             outcome = MotorControl_Step(&axis->configuration,
                                         &axis->foc,
                                         &axis->motor,
                                         &axis->rotor_encoder,
                                         &axis->observer);
+        }
+        else if (MotorStateMachine_IsCalibrationRunnable(&axis->state_machine))
+        {
+            outcome = MotorCalibration_StepFast(&axis->calibration);
         }
         else
         {
@@ -285,7 +283,7 @@ void MotorAxis_ControlFast(MotorAxis *axis)
     }
 
     /* 所有分支统一发布，再关断本拍新产生的故障。 */
-    MotorLifecycle_PostOutcome(&axis->lifecycle, outcome, work_epoch);
+    MotorStateMachine_FinishFastTick(&axis->state_machine, outcome, work_epoch);
 }
 
 void MotorAxis_ProcessPositionPlan(MotorAxis *axis)

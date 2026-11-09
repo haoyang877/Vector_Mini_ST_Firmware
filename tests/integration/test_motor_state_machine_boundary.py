@@ -93,7 +93,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         """维护类型使用现有查询，不保留只有测试调用的重复接口。"""
         for directory in ("app", "motor", "parameters", "services"):
             for path in (ROOT / "firmware" / directory).rglob("*.[ch]"):
-                self.assertNotIn("MotorLifecycle_IsMaintenanceActive", production_text(path))
+                self.assertNotIn("MotorStateMachine_IsMaintenanceActive", production_text(path))
 
     def test_state_module_has_no_goto(self) -> None:
         """状态机使用结构化分支，禁止跳转逻辑重新进入生产模块。"""
@@ -115,7 +115,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             "FocBackgroundClaim",
             "MotorMaintenance_Cancel",
             "MotorParameterTransaction_",
-            "MotorLifecycle_SubmitControl",
+            "MotorStateMachine_SubmitControl",
         ):
             self.assertNotIn(token, core)
         runtime = production_text(ROOT / "firmware/app/motor_state_machine.c")
@@ -135,19 +135,14 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 self.assertIsNone(re.search(r"\bs_context\b", production_text(path)), path.name)
 
     def test_keil_projects_include_single_runtime_owner(self) -> None:
-        """每个状态机工程只编译一份生命周期实现，不再编译退役转发层。"""
+        """每个状态机工程只编译一份状态机实现，不再编译退役转发层。"""
         for path in (ROOT / "projects").rglob("*.uvprojx"):
             text = path.read_text(encoding="utf-8-sig")
-            if "<FileName>motor_lifecycle_exchange.c</FileName>" in text:
-                self.assertNotIn("<FileName>motor_lifecycle.c</FileName>", text, path.name)
-                for name in (
-                    "motor_state_machine.c",
-                    "motor_lifecycle_exchange.c",
-                ):
-                    self.assertEqual(text.count(f"<FileName>{name}</FileName>"), 1, path.name)
-                self.assertNotRegex(
-                    text, r"<FileName>motor_lifecycle_(?:requests|maintenance|safety)\.c"
+            if "<FileName>motor_axis.c</FileName>" in text:
+                self.assertEqual(
+                    text.count("<FileName>motor_state_machine.c</FileName>"), 1, path.name
                 )
+                self.assertNotRegex(text, r"<FileName>motor_lifecycle(?:_[a-z_]+)?\.c</FileName>")
                 self.assertNotIn("<FileName>motor_command.c</FileName>", text)
 
     def test_no_legacy_state_contract(self) -> None:
@@ -180,7 +175,6 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 "app.c",
                 "app_loader.c",
                 "app_protocol.c",
-                "motor_lifecycle_exchange.c",
                 "motor_state_machine.c",
                 "motor_axis.c",
                 "motor_calibration.c",
@@ -195,25 +189,32 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         core = function_source(
             production_text(module / "motor_state_machine.c"), "MotorStateMachine_NextState"
         ).split("{", 1)[1]
-        self.assertNotRegex(core, r"Bsp|MotorMaintenance|MotorLifecycle|g_motor_context")
+        self.assertNotRegex(core, r"Bsp|MotorMaintenance|g_motor_context|MotorStateMachine_")
         owner = production_text(ROOT / "firmware/app/motor_state_machine.c")
-        writes = re.compile(r"\blife->state\s*=(?!=)")
-        init = function_source(owner, "MotorLifecycle_Init")
+        writes = re.compile(r"\bmachine->state\s*=(?!=)")
+        init = function_source(owner, "MotorStateMachine_Init")
         transition = function_source(owner, "transition_motor_state")
         self.assertNotRegex(owner.replace(init, "").replace(transition, ""), writes)
         for event in ("RUN", "CALIBRATE", "CLEAR", "STOP", "FAULT", "COMPLETE"):
             self.assertIn(f"case MOTOR_STATE_EVENT_{event}:", transition)
         self.assertIn(
-            "life->state = MOTOR_STATE_IDLE;", function_source(owner, "MotorLifecycle_Init")
+            "machine->state = MOTOR_STATE_IDLE;", function_source(owner, "MotorStateMachine_Init")
         )
-        self.assertIn("life->state = MotorStateMachine_NextState", transition)
-        exchange = production_text(module / "motor_lifecycle_exchange.c")
-        self.assertNotRegex(exchange, writes)
-        self.assertNotRegex(
-            exchange, r"\bphase_enable_epoch\s*=(?!=)|\bpower->(?:enable|disable)\("
-        )
+        self.assertIn("machine->state = MotorStateMachine_NextState", transition)
+        for name in (
+            "MotorStateMachine_SetTarget",
+            "MotorStateMachine_ReadOuterInputs",
+            "MotorStateMachine_ReadStatus",
+            "validate_and_set_mode_target",
+            "build_motor_feedback_snapshot",
+        ):
+            control = function_source(owner, name)
+            self.assertNotRegex(control, writes)
+            self.assertNotRegex(
+                control, r"\bphase_enable_epoch\s*=(?!=)|\bpower->(?:enable|disable)\("
+            )
         self.assertNotRegex(owner, r"\b(?:run|execute|start)_self_test\s*\(")
-        self.assertNotIn("MotorLifecycle_ReadReadiness", owner)
+        self.assertNotIn("MotorStateMachine_ReadReadiness", owner)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 #ifndef MOTOR_CALIBRATION_H
 #define MOTOR_CALIBRATION_H
 #include "application_config.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "output_encoder.h"
 #include "bsp_flash.h"
 #include "parameter_record.h"
@@ -10,7 +10,7 @@
 typedef struct
 {
     EncoderCalibrationControl drive;
-    MotorLifecycle *lifecycle;
+    MotorStateMachine *state_machine;
     MotorOuterLoop *outer;
     LinearHall *hall;
     OutputEncoder *output;

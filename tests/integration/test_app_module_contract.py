@@ -11,7 +11,6 @@ MODULE_PREFIXES = {
     "app_loader": "AppLoader",
     "app_protocol": "AppProtocol",
     "motor_axis": "MotorAxis",
-    "motor_lifecycle": "MotorLifecycle",
     "motor_state_machine": "MotorStateMachine",
     "motor_calibration": "MotorCalibration",
 }
@@ -48,7 +47,7 @@ class AppModuleContractTests(unittest.TestCase):
     def test_public_names_and_modules(self):
         self.assertEqual(
             {p.stem for p in APP.glob("*.c")},
-            (MODULE_PREFIXES.keys() - {"motor_lifecycle"}) | {"motor_lifecycle_exchange"},
+            set(MODULE_PREFIXES),
         )
         self.assertEqual({p.stem for p in APP.glob("*.h")}, set(MODULE_PREFIXES))
         for name, prefix in MODULE_PREFIXES.items():
@@ -72,8 +71,6 @@ class AppModuleContractTests(unittest.TestCase):
         for name in (
             "motor_axis",
             "motor_state_machine",
-            "motor_lifecycle",
-            "motor_lifecycle_exchange",
             "motor_calibration",
         ):
             for path in APP.glob(f"{name}.[ch]"):

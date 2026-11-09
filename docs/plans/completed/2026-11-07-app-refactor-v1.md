@@ -60,7 +60,7 @@
 | [motor_lifecycle.c](../../../firmware/app/motor_state_machine.c) | 启停准入、关相确认和会话编号有明确作用；外环副本计算、输出字段提交又与速度和位置控制细节交织 | 集中运行许可及失效处理，将外环执行顺序交给 Axis |
 | [motor_state_machine.c](../../../firmware/app/motor_state_machine.c) | 纯状态迁移可单独测试；SELF_TEST 是现有占位 | 纯迁移函数移入生命周期编译单元，保留五态值语义和逐状态测试 |
 | [app_protocol.c](../../../firmware/app/app_protocol.c) 与 [STOP 服务](../../../firmware/app/app_protocol.c) | 协议适配已有静态绑定、线缆单位换算、序号去重和实际关相确认 | 保留协议边界，收紧读写权限；沿用 ACCEPTED、OK 和失败结果 |
-| [共享接口](../../../firmware/app/motor_lifecycle.h) | Watch 和 CAN 的读者与一致性要求不同；轴反馈只读指针本身不能保证同拍快照 | 分清值快照、即时只读观测和运行时私有状态 |
+| [共享接口](../../../firmware/app/motor_state_machine.h) | Watch 和 CAN 的读者与一致性要求不同；轴反馈只读指针本身不能保证同拍快照 | 分清值快照、即时只读观测和运行时私有状态 |
 
 优先级最高的两处是标定提交和外环发布。先贯通有双板基线的速度外环切片，再用取消、会话替换和失败传播回归迁移标定。10 月的 [APP 核心精简](../active/2026-10-30-app-core-v2.md) 是历史基线。当前前台还运行位置规划，联合标定可以写 Flash。应在阶段 0 修正 [APP README](../../../firmware/app/README.md)、[文件职责](../../architecture/app_file_responsibilities_v1.md) 和 [架构说明](../../architecture/software_architecture.md) 的相应描述。
 
@@ -79,7 +79,7 @@ firmware/app/
   app_protocol.c       CAN 命令转换、状态反馈、STOP 回复与 token
 ```
 
-G431 LoaderApp 在同目录额外编入 `app_loader.c`，负责交接与镜像确认。算法、报文编解码和 Flash 驱动分别归 motor、communication 和 BSP。五态迁移仍为纯函数；当前唯一生产调用方是 Lifecycle，可放在同一编译单元，保留[逐状态测试](../../../tests/unit/native/five_state_lifecycle_test.c)。原 interfaces 中的状态、结果、目标和快照归生命周期的头文件，STOP 回复与 token 归协议端点。直接请求生命周期停机后读取实际关相状态，保持原 ACCEPTED/OK 判定和 token 复用规则。
+G431 LoaderApp 在同目录额外编入 `app_loader.c`，负责交接与镜像确认。算法、报文编解码和 Flash 驱动分别归 motor、communication 和 BSP。五态迁移仍为纯函数；当前唯一生产调用方是 Lifecycle，可放在同一编译单元，保留[逐状态测试](../../../tests/unit/native/motor_state_machine_integration_test.c)。原 interfaces 中的状态、结果、目标和快照归生命周期的头文件，STOP 回复与 token 归协议端点。直接请求生命周期停机后读取实际关相状态，保持原 ACCEPTED/OK 判定和 token 复用规则。
 
 ### 可重入性契约
 
@@ -226,7 +226,7 @@ P0 记录每条链上的共享可变状态、端点和 IRQ 绑定。按单一提
 
 | 关注点 | 复用的证据或测试 | 如何判断 |
 | --- | --- | --- |
-| 启停、保护、状态 | [生命周期原生用例](../../../tests/unit/native/five_state_lifecycle_test.c)、[调度测试](../../../tests/unit/native/test_app_orchestration.py) | 五态、SELF_TEST 占位、拒绝优先级、故障锁存、重复请求、关相确认、清错后无旧目标与基线一致 |
+| 启停、保护、状态 | [生命周期原生用例](../../../tests/unit/native/motor_state_machine_integration_test.c)、[调度测试](../../../tests/unit/native/test_app_orchestration.py) | 五态、SELF_TEST 占位、拒绝优先级、故障锁存、重复请求、关相确认、清错后无旧目标与基线一致 |
 | 采样、外环与调度 | [ADC 派发](../../../tests/unit/native/test_adc_fast_dispatch.py)、[外环运行](../../../tests/unit/native/test_outer_loop_runtime.py) | 对比两板的调用次数、顺序、参考输出和中断边界；对快照、STOP 和 epoch 的交错另做行为核验 |
 | 参数及标定 | [保存回归](../../../tests/unit/native/test_calibration_save.py)、[记录定义](../../../firmware/parameters/parameter_record.h)、[五轴配置](../../guides/at32f456_five_axes.md) | 覆盖五种节点、直驱和减速、有效/损坏/旧记录、存储失败；对照 schema14 基础记录和 OEN3 输出轴扩展字节、CRC 与复位恢复。分别检查取消无写入和完整失败记录 |
 | 协议、遥测、升级 | [电机协议测试](../../../tests/unit/native/test_yg_protocol_motor_wire.py)、[Loader 运行测试](../../../tests/unit/native/test_loader_runtime.py) | 序号和去重、CAN 应答、状态有效位、Loader 票据和复位条件与基线一致 |

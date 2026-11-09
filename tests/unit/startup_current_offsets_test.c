@@ -12,11 +12,10 @@
 #include "board_config.h"
 #include "bsp_adc.h"
 #include "bsp_pwm.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "encoder_calibration.h"
 #include "motor_control.h"
 #include "control_math.h"
-#include "motor_lifecycle.h"
 #include "bsp_pwm.h"
 #include "motor_axis.h"
 #include "motor_thermal_control.h"
@@ -39,10 +38,9 @@ static unsigned current_reads, state_initializations;
 static unsigned fast_frame_reads;
 static bool frame_available = true;
 static unsigned observer_calls, progress_calls, protection_calls, control_calls;
-static MotorState simulated_state = MOTOR_STATE_IDLE;
 static MotorCalibrationType simulated_calibration_type = MOTOR_CALIBRATION_NONE;
 static MotorTaskResult simulated_calibration_outcome;
-static bool calibration_publication_pending, calibration_publication_succeeds;
+static bool calibration_publication_succeeds;
 static unsigned calibration_cycle_calls, calibration_publication_calls;
 static uint32_t publication_epoch = 1U;
 static EncoderCalibrationPhase simulated_phase;
@@ -54,11 +52,11 @@ EncoderCalibrationPhase EncoderCalibration_GetPhase(const EncoderCalibrationSess
 static float hall_raw_sin = 2048.0f, hall_raw_cos = 2048.0f;
 #if BSP_ENABLED_LINEAR_HALL
 static uint32_t test_ms;
-void MotorLifecycle_ContinueElectricalZero(MotorLifecycle *instance)
+void MotorStateMachine_ContinueElectricalZero(MotorStateMachine *instance)
 {
     (void)instance;
-    assert(calibration_publication_pending);
-    calibration_publication_pending = false;
+    assert(axis.state_machine.calibration_handoff == MOTOR_CALIBRATION_AWAITING_PUBLICATION);
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
     simulated_calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
 }
 float Encoder_GetMechVelContinuous(const EncoderState *encoder)
@@ -87,21 +85,22 @@ void Param_StoreLinearHall(InterfaceParam *param, const LinearHall *hall)
 }
 BspResult BspFlash_Write(const void *data, size_t length)
 {
-    assert(output_off && calibration_publication_pending);
+    assert(output_off &&
+           axis.state_machine.calibration_handoff == MOTOR_CALIBRATION_AWAITING_PUBLICATION);
     assert(data == &axis.record && length == sizeof(axis.record));
     return BSP_OK;
 }
 
-MotorCalibrationType MotorLifecycle_GetCalibrationType(const MotorLifecycle *instance)
+MotorCalibrationType MotorStateMachine_GetCalibrationType(const MotorStateMachine *instance)
 {
     (void)instance;
-    return simulated_state == MOTOR_STATE_CALIBRATION ? simulated_calibration_type
-                                                      : MOTOR_CALIBRATION_NONE;
+    return axis.state_machine.state == MOTOR_STATE_CALIBRATION ? simulated_calibration_type
+                                                               : MOTOR_CALIBRATION_NONE;
 }
 
-void MotorLifecycle_BeginOuter(MotorLifecycle *life, MotorOuterWork *work)
+void MotorStateMachine_ReadOuterInputs(MotorStateMachine *machine, MotorOuterWork *work)
 {
-    (void)life;
+    (void)machine;
     work->allowed = false;
 }
 void MotorOuterLoop_SlowTick(MotorOuterLoop *outer,
@@ -117,9 +116,9 @@ void MotorOuterLoop_SlowTick(MotorOuterLoop *outer,
     (void)encoder;
     assert(false);
 }
-void MotorLifecycle_CommitOuter(MotorLifecycle *life, const MotorOuterWork *work)
+void MotorStateMachine_CommitOuterResult(MotorStateMachine *machine, const MotorOuterWork *work)
 {
-    (void)life;
+    (void)machine;
     (void)work;
 }
 
@@ -128,18 +127,18 @@ void Encoder_UpdateSlowEstimate(EncoderState *encoder)
     assert(encoder == &axis.rotor_encoder);
 }
 
-bool MotorLifecycle_IsCalibrationRunnable(const MotorLifecycle *instance)
+bool MotorStateMachine_IsCalibrationRunnable(const MotorStateMachine *instance)
 {
     (void)instance;
-    return simulated_state == MOTOR_STATE_CALIBRATION &&
+    return axis.state_machine.state == MOTOR_STATE_CALIBRATION &&
            simulated_calibration_type != MOTOR_CALIBRATION_NONE;
 }
 
-bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *instance,
-                                                      uint32_t *calibration_epoch)
+bool MotorStateMachine_ReadPendingCalibrationPublication(const MotorStateMachine *instance,
+                                                         uint32_t *calibration_epoch)
 {
     (void)instance;
-    if (!calibration_publication_pending)
+    if (axis.state_machine.calibration_handoff != MOTOR_CALIBRATION_AWAITING_PUBLICATION)
     {
         return false;
     }
@@ -147,14 +146,14 @@ bool MotorLifecycle_ReadPendingCalibrationPublication(const MotorLifecycle *inst
     return true;
 }
 
-void MotorLifecycle_CompleteCalibrationPublication(MotorLifecycle *instance,
-                                                   uint32_t calibration_epoch,
-                                                   bool publication_succeeded)
+void MotorStateMachine_CompleteCalibrationPublication(MotorStateMachine *instance,
+                                                      uint32_t calibration_epoch,
+                                                      bool publication_succeeded)
 {
     (void)instance;
     assert(calibration_epoch == publication_epoch && output_off);
     assert(publication_succeeded == calibration_publication_succeeds);
-    calibration_publication_pending = false;
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
     ++calibration_publication_calls;
 }
 
@@ -253,9 +252,10 @@ static void load_parameters(MotorConfiguration *configuration)
     axis.configuration.device.phase_c_offset_counts = 2048.0f;
 }
 
-void MotorLifecycle_Init(MotorLifecycle *life, const MotorLifecycleBindings *bindings)
+void MotorStateMachine_Init(MotorStateMachine *machine, const MotorStateMachineBindings *bindings)
 {
-    assert(life == &axis.lifecycle);
+    assert(machine == &axis.state_machine);
+    machine->epoch = 1U;
     ++state_initializations;
     bindings->motor->control_mode = MOTOR_CONTROL_NONE;
     assert(!MotorCurrentOffsets_IsValid(bindings->configuration) &&
@@ -409,16 +409,11 @@ void FluxObserver_Update(const MotorModelConfig *model,
     record_fast_call('O');
     ++observer_calls;
 }
-bool MotorLifecycle_OutputExpected(void)
+bool MotorStateMachine_OutputExpected(void)
 {
     return !output_off;
 }
 
-MotorState MotorLifecycle_GetState(const MotorLifecycle *instance)
-{
-    (void)instance;
-    return simulated_state;
-}
 static void check_fast_faults(void)
 {
     record_fast_call('F');
@@ -432,13 +427,9 @@ static void fast_fault_stop(void)
         output_off = true;
     }
 }
-uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)
-{
-    (void)instance;
-    record_fast_call('W');
-    return 1U;
-}
-void MotorLifecycle_PostOutcome(MotorLifecycle *instance, MotorTaskResult outcome, uint32_t epoch)
+void MotorStateMachine_FinishFastTick(MotorStateMachine *instance,
+                                      MotorTaskResult outcome,
+                                      uint32_t epoch)
 {
     (void)instance;
     record_fast_call('T');
@@ -499,10 +490,10 @@ static void initialize(void)
     fast_frame_reads = 0U;
     frame_available = true;
     observer_calls = progress_calls = protection_calls = control_calls = 0U;
-    simulated_state = MOTOR_STATE_IDLE;
+    axis.state_machine.state = MOTOR_STATE_IDLE;
     simulated_calibration_type = MOTOR_CALIBRATION_NONE;
     simulated_calibration_outcome = (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
-    calibration_publication_pending = false;
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
     calibration_publication_succeeds = true;
     calibration_cycle_calls = calibration_publication_calls = 0U;
     samples[0] = 8131U;
@@ -651,7 +642,7 @@ static void test_idle_only(void)
     for (MotorState state = MOTOR_STATE_SELF_TEST; state <= MOTOR_STATE_FAULT; ++state)
     {
         initialize();
-        simulated_state = state;
+        axis.state_machine.state = state;
         for (unsigned i = 0U; i < 10U; ++i)
         {
             MotorAxis_SampleFast(&axis);
@@ -669,7 +660,7 @@ static void test_idle_only(void)
     unsigned reads = current_reads + bus_raw_reads;
     for (MotorState state = MOTOR_STATE_IDLE; state <= MOTOR_STATE_FAULT; ++state)
     {
-        simulated_state = state;
+        axis.state_machine.state = state;
         MotorAxis_SampleFast(&axis);
         MotorAxis_ControlFast(&axis);
     }
@@ -734,34 +725,34 @@ static void prepare_fast_tick_order(MotorState state, MotorControlMode mode)
         bsp_offsets[phase] = 2048.0f;
         samples[phase] = 8192U;
     }
-    simulated_state = state;
+    axis.state_machine.state = state;
     axis.motor.control_mode = mode;
 }
 
 static void test_fast_tick_order(void)
 {
     initialize();
-    expect_fast_tick_order("BAVEFSWTS");
+    expect_fast_tick_order("BAVEFSTS");
 
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
-    expect_fast_tick_order("BAVOEFSWCTS");
+    expect_fast_tick_order("BAVOEFSCTS");
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_SPEED);
-    expect_fast_tick_order("BAVEFSWCTS");
+    expect_fast_tick_order("BAVEFSCTS");
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_POSITION);
-    expect_fast_tick_order("BAVEFSWCTS");
+    expect_fast_tick_order("BAVEFSCTS");
     prepare_fast_tick_order(MOTOR_STATE_IDLE, MOTOR_CONTROL_NONE);
-    expect_fast_tick_order("BAVOEFSWPTS");
+    expect_fast_tick_order("BAVOEFSPTS");
 
     /* 故障前后均保留采样收尾；执行中新故障必须由末尾的关断检查接住。 */
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
     output_off = false;
     axis.motor.fault_code = MOTOR_FAULT_ENCODER;
-    expect_fast_tick_order("BAVOEFSWTS");
+    expect_fast_tick_order("BAVOEFSTS");
     assert(output_off && axis.motor.fault_code == MOTOR_FAULT_ENCODER);
     prepare_fast_tick_order(MOTOR_STATE_RUNNING, MOTOR_CONTROL_CURRENT);
     output_off = false;
     inject_control_fault = true;
-    expect_fast_tick_order("BAVOEFSWCTS");
+    expect_fast_tick_order("BAVOEFSCTS");
     assert(output_off && axis.motor.fault_code == MOTOR_FAULT_OVERCURRENT);
 }
 
@@ -836,7 +827,7 @@ static void test_calibration_dispatch_and_publication(void)
     }
     prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
-    calibration_publication_pending = true;
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
     MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 0U);
     MotorAxis_SampleFast(&axis);
@@ -844,7 +835,7 @@ static void test_calibration_dispatch_and_publication(void)
     assert(calibration_publication_calls == 1U);
     MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 1U);
-    calibration_publication_pending = true;
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
     calibration_publication_succeeds = false;
     ++publication_epoch;
     MotorCalibration_ProcessPublication(&axis.calibration);
@@ -857,7 +848,7 @@ static void test_calibration_dispatch_and_publication(void)
     axis.configuration.preset = &pitch;
     OutputEncoder_Init(&axis.output_encoder, 8.0f);
     LinearHall_Init(&axis.linear_hall);
-    simulated_state = MOTOR_STATE_CALIBRATION;
+    axis.state_machine.state = MOTOR_STATE_CALIBRATION;
     simulated_phase = CS_NULL;
     (void)MotorCalibration_StepFast(&axis.calibration);
     assert(isinf(axis.calibration.hall_sweep.sin_min));
@@ -885,13 +876,13 @@ static void test_calibration_dispatch_and_publication(void)
     assert(axis.calibration.hall_sweep.sin_min == 100 &&
            axis.calibration.hall_sweep.cos_max == 3600);
     /* 中止后新会话不得带入旧极值。 */
-    simulated_state = MOTOR_STATE_IDLE;
+    axis.state_machine.state = MOTOR_STATE_IDLE;
     hall_raw_sin = 0;
     hall_raw_cos = 4095;
     MotorAxis_OuterTick(&axis);
     assert(axis.calibration.hall_sweep.sin_min == 100 &&
            axis.calibration.hall_sweep.cos_max == 3600);
-    simulated_state = MOTOR_STATE_CALIBRATION;
+    axis.state_machine.state = MOTOR_STATE_CALIBRATION;
     simulated_phase = CS_NULL;
     (void)MotorCalibration_StepFast(&axis.calibration);
     assert(isinf(axis.calibration.hall_sweep.sin_min));
@@ -913,7 +904,8 @@ static void test_calibration_dispatch_and_publication(void)
         simulated_phase = excluded[i];
         MotorAxis_OuterTick(&axis);
     }
-    calibration_publication_pending = calibration_publication_succeeds = true;
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+    calibration_publication_succeeds = true;
     MotorCalibration_ProcessPublication(&axis.calibration);
     test_ms = 201U;
     MotorCalibration_ProcessPublication(&axis.calibration);
@@ -934,7 +926,7 @@ static void test_calibration_dispatch_and_publication(void)
                                        (uint16_t)(1800.0f - 1600.0f * sinf(h)),
                                        (uint16_t)(2100.0f + 1400.0f * cosf(h))};
     }
-    calibration_publication_pending = true;
+    axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
     MotorCalibration_ProcessPublication(&axis.calibration);
     assert(calibration_publication_calls == 3 && axis.linear_hall.calibration_success);
     assert(axis.linear_hall.sin_off_counts == 1800 && axis.linear_hall.sin_amp == 1600);
@@ -946,7 +938,7 @@ static void test_calibration_dispatch_and_publication(void)
 
 static void test_output_encoder_startup(void)
 {
-    simulated_state = MOTOR_STATE_IDLE;
+    axis.state_machine.state = MOTOR_STATE_IDLE;
     axis.configuration.preset = NULL;
     axis.configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
     axis.rotor_encoder.has_valid_sample = true;
@@ -1010,7 +1002,7 @@ int main(void)
     MotorAxis_ControlFast(&axis);
     assert(velocity_restarts == 0U);
     initialize();
-    simulated_state = MOTOR_STATE_RUNNING;
+    axis.state_machine.state = MOTOR_STATE_RUNNING;
     MotorAxis_SampleFast(&axis);
     MotorAxis_ControlFast(&axis);
     assert(control_calls == 0U && observer_calls == 0U && progress_calls == 1U);
@@ -1029,7 +1021,7 @@ int main(void)
     frame_available = false;
     output_off = false;
     unsigned prior_reads = fast_frame_reads;
-    expect_fast_tick_order("BAVOEFSWPTS");
+    expect_fast_tick_order("BAVOEFSPTS");
     assert(fast_frame_reads == prior_reads + 1U && !output_off);
     assert(axis.motor.fault_code == MOTOR_FAULT_NONE);
     assert(isnan(axis.foc.phase_current_a.a) && isnan(axis.foc.phase_current_a.b) &&
@@ -1043,7 +1035,7 @@ int main(void)
     return 0;
 }
 
-void MotorLifecycle_BeginFastTick(MotorLifecycle *instance)
+void MotorStateMachine_BeginFastTick(MotorStateMachine *instance)
 {
     (void)instance;
     check_fast_faults();

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "motor_control.h"
 #include "application_config.h"
 #include "motor_fault.h"
@@ -18,7 +18,7 @@
 #include "../../../firmware/communication/yg_protocol.c"
 #include "../../../firmware/communication/yg_protocol_boot.c"
 
-static MotorLifecycle life;
+static MotorStateMachine machine;
 static MotorOuterLoop outer;
 static EncoderCalibrationSession session;
 static volatile McuTemperatureTelemetry temperature;
@@ -32,7 +32,7 @@ static EncoderState encoder;
 static SensorlessStartupState startup;
 static bool phases_disabled, start_fails, stop_fails, outer_ready;
 static unsigned critical_depth, critical_calls, fault_on_enter;
-static unsigned calibration_cancel_count;
+static unsigned calibration_cancel_count, config_validation_calls;
 static bool calibration_resources_released;
 
 void EncoderCalibration_Cancel(EncoderCalibrationSession *instance)
@@ -128,6 +128,7 @@ bool MotorCurrentOffsets_IsValid(const MotorConfiguration *config)
 }
 bool ParameterValue_ConfigurationValid(const MotorConfiguration *config)
 {
+    ++config_validation_calls;
     return config->application.axis_profile_valid && config->application.current_limit_a > 0.0f;
 }
 
@@ -179,7 +180,7 @@ void MotorOuterLoop_SlowTick(MotorOuterLoop *instance,
     if (stop_during_outer)
     {
         stop_during_outer = false;
-        MotorLifecycle_RequestStop(&life);
+        MotorStateMachine_RequestStop(&machine);
     }
     if (fault_during_outer)
     {
@@ -190,16 +191,15 @@ void MotorOuterLoop_SlowTick(MotorOuterLoop *instance,
 }
 static void tick(void)
 {
-    MotorLifecycle_PostOutcome(&life,
-                               (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE},
-                               MotorLifecycle_WorkEpoch(&life));
-    MotorLifecycle_SupervisorTick(&life);
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE}, machine.epoch);
+    MotorStateMachine_SupervisorTick(&machine);
     MotorOuterWork work;
-    MotorLifecycle_BeginOuter(&life, &work);
+    MotorStateMachine_ReadOuterInputs(&machine, &work);
     if (work.allowed)
         MotorOuterLoop_SlowTick(&outer, &configuration, &work.motor, &work.speed_pi, &encoder);
-    MotorLifecycle_CommitOuter(&life, &work);
-    MotorLifecycle_BeginFastTick(&life);
+    MotorStateMachine_CommitOuterResult(&machine, &work);
+    MotorStateMachine_BeginFastTick(&machine);
     assert(critical_depth == 0U);
 }
 
@@ -227,37 +227,38 @@ static void reset(void)
     static const MotorPowerOutput power = {.enable = BspPwm_Enable,
                                            .disable = BspPwm_Disable,
                                            .phases_disabled = BspPwm_ArePhasesDisabled};
-    MotorLifecycleBindings bindings = {&configuration,
-                                       &motor,
-                                       &foc,
-                                       &pi,
-                                       &encoder,
-                                       &startup,
-                                       &outer,
-                                       &session,
-                                       &temperature,
-                                       &power};
-    MotorLifecycle_Init(&life, &bindings);
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
+    MotorStateMachineBindings bindings = {&configuration,
+                                          &motor,
+                                          &foc,
+                                          &pi,
+                                          &encoder,
+                                          &startup,
+                                          &outer,
+                                          &session,
+                                          &temperature,
+                                          &power};
+    MotorStateMachine_Init(&machine, &bindings);
+    assert(machine.state == MOTOR_STATE_IDLE);
     tick();
 }
 
 static void test_control_and_stop(void)
 {
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE && phases_disabled);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(machine.state == MOTOR_STATE_IDLE && phases_disabled);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_RUNNING && !phases_disabled);
-    uint32_t epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_RequestStop(&life);
+    assert(machine.state == MOTOR_STATE_RUNNING && !phases_disabled);
+    uint32_t epoch = machine.epoch;
+    MotorStateMachine_RequestStop(&machine);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE && phases_disabled);
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER}, epoch);
+    assert(machine.state == MOTOR_STATE_IDLE && phases_disabled);
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER}, epoch);
     tick();
     assert(motor.fault_code == MOTOR_FAULT_NONE);
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     stop_during_outer = true;
     tick();
     assert(phases_disabled && motor.iq_target_a == 0.0f);
@@ -266,7 +267,7 @@ static void test_bus_current_snapshot(void)
 {
     reset();
     MotorStatus sample;
-    assert(MotorLifecycle_ReadStatus(&life, &sample));
+    assert(MotorStateMachine_ReadStatus(&machine, &sample));
     assert(sample.state == MOTOR_STATE_IDLE && sample.fault == MOTOR_FAULT_NONE &&
            sample.mode == MOTOR_CONTROL_NONE);
 }
@@ -274,272 +275,276 @@ static void test_bus_current_snapshot(void)
 static void test_faults_and_safety(void)
 {
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
     start_fails = true;
     tick();
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT && phases_disabled);
+    assert(machine.state == MOTOR_STATE_FAULT && phases_disabled);
     start_fails = false;
-    assert(MotorLifecycle_RequestClear(&life) == MOTOR_CONTROL_ACCEPTED);
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE &&
-           motor.control_mode == MOTOR_CONTROL_NONE);
+    assert(MotorStateMachine_RequestFaultClear(&machine) == MOTOR_CONTROL_ACCEPTED);
+    assert(machine.state == MOTOR_STATE_IDLE && motor.control_mode == MOTOR_CONTROL_NONE);
     assert(phases_disabled);
 
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
     tick();
     stop_fails = true;
-    MotorLifecycle_RequestStop(&life);
+    MotorStateMachine_RequestStop(&machine);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT);
-    assert(MotorLifecycle_RequestClear(&life) != MOTOR_CONTROL_ACCEPTED);
+    assert(machine.state == MOTOR_STATE_FAULT);
+    assert(MotorStateMachine_RequestFaultClear(&machine) != MOTOR_CONTROL_ACCEPTED);
 
     reset();
     configuration.device.phase_a_offset_counts = 0.0f;
     tick();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) != MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) !=
+           MOTOR_CONTROL_ACCEPTED);
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
     foc.bus_voltage_filtered_v = NAN;
     tick();
-    assert(phases_disabled && MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT);
+    assert(phases_disabled && machine.state == MOTOR_STATE_FAULT);
 
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
     tick();
-    MotorLifecycle_PostOutcome(&life,
-                               (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_OVERCURRENT},
-                               MotorLifecycle_WorkEpoch(&life));
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_OVERCURRENT}, machine.epoch);
     assert(phases_disabled);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT);
+    assert(machine.state == MOTOR_STATE_FAULT);
 }
 
 static void test_commit_preemption_and_stop(void)
 {
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     tick();
     fault_during_outer = true;
     tick();
     assert(phases_disabled && motor.iq_target_a == 0.0f);
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
     tick();
-    MotorLifecycle_PostOutcome(&life,
-                               (MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, MOTOR_FAULT_NONE},
-                               MotorLifecycle_WorkEpoch(&life));
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_STOP_REQUESTED, MOTOR_FAULT_NONE}, machine.epoch);
     tick();
-    assert(phases_disabled && MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
-    assert(MotorLifecycle_LockStop(&life));
+    assert(phases_disabled && machine.state == MOTOR_STATE_IDLE);
+    assert(MotorStateMachine_LockStartsAndRequestStop(&machine));
     tick();
-    assert(MotorLifecycle_IsStopped(&life));
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
+    assert(MotorStateMachine_IsStopped(&machine));
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
            MOTOR_CONTROL_BUSY);
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_BUSY);
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) != MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_BUSY);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) !=
+           MOTOR_CONTROL_ACCEPTED);
 }
 
 static void test_direct_control_updates(void)
 {
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_OPEN_CURRENT) ==
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_OPEN_CURRENT) ==
            MOTOR_CONTROL_ACCEPTED);
     tick();
     MotorTarget target = {
         .mode = MOTOR_CONTROL_OPEN_CURRENT, .id_a = 1.0f, .iq_a = -1.0f, .frequency_hz = -20.0f};
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
     assert(motor.id_target_a == 1.0f && motor.iq_target_a == -1.0f &&
            motor.open_loop_frequency_hz == -20.0f);
     target.id_a = 0.5f;
     target.iq_a = 0.25f;
     target.frequency_hz = 10.0f;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
     assert(motor.id_target_a == 0.5f && motor.iq_target_a == 0.25f &&
            motor.open_loop_frequency_hz == 10.0f);
-    MotorLifecycle_RequestStop(&life);
-    MotorLifecycle_BeginFastTick(&life);
+    MotorStateMachine_RequestStop(&machine);
+    MotorStateMachine_BeginFastTick(&machine);
     assert(phases_disabled);
     tick();
     assert(motor.iq_target_a == 0.0f && motor.open_loop_frequency_hz == 0.0f);
 
     reset();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     MotorOuterWork work;
-    MotorLifecycle_BeginOuter(&life, &work);
+    MotorStateMachine_ReadOuterInputs(&machine, &work);
     MotorOuterLoop_SlowTick(&outer, &configuration, &work.motor, &work.speed_pi, &encoder);
     work.motor.iq_target_a = 5.0f;
     work.speed_pi.integral_output = 4.0f;
-    MotorLifecycle_CommitOuter(&life, &work);
+    MotorStateMachine_CommitOuterResult(&machine, &work);
     assert(motor.iq_target_a == 5.0f && pi.integral_output == 4.0f);
-    assert(phases_disabled && life.state == MOTOR_STATE_IDLE);
-    MotorLifecycle_CommitOuter(&life, &work);
-    MotorLifecycle_BeginFastTick(&life);
-    MotorLifecycle_BeginFastTick(&life);
-    assert(!phases_disabled && life.state == MOTOR_STATE_RUNNING &&
+    assert(phases_disabled && machine.state == MOTOR_STATE_IDLE);
+    MotorStateMachine_CommitOuterResult(&machine, &work);
+    MotorStateMachine_BeginFastTick(&machine);
+    MotorStateMachine_BeginFastTick(&machine);
+    assert(!phases_disabled && machine.state == MOTOR_STATE_RUNNING &&
            motor.fault_code == MOTOR_FAULT_NONE);
     motor.fault_code = MOTOR_FAULT_OVERCURRENT;
-    MotorLifecycle_BeginFastTick(&life);
-    assert(phases_disabled && life.phase_enable_epoch == 0U);
+    MotorStateMachine_BeginFastTick(&machine);
+    assert(phases_disabled && machine.phase_enable_epoch == 0U);
     tick();
-    assert(life.state == MOTOR_STATE_FAULT && motor.iq_target_a == 0.0f &&
+    assert(machine.state == MOTOR_STATE_FAULT && motor.iq_target_a == 0.0f &&
            pi.integral_output == 0.0f);
 }
 
 static void test_calibration_completes_to_idle(void)
 {
     reset();
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_NONE) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_NONE) ==
            MOTOR_CONTROL_INVALID);
-    assert(MotorLifecycle_RequestCalibration(&life, (MotorCalibrationType)99) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, (MotorCalibrationType)99) ==
            MOTOR_CONTROL_INVALID);
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
            MOTOR_CONTROL_ACCEPTED);
-    uint32_t calibration_epoch = MotorLifecycle_WorkEpoch(&life);
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION && phases_disabled);
-    assert(MotorLifecycle_IsCalibrationRunnable(&life));
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) != MOTOR_CONTROL_ACCEPTED);
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) != MOTOR_CONTROL_ACCEPTED);
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, calibration_epoch);
-    assert(!MotorLifecycle_IsCalibrationRunnable(&life));
+    uint32_t calibration_epoch = machine.epoch;
+    assert(machine.state == MOTOR_STATE_CALIBRATION && phases_disabled);
+    assert(MotorStateMachine_IsCalibrationRunnable(&machine));
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) !=
+           MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) !=
+           MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, calibration_epoch);
+    assert(!MotorStateMachine_IsCalibrationRunnable(&machine));
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION && phases_disabled);
+    assert(machine.state == MOTOR_STATE_CALIBRATION && phases_disabled);
     uint32_t mask = BspSystem_EnterCritical();
-    MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, true);
+    MotorStateMachine_CompleteCalibrationPublication(&machine, calibration_epoch, true);
     BspSystem_ExitCritical(mask);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE && phases_disabled);
-    assert(MotorLifecycle_GetCalibrationType(&life) == MOTOR_CALIBRATION_NONE);
-    assert(MotorLifecycle_WorkEpoch(&life) != calibration_epoch);
+    assert(machine.state == MOTOR_STATE_IDLE && phases_disabled);
+    assert(MotorStateMachine_GetCalibrationType(&machine) == MOTOR_CALIBRATION_NONE);
+    assert(machine.epoch != calibration_epoch);
     assert(calibration_cancel_count == 1U);
 
     reset();
     configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
            MOTOR_CONTROL_ACCEPTED);
-    assert(phases_disabled && !MotorLifecycle_IsCalibrationRunnable(&life));
-    MotorLifecycle_BeginFastTick(&life);
-    assert(!phases_disabled && MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION);
-    calibration_epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, calibration_epoch);
+    assert(phases_disabled && !MotorStateMachine_IsCalibrationRunnable(&machine));
+    MotorStateMachine_BeginFastTick(&machine);
+    assert(!phases_disabled && machine.state == MOTOR_STATE_CALIBRATION);
+    calibration_epoch = machine.epoch;
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, calibration_epoch);
     assert(phases_disabled);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION);
+    assert(machine.state == MOTOR_STATE_CALIBRATION);
     mask = BspSystem_EnterCritical();
-    MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, true);
+    MotorStateMachine_CompleteCalibrationPublication(&machine, calibration_epoch, true);
     BspSystem_ExitCritical(mask);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
+    assert(machine.state == MOTOR_STATE_IDLE);
 }
 
 static void test_calibration_stop_fault_and_late_result(void)
 {
     reset();
     encoder.has_valid_sample = false;
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
+    assert(MotorStateMachine_RequestCalibration(
+               &machine, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) == MOTOR_CONTROL_DENIED);
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
            MOTOR_CONTROL_DENIED);
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
            MOTOR_CONTROL_DENIED);
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
-           MOTOR_CONTROL_DENIED);
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE && phases_disabled);
+    assert(machine.state == MOTOR_STATE_IDLE && phases_disabled);
 
     reset();
     configuration.device.encoder.calib_flag = 0U;
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
            MOTOR_CONTROL_DENIED);
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
-           MOTOR_CONTROL_ACCEPTED);
-    uint32_t cancelled_epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_BeginFastTick(&life);
-    MotorLifecycle_RequestStop(&life);
-    assert(life.stop_pending && life.phase_enable_epoch == 0U);
+    assert(MotorStateMachine_RequestCalibration(
+               &machine, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) == MOTOR_CONTROL_ACCEPTED);
+    uint32_t cancelled_epoch = machine.epoch;
+    MotorStateMachine_BeginFastTick(&machine);
+    MotorStateMachine_RequestStop(&machine);
+    assert(machine.stop_pending && machine.phase_enable_epoch == 0U);
     tick();
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, cancelled_epoch);
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, cancelled_epoch);
     tick();
-    assert(phases_disabled && MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
-    assert(MotorLifecycle_GetCalibrationType(&life) == MOTOR_CALIBRATION_NONE);
+    assert(phases_disabled && machine.state == MOTOR_STATE_IDLE);
+    assert(MotorStateMachine_GetCalibrationType(&machine) == MOTOR_CALIBRATION_NONE);
 
     reset();
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
            MOTOR_CONTROL_ACCEPTED);
-    MotorLifecycle_BeginFastTick(&life);
-    MotorLifecycle_PostOutcome(&life,
-                               (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER},
-                               MotorLifecycle_WorkEpoch(&life));
+    MotorStateMachine_BeginFastTick(&machine);
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER}, machine.epoch);
     assert(phases_disabled);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT);
-    assert(MotorLifecycle_RequestClear(&life) == MOTOR_CONTROL_ACCEPTED);
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
+    assert(machine.state == MOTOR_STATE_FAULT);
+    assert(MotorStateMachine_RequestFaultClear(&machine) == MOTOR_CONTROL_ACCEPTED);
+    assert(machine.state == MOTOR_STATE_IDLE);
 
     reset();
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
            MOTOR_CONTROL_ACCEPTED);
-    MotorLifecycle_BeginFastTick(&life);
+    MotorStateMachine_BeginFastTick(&machine);
     stop_fails = true;
-    MotorLifecycle_PostOutcome(&life,
-                               (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
-                               MotorLifecycle_WorkEpoch(&life));
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, machine.epoch);
     assert(motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT);
+    assert(machine.state == MOTOR_STATE_FAULT);
 }
 
 static void test_linearization_waits_for_publication(void)
 {
     reset();
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
-           MOTOR_CONTROL_ACCEPTED);
-    MotorLifecycle_BeginFastTick(&life);
-    uint32_t calibration_epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
+    assert(MotorStateMachine_RequestCalibration(
+               &machine, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) == MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_BeginFastTick(&machine);
+    uint32_t calibration_epoch = machine.epoch;
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
     tick();
-    assert(phases_disabled && MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION);
-    assert(!MotorLifecycle_IsCalibrationRunnable(&life));
+    assert(phases_disabled && machine.state == MOTOR_STATE_CALIBRATION);
+    assert(!MotorStateMachine_IsCalibrationRunnable(&machine));
     uint32_t publication_epoch;
     uint32_t interrupt_mask = BspSystem_EnterCritical();
-    assert(MotorLifecycle_ReadPendingCalibrationPublication(&life, &publication_epoch));
+    assert(MotorStateMachine_ReadPendingCalibrationPublication(&machine, &publication_epoch));
     assert(publication_epoch == calibration_epoch);
-    MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch + 1U, true);
-    assert(MotorLifecycle_ReadPendingCalibrationPublication(&life, &publication_epoch));
-    MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, true);
+    MotorStateMachine_CompleteCalibrationPublication(&machine, calibration_epoch + 1U, true);
+    assert(MotorStateMachine_ReadPendingCalibrationPublication(&machine, &publication_epoch));
+    MotorStateMachine_CompleteCalibrationPublication(&machine, calibration_epoch, true);
     BspSystem_ExitCritical(interrupt_mask);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
+    assert(machine.state == MOTOR_STATE_IDLE);
 
     reset();
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
-           MOTOR_CONTROL_ACCEPTED);
-    MotorLifecycle_BeginFastTick(&life);
-    calibration_epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
+    assert(MotorStateMachine_RequestCalibration(
+               &machine, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) == MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_BeginFastTick(&machine);
+    calibration_epoch = machine.epoch;
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
     interrupt_mask = BspSystem_EnterCritical();
-    MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, false);
+    MotorStateMachine_CompleteCalibrationPublication(&machine, calibration_epoch, false);
     BspSystem_ExitCritical(interrupt_mask);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT && phases_disabled);
+    assert(machine.state == MOTOR_STATE_FAULT && phases_disabled);
 
     reset();
-    assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
-           MOTOR_CONTROL_ACCEPTED);
-    MotorLifecycle_BeginFastTick(&life);
-    calibration_epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_PostOutcome(
-        &life, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
-    MotorLifecycle_RequestStop(&life);
-    assert(life.stop_pending && life.phase_enable_epoch == 0U);
+    assert(MotorStateMachine_RequestCalibration(
+               &machine, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) == MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_BeginFastTick(&machine);
+    calibration_epoch = machine.epoch;
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
+    MotorStateMachine_RequestStop(&machine);
+    assert(machine.stop_pending && machine.phase_enable_epoch == 0U);
     interrupt_mask = BspSystem_EnterCritical();
-    assert(!MotorLifecycle_ReadPendingCalibrationPublication(&life, &publication_epoch));
-    MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, true);
+    assert(!MotorStateMachine_ReadPendingCalibrationPublication(&machine, &publication_epoch));
+    MotorStateMachine_CompleteCalibrationPublication(&machine, calibration_epoch, true);
     BspSystem_ExitCritical(interrupt_mask);
     tick();
-    assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE);
+    assert(machine.state == MOTOR_STATE_IDLE);
 }
 
 /* 阶段切换只排队；实际启相仍拒绝 STOP、故障和无效 LUT。 */
@@ -550,23 +555,22 @@ static void test_joint_zero_rechecks_power(void)
     for (unsigned condition = 0; condition < 4; ++condition)
     {
         reset();
-        assert(MotorLifecycle_RequestCalibration(&life, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) ==
-               MOTOR_CONTROL_ACCEPTED);
-        MotorLifecycle_BeginFastTick(&life);
-        MotorLifecycle_PostOutcome(&life,
-                                   (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE},
-                                   MotorLifecycle_WorkEpoch(&life));
+        assert(MotorStateMachine_RequestCalibration(
+                   &machine, MOTOR_CALIBRATION_ENCODER_LINEARIZATION) == MOTOR_CONTROL_ACCEPTED);
+        MotorStateMachine_BeginFastTick(&machine);
+        MotorStateMachine_FinishFastTick(
+            &machine, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, machine.epoch);
         configuration.preset = &pitch;
         configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
         uint32_t mask = BspSystem_EnterCritical(), epoch;
-        assert(MotorLifecycle_ReadPendingCalibrationPublication(&life, &epoch));
-        MotorLifecycle_ContinueElectricalZero(&life);
+        assert(MotorStateMachine_ReadPendingCalibrationPublication(&machine, &epoch));
+        MotorStateMachine_ContinueElectricalZero(&machine);
         BspSystem_ExitCritical(mask);
         assert(phases_disabled);
         if (condition == 1)
         {
-            MotorLifecycle_RequestStop(&life);
-            assert(life.stop_pending && life.phase_enable_epoch == 0U);
+            MotorStateMachine_RequestStop(&machine);
+            assert(machine.stop_pending && machine.phase_enable_epoch == 0U);
         }
         if (condition == 2)
         {
@@ -576,7 +580,7 @@ static void test_joint_zero_rechecks_power(void)
         {
             configuration.device.encoder.calib_flag = 0;
         }
-        MotorLifecycle_BeginFastTick(&life);
+        MotorStateMachine_BeginFastTick(&machine);
         assert(phases_disabled == (condition != 0));
     }
 }
@@ -606,38 +610,38 @@ static void test_calibration_communication_to_idle(void)
         assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
         assert(YgProtocol_ReadU16Le(exchange.reply.data) == 1U);
         assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) != 0U);
-        assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION);
-        assert(MotorLifecycle_GetCalibrationType(&life) == types[index]);
+        assert(machine.state == MOTOR_STATE_CALIBRATION);
+        assert(MotorStateMachine_GetCalibrationType(&machine) == types[index]);
         assert(phases_disabled);
 
         /* 同一运行会话不能被第二个通信请求覆盖。 */
         assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
         assert(YgProtocol_ReadU16Le(exchange.reply.data) != 1U);
-        MotorLifecycle_BeginFastTick(&life);
+        MotorStateMachine_BeginFastTick(&machine);
         assert(phases_disabled == (types[index] == MOTOR_CALIBRATION_MECHANICAL_ZERO));
-        assert(MotorLifecycle_IsCalibrationRunnable(&life));
-        uint32_t calibration_epoch = MotorLifecycle_WorkEpoch(&life);
+        assert(MotorStateMachine_IsCalibrationRunnable(&machine));
+        uint32_t calibration_epoch = machine.epoch;
 
-        MotorLifecycle_PostOutcome(
-            &life,
+        MotorStateMachine_FinishFastTick(
+            &machine,
             (MotorTaskResult){types[index] == MOTOR_CALIBRATION_ENCODER_LINEARIZATION
                                   ? MOTOR_TASK_FINALIZE
                                   : MOTOR_TASK_COMPLETED,
                               MOTOR_FAULT_NONE},
             calibration_epoch);
         tick();
-        assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_CALIBRATION && phases_disabled);
+        assert(machine.state == MOTOR_STATE_CALIBRATION && phases_disabled);
         uint32_t publication_epoch;
         uint32_t interrupt_mask = BspSystem_EnterCritical();
-        assert(MotorLifecycle_ReadPendingCalibrationPublication(&life, &publication_epoch));
-        MotorLifecycle_CompleteCalibrationPublication(&life, publication_epoch, true);
+        assert(MotorStateMachine_ReadPendingCalibrationPublication(&machine, &publication_epoch));
+        MotorStateMachine_CompleteCalibrationPublication(&machine, publication_epoch, true);
         BspSystem_ExitCritical(interrupt_mask);
         tick();
-        assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE && phases_disabled);
-        assert(MotorLifecycle_GetCalibrationType(&life) == MOTOR_CALIBRATION_NONE);
+        assert(machine.state == MOTOR_STATE_IDLE && phases_disabled);
+        assert(MotorStateMachine_GetCalibrationType(&machine) == MOTOR_CALIBRATION_NONE);
     }
-    puts(
-        "PASS calibration communication: three wire kinds -> real lifecycle -> completion -> IDLE");
+    puts("PASS calibration communication: three wire kinds -> real state machine -> completion -> "
+         "IDLE");
 }
 
 static void test_target_fields_by_mode(void)
@@ -658,7 +662,7 @@ static void test_target_fields_by_mode(void)
     for (unsigned i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
     {
         reset();
-        assert(MotorLifecycle_RequestEnable(&life, cases[i].mode) == MOTOR_CONTROL_ACCEPTED);
+        assert(MotorStateMachine_RequestStart(&machine, cases[i].mode) == MOTOR_CONTROL_ACCEPTED);
         tick();
         MotorTarget target = {.mode = (uint16_t)cases[i].mode};
         float *fields[] = {&target.position_rad,
@@ -673,7 +677,7 @@ static void test_target_fields_by_mode(void)
             *fields[j] = 0.125f;
             unsigned char before[sizeof(motor)];
             memcpy(before, &motor, sizeof(motor));
-            MotorControlResult result = MotorLifecycle_SetTarget(&life, &target);
+            MotorControlResult result = MotorStateMachine_SetTarget(&machine, &target);
             assert(result ==
                    (cases[i].allowed[j] ? MOTOR_CONTROL_ACCEPTED : MOTOR_CONTROL_INVALID));
             if (!cases[i].allowed[j])
@@ -687,9 +691,9 @@ static void test_target_fields_by_mode(void)
             motor.thermal_limit_active = true;
             motor.thermal_current_limit_a = 0.125f;
             target.iq_a = 0.125f;
-            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+            assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
             target.iq_a = 0.25f;
-            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+            assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
         }
     }
 }
@@ -698,40 +702,41 @@ static void test_live_targets(void)
 {
     reset();
     MotorTarget target = {.mode = MOTOR_CONTROL_CURRENT, .iq_a = 0.25f};
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_DENIED);
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_DENIED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
     tick();
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
     assert(motor.iq_target_a == 0.25f);
     MotorStatus accepted;
-    assert(MotorLifecycle_ReadStatus(&life, &accepted) && accepted.iq_reference_a == 0.25f);
-    MotorLifecycle_BeginFastTick(&life);
+    assert(MotorStateMachine_ReadStatus(&machine, &accepted) && accepted.iq_reference_a == 0.25f);
+    MotorStateMachine_BeginFastTick(&machine);
     assert(motor.iq_target_a == 0.25f && motor.id_target_a == 0.0f);
     target.iq_a = 6.1f;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
     assert(motor.iq_target_a == 0.25f);
     target.iq_a = NAN;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_INVALID);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_INVALID);
     target.iq_a = 0.0f;
     target.mode = MOTOR_CONTROL_SPEED;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_DENIED);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_DENIED);
     target.mode = MOTOR_CONTROL_CURRENT;
     target.speed_rad_s = 1.0f;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_INVALID);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_INVALID);
     target.speed_rad_s = 0.0f;
-    MotorLifecycle_RequestStop(&life);
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_DENIED);
+    MotorStateMachine_RequestStop(&machine);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_DENIED);
     tick();
-    assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
     tick();
     target.mode = MOTOR_CONTROL_SPEED;
     target.speed_rad_s = -1.0f;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
     assert(motor.speed_target_rad_s == -1.0f);
     target.speed_rad_s = 20.1f;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
     motor.fault_code = MOTOR_FAULT_OVERCURRENT;
-    assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_FAULT);
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_FAULT);
     const MotorControlMode modes[] = {MOTOR_CONTROL_POSITION,
                                       MOTOR_CONTROL_VQ,
                                       MOTOR_CONTROL_OPEN_VOLTAGE,
@@ -739,7 +744,7 @@ static void test_live_targets(void)
     for (unsigned i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i)
     {
         reset();
-        assert(MotorLifecycle_RequestEnable(&life, modes[i]) == MOTOR_CONTROL_ACCEPTED);
+        assert(MotorStateMachine_RequestStart(&machine, modes[i]) == MOTOR_CONTROL_ACCEPTED);
         tick();
         target = (MotorTarget){.mode = (uint16_t)modes[i]};
         if (modes[i] == MOTOR_CONTROL_POSITION)
@@ -757,8 +762,8 @@ static void test_live_targets(void)
             target.vq_v = 1.0f;
             target.vd_v = modes[i] == MOTOR_CONTROL_OPEN_VOLTAGE ? 1.0f : 0.0f;
         }
-        assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
-        MotorLifecycle_BeginFastTick(&life);
+        assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
+        MotorStateMachine_BeginFastTick(&machine);
         if (modes[i] == MOTOR_CONTROL_POSITION)
         {
             configuration.application.axis_profile.magic = MOTOR_AXIS_PROFILE_MAGIC;
@@ -774,7 +779,7 @@ static void test_live_targets(void)
         {
             target.vq_v = 100.0f;
         }
-        assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+        assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
         if (modes[i] == MOTOR_CONTROL_OPEN_CURRENT || modes[i] == MOTOR_CONTROL_OPEN_VOLTAGE)
         {
             float previous_frequency_hz = motor.open_loop_frequency_hz;
@@ -784,9 +789,9 @@ static void test_live_targets(void)
             target.vd_v = modes[i] == MOTOR_CONTROL_OPEN_VOLTAGE ? 100.0f : 0.0f;
             target.frequency_hz = 15.0f;
             target.speed_rad_s = 1.0f;
-            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_INVALID);
+            assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_INVALID);
             target.speed_rad_s = 0.0f;
-            assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
+            assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_OUT_OF_RANGE);
             assert(motor.open_loop_frequency_hz == previous_frequency_hz &&
                    motor.id_target_a == previous_id_a && motor.vd_target_v == previous_vd_v);
         }
@@ -796,7 +801,7 @@ static void test_live_targets(void)
     encoder.mechanical_position_rad = 1.5f;
     encoder.mechanical_velocity_continuous_rad_s = -2.25f;
     MotorStatus status;
-    assert(MotorLifecycle_ReadStatus(&life, &status));
+    assert(MotorStateMachine_ReadStatus(&machine, &status));
     assert(status.measurements_valid && status.position_rad == 1.5f &&
            status.speed_rad_s == -2.25f && status.bus_current_a == 0.125f);
     assert(isnan(status.iq_reference_a) && isnan(status.iq_a) && isnan(status.vq_v));
@@ -814,17 +819,17 @@ static void test_wheel_position_targets(void)
         axis->identity.numeric.config_revision = MOTOR_PRODUCT_AXIS_REVISION;
         axis->identity.numeric.joint_type = wheels[i];
         encoder.mechanical_position_rad = -8.0f;
-        assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_POSITION) ==
+        assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_POSITION) ==
                MOTOR_CONTROL_ACCEPTED);
         assert(motor.position_target_rad == -8.0f && motor.position_reference_rad == -8.0f);
         tick();
         MotorTarget target = {.mode = MOTOR_CONTROL_POSITION, .position_rad = 14.0f};
-        assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
+        assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
         assert(motor.position_target_rad == 14.0f);
-        MotorLifecycle_RequestStop(&life);
-        assert(life.stop_pending && life.phase_enable_epoch == 0U);
+        MotorStateMachine_RequestStop(&machine);
+        assert(machine.stop_pending && machine.phase_enable_epoch == 0U);
         tick();
-        assert(MotorLifecycle_IsStopped(&life) && phases_disabled);
+        assert(MotorStateMachine_IsStopped(&machine) && phases_disabled);
     }
 }
 
@@ -833,11 +838,18 @@ void test_state_transition_matrix(void);
 int main(void)
 {
     test_state_transition_matrix();
-    AppProtocol_Init(&adapter, &endpoint, &life);
+    AppProtocol_Init(&adapter, &endpoint, &machine);
+    config_validation_calls = 0U;
+    reset();
+    tick();
+    assert(config_validation_calls == 0U);
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(config_validation_calls != 0U);
     test_target_fields_by_mode();
     test_live_targets();
     test_wheel_position_targets();
-    assert(MotorLifecycle_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN) ==
+    assert(MotorStateMachine_NextState(MOTOR_STATE_IDLE, MOTOR_STATE_EVENT_RUN) ==
            MOTOR_STATE_RUNNING);
     test_control_and_stop();
     test_bus_current_snapshot();
@@ -849,7 +861,8 @@ int main(void)
     test_linearization_waits_for_publication();
     test_calibration_communication_to_idle();
     test_joint_zero_rechecks_power();
-    puts("PASS core lifecycle and calibration: completion, publication, stale epochs, stop, fault "
+    puts("PASS core state machine and calibration: completion, publication, stale epochs, stop, "
+         "fault "
          "shutdown, recovery and preemption");
     return 0;
 }

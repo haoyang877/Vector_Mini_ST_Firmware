@@ -19,10 +19,9 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
     sources = [
-        ROOT / "tests/unit/native/five_state_lifecycle_test.c",
+        ROOT / "tests/unit/native/motor_state_machine_integration_test.c",
         ROOT / "tests/unit/native/motor_state_machine_test.c",
         ROOT / "firmware/app/motor_state_machine.c",
-        *sorted((ROOT / "firmware/app").glob("motor_lifecycle*.c")),
         ROOT / "firmware/motor/protection/motor_fault.c",
         ROOT / "firmware/app/app_protocol.c",
         ROOT / "shared/protocol/yg_protocol_crc.c",

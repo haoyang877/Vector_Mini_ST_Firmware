@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "motor_axis.h"
 #include "../../../firmware/communication/yg_protocol.c"
 #include "../../../firmware/communication/yg_protocol_boot.c"
@@ -12,41 +12,42 @@
 
 static ProtocolEndpoint endpoint;
 static AppProtocol adapter;
-static MotorLifecycle life;
+static MotorStateMachine machine = {.epoch = 1U};
 static MotorStatus s_status;
 static unsigned s_status_reads;
 
-bool MotorLifecycle_ReadStatus(const MotorLifecycle *instance, MotorStatus *status)
+bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus *status)
 {
-    assert(instance == &life);
+    assert(instance == &machine);
     ++s_status_reads;
     *status = s_status;
     return true;
 }
 
-bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
+bool MotorStateMachine_ArePhasesDisabled(const MotorStateMachine *machine)
 {
-    (void)life;
+    (void)machine;
     return true;
 }
-void MotorLifecycle_RequestStop(MotorLifecycle *instance)
+void MotorStateMachine_RequestStop(MotorStateMachine *instance)
 {
-    assert(instance == &life);
+    assert(instance == &machine);
 }
-MotorControlResult MotorLifecycle_RequestEnable(MotorLifecycle *instance, MotorControlMode mode)
+MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *instance,
+                                                  MotorControlMode mode)
 {
     (void)instance;
     (void)mode;
     return MOTOR_CONTROL_DENIED;
 }
-MotorControlResult MotorLifecycle_RequestCalibration(MotorLifecycle *instance,
-                                                     MotorCalibrationType type)
+MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *instance,
+                                                        MotorCalibrationType type)
 {
     (void)instance;
     (void)type;
     return MOTOR_CONTROL_DENIED;
 }
-MotorControlResult MotorLifecycle_RequestClear(MotorLifecycle *instance)
+MotorControlResult MotorStateMachine_RequestFaultClear(MotorStateMachine *instance)
 {
     (void)instance;
     return MOTOR_CONTROL_DENIED;
@@ -168,7 +169,7 @@ static void check_feedback_dispatch(void)
 
 int main(void)
 {
-    AppProtocol_Init(&adapter, &endpoint, &life);
+    AppProtocol_Init(&adapter, &endpoint, &machine);
     assert(Protocol_Init(&endpoint, 1U));
     assert(Protocol_Start(&endpoint));
     check_feedback_dispatch();
@@ -232,14 +233,10 @@ int main(void)
     return 0;
 }
 
-MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *instance, const MotorTarget *target)
+MotorControlResult MotorStateMachine_SetTarget(MotorStateMachine *instance,
+                                               const MotorTarget *target)
 {
-    assert(instance == &life && target->mode == MOTOR_CONTROL_CURRENT);
+    assert(instance == &machine && target->mode == MOTOR_CONTROL_CURRENT);
     s_status.iq_reference_a = target->iq_a;
     return MOTOR_CONTROL_ACCEPTED;
-}
-uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)
-{
-    (void)instance;
-    return 1U;
 }

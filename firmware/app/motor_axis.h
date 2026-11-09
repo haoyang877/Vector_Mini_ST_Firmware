@@ -6,7 +6,7 @@
 #include "output_encoder.h"
 #include "foc.h"
 #include "application_config.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "motor_calibration.h"
 #include "parameter_record.h"
 #include "motor_sensing.h"
@@ -44,7 +44,7 @@ typedef struct
 #endif
 
     MotorOuterLoop outer;
-    MotorLifecycle lifecycle;
+    MotorStateMachine state_machine;
     MotorCalibration calibration;
     volatile McuTemperatureTelemetry temperature;
     MotorPositionPlan position_work;
@@ -85,7 +85,7 @@ void MotorAxis_SampleFast(MotorAxis *axis);
 void MotorAxis_ControlFast(MotorAxis *axis);
 
 /**
- * @brief 执行 2 kHz 生命周期监督及温度维护。
+ * @brief 执行 2 kHz 状态机监督及温度维护。
  * @note 仅监督上下文调用。
  * @param axis 调用方持有的实例状态。
  */

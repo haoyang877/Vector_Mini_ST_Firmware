@@ -57,10 +57,7 @@ class At32TargetTests(unittest.TestCase):
             )
 
         def shared_options(path, options):
-            if path.name in (
-                "motor_state_machine.c",
-                "motor_lifecycle_exchange.c",
-            ):
+            if path.name in ("motor_state_machine.c",):
                 options = ET.fromstring(ET.tostring(options))
                 for tag in ("Optim", "oTime"):
                     options.find(f".//Cads/{tag}").text = "board-timing-option"
@@ -97,10 +94,7 @@ class At32TargetTests(unittest.TestCase):
                         ),
                     )
                 for file in tree.findall(".//File"):
-                    if file.findtext("FileName") in (
-                        "motor_state_machine.c",
-                        "motor_lifecycle_exchange.c",
-                    ):
+                    if file.findtext("FileName") in ("motor_state_machine.c",):
                         self.assertEqual(file.findtext(".//Cads/Optim"), "4")
                         self.assertEqual(file.findtext(".//Cads/oTime"), "1")
                 old_cads = old.find(".//TargetArmAds/Cads")
@@ -259,7 +253,6 @@ class At32TargetTests(unittest.TestCase):
             "app.c",
             "app_protocol.c",
             "motor_axis.c",
-            "motor_lifecycle_exchange.c",
             "motor_state_machine.c",
             "motor_calibration.c",
             "system.c",

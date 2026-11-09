@@ -423,9 +423,12 @@ def main():
         else part
         for part in command
     ]
-    debug_exe = out / "pitch_debug_tuning_test.exe"
-    debug_command = [*tuning_command[:-1], str(debug_exe), "-DMOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS=1"]
-    for cmd in (tuning_command, [str(tuning_exe)], debug_command, [str(debug_exe)]):
+    commands = [tuning_command, [str(tuning_exe)]]
+    for scope in ("pitch", "joint"):
+        debug_exe = out / f"{scope}_debug_tuning_test.exe"
+        define = f"-DMOTOR_DEBUG_{scope.upper()}_NO_TRAVEL_LIMITS=1"
+        commands.extend(([*tuning_command[:-1], str(debug_exe), define], [str(debug_exe)]))
+    for cmd in commands:
         result = subprocess.run(cmd, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
         print(logs[-1], end="")

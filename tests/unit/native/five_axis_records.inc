@@ -13,7 +13,9 @@ int main(void)
     {
         bool wheel = node < 5, ht = node <= 5;
         bool unrestricted = wheel;
-#if defined(MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS) && MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
+#if MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS
+        unrestricted = true;
+#elif MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
         unrestricted = wheel || node == 6;
 #endif
         assert(Param_CreateAxis(node, wheel ? 0 : -1, wheel ? 0 : 1, .5f, &heat, &configuration));
@@ -96,7 +98,9 @@ int main(void)
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, limit));
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, -limit));
             assert(MotorAxisProfile_AllowsPosition(axis, true, limit, 0) == unrestricted);
+            assert(MotorAxisProfile_AllowsPosition(axis, true, -limit - 1.0f, 0) == unrestricted);
             assert(MotorAxisProfile_TargetWithinBounds(axis, limit + 0.001f) == unrestricted);
+            assert(MotorAxisProfile_AllowsPosition(axis, true, 0, -limit - 1.0f) == unrestricted);
             InterfaceParam old = record;
             old.axis_profile.minimum_position_rad = -21.949001f;
             old.axis_profile.maximum_position_rad = node == 6 ? 19.939001f : 1.0f;

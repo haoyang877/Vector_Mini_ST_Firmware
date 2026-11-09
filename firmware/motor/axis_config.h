@@ -14,6 +14,13 @@
 #define MOTOR_JOINT_CONFIG_REVISION 1U
 #define MOTOR_PRODUCT_AXIS_REVISION 2U
 
+#ifndef MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS
+#define MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS 0
+#endif
+#ifndef MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
+#define MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS 0
+#endif
+
 /* 协议/存储稳定编号不得重排或复用；持久记录以 uint32_t 存储，不依赖枚举宽度。 */
 typedef enum
 {
@@ -65,17 +72,21 @@ static inline bool MotorAxisProfile_IsContinuousWheel(const MotorAxisProfile *pr
 /**
  * @brief 选择位置使能、指令及轨迹参考共用的行程策略。
  * @param profile 已验证的轴记录。
- * @return 连续车轮及显式解除 PITCH 行程的调试轴返回 false。
+ * @return 连续车轮及调试镜像显式解除行程限制的关节返回 false。
  */
 static inline bool MotorAxisProfile_UsesPositionLimits(const MotorAxisProfile *profile)
 {
-#if defined(MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS) && MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
+#if MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS || MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
     if (profile != NULL && profile->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         profile->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION &&
-        profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION &&
-        profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH)
+        profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
     {
-        return false;
+        uint32_t joint = profile->identity.numeric.joint_type;
+        if (joint == MOTOR_JOINT_PITCH || (MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS &&
+                                           (joint == MOTOR_JOINT_ROLL || joint == MOTOR_JOINT_YAW)))
+        {
+            return false;
+        }
     }
 #endif
     return !MotorAxisProfile_IsContinuousWheel(profile);

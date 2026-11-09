@@ -73,10 +73,11 @@
 
 ## 输出轴机械行程
 
-在 PITCH 台架调试镜像的 Keil Target C/C++ Define 中加入
-`MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS=1` 并全量重编译，可在记录行程外通过 CAN 进入位置模式、
-保持当前位置或下发有限的位置目标。此选项也适用于规划器的中间位置参考，仅作用于产品修订 2
-的 PITCH。正常工程省略该宏，使用记录内的行程。调试镜像应使用独立输出目录和匹配的 AXF。
+在台架调试镜像的 Keil Target C/C++ Define 中加入 `MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS=1`
+并全量重编译。产品修订 2 的 ROLL、PITCH、YAW 均可在记录行程外通过 CAN 进入位置模式、
+保持当前位置或下发有限的位置目标。规划器的中间位置参考也使用此设置。旧宏
+`MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS=1` 单独启用时仅解除 PITCH 的位置行程限制。
+正常工程省略这两个宏。调试镜像应使用独立输出目录和匹配的 AXF。
 
 | 节点 | 输出轴机械范围 | 输出轴 rad | 记录内等效电机轴 rad | 输出轴角度来源 |
 |---|---:|---:|---:|---|

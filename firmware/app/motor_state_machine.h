@@ -59,7 +59,7 @@ typedef enum
     MOTOR_CALIBRATION_ENCODER_LINEARIZATION,
     MOTOR_CALIBRATION_ELECTRICAL_ZERO,
     MOTOR_CALIBRATION_MECHANICAL_ZERO,
-    MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO /* 联合任务的电零位对齐，不接受外部请求。 */
+    MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO /* 联合标定的电零位阶段，不接受外部请求。 */
 } MotorCalibrationType;
 
 /** @brief 关相后的标定交接，依次由快拍、前台和监督拍推进。 */

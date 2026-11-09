@@ -42,7 +42,7 @@ static MotorCalibrationType simulated_calibration_type = MOTOR_CALIBRATION_NONE;
 static MotorTaskResult simulated_calibration_outcome;
 static bool calibration_publication_succeeds;
 static unsigned calibration_cycle_calls, calibration_publication_calls;
-static uint32_t publication_epoch = 1U;
+#define publication_epoch (axis.state_machine.epoch)
 static EncoderCalibrationPhase simulated_phase;
 EncoderCalibrationPhase EncoderCalibration_GetPhase(const EncoderCalibrationSession *instance)
 {
@@ -57,7 +57,7 @@ void MotorStateMachine_ContinueElectricalZero(MotorStateMachine *instance)
     (void)instance;
     assert(axis.state_machine.calibration_handoff == MOTOR_CALIBRATION_AWAITING_PUBLICATION);
     axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
-    simulated_calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
+    simulated_calibration_type = MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO;
 }
 float Encoder_GetMechVelContinuous(const EncoderState *encoder)
 {
@@ -910,7 +910,7 @@ static void test_calibration_dispatch_and_publication(void)
     test_ms = 201U;
     MotorCalibration_ProcessPublication(&axis.calibration);
     MotorAxis_SampleFast(&axis);
-    assert(simulated_calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO);
+    assert(simulated_calibration_type == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO);
     assert(axis.calibration.hall_sweep.sin_min == 200);
     MotorAxis_OuterTick(&axis);
     simulated_calibration_outcome.result = MOTOR_TASK_COMPLETED;

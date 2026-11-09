@@ -28,9 +28,10 @@ typedef struct
 } MotorCalibration;
 
 /**
- * @brief 在 ADC 拍内安装前台已确认停稳的 LUT，重新核对会话与实际关相。
+ * @brief 在 ADC 拍内安装前台请求的 LUT，Hall 轴由前台先确认停稳。
  * @param calibration 本轴的标定工作区。
- * @note 在读取本拍编码器之前调用。只提交固定长度的已建表结果，Flash 由前台处理。
+ * @note 邮箱仅由本模块的 LUT 流程写入；安装前复核会话、故障、STOP 和关相。
+ *       在读取本拍编码器之前调用，只提交固定长度的已建表结果，Flash 由前台处理。
  */
 void MotorCalibration_PublishLutFast(MotorCalibration *calibration);
 

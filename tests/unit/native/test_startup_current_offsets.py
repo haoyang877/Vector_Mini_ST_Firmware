@@ -50,7 +50,7 @@ def main() -> None:
     production += function_source(calibration, "MotorCalibration_StepFast")
     production += (
         "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(calibration, "request_joint_lut_install_when_stopped")
+        + function_source(calibration, "request_lut_install")
         + "\n#endif\n"
     )
     production += function_source(calibration, "MotorCalibration_PublishLutFast")

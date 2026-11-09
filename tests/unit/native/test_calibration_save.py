@@ -40,8 +40,8 @@ static MotorCalibration calibration;
 static MotorStateMachine machine;
 static MotorState state;
 static bool stopped, released, inject_fault, inject_start;
-static bool cancel_during_upload, replace_during_upload;
-static uint32_t session_epoch = 33;
+static bool cancel_during_upload, replace_during_upload, change_kind_during_upload;
+#define session_epoch (machine.epoch)
 static uint32_t critical, control_depth;
 static bool in_adc;
 #if BSP_ENABLED_LINEAR_HALL
@@ -54,7 +54,7 @@ static LinearHall s_linear_hall;
 #endif
 static MotorCalibrationType kind;
 static bool encoder_publish_ok;
-static unsigned completions;
+static unsigned completions, publication_failures, lut_installs;
 static unsigned writes, uploads;
 static BspResult write_result;
 bool MotorStateMachine_IsStopped(const MotorStateMachine *instance) {
@@ -79,18 +79,19 @@ float Encoder_GetMechVelContinuous(const EncoderState *encoder) { return encoder
 void MotorStateMachine_ContinueElectricalZero(MotorStateMachine *instance) {
     (void)instance;
  assert(released && in_adc && !critical && machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION);
- kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF;
+ kind=MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF;
 }
 bool EncoderCalibration_PublishLut(EncoderCalibrationSession *instance, EncoderCalibration *cal, EncoderState *encoder) {
     (void)instance;
  assert(in_adc && !critical && machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION && encoder==&s_rotor_encoder);
+ ++lut_installs;
  if(encoder_publish_ok) { cal->calib_flag=ENC_CALIB_LINEARIZED; released=true; }
  return encoder_publish_ok;
 }
 void MotorStateMachine_CompleteCalibrationPublication(MotorStateMachine *instance, uint32_t epoch, bool ok) {
     (void)instance;
  assert(epoch==session_epoch && (critical || control_depth || in_adc) && machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION);
- machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF; if(ok) ++completions;
+ machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF; if(ok) ++completions; else ++publication_failures;
 }
 void MotorFault_Report(MotorControlState *motor,MotorFaultCode fault) { motor->fault_code=fault; }
 BspResult BspFlash_Write(const void *data, size_t length) {
@@ -112,11 +113,12 @@ void observed_upload(InterfaceParam *record, const MotorConfiguration *configura
  if (inject_fault) { s_motor_state.fault_code = MOTOR_FAULT_ENCODER; }
  if (inject_start) { stopped = false; }
  if (replace_during_upload) { ++session_epoch; }
+ if (change_kind_during_upload) { kind=MOTOR_CALIBRATION_ELECTRICAL_ZERO; }
 }
 """
         + "\n#define Param_Upload observed_upload\n"
         + "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(axis, "request_joint_lut_install_when_stopped")
+        + function_source(axis, "request_lut_install")
         + "\n#endif\n"
         + function_source(axis, "MotorCalibration_PublishLutFast")
         + "\n"
@@ -152,7 +154,10 @@ static void reset(void) {
  inject_fault = inject_start = false;
  write_result = BSP_OK;
  writes = uploads = 0U;
- machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF; cancel_during_upload=replace_during_upload=false; session_epoch=33; encoder_publish_ok=true; completions=0; kind=MOTOR_CALIBRATION_NONE;
+ machine.calibration_handoff=MOTOR_CALIBRATION_NO_HANDOFF;
+ cancel_during_upload=replace_during_upload=change_kind_during_upload=false;
+ session_epoch=33; encoder_publish_ok=true; completions=publication_failures=lut_installs=0;
+ kind=MOTOR_CALIBRATION_NONE; now_ms=0; s_rotor_encoder=(EncoderState){0};
  assert(ParameterValue_ConfigurationValid(&s_motor_configuration));
 }
 int main(void) {
@@ -177,6 +182,32 @@ int main(void) {
  MotorConfiguration loaded;
  Param_Download(&stored_record, sizeof(stored_record), &loaded);
  assert(loaded.configuration_source == MOTOR_CONFIGURATION_CORRUPT);
+
+ /* 两板普通轴均须等 ADC 安装 LUT，重复邮箱不能再次安装或提前保存。 */
+ reset();
+ kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
+ MotorCalibration_ProcessPublication(&calibration);
+ assert(calibration.lut_request_epoch==session_epoch && !writes && !lut_installs);
+ in_adc=true; MotorCalibration_PublishLutFast(&calibration); in_adc=false;
+ assert(lut_installs==1 && !writes && calibration.lut_published_epoch==session_epoch);
+ calibration.lut_request_epoch=session_epoch;
+ in_adc=true; MotorCalibration_PublishLutFast(&calibration); in_adc=false;
+ assert(lut_installs==1 && !calibration.lut_request_epoch && !publication_failures);
+ MotorCalibration_ProcessPublication(&calibration);
+ assert(writes==1 && completions==1);
+ kind=MOTOR_CALIBRATION_MECHANICAL_ZERO;
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+ s_rotor_encoder.linearized_q15=1000;
+ OutputEncoder_Locate(&s_output_encoder,1000,0);
+ MotorCalibration_ProcessPublication(&calibration);
+ assert(writes==2 && completions==2 && s_output_encoder.position_rad==0);
+ assert(s_output_encoder.params.status & OUTPUT_ENCODER_ZERO_SET);
+ kind=MOTOR_CALIBRATION_ELECTRICAL_ZERO;
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+ MotorCalibration_ProcessPublication(&calibration);
+ assert(writes==3 && completions==3);
+ reset();
 
 #if BSP_ENABLED_LINEAR_HALL
  LinearHall hall;
@@ -242,9 +273,47 @@ int main(void) {
   assert(!hall.calibration_success && hall.calibration_faults==expected_faults[i]);
   assert(hall.sin_off_counts==810 && hall.cos_off_counts==3286 && hall.sin_amp==800 && hall.cos_amp==800);
  }
+ /* 正反边界和非有限速度都不能判停，6 s 超时不写入。 */
+ MotorWindingThermalConfig heat=s_motor_configuration.model.thermal;
+ const float moving_speeds[] = {1.0f,-1.0f,NAN,INFINITY};
+ for(unsigned i=0;i<sizeof(moving_speeds)/sizeof(moving_speeds[0]);++i) {
+  reset();
+  assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+  kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
+  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
+  s_rotor_encoder.mechanical_velocity_continuous_rad_s=moving_speeds[i];
+  MotorCalibration_ProcessPublication(&calibration);
+  now_ms=5999; MotorCalibration_ProcessPublication(&calibration);
+  assert(machine.calibration_handoff==MOTOR_CALIBRATION_AWAITING_PUBLICATION);
+  assert(!calibration.lut_request_epoch && !writes);
+  now_ms=6000; MotorCalibration_ProcessPublication(&calibration);
+  assert(machine.calibration_handoff==MOTOR_CALIBRATION_NO_HANDOFF);
+  assert(publication_failures==1 && !writes);
+ }
+ /* 任一超速拍重新计时；200 ms 恰好允许请求。 */
+ reset(); assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+ kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
+ MotorCalibration_ProcessPublication(&calibration);
+ now_ms=199; s_rotor_encoder.mechanical_velocity_continuous_rad_s=1.0f;
+ MotorCalibration_ProcessPublication(&calibration);
+ s_rotor_encoder.mechanical_velocity_continuous_rad_s=0;
+ now_ms=398; MotorCalibration_ProcessPublication(&calibration);
+ assert(!calibration.lut_request_epoch);
+ now_ms=399; MotorCalibration_ProcessPublication(&calibration);
+ assert(calibration.lut_request_epoch==session_epoch && !writes);
+ /* 无符号差值跨毫秒计数回绕仍维持同一稳定窗口。 */
+ reset(); assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+ kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
+ machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
+ now_ms=UINT32_MAX-100U; MotorCalibration_ProcessPublication(&calibration);
+ now_ms+=199U; MotorCalibration_ProcessPublication(&calibration);
+ assert(!calibration.lut_request_epoch);
+ now_ms+=1U; MotorCalibration_ProcessPublication(&calibration);
+ assert(calibration.lut_request_epoch==session_epoch && !writes && !publication_failures);
+
  /* 同一条 Flash 记录同时保存编码器和四个 Hall 系数；模拟重启及后续零位标定。 */
  reset();
- MotorWindingThermalConfig heat=s_motor_configuration.model.thermal;
  assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
  s_motor_configuration.configuration_confirmed=true;
  LinearHall_Init(&s_linear_hall);
@@ -264,7 +333,7 @@ int main(void) {
  now_ms+=201; MotorCalibration_ProcessPublication(&calibration);
  assert(calibration.lut_request_epoch == session_epoch);
  in_adc=true; MotorCalibration_PublishLutFast(&calibration); in_adc=false;
- assert(released && kind==MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO && machine.calibration_handoff!=MOTOR_CALIBRATION_AWAITING_PUBLICATION && !writes);
+ assert(released && kind==MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO && machine.calibration_handoff!=MOTOR_CALIBRATION_AWAITING_PUBLICATION && !writes);
  assert(calibration.hall_sweep.sin_min==200 && calibration.hall_sweep.cos_max==3600);
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  memset(s_motor_configuration.device.encoder.linearization_lut_q15,0,sizeof s_motor_configuration.device.encoder.linearization_lut_q15);
@@ -290,7 +359,7 @@ int main(void) {
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  MotorCalibration_ProcessPublication(&calibration);
  assert(writes==2 && stored_record.encoder_calib_flag==ENC_CALIB_ALL && stored_record.hall_tag_status==0x48410180U);
- kind=MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+ kind=MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
  LinearHall_CalibrationBegin(&calibration.hall_sweep);
  MotorCalibration_ProcessPublication(&calibration);
  assert(writes==3 && completions==2 && s_motor_state.fault_code==MOTOR_FAULT_LINEAR_HALL_CALIBRATION);
@@ -310,15 +379,16 @@ int main(void) {
  Param_RestoreLinearHall(&stored_record,&hall); assert(!hall.calibration_success && hall.sin_amp==1829.5f);
 
  /* 编码期间允许中断；取消、新会话、故障和启相均不得写入旧结果。 */
- for(unsigned mode=0;mode<4;++mode) {
+ for(unsigned mode=0;mode<5;++mode) {
   machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; session_epoch=33; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE;
   cancel_during_upload=mode==0; replace_during_upload=mode==1;
+  kind=MOTOR_CALIBRATION_MECHANICAL_ZERO; change_kind_during_upload=mode==4;
   inject_fault=mode==2; inject_start=mode==3;
   unsigned before=writes, completed=completions;
   MotorCalibration_ProcessPublication(&calibration);
   assert(writes==before && completions==completed);
  }
- cancel_during_upload=replace_during_upload=inject_fault=inject_start=false;
+ cancel_during_upload=replace_during_upload=change_kind_during_upload=inject_fault=inject_start=false;
  const BspResult failures[] = {BSP_NOT_SUPPORTED, BSP_NOT_READY, BSP_INVALID_ARGUMENT, BSP_IO_ERROR, BSP_REJECTED};
  for(unsigned i=0;i<sizeof(failures)/sizeof(failures[0]);++i) {
   machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; stopped=true; s_motor_state.fault_code=MOTOR_FAULT_NONE; write_result=failures[i];

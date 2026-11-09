@@ -187,7 +187,7 @@ static bool calibration_requires_power(MotorCalibrationType calibration_type)
 {
     return calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
            calibration_type == MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
-           calibration_type == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
+           calibration_type == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO;
 }
 
 static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibrationType kind)
@@ -218,7 +218,7 @@ static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibratio
     return config->configuration_confirmed &&
            bus_voltage_within_operating_limits(machine->drive.foc) &&
            ((kind != MOTOR_CALIBRATION_ELECTRICAL_ZERO &&
-             kind != MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO) ||
+             kind != MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO) ||
             (Encoder_GetCalibrationFlag(&machine->drive.configuration->device.encoder) &
              ENC_CALIB_LINEARIZED) != 0U);
 }
@@ -826,7 +826,7 @@ bool MotorStateMachine_ReadPendingCalibrationPublication(const MotorStateMachine
 
 void MotorStateMachine_ContinueElectricalZero(MotorStateMachine *machine)
 {
-    machine->calibration_type = MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO;
+    machine->calibration_type = MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO;
     machine->calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
     BspSystem_MemoryBarrier();
     machine->phase_enable_epoch = machine->epoch;

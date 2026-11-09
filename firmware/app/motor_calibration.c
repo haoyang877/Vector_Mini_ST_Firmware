@@ -22,7 +22,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
         }
         return EncoderCalibration_StepLut(
             &calibration->session, &calibration->drive, &calibration->workspace);
-    case MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO:
+    case MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO:
     case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
         return EncoderCalibration_StepElecZero(&calibration->session, &calibration->drive);
     case MOTOR_CALIBRATION_MECHANICAL_ZERO:
@@ -41,7 +41,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
 
 #if BSP_ENABLED_LINEAR_HALL
 /* 前台只判断停稳和截止时间，LUT 交给所属轴的下一 ADC 拍安装。 */
-static void request_joint_lut_install_when_stopped(MotorCalibration *calibration, uint32_t epoch)
+static void request_lut_install(MotorCalibration *calibration, uint32_t epoch)
 {
     uint32_t now_ms = BspSystem_TimeMs();
     if (epoch != calibration->coast_epoch)
@@ -53,16 +53,15 @@ static void request_joint_lut_install_when_stopped(MotorCalibration *calibration
     {
         calibration->stable_since_ms = now_ms;
     }
-    if (now_ms - calibration->stable_since_ms < 200U)
+    if (now_ms - calibration->stable_since_ms >= 200U)
     {
-        if (now_ms - calibration->coast_start_ms >= 6000U)
-        {
-            MotorStateMachine_CompleteCalibrationPublication(
-                calibration->state_machine, epoch, false);
-        }
+        calibration->lut_request_epoch = epoch;
         return;
     }
-    calibration->lut_request_epoch = epoch;
+    if (now_ms - calibration->coast_start_ms >= 6000U)
+    {
+        MotorStateMachine_CompleteCalibrationPublication(calibration->state_machine, epoch, false);
+    }
 }
 #endif
 
@@ -71,9 +70,8 @@ void MotorCalibration_PublishLutFast(MotorCalibration *calibration)
     uint32_t requested = calibration->lut_request_epoch;
     calibration->lut_request_epoch = 0U;
     uint32_t epoch;
-    if (MotorStateMachine_GetCalibrationType(calibration->state_machine) !=
-            MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
-        !MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine, &epoch) ||
+    /* 邮箱只承载 LUT 请求；同会话的阶段推进以安装成功为前提，无需再查类型。 */
+    if (!MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine, &epoch) ||
         epoch != requested || calibration->lut_published_epoch == epoch)
     {
         return;
@@ -97,67 +95,65 @@ void MotorCalibration_PublishLutFast(MotorCalibration *calibration)
 
 void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 {
-    /* 无待发布结果时直接退出；进入控制临界区后再复核会话、STOP、故障及关相。 */
+    /* 此处只准备候选；完整会话及功率复核集中在 ADC 安装和 Flash 提交边界。 */
     if (calibration->state_machine->calibration_handoff != MOTOR_CALIBRATION_AWAITING_PUBLICATION)
     {
         return;
     }
-    uint32_t epoch;
     uint32_t mask = BspSystem_EnterControlCritical();
-    if (!MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine, &epoch))
-    {
-        BspSystem_ExitControlCritical(mask);
-        return;
-    }
+    uint32_t epoch = calibration->state_machine->epoch;
     MotorCalibrationType kind = MotorStateMachine_GetCalibrationType(calibration->state_machine);
     bool publishing_lut = kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
-#if BSP_ENABLED_LINEAR_HALL
-    if (publishing_lut && MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
+    if (publishing_lut && calibration->lut_published_epoch != epoch)
     {
-        if (calibration->lut_request_epoch != epoch && calibration->lut_published_epoch != epoch)
+#if BSP_ENABLED_LINEAR_HALL
+        if (MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
         {
-            request_joint_lut_install_when_stopped(calibration, epoch);
+            if (calibration->lut_request_epoch != epoch)
+            {
+                request_lut_install(calibration, epoch);
+            }
+        }
+        else
+#endif
+        {
+            calibration->lut_request_epoch = epoch;
         }
         BspSystem_ExitControlCritical(mask);
         return;
     }
-#endif
-    if (publishing_lut && calibration->lut_published_epoch != epoch)
-    {
-        calibration->lut_request_epoch = epoch;
-        BspSystem_ExitControlCritical(mask);
-        return;
-    }
     OutputEncoder output = *calibration->output;
-    MotorFaultCode fault = MOTOR_FAULT_NONE;
     if (publishing_lut)
     {
         OutputEncoder_Init(&output, output.params.gear_ratio);
     }
-    if (kind == MOTOR_CALIBRATION_MECHANICAL_ZERO)
+    else if (kind == MOTOR_CALIBRATION_MECHANICAL_ZERO)
     {
         OutputEncoder_Update(&output, calibration->drive.encoder->linearized_q15);
         OutputEncoder_SetZero(&output);
     }
 #if BSP_ENABLED_LINEAR_HALL
     LinearHall hall = *calibration->hall;
-    if (kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO &&
-        !LinearHall_CalibrationFinish(&calibration->hall_sweep, &hall))
-    {
-        fault = MOTOR_FAULT_LINEAR_HALL_CALIBRATION;
-    }
 #endif
     BspSystem_ExitControlCritical(mask);
+    MotorFaultCode fault = MOTOR_FAULT_NONE;
 #if BSP_ENABLED_LINEAR_HALL
-    /* 建表及相位拟合允许控制中断抢占；提交前仍须复核原会话。 */
-    if (kind == MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO &&
-        !OutputEncoder_CalibEnd(&output,
-                                &calibration->output_calibration,
-                                &hall,
-                                &calibration->drive.configuration->device.encoder) &&
-        fault == MOTOR_FAULT_NONE)
+    /* 候选结算允许控制中断抢占；即使 Hall 失败也结算输出轴，保留完整失败记录。 */
+    if (kind == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO)
     {
-        fault = MOTOR_FAULT_ENCODER;
+        bool hall_ok = LinearHall_CalibrationFinish(&calibration->hall_sweep, &hall);
+        bool output_ok = OutputEncoder_CalibEnd(&output,
+                                                &calibration->output_calibration,
+                                                &hall,
+                                                &calibration->drive.configuration->device.encoder);
+        if (!hall_ok)
+        {
+            fault = MOTOR_FAULT_LINEAR_HALL_CALIBRATION;
+        }
+        else if (!output_ok)
+        {
+            fault = MOTOR_FAULT_ENCODER;
+        }
     }
 #endif
     Param_Upload(&calibration->record->motor, calibration->drive.configuration);
@@ -172,6 +168,7 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 #endif
     mask = BspSystem_EnterCritical();
     uint32_t pending_epoch;
+    /* 计算期间可被抢占；联合标定可在同一 epoch 内换阶段，提交仍须核对类型。 */
     if (MotorStateMachine_ReadPendingCalibrationPublication(calibration->state_machine,
                                                             &pending_epoch) &&
         pending_epoch == epoch &&
@@ -181,12 +178,13 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 #if BSP_ENABLED_LINEAR_HALL
         *calibration->hall = hall;
 #endif
-        BspResult saved =
-            calibration->write_record(calibration->record, sizeof(*calibration->record));
-        if (saved != BSP_OK || fault != MOTOR_FAULT_NONE)
+        if (calibration->write_record(calibration->record, sizeof(*calibration->record)) != BSP_OK)
         {
-            MotorFault_Report(calibration->drive.motor,
-                              saved != BSP_OK ? MOTOR_FAULT_CALIBRATION_STORAGE : fault);
+            fault = MOTOR_FAULT_CALIBRATION_STORAGE;
+        }
+        if (fault != MOTOR_FAULT_NONE)
+        {
+            MotorFault_Report(calibration->drive.motor, fault);
         }
         else
         {

@@ -1,6 +1,6 @@
 # 编码器标定流程
 
-2026-11-06 更新，适用于 `the-system-refactor` 分支。
+2026-11-09 核对，流程以当前 `motor_calibration.c` 和 `motor_state_machine.c` 为准。
 
 ## 核心功能与请求入口
 
@@ -29,7 +29,7 @@ APP 将请求交给 `MotorStateMachine_RequestCalibration()`。状态机负责�
 | 正向采样 | 按内部编码器净位移累计 100 个机械圈，稳速帧按编码器角度分 bin 累加校正量 |
 | 构表 | 每拍最多处理 8 个 bin，分两遍生成候选 LUT |
 | 减速与卸流 | 先降低转速，再将制动电流降至零，低于有效制动条件时结束输出 |
-| 发布 | 返回 `MOTOR_TASK_FINALIZE`，生命周期关相后由主循环发布候选 LUT |
+| 发布 | 返回 `MOTOR_TASK_FINALIZE`，状态机关相后由前台登记请求，ADC 在读角前安装候选 LUT |
 
 启动阶段统一使用 8 s 超时，覆盖清表、无感启动和连续稳速。
 稳速完成时记录观测器位置及当前方向校正角，随后直接开始采样。
@@ -63,21 +63,28 @@ LUT 使用相对角度参考。稳速结束时记录的起始角会引入整体�
 采样与构表各自保存观测器位置代际，转换时传递，持续检查参考连续性。
 停止阶段依据实际闭环状态、观测器相位和速度、编码器低速条件决定制动截止。
 
-任务入口的编码器就绪和 LUT 资格由生命周期检查，控制对象和非空固定工作区由 Axis 绑定。
+任务入口的编码器就绪和 LUT 资格由状态机检查，控制对象和非空固定工作区由 Axis 绑定。
 共用无感启动入口完成控制器初始化，标定首拍负责建立会话。
 
 `MotorAxis_ControlFast()` 在标定和正常控制之间选择当前执行路径。
 `MotorStateMachine_FinishFastTick()` 处理完成和失败结果，统一管理关相。
-主循环在同一全中断临界区检查待发布会话、STOP、故障和关相状态，再调用
-`EncoderCalibration_PublishLut()`。发布函数检查待发布阶段，复制候选表，
-将有效位设为 `ENC_CALIB_LINEARIZED`。外层临界区覆盖完整发布过程。
-发布后反馈请求重定多圈基准和速度估计，
-工作区随会话释放。相关接口见[标定模块](../../firmware/motor/calibration/README.md)。
+`MotorCalibration_ProcessPublication()` 先按交接标志快速退出，无需反复完整检查空闲轴。
+有结果时在控制临界区读取会话号和候选，不重复扫描 STOP、故障及功率状态；
+候选准备不修改活动反馈或 Flash。LUT 安装共用一个请求分支，Hall 轴先等待停稳。
+`MotorCalibration_PublishLutFast()` 在 ADC 读角前复核会话、STOP、故障和关相，
+调用 `EncoderCalibration_PublishLut()` 安装整表并将有效位设为 `ENC_CALIB_LINEARIZED`。
+邮箱仅承载本模块的 LUT 请求，ADC 用原会话和已发布代际防止过期或重复安装，不重复查询类型。
+发布后反馈请求重定多圈基准和速度估计，工作区随会话释放。
+Hall 轴在同一会话继续电零位对齐；前台结算 Hall 和输出轴关系时允许控制中断抢占。
+内部类型 `MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO` 表示联合标定的电零位阶段；
+`COMBINED` 表示流程联合，`joint` 仅用于关节概念。
+最终 Flash 事务仍复核会话及类型，避免将同一会话前一阶段的候选提交到后一阶段。
+相关接口见[标定模块](../../firmware/motor/calibration/README.md)。
 
 ## RAM 与持久化
 
 LUT 和零位成功后写入 `MotorConfiguration.device.encoder`，结果首先保存在 RAM。
-`MotorAxis_ProcessCalibrationPublication()` 在 PITCH、YAW 联合标定结束后编码记录，
+`MotorCalibration_ProcessPublication()` 在 PITCH、YAW 联合标定结束后编码记录，
 擦写前复核会话、STOP/故障和关相状态，
 写入 LUT、电零位、Hall 四个系数和成功/故障标志，再报告完成。启动时从 Flash 装载已有标定记录。
 STOP 或运动故障取消时不保存部分结果；Hall 极值不合格时保留旧系数并保存失败原因。

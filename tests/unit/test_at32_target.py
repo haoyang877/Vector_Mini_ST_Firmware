@@ -59,7 +59,6 @@ class At32TargetTests(unittest.TestCase):
         def shared_options(path, options):
             if path.name in (
                 "motor_state_machine.c",
-                "motor_lifecycle.c",
                 "motor_lifecycle_exchange.c",
             ):
                 options = ET.fromstring(ET.tostring(options))
@@ -100,7 +99,6 @@ class At32TargetTests(unittest.TestCase):
                 for file in tree.findall(".//File"):
                     if file.findtext("FileName") in (
                         "motor_state_machine.c",
-                        "motor_lifecycle.c",
                         "motor_lifecycle_exchange.c",
                     ):
                         self.assertEqual(file.findtext(".//Cads/Optim"), "4")
@@ -261,7 +259,6 @@ class At32TargetTests(unittest.TestCase):
             "app.c",
             "app_protocol.c",
             "motor_axis.c",
-            "motor_lifecycle.c",
             "motor_lifecycle_exchange.c",
             "motor_state_machine.c",
             "motor_calibration.c",

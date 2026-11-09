@@ -43,14 +43,14 @@ def main() -> None:
         "MotorAxis_Init",
         "MotorAxis_SampleFast",
         "MotorAxis_ControlFast",
-        "update_output_feedback",
+        "update_outer_loop_encoder_feedback",
         "MotorAxis_OuterTick",
     ):
         production += function_source(axis, name)
     production += function_source(calibration, "MotorCalibration_StepFast")
     production += (
         "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(calibration, "request_joint_lut_when_stopped")
+        + function_source(calibration, "request_joint_lut_install_when_stopped")
         + "\n#endif\n"
     )
     production += function_source(calibration, "MotorCalibration_PublishLutFast")

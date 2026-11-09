@@ -13,7 +13,7 @@
 #include "bsp_pwm.h"
 
 static AppContext g_app;
-static bool confirm_image(void *context, uint32_t version, uint32_t crc32);
+static bool try_confirm_trial_image(void *context, uint32_t version, uint32_t crc32);
 static void publish_identity(void *context)
 {
     (void)context;
@@ -49,7 +49,7 @@ void Protocol_Process(ProtocolEndpoint *instance, uint32_t now_ms)
     assert(foreground_stage == 2U && now_ms == model_now_ms - 1U);
     foreground_stage = 3U;
 }
-static void poll_entry(AppLoader *loader, uint32_t now_ms)
+static void update_loader_entry_readiness(AppLoader *loader, uint32_t now_ms)
 {
     assert(loader == &g_app.loader);
     assert(foreground_stage == 4U && now_ms == model_now_ms);
@@ -168,22 +168,24 @@ int main(void)
     {
         ++model_progress;
         process_at(i * 100U);
-        assert(!confirm_image(&g_app.loader, 0x10000U, 7U) && confirm_calls == 0U);
+        assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U) && confirm_calls == 0U);
     }
     ++model_progress;
     process_at(1100U);
-    assert(g_app.loader.healthy_intervals == 11U && confirm_image(&g_app.loader, 0x10000U, 7U));
+    assert(g_app.loader.healthy_intervals == 11U &&
+           try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     model_off = false;
-    assert(!confirm_image(&g_app.loader, 0x10000U, 7U));
+    assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     model_off = true;
     g_app.loader.request.boot_epoch = 1U;
-    assert(!confirm_image(&g_app.loader, 0x10000U, 7U));
+    assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     g_app.loader.request.boot_epoch = 0U;
     model_healthy = false;
-    assert(!confirm_image(&g_app.loader, 0x10000U, 7U));
+    assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     process_at(1200U);
     model_healthy = true;
-    assert(g_app.loader.healthy_intervals == 0U && !confirm_image(&g_app.loader, 0x10000U, 7U));
+    assert(g_app.loader.healthy_intervals == 0U &&
+           !try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     assert(confirm_calls == 1U);
     puts("PASS actual APP foreground/tick order and bounded watchdog health/progress");
     return 0;

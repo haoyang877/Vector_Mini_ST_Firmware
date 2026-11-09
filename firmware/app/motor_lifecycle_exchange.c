@@ -6,7 +6,7 @@
 #include "bsp_system.h"
 
 /* 先检查该模式的全部字段和限值，拒绝时保留原目标。 */
-static bool dq_target_within_limit(float d, float q, float limit)
+static bool dq_magnitude_within_limit(float d, float q, float limit)
 {
     return isfinite(limit) && limit > 0.0f && d * d + q * q <= limit * limit;
 }
@@ -32,7 +32,7 @@ static MotorControlResult validate_and_set_mode_target(MotorLifecycle *life,
         {
             limit_a = fminf(limit_a, motor->thermal_current_limit_a);
         }
-        if (!dq_target_within_limit(target->id_a, target->iq_a, limit_a))
+        if (!dq_magnitude_within_limit(target->id_a, target->iq_a, limit_a))
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }
@@ -76,7 +76,7 @@ static MotorControlResult validate_and_set_mode_target(MotorLifecycle *life,
         {
             return MOTOR_CONTROL_INVALID;
         }
-        if (!dq_target_within_limit(
+        if (!dq_magnitude_within_limit(
                 target->vd_v, target->vq_v, Foc_MaxVoltage(drive->foc->bus_voltage_filtered_v)))
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
@@ -93,7 +93,7 @@ static MotorControlResult validate_and_set_mode_target(MotorLifecycle *life,
         if (!(fabsf(target->frequency_hz) <=
               MotorConfiguration_OpenLoopLimitHz(configuration,
                                                  MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ)) ||
-            !dq_target_within_limit(
+            !dq_magnitude_within_limit(
                 target->vd_v, target->vq_v, Foc_MaxVoltage(drive->foc->bus_voltage_filtered_v)))
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
@@ -117,7 +117,7 @@ static MotorControlResult validate_and_set_mode_target(MotorLifecycle *life,
         if (!(fabsf(target->frequency_hz) <=
               MotorConfiguration_OpenLoopLimitHz(configuration,
                                                  MOTOR_OPEN_LOOP_MAX_ELECTRICAL_HZ)) ||
-            !dq_target_within_limit(target->id_a, target->iq_a, limit_a))
+            !dq_magnitude_within_limit(target->id_a, target->iq_a, limit_a))
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }

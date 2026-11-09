@@ -138,7 +138,7 @@ void MotorAxis_SupervisorTick(MotorAxis *axis)
 #endif
 }
 
-static void update_output_feedback(MotorAxis *axis)
+static void update_outer_loop_encoder_feedback(MotorAxis *axis)
 {
     Encoder_UpdateSlowEstimate(&axis->rotor_encoder);
 #if BSP_ENABLED_LINEAR_HALL
@@ -187,7 +187,7 @@ static void update_output_feedback(MotorAxis *axis)
 
 void MotorAxis_OuterTick(MotorAxis *axis)
 {
-    update_output_feedback(axis);
+    update_outer_loop_encoder_feedback(axis);
     MotorOuterWork work;
     MotorLifecycle_BeginOuter(&axis->lifecycle, &work);
     if (work.allowed)

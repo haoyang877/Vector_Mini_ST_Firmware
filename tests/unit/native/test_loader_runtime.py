@@ -77,7 +77,7 @@ def main() -> None:
         + "\n"
         + function_source(loader, "AppLoader_Process")
         + "\n"
-        + function_source(loader, "confirm_image")
+        + function_source(loader, "try_confirm_trial_image")
         + "\n"
         + function_source(board, "App_Process")
         + "\n"

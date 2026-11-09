@@ -118,7 +118,7 @@ void observed_upload(InterfaceParam *record, const MotorConfiguration *configura
 """
         + "\n#define Param_Upload observed_upload\n"
         + "\n#if BSP_ENABLED_LINEAR_HALL\n"
-        + function_source(axis, "request_joint_lut_when_stopped")
+        + function_source(axis, "request_joint_lut_install_when_stopped")
         + "\n#endif\n"
         + function_source(axis, "MotorCalibration_PublishLutFast")
         + "\n"

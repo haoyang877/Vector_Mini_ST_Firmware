@@ -57,8 +57,8 @@
 | --- | --- | --- |
 | [app.c](../../../firmware/app/app.c) | 启动和主循环可顺序阅读；同一文件还实现设备身份、看门狗、Loader 握手与镜像确认 | 保留主入口；有独立事务状态的 Loader 交接单独组织 |
 | [motor_axis.c](../../../firmware/app/motor_axis.c) | 单轴运行对象集中，但启动装载、快环分派、外环、Hall 标定、参数写入共处；标定收尾跨多个上下文 | 保留轴对象和时钟入口；提取 APP 专用标定流程 |
-| [motor_lifecycle.c](../../../firmware/app/motor_lifecycle.c) | 启停准入、关相确认和会话编号有明确作用；外环副本计算、输出字段提交又与速度和位置控制细节交织 | 集中运行许可及失效处理，将外环执行顺序交给 Axis |
-| [motor_state_machine.c](../../../firmware/app/motor_lifecycle.c) | 纯状态迁移可单独测试；SELF_TEST 是现有占位 | 纯迁移函数移入生命周期编译单元，保留五态值语义和逐状态测试 |
+| [motor_lifecycle.c](../../../firmware/app/motor_state_machine.c) | 启停准入、关相确认和会话编号有明确作用；外环副本计算、输出字段提交又与速度和位置控制细节交织 | 集中运行许可及失效处理，将外环执行顺序交给 Axis |
+| [motor_state_machine.c](../../../firmware/app/motor_state_machine.c) | 纯状态迁移可单独测试；SELF_TEST 是现有占位 | 纯迁移函数移入生命周期编译单元，保留五态值语义和逐状态测试 |
 | [app_protocol.c](../../../firmware/app/app_protocol.c) 与 [STOP 服务](../../../firmware/app/app_protocol.c) | 协议适配已有静态绑定、线缆单位换算、序号去重和实际关相确认 | 保留协议边界，收紧读写权限；沿用 ACCEPTED、OK 和失败结果 |
 | [共享接口](../../../firmware/app/motor_lifecycle.h) | Watch 和 CAN 的读者与一致性要求不同；轴反馈只读指针本身不能保证同拍快照 | 分清值快照、即时只读观测和运行时私有状态 |
 
@@ -87,7 +87,7 @@ G431 LoaderApp 在同目录额外编入 `app_loader.c`，负责交接与镜像�
 
 **状态绑定。** 板级静态分配一个 AppContext，启动时绑定轴、协议端点和真实硬件资源。组装入口接收应用实例，计算函数接收所需的轴或会话小对象。轴持有配置、FOC、PI、反馈和生命周期；标定会话持有工作区、候选和停稳计时；协议端点持有队列、去重、快照和 STOP token。看门狗与 Loader 事务按所属应用或物理设备绑定。Watch 直接观察真实实例，ISR 依据中断源取得对应实例。单轴产品只静态分配一套工作区，多实例测试分别分配，并对比 map、栈与 ROM/RAM。
 
-**必须追到下层。** 当前 [MotorAxis](../../../firmware/app/motor_axis.c) 共享轴对象、标定暂存、局部静态位置规划缓冲和停稳计时；[Lifecycle](../../../firmware/app/motor_lifecycle.c) 使用唯一的 `g_motor_context`。调用链还包括[位置控制](../../../firmware/motor/control/position_control.c)的 `s_state`、[编码器标定](../../../firmware/motor/calibration/encoder_calibration.c)的 `s_lut/s_zero`、[CAN 协议](../../../firmware/communication/yg_protocol.c)的静态队列和节点，以及 [FOC 输出](../../../firmware/motor/control/foc_output.c)直接提交 PWM 的调用。逐条登记可变静态量和回调，迁为调用内临时量、实例成员或独占设备状态。只读常量可共享。一条物理 CAN 总线由一个驱动搬帧，再按节点分派；每轴明确绑定 PWM 端点和参数槽，避免把第二实例的输出写到第一实例。
+**必须追到下层。** 当前 [MotorAxis](../../../firmware/app/motor_axis.c) 共享轴对象、标定暂存、局部静态位置规划缓冲和停稳计时；[Lifecycle](../../../firmware/app/motor_state_machine.c) 使用唯一的 `g_motor_context`。调用链还包括[位置控制](../../../firmware/motor/control/position_control.c)的 `s_state`、[编码器标定](../../../firmware/motor/calibration/encoder_calibration.c)的 `s_lut/s_zero`、[CAN 协议](../../../firmware/communication/yg_protocol.c)的静态队列和节点，以及 [FOC 输出](../../../firmware/motor/control/foc_output.c)直接提交 PWM 的调用。逐条登记可变静态量和回调，迁为调用内临时量、实例成员或独占设备状态。只读常量可共享。一条物理 CAN 总线由一个驱动搬帧，再按节点分派；每轴明确绑定 PWM 端点和参数槽，避免把第二实例的输出写到第一实例。
 
 **提交与失效。** 外环使用调用自己的快照和临时结果，在短临界区复核实例、原 epoch、模式、STOP 与故障，再提交限定字段。同代际目标变更按现有协议及命令序号语义单独核对。标定先准备候选，最终复核与写入沿用关相事务的临界区；写入开始前已受理的 STOP 使旧候选失效。Flash 擦写已经开始后，后续请求按硬件实际完成顺序处理。保留原有中断优先级、屏蔽级别、超时关断和看门狗健康检查。
 

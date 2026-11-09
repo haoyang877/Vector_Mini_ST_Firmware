@@ -8,7 +8,7 @@
 | [`motor_fault`](../../firmware/motor/protection/motor_fault.c) | 故障锁存、过流恢复驻留和源恢复矩阵；不启相 |
 | [`motor_thermal_control`](../../firmware/motor/protection/motor_thermal_control.h) | 快环热历史/动态电流额度，失效及策略边界；监督监控采样窗口 |
 | [`motor_axis`](../../firmware/app/motor_axis.c) | 调度采样与保护，执行快速故障关断，向监督提供一致事实 |
-| [`motor_state_machine`](../../firmware/app/motor_lifecycle.c) | 唯一启停许可、FAULT/CLEAR/FATAL及实际资源释放 |
+| [`motor_state_machine`](../../firmware/app/motor_state_machine.c) | 启停许可、故障锁存、清错及实际关相 |
 | [`BspPwm`](../../firmware/platform/bsp/include/bsp_pwm.h) | 功率关闭、启用与实际数字回读；寄存器实现位于各板PWM BSP |
 
 快环故障路径不等待前台或2kHz监督才关相。源恢复只是一项事实，

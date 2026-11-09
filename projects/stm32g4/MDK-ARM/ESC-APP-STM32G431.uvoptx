@@ -268,8 +268,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\motor_lifecycle.c</PathWithFileName>
-      <FilenameWithoutPath>motor_lifecycle.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\motor_state_machine.c</PathWithFileName>
+      <FilenameWithoutPath>motor_state_machine.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

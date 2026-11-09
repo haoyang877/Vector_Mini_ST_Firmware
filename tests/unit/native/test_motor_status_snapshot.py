@@ -20,7 +20,7 @@ def main() -> None:
         for name in ("build_motor_feedback_snapshot", "MotorLifecycle_ReadStatus")
     )
     status_adapter = (ROOT / "firmware/app/app_protocol.c").read_text(encoding="utf-8")
-    functions += "\n" + function_source(status_adapter, "protocol_state")
+    functions += "\n" + function_source(status_adapter, "encode_motor_state")
     fixture = (ROOT / "tests/unit/native/motor_status_snapshot_test.c").read_text(encoding="utf-8")
     generated = args.out / "snapshot.c"
     generated.write_text(fixture.replace("/* REAL_FUNCTIONS */", functions), encoding="utf-8")

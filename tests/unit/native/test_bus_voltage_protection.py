@@ -126,7 +126,7 @@ def main():
         )
         + "\n"
         + function_source(
-            (ROOT / "firmware/app/motor_lifecycle.c").read_text(encoding="utf-8"),
+            (ROOT / "firmware/app/motor_state_machine.c").read_text(encoding="utf-8"),
             "bus_voltage_in_enable_range",
         )
         + CASES

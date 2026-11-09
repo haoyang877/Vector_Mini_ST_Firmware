@@ -16,7 +16,7 @@
  * @return 全部条件满足且底层确认成功时返回true，否则返回false。
  * @note 前台回调；禁止与进入Loader事务并行。无论成功与否都刷新身份页。
  */
-static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
+static bool try_confirm_trial_image(void *context, uint32_t version, uint32_t crc32)
 {
     AppLoader *loader = context;
     uint32_t supervisor_ticks;
@@ -40,7 +40,8 @@ static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
  * @return 随机事务标识、来源节点和序号全部一致时返回true。
  * @note 纯比较；boot_epoch是主机生成的事务标识，不是设备持久启动次数。
  */
-static bool same_request(const BootEntryRequest *left, const BootEntryRequest *right)
+static bool matches_loader_entry_transaction(const BootEntryRequest *left,
+                                             const BootEntryRequest *right)
 {
     return left->boot_epoch == right->boot_epoch && left->source_node == right->source_node &&
            left->sequence == right->sequence;
@@ -52,7 +53,7 @@ static bool same_request(const BootEntryRequest *left, const BootEntryRequest *r
  * @note 前台调用；仅推进PENDING/READY，超时优先判定，拒绝或失败终态不再恢复。
  *       READY仅表示可回复交接票据，不执行复位。
  */
-static void poll_entry(AppLoader *loader, uint32_t now_ms)
+static void update_loader_entry_readiness(AppLoader *loader, uint32_t now_ms)
 {
     if (loader->result != BOOT_ENTRY_PENDING && loader->result != BOOT_ENTRY_READY)
     {
@@ -80,7 +81,9 @@ static void poll_entry(AppLoader *loader, uint32_t now_ms)
  * @note 前台回调；首次有效请求复制身份并请求锁定停机，相同请求可查询，其他事务被拒绝。
  *       停机请求受理不代表已关相，票据必须等poll_entry确认READY后才给出。
  */
-static void handle_entry(void *context, const BootEntryRequest *request, BootEntryReply *reply)
+static void register_or_query_loader_entry(void *context,
+                                           const BootEntryRequest *request,
+                                           BootEntryReply *reply)
 {
     AppLoader *loader = context;
     uint32_t now_ms;
@@ -94,7 +97,8 @@ static void handle_entry(void *context, const BootEntryRequest *request, BootEnt
     {
         return;
     }
-    if (loader->request.boot_epoch != 0U && !same_request(request, &loader->request))
+    if (loader->request.boot_epoch != 0U &&
+        !matches_loader_entry_transaction(request, &loader->request))
     {
         reply->result = BOOT_ENTRY_DENIED;
         return;
@@ -107,7 +111,7 @@ static void handle_entry(void *context, const BootEntryRequest *request, BootEnt
         loader->result =
             MotorLifecycle_LockStop(loader->lifecycle) ? BOOT_ENTRY_PENDING : BOOT_ENTRY_DENIED;
     }
-    poll_entry(loader, now_ms);
+    update_loader_entry_readiness(loader, now_ms);
     reply->result = loader->result;
     reply->ack_ticket = loader->result == BOOT_ENTRY_READY ? loader->request.boot_epoch : 0U;
 }
@@ -120,7 +124,7 @@ static void handle_entry(void *context, const BootEntryRequest *request, BootEnt
  * @note 前台回调；同一端点前台串行消费票据，已登记的停机锁禁止再次启动。
  *       发送或复位失败均不恢复票据，防止重复消费旧发送结果。
  */
-static void handle_tx_complete(void *context, uint64_t ticket, bool success)
+static void try_enter_loader_after_ack_sent(void *context, uint64_t ticket, bool success)
 {
     AppLoader *loader = context;
     if (ticket == 0U || ticket != loader->request.boot_epoch || loader->result != BOOT_ENTRY_READY)
@@ -139,8 +143,10 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
 /** @brief 记录本次运行时读取的 Loader 可用状态，并刷新身份信息。 */
 void AppLoader_Init(AppLoader *loader)
 {
-    loader->endpoint->loader =
-        (BootEntryService){loader, handle_entry, handle_tx_complete, confirm_image};
+    loader->endpoint->loader = (BootEntryService){loader,
+                                                  register_or_query_loader_entry,
+                                                  try_enter_loader_after_ack_sent,
+                                                  try_confirm_trial_image};
     loader->supported = BootHw_IsAvailable();
     loader->publish_identity(loader->identity_context);
 }
@@ -152,7 +158,7 @@ void AppLoader_Init(AppLoader *loader)
  */
 void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
 {
-    poll_entry(loader, now_ms);
+    update_loader_entry_readiness(loader, now_ms);
     if ((uint32_t)(now_ms - loader->health_checked_ms) < BOOT_HEALTH_INTERVAL_MS)
     {
         return;

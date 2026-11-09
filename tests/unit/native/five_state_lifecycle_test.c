@@ -828,8 +828,11 @@ static void test_wheel_position_targets(void)
     }
 }
 
+void test_state_transition_matrix(void);
+
 int main(void)
 {
+    test_state_transition_matrix();
     AppProtocol_Init(&adapter, &endpoint, &life);
     test_target_fields_by_mode();
     test_live_targets();

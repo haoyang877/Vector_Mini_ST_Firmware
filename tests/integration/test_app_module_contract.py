@@ -47,7 +47,8 @@ class AppModuleContractTests(unittest.TestCase):
 
     def test_public_names_and_modules(self):
         self.assertEqual(
-            {p.stem for p in APP.glob("*.c")}, {*MODULE_PREFIXES, "motor_lifecycle_exchange"}
+            {p.stem for p in APP.glob("*.c")},
+            (MODULE_PREFIXES.keys() - {"motor_lifecycle"}) | {"motor_lifecycle_exchange"},
         )
         self.assertEqual({p.stem for p in APP.glob("*.h")}, set(MODULE_PREFIXES))
         for name, prefix in MODULE_PREFIXES.items():

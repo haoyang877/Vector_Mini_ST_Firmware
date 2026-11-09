@@ -13,10 +13,8 @@
 
 ## 从代码跟一条路径
 
-- 先读 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 的 `MotorStateMachine_NextState`。它只接收当前状态和一个事件，所有合法迁移都在这个函数里。
-- 在 [motor_lifecycle.c](../../firmware/app/motor_lifecycle.c) 查 `apply_state_event` 的调用点，就能看到每个事件何时提交。这里是初始化之后唯一写入本轴主状态的位置。
-- 启动路径是 `RequestEnable → CommitOuter → BeginFastTick`，停机路径是 `RequestStop → process_pending_stop → stop_motor`。
-- 标定走 `RequestCalibration → PostOutcome → CompleteCalibrationPublication → complete_calibration_after_save`。保存成功后由监督拍提交完成事件。故障清除走 `RequestClear → try_clear_recovered_fault`，故障源恢复且清除成功后回到空闲。
+- 从 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 的 `transition_motor_state` 开始读。它按 RUN、CALIBRATE、COMPLETE、STOP、FAULT、CLEAR 处理实际事件。初始化之后的主状态写入全部在这里。`MotorStateMachine_NextState` 给出五态之间允许的转换。
+- 启动请求登记后，外环批准本次启相，ADC 在 `BeginFastTick` 处理 RUN。STOP、标定保存成功后的 COMPLETE、首次 FAULT 共用关相和会话收尾。CLEAR 在关相和故障源恢复后才回空闲，若同时发生新故障则仍锁存 FAULT。
 - 每次 ADC 采样后，[MotorAxis_ControlFast](../../firmware/app/motor_axis.c) 先调用 `BeginFastTick` 检查故障和启相许可，再读取主状态。运行态执行 `MotorControl_Step`，可执行的标定态执行 `MotorCalibration_StepFast`。最后 `PostOutcome` 接收本拍结果并检查新故障。
 - 前台在 [motor_lifecycle_exchange.c](../../firmware/app/motor_lifecycle_exchange.c) 校验目标并直接写本轴，也从本轴读取 CAN 反馈。外环在 `MotorLifecycle_CommitOuter` 直接写有效结果。ADC 单独复核启相条件。
 - 标定的停稳、LUT 安装和 Flash 保存见 [motor_calibration.c](../../firmware/app/motor_calibration.c)，线路状态和命令编号见[协议说明](../protocols/README.md)。除 Flash 事务外，这些交接不暂缓 ADC。

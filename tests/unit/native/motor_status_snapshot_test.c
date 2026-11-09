@@ -50,10 +50,10 @@ int main(void)
     interrupts = 2U;
     sample.mode = MOTOR_CONTROL_SPEED;
     assert(!MotorLifecycle_ReadStatus(&life, &sample) && sample.mode == MOTOR_CONTROL_SPEED);
-    assert(protocol_state(MOTOR_STATE_CALIBRATION) == 4U);
-    assert(protocol_state(MOTOR_STATE_IDLE) == 5U);
-    assert(protocol_state(MOTOR_STATE_RUNNING) == 6U);
-    assert(protocol_state(MOTOR_STATE_FAULT) == 8U);
+    assert(encode_motor_state(MOTOR_STATE_CALIBRATION) == 4U);
+    assert(encode_motor_state(MOTOR_STATE_IDLE) == 5U);
+    assert(encode_motor_state(MOTOR_STATE_RUNNING) == 6U);
+    assert(encode_motor_state(MOTOR_STATE_FAULT) == 8U);
     puts("PASS minimal status metadata: state, mode, fault and invalid measurement channels");
     return 0;
 }

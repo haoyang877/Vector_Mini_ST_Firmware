@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "motor_state_machine.h"
 
-int main(void)
+void test_state_transition_matrix(void)
 {
     /* 各行按 RUN / CALIBRATE / COMPLETE / STOP / FAULT / CLEAR 对照五态契约。 */
     static const MotorState expected[][MOTOR_STATE_EVENT_CLEAR + 1] = {
@@ -48,5 +48,4 @@ int main(void)
     assert(MotorStateMachine_NextState((MotorState)99, MOTOR_STATE_EVENT_RUN) == MOTOR_STATE_FAULT);
     assert(MotorStateMachine_NextState(MOTOR_STATE_IDLE, (MotorStateEvent)99) == MOTOR_STATE_FAULT);
     puts("PASS 30 state/event transitions and invalid inputs");
-    return 0;
 }

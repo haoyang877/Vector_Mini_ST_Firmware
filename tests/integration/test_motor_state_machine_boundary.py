@@ -53,7 +53,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                     if relative != owner:
                         for name in names:
                             self.assertIsNone(re.search(rf"\b{name}\b", source), (relative, name))
-                if relative != "firmware/app/motor_lifecycle.c":
+                if relative != "firmware/app/motor_state_machine.c":
                     self.assertIsNone(
                         re.search(r"\bextern\b[^;{}]*\bs_context\b", source), relative
                     )
@@ -118,7 +118,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             "MotorLifecycle_SubmitControl",
         ):
             self.assertNotIn(token, core)
-        runtime = production_text(ROOT / "firmware/app/motor_lifecycle.c")
+        runtime = production_text(ROOT / "firmware/app/motor_state_machine.c")
         for token in (
             "MotorMaintenance",
             "FocBackground",
@@ -131,17 +131,17 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
         ):
             self.assertNotIn(token, runtime)
         for path in module.glob("*.c"):
-            if path.name != "motor_lifecycle.c":
+            if path.name != "motor_state_machine.c":
                 self.assertIsNone(re.search(r"\bs_context\b", production_text(path)), path.name)
 
     def test_keil_projects_include_single_runtime_owner(self) -> None:
         """每个状态机工程只编译一份生命周期实现，不再编译退役转发层。"""
         for path in (ROOT / "projects").rglob("*.uvprojx"):
             text = path.read_text(encoding="utf-8-sig")
-            if "<FileName>motor_lifecycle.c</FileName>" in text:
+            if "<FileName>motor_lifecycle_exchange.c</FileName>" in text:
+                self.assertNotIn("<FileName>motor_lifecycle.c</FileName>", text, path.name)
                 for name in (
                     "motor_state_machine.c",
-                    "motor_lifecycle.c",
                     "motor_lifecycle_exchange.c",
                 ):
                     self.assertEqual(text.count(f"<FileName>{name}</FileName>"), 1, path.name)
@@ -169,7 +169,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             for path in (ROOT / "firmware" / directory).rglob("*.c"):
                 if re.search(r"\bpower->enable\s*\(", production_text(path)):
                     callers.add(path.relative_to(ROOT).as_posix())
-        self.assertEqual(callers, {"firmware/app/motor_lifecycle.c"})
+        self.assertEqual(callers, {"firmware/app/motor_state_machine.c"})
 
     def test_five_state_core_has_no_old_framework(self) -> None:
         """仅保留五态纯迁移；自检占位，初始化直接空闲。"""
@@ -180,7 +180,6 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 "app.c",
                 "app_loader.c",
                 "app_protocol.c",
-                "motor_lifecycle.c",
                 "motor_lifecycle_exchange.c",
                 "motor_state_machine.c",
                 "motor_axis.c",
@@ -197,15 +196,17 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             production_text(module / "motor_state_machine.c"), "MotorStateMachine_NextState"
         ).split("{", 1)[1]
         self.assertNotRegex(core, r"Bsp|MotorMaintenance|MotorLifecycle|g_motor_context")
-        owner = production_text(ROOT / "firmware/app/motor_lifecycle.c")
+        owner = production_text(ROOT / "firmware/app/motor_state_machine.c")
         writes = re.compile(r"\blife->state\s*=(?!=)")
-        self.assertEqual(len(writes.findall(owner)), 2)
+        init = function_source(owner, "MotorLifecycle_Init")
+        transition = function_source(owner, "transition_motor_state")
+        self.assertNotRegex(owner.replace(init, "").replace(transition, ""), writes)
+        for event in ("RUN", "CALIBRATE", "CLEAR", "STOP", "FAULT", "COMPLETE"):
+            self.assertIn(f"case MOTOR_STATE_EVENT_{event}:", transition)
         self.assertIn(
             "life->state = MOTOR_STATE_IDLE;", function_source(owner, "MotorLifecycle_Init")
         )
-        self.assertIn(
-            "life->state = MotorStateMachine_NextState", function_source(owner, "apply_state_event")
-        )
+        self.assertIn("life->state = MotorStateMachine_NextState", transition)
         exchange = production_text(module / "motor_lifecycle_exchange.c")
         self.assertNotRegex(exchange, writes)
         self.assertNotRegex(

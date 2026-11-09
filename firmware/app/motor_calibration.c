@@ -41,7 +41,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
 
 #if BSP_ENABLED_LINEAR_HALL
 /* 前台只判断停稳和截止时间，LUT 交给所属轴的下一 ADC 拍安装。 */
-static void request_joint_lut_when_stopped(MotorCalibration *calibration, uint32_t epoch)
+static void request_joint_lut_install_when_stopped(MotorCalibration *calibration, uint32_t epoch)
 {
     uint32_t now_ms = BspSystem_TimeMs();
     if (epoch != calibration->coast_epoch)
@@ -114,7 +114,7 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
     {
         if (calibration->lut_request_epoch != epoch && calibration->lut_published_epoch != epoch)
         {
-            request_joint_lut_when_stopped(calibration, epoch);
+            request_joint_lut_install_when_stopped(calibration, epoch);
         }
         BspSystem_ExitControlCritical(mask);
         return;

@@ -20,9 +20,9 @@
 /* 应用组合层：前台组织通信与Loader事务，中断仅推进电机及进展计数。
  * 硬件操作经BSP，运行准入和停机判定归MotorLifecycle，协议业务与状态换算归AppProtocol。 */
 
-static bool bind_device_description(AppContext *app);
+static bool configure_protocol_device_info(AppContext *app);
 
-static void publish_identity(void *context);
+static void update_identity_info_page(void *context);
 
 /**
  * @brief 初始化电机、CAN 节点及运行时设备信息，绑定本机协议回调。
@@ -44,14 +44,14 @@ void App_Init(AppContext *app)
         Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
     if (app->communication_ready)
     {
-        app->communication_ready = bind_device_description(app);
+        app->communication_ready = configure_protocol_device_info(app);
     }
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     app->loader = (AppLoader){.lifecycle = &app->axis.lifecycle,
                               .endpoint = &app->endpoint,
                               .communication_ready = &app->communication_ready,
                               .node_id = &app->axis.configuration.device.node_id,
-                              .publish_identity = publish_identity,
+                              .publish_identity = update_identity_info_page,
                               .identity_context = app};
     if (app->communication_ready)
     {
@@ -99,7 +99,7 @@ void App_Process(AppContext *app)
  * @brief 将生产身份、当前节点、启动确认状态和镜像CRC更新到GET_INFO第1页。
  * @note 前台调用，仅更新协议缓存，不直接发帧或写Flash；独立APP的启动状态为0。
  */
-static void publish_identity(void *context)
+static void update_identity_info_page(void *context)
 {
     AppContext *app = context;
     uint8_t payload[DEVICE_IDENTITY_INFO_BYTES];
@@ -122,7 +122,7 @@ static void publish_identity(void *context)
  * @note 仅启动前台调用；生产身份读取失败不阻止其他信息绑定。
  *       独立APP公布的Loader版本及API为0，页面字段顺序属于既有协议契约。
  */
-static bool bind_device_description(AppContext *app)
+static bool configure_protocol_device_info(AppContext *app)
 {
     /* 产品和硬件修订取共同目标清单；未知发布版本仍为 0，不以协议版本替代。 */
     ProtocolInfo info = {.product_id = TARGET_PRODUCT,
@@ -160,7 +160,7 @@ static bool bind_device_description(AppContext *app)
     {
         YgProtocol_WriteU32Le(target_payload + i * 4U, target_description[i]);
     }
-    publish_identity(app);
+    update_identity_info_page(app);
     if (BspSystem_ReadUid(info.uid) != BSP_OK)
     {
         return false;

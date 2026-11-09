@@ -42,7 +42,7 @@ STM32 ADC 向量 → BspAdc_HandleInterrupt → HAL完成回调 → BspApp_OnFas
 SysTick向量 → main入口 → BspSystem_HandleTickInterrupt → 本板1ms时基。
 CAN 接收事件 → BspApp_OnCanReceive → 有界搬运入队；业务解码在前台。
 快慢健康计数均由App相应任务在完成后累加，硬件事件不成立时不推进计数。
-App_Process前台推进标定发布、状态刷新、通信及Loader交接。
+App_Process前台推进位置建表、标定发布、通信及 Loader 交接。
 Keil可写调试邮箱和命令分派已删除；BSP不解释应用命令。
 
 控制器和配置负责电流有效性、故障与功率许可。BSP 的 ADC 不提供帧缓存/新鲜度状态，

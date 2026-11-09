@@ -24,17 +24,8 @@ static bool bind_device_description(AppContext *app);
 
 static void publish_identity(void *context);
 
-#if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
-/* Loader 提交前读取活动轴的节点号，沿用板级交接时的身份。 */
-static uint8_t read_node_id(void *context)
-{
-    AppContext *app = context;
-    return MotorAxis_NodeId(&app->axis);
-}
-#endif
-
 /**
- * @brief 初始化电机、CAN 节点及运行时设备信息；协议回调和快照地址已静态配置。
+ * @brief 初始化电机、CAN 节点及运行时设备信息，绑定本机协议回调。
  * @note main在Bsp_Init后调用一次；依次绑定，任一步失败便停止后续绑定并关相。
  *       此处不开放采样，采样由后续Bsp_Start启动。
  */
@@ -50,12 +41,16 @@ void App_Init(AppContext *app)
     AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.lifecycle);
 
     app->communication_ready =
-        Protocol_Init(&app->endpoint, MotorAxis_NodeId(&app->axis)) && bind_device_description(app);
+        Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
+    if (app->communication_ready)
+    {
+        app->communication_ready = bind_device_description(app);
+    }
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     app->loader = (AppLoader){.lifecycle = &app->axis.lifecycle,
                               .endpoint = &app->endpoint,
                               .communication_ready = &app->communication_ready,
-                              .read_node_id = read_node_id,
+                              .node_id = &app->axis.configuration.device.node_id,
                               .publish_identity = publish_identity,
                               .identity_context = app};
     if (app->communication_ready)
@@ -75,7 +70,10 @@ void App_Init(AppContext *app)
  */
 void App_Start(AppContext *app)
 {
-    app->communication_ready = app->communication_ready && Protocol_Start(&app->endpoint);
+    if (app->communication_ready)
+    {
+        app->communication_ready = Protocol_Start(&app->endpoint);
+    }
     if (!app->communication_ready)
     {
         app->axis.hardware->power.disable();
@@ -83,7 +81,7 @@ void App_Start(AppContext *app)
 }
 
 /**
- * @brief 按顺序推进标定发布、状态刷新、通信及可选的 Loader 事务。
+ * @brief 按顺序推进位置建表、标定发布、通信及可选的 Loader 事务。
  * @note 仅由main前台循环调用。通信与Loader分别读取执行当时的时钟，
  *       避免用通信处理之前的时间判定其后的交接超时。
  */
@@ -91,7 +89,6 @@ void App_Process(AppContext *app)
 {
     MotorAxis_ProcessPositionPlan(&app->axis);
     MotorCalibration_ProcessPublication(&app->axis.calibration);
-    AppProtocol_Refresh(&app->protocol);
     Protocol_Process(&app->endpoint, BspSystem_TimeMs());
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     AppLoader_Process(&app->loader, BspSystem_TimeMs());
@@ -110,8 +107,12 @@ static void publish_identity(void *context)
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     boot_state = BootHw_IsConfirmed() ? 1U : 2U;
 #endif
-    DeviceIdentity_EncodeInfo(
-        &app->identity, MotorAxis_NodeId(&app->axis), 1U, boot_state, BootHw_ImageCrc32(), payload);
+    DeviceIdentity_EncodeInfo(&app->identity,
+                              app->axis.configuration.device.node_id,
+                              1U,
+                              boot_state,
+                              BootHw_ImageCrc32(),
+                              payload);
     (void)Protocol_SetInfoPage(&app->endpoint, 1U, payload);
 }
 
@@ -160,7 +161,13 @@ static bool bind_device_description(AppContext *app)
         YgProtocol_WriteU32Le(target_payload + i * 4U, target_description[i]);
     }
     publish_identity(app);
-    return BspSystem_ReadUid(info.uid) == BSP_OK &&
-           Protocol_SetInfo(&app->endpoint, &info, &capabilities) &&
-           Protocol_SetInfoPage(&app->endpoint, 2U, target_payload);
+    if (BspSystem_ReadUid(info.uid) != BSP_OK)
+    {
+        return false;
+    }
+    if (!Protocol_SetInfo(&app->endpoint, &info, &capabilities))
+    {
+        return false;
+    }
+    return Protocol_SetInfoPage(&app->endpoint, 2U, target_payload);
 }

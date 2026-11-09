@@ -81,7 +81,8 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
     {
         return;
     }
-    if (adapter->has_last_target)
+    /* 线路模式 0 无法受理，零初始化的记录表示尚未收到有效目标。 */
+    if (adapter->last_target.mode != 0U)
     {
         uint16_t sequence_delta = (uint16_t)(request->sequence - adapter->last_target.sequence);
         if (sequence_delta == 0U)
@@ -110,39 +111,25 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
                           .frequency_hz = request->electrical_frequency_mHz * 0.001f,
                           .id_a = request->id_mA * 0.001f,
                           .vd_v = request->vd_mV * 0.001f};
+    /* 只有前台能启动新会话；STOP 可在目标提交后抢占，重发仍须属于原会话。 */
+    uint32_t epoch = MotorLifecycle_WorkEpoch(adapter->lifecycle);
     MotorControlResult result = MotorLifecycle_SetTarget(adapter->lifecycle, &target);
     reply->status = result == MOTOR_CONTROL_ACCEPTED ? PROTOCOL_OK : control_status(result);
     if (result == MOTOR_CONTROL_ACCEPTED)
     {
         adapter->last_target = *request;
-        adapter->last_target_epoch = MotorLifecycle_WorkEpoch(adapter->lifecycle);
-        adapter->has_last_target = true;
+        adapter->last_target_epoch = epoch;
     }
-    AppProtocol_Refresh(adapter);
 }
 
 static void stop_motor(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
     AppProtocol *adapter = context;
-    *reply = (ProtocolReply){.status = PROTOCOL_UNSUPPORTED};
     (void)request;
-    if (!MotorLifecycle_RequestRemoteStop(adapter->lifecycle))
-    {
-        reply->status = PROTOCOL_DENIED;
-        return;
-    }
+    MotorLifecycle_RequestStop(adapter->lifecycle);
     bool disabled = MotorLifecycle_ArePhasesDisabled(adapter->lifecycle);
-    if (adapter->stop_token == 0U || (adapter->stop_confirmed && !disabled))
-    {
-        if (++adapter->stop_token == 0U)
-        {
-            ++adapter->stop_token;
-        }
-    }
-    adapter->stop_confirmed = disabled;
-    reply->status = disabled ? PROTOCOL_OK : PROTOCOL_ACCEPTED;
-    reply->detail = disabled ? 0U : 1U;
-    reply->token = adapter->stop_token;
+    *reply = (ProtocolReply){.status = disabled ? PROTOCOL_OK : PROTOCOL_ACCEPTED,
+                             .detail = disabled ? 0U : 1U};
 }
 
 static void clear_motor_fault(void *context, const ProtocolCommand *request, ProtocolReply *reply)
@@ -278,19 +265,6 @@ static uint8_t protocol_state(MotorState state)
     }
 }
 
-void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorLifecycle *life)
-{
-    adapter->lifecycle = life;
-    endpoint->motor = (ProtocolMotor){.context = adapter,
-                                      .start = start_motor,
-                                      .target = set_motor_target,
-                                      .stop = stop_motor,
-                                      .clear_fault = clear_motor_fault,
-                                      .status = &adapter->status};
-    endpoint->jobs = (ProtocolJobs){adapter, handle_calibration_request};
-    endpoint->device_status.role = PROTOCOL_DEVICE_ROLE_APP;
-}
-
 /* 仅前台缩放；保留整数最小值作无效哨兵，半值向远离零方向舍入。 */
 static int32_t
 scale_measurement(float value, uint32_t scale, int32_t maximum, uint16_t bit, uint16_t *valid)
@@ -304,19 +278,16 @@ scale_measurement(float value, uint32_t scale, int32_t maximum, uint16_t bit, ui
     return rounded.negative ? -(int32_t)rounded.magnitude : (int32_t)rounded.magnitude;
 }
 
-void AppProtocol_Refresh(AppProtocol *adapter)
+static bool read_motor_feedback(void *context, ProtocolFeedback *values)
 {
+    AppProtocol *adapter = context;
     MotorStatus status = MotorLifecycle_ReadStatus(adapter->lifecycle);
-    adapter->status.faults = fault_bits((MotorFaultCode)status.fault);
-    adapter->status.mode = encode_control_mode((MotorControlMode)status.mode);
-    adapter->status.state = status.fault != MOTOR_FAULT_NONE ? 8U : protocol_state(status.state);
-    adapter->status.sample_available = true;
-    ProtocolFeedback *values = &adapter->status.measurements;
-    (void)Protocol_BuildFeedback(NULL, 1U, 0U, 0U, values);
-    adapter->status.measurements_available = true;
+    values->fault_code = fault_bits((MotorFaultCode)status.fault);
+    values->control_mode = encode_control_mode((MotorControlMode)status.mode);
+    values->motor_state = status.fault != MOTOR_FAULT_NONE ? 8U : protocol_state(status.state);
     if (!status.measurements_valid)
     {
-        return;
+        return true;
     }
     uint16_t *valid = &values->valid_bits;
     values->reference_position_mrad =
@@ -338,4 +309,18 @@ void AppProtocol_Refresh(AppProtocol *adapter)
         (int16_t)scale_measurement(status.temperature_c, 100, INT16_MAX, 1U << 8, valid);
     values->v_q_mV = (int16_t)scale_measurement(status.vq_v, 1000, INT16_MAX, 1U << 10, valid);
     values->v_d_mV = (int16_t)scale_measurement(status.vd_v, 1000, INT16_MAX, 1U << 11, valid);
+    return true;
+}
+
+void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorLifecycle *life)
+{
+    adapter->lifecycle = life;
+    endpoint->motor = (ProtocolMotor){.context = adapter,
+                                      .start = start_motor,
+                                      .target = set_motor_target,
+                                      .stop = stop_motor,
+                                      .clear_fault = clear_motor_fault,
+                                      .read_feedback = read_motor_feedback};
+    endpoint->jobs = (ProtocolJobs){adapter, handle_calibration_request};
+    endpoint->device_status.role = PROTOCOL_DEVICE_ROLE_APP;
 }

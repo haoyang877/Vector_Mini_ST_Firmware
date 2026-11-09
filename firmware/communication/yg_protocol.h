@@ -58,11 +58,10 @@ typedef enum
     PROTOCOL_FAULT
 } ProtocolStatus;
 
-/** @brief 电机请求的处理结果；token 仅用于关联已受理的停机请求。 */
+/** @brief 电机请求的结果和明细，对应线上 4 字节回复。 */
 typedef struct
 {
     ProtocolStatus status;
-    uint32_t token;
     uint16_t detail;
 } ProtocolReply;
 
@@ -155,20 +154,6 @@ typedef struct
     uint8_t control_mode;
 } ProtocolFeedback;
 
-/**
- * @brief 调用方提供的只读状态；所有编号已在APP边界转换为线路编号。
- * @note 不含运行对象或请求历史；测量为已缩放值，sample_available表示状态已完成初始化。
- */
-typedef struct
-{
-    uint32_t faults;
-    uint8_t state;
-    uint8_t mode;
-    bool sample_available;
-    bool measurements_available;
-    ProtocolFeedback measurements;
-} ProtocolMotorStatus;
-
 /* 电机命令与载荷长度。 */
 #define PROTOCOL_STOP 110U
 #define PROTOCOL_ENABLE 101U
@@ -214,7 +199,8 @@ typedef struct
     ProtocolMotorHandler target;
     ProtocolMotorHandler stop;
     ProtocolMotorHandler clear_fault;
-    const ProtocolMotorStatus *status; /**< APP 更新的只读快照，生命周期覆盖整个运行期。 */
+    /** 前台填写线路状态和有效测量。未测字段保留预置哨兵，返回是否有状态样本。 */
+    bool (*read_feedback)(void *context, ProtocolFeedback *feedback);
 } ProtocolMotor;
 
 #define PROTOCOL_START_JOB 160U
@@ -392,24 +378,6 @@ bool Protocol_QueueReceivedFrame(ProtocolEndpoint *endpoint, const BspCanFrame *
  * @param endpoint 调用方持有的实例状态。
  */
 void Protocol_Process(ProtocolEndpoint *endpoint, uint32_t now_ms);
-
-/* 电机业务绑定与只读反馈 */
-
-/**
- * @brief 生成124状态反馈；复用来源的测量有效位和数值。
- * @param source 可为空；缺失或无新鲜样本时所有测量字段标为无效。
- * @param node_id 本机电机节点 ID。
- * @param result 本条 116 的线路结果码。
- * @param correlated_seq 本条 116 的公司帧序号。
- * @param feedback 输出反馈值；参数错误时保持不变。
- * @return 成功或节点/参数错误。
- * @note 不读取硬件或控制目标；保留固定线路布局，元数据由本次请求和状态重新填写。
- */
-yg_protocol_result_t Protocol_BuildFeedback(const ProtocolMotorStatus *source,
-                                            uint8_t node_id,
-                                            uint16_t result,
-                                            uint16_t correlated_seq,
-                                            ProtocolFeedback *feedback);
 
 /* 设备信息与 Loader 业务绑定 */
 

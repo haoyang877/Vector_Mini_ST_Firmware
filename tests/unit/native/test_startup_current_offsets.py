@@ -43,6 +43,7 @@ def main() -> None:
         "MotorAxis_Init",
         "MotorAxis_SampleFast",
         "MotorAxis_ControlFast",
+        "update_output_feedback",
         "MotorAxis_OuterTick",
     ):
         production += function_source(axis, name)

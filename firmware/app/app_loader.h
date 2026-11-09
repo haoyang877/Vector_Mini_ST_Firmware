@@ -9,19 +9,16 @@ typedef struct
     MotorLifecycle *lifecycle;
     ProtocolEndpoint *endpoint;
     const bool *communication_ready;
-    uint8_t (*read_node_id)(void *context);
+    const uint8_t *node_id; /**< 交接时读取所属轴的当前节点号。 */
     void (*publish_identity)(void *context);
     void *identity_context;
-    BootEntryRequest request;
+    BootEntryRequest request; /**< boot_epoch 非零表示本次上电已经登记过事务，终态仍保留。 */
     BootEntryResult result;
     uint32_t entry_started_ms;
     uint32_t health_checked_ms;
     uint32_t observed_supervisor_ticks;
-    /* requested表示事务已登记，包括拒绝/失败终态；终态不能因同一请求重试而恢复。 */
-    bool requested;
     bool supported;
     uint8_t healthy_intervals;
-
 } AppLoader;
 
 /**

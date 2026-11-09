@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [APP 前台与标定交接精简](2026-11-09-app-foreground.md) — CAN 按请求生成反馈，移除内部 STOP 令牌，收敛标定阶段；三个镜像各减少 64 字节静态 RAM。
+
 - [固件单精度化](2026-11-07-single-precision-firmware.md) — 位置轨迹和遥测移除双精度运算；三个 Keil 镜像通过符号与指令检查。
 
 - [普通 APP 核心裁剪](2026-11-07-app-core-only.md) — 普通 APP 移除应用看门狗；G431 LoaderApp 保留交接与试运行保护。

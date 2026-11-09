@@ -8,10 +8,8 @@
 typedef struct
 {
     MotorLifecycle *lifecycle;
-    ProtocolMotorStatus status;
     ProtocolCommand last_target;
-    uint32_t last_target_epoch, calibration_request_number, stop_token;
-    bool has_last_target, stop_confirmed;
+    uint32_t last_target_epoch, calibration_request_number;
 } AppProtocol;
 
 /**
@@ -22,10 +20,4 @@ typedef struct
  */
 void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorLifecycle *life);
 
-/**
- * @brief 更新协议可见的状态、模式、故障与已有测量的单位换算。
- * @param adapter 此节点的协议适配器。
- * @note 仅前台串行调用；不执行控制、硬件操作或总线发送。
- */
-void AppProtocol_Refresh(AppProtocol *adapter);
 #endif

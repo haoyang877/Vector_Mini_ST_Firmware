@@ -280,7 +280,7 @@ static void run(bool interleave)
         assert(axis->speed_pi.integral_output == (float)(id + 1));
         axis->lifecycle.state = MOTOR_STATE_CALIBRATION;
         axis->lifecycle.calibration_type = MOTOR_CALIBRATION_MECHANICAL_ZERO;
-        axis->lifecycle.calibration_publication_pending = true;
+        axis->lifecycle.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
     }
     /* 真正的零位算法与 FOC 在提交 PWM 的途中进入第二根轴的同一算法。 */
     calibrating = true;
@@ -312,7 +312,8 @@ static void run(bool interleave)
     for (unsigned id = 0; id < 2; id++)
     {
         MotorAxis *axis = &apps[id].axis;
-        assert(devices[id].record_writes == 1 && axis->lifecycle.calibration_completion_pending);
+        assert(devices[id].record_writes == 1 &&
+               axis->lifecycle.calibration_handoff == MOTOR_CALIBRATION_AWAITING_COMPLETION);
         assert(devices[id].saved.motor.record_crc32 == Param_RecordCrc(&devices[id].saved.motor));
     }
     assert(memcmp(&devices[0].saved, &devices[1].saved, sizeof(MotorAxisRecord)) != 0);
@@ -338,15 +339,14 @@ static void stop_between_snapshot_and_commit(void)
     ProtocolMotor *motor = &apps[0].endpoint.motor;
     devices[0].disabled = false;
     motor->stop(motor->context, &command, &reply);
-    assert(reply.status == PROTOCOL_ACCEPTED && reply.token != 0);
-    assert(apps[1].protocol.stop_token == 0 && !other->lifecycle.stop_pending);
+    assert(reply.status == PROTOCOL_ACCEPTED && reply.detail == 1U && axis->lifecycle.stop_pending);
+    assert(!other->lifecycle.stop_pending);
     MotorLifecycle_CommitOuter(&axis->lifecycle, &work);
     assert(devices[0].disabled && axis->motor.iq_target_a == 0.0f &&
            axis->speed_pi.integral_output == 0.0f);
     assert(axis->lifecycle.power_enable_epoch == 0 && axis->lifecycle.epoch != work.epoch);
-    uint32_t token = reply.token;
     motor->stop(motor->context, &command, &reply);
-    assert(reply.status == PROTOCOL_OK && reply.token == token);
+    assert(reply.status == PROTOCOL_OK && reply.detail == 0U);
     BspCanFrame frame = {.identifier = 17};
     assert(Protocol_QueueReceivedFrame(&apps[0].endpoint, &frame));
     assert(queue_count(&apps[0].endpoint.rx_queue) == 1 &&

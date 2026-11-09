@@ -30,36 +30,30 @@ void MotorCalibration_ProcessPublication(MotorCalibration *cal)
     assert(foreground_stage == 0U);
     foreground_stage = 1U;
 }
-void AppProtocol_Refresh(AppProtocol *protocol)
-{
-    assert(protocol == &g_app.protocol);
-    assert(foreground_stage == 1U);
-    foreground_stage = 2U;
-}
 uint32_t BspSystem_TimeMs(void)
 {
     ++clock_reads;
     if (clock_reads == 1U)
     {
-        assert(foreground_stage == 2U);
-        foreground_stage = 3U;
+        assert(foreground_stage == 1U);
+        foreground_stage = 2U;
         return model_now_ms - 1U;
     }
-    assert(clock_reads == 2U && foreground_stage == 4U);
-    foreground_stage = 5U;
+    assert(clock_reads == 2U && foreground_stage == 3U);
+    foreground_stage = 4U;
     return model_now_ms;
 }
 void Protocol_Process(ProtocolEndpoint *instance, uint32_t now_ms)
 {
     (void)instance;
-    assert(foreground_stage == 3U && now_ms == model_now_ms - 1U);
-    foreground_stage = 4U;
+    assert(foreground_stage == 2U && now_ms == model_now_ms - 1U);
+    foreground_stage = 3U;
 }
 static void poll_entry(AppLoader *loader, uint32_t now_ms)
 {
     assert(loader == &g_app.loader);
-    assert(foreground_stage == 5U && now_ms == model_now_ms);
-    foreground_stage = 6U;
+    assert(foreground_stage == 4U && now_ms == model_now_ms);
+    foreground_stage = 5U;
 }
 void MotorAxis_SampleFast(MotorAxis *instance)
 {
@@ -82,7 +76,7 @@ static void process_at(uint32_t now_ms)
     model_now_ms = now_ms;
     foreground_stage = clock_reads = 0U;
     App_Process(&g_app);
-    assert(foreground_stage == 6U && clock_reads == 2U);
+    assert(foreground_stage == 5U && clock_reads == 2U);
 }
 static void test_tick_entries(void)
 {
@@ -182,9 +176,9 @@ int main(void)
     model_off = false;
     assert(!confirm_image(&g_app.loader, 0x10000U, 7U));
     model_off = true;
-    g_app.loader.requested = true;
+    g_app.loader.request.boot_epoch = 1U;
     assert(!confirm_image(&g_app.loader, 0x10000U, 7U));
-    g_app.loader.requested = false;
+    g_app.loader.request.boot_epoch = 0U;
     model_healthy = false;
     assert(!confirm_image(&g_app.loader, 0x10000U, 7U));
     process_at(1200U);

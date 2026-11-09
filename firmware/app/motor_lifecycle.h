@@ -53,6 +53,14 @@ typedef enum
     MOTOR_CALIBRATION_JOINT_ELECTRICAL_ZERO /* 联合任务的电零位对齐，不接受外部请求。 */
 } MotorCalibrationType;
 
+/** @brief 关相后的标定交接，依次由快拍、前台和监督拍推进。 */
+typedef enum
+{
+    MOTOR_CALIBRATION_NO_HANDOFF,
+    MOTOR_CALIBRATION_AWAITING_PUBLICATION,
+    MOTOR_CALIBRATION_AWAITING_COMPLETION
+} MotorCalibrationHandoff;
+
 /** @brief 一次性读取的状态值；模式和故障使用电机内部编号，不是线路编号。 */
 typedef struct
 {
@@ -108,7 +116,7 @@ typedef struct
     volatile uint32_t power_enable_epoch, fast_sample_ticks;
     uint32_t observed_fast_sample_ticks;
     volatile bool stop_pending;
-    volatile bool calibration_completion_pending, calibration_publication_pending;
+    volatile MotorCalibrationHandoff calibration_handoff;
     bool enable_pending, fault_locked, fast_samples_fresh, starts_locked;
 } MotorLifecycle;
 
@@ -147,12 +155,11 @@ MotorState MotorLifecycle_GetState(const MotorLifecycle *life);
 
 /**
  * @brief 由后台提出远程停机请求，下一监督拍执行正常关相路径。
- * @return 请求已登记返回 true；不表示功率输出已经关闭。
  * @note 撤销待启相请求；运行在关相后回IDLE，故障保持锁存。
  *       与监督中断通过短临界区交接。
  * @param life 调用方持有的实例状态。
  */
-bool MotorLifecycle_RequestRemoteStop(MotorLifecycle *life);
+void MotorLifecycle_RequestStop(MotorLifecycle *life);
 
 /**
  * @brief 请求以零目标或当前位置启动明确控制模式。

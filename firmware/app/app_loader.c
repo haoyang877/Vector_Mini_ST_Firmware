@@ -20,12 +20,15 @@ static bool confirm_image(void *context, uint32_t version, uint32_t crc32)
 {
     AppLoader *loader = context;
     uint32_t supervisor_ticks;
-    bool confirmed = loader->supported && !loader->requested &&
-                     loader->healthy_intervals >= BOOT_REQUIRED_HEALTHY_INTERVALS &&
-                     MotorLifecycle_ReadBootHealth(loader->lifecycle, &supervisor_ticks) &&
-                     *loader->communication_ready && Protocol_IsReady(loader->endpoint) &&
-                     MotorLifecycle_ArePhasesDisabled(loader->lifecycle) &&
-                     BootHw_Confirm(version, crc32);
+    bool confirmed = false;
+    if (loader->supported && loader->request.boot_epoch == 0U &&
+        loader->healthy_intervals >= BOOT_REQUIRED_HEALTHY_INTERVALS &&
+        MotorLifecycle_ReadBootHealth(loader->lifecycle, &supervisor_ticks) &&
+        *loader->communication_ready && Protocol_IsReady(loader->endpoint) &&
+        MotorLifecycle_ArePhasesDisabled(loader->lifecycle))
+    {
+        confirmed = BootHw_Confirm(version, crc32);
+    }
     loader->publish_identity(loader->identity_context);
     return confirmed;
 }
@@ -51,8 +54,7 @@ static bool same_request(const BootEntryRequest *left, const BootEntryRequest *r
  */
 static void poll_entry(AppLoader *loader, uint32_t now_ms)
 {
-    if (!loader->requested ||
-        (loader->result != BOOT_ENTRY_PENDING && loader->result != BOOT_ENTRY_READY))
+    if (loader->result != BOOT_ENTRY_PENDING && loader->result != BOOT_ENTRY_READY)
     {
         return;
     }
@@ -92,17 +94,16 @@ static void handle_entry(void *context, const BootEntryRequest *request, BootEnt
     {
         return;
     }
-    if (loader->requested && !same_request(request, &loader->request))
+    if (loader->request.boot_epoch != 0U && !same_request(request, &loader->request))
     {
         reply->result = BOOT_ENTRY_DENIED;
         return;
     }
     now_ms = BspSystem_TimeMs();
-    if (!loader->requested)
+    if (loader->request.boot_epoch == 0U)
     {
         loader->request = *request;
         loader->entry_started_ms = now_ms;
-        loader->requested = true;
         loader->result =
             MotorLifecycle_LockStop(loader->lifecycle) ? BOOT_ENTRY_PENDING : BOOT_ENTRY_DENIED;
     }
@@ -124,8 +125,7 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
     AppLoader *loader = context;
     uint32_t saved_interrupt_mask;
     bool entry_permitted;
-    if (!loader->requested || ticket == 0U || ticket != loader->request.boot_epoch ||
-        loader->result != BOOT_ENTRY_READY)
+    if (ticket == 0U || ticket != loader->request.boot_epoch || loader->result != BOOT_ENTRY_READY)
     {
         return;
     }
@@ -138,7 +138,7 @@ static void handle_tx_complete(void *context, uint64_t ticket, bool success)
     loader->result = BOOT_ENTRY_FAILED;
     if (entry_permitted)
     {
-        (void)BootHw_EnterLoader(loader->read_node_id(loader->identity_context));
+        (void)BootHw_EnterLoader(*loader->node_id);
     }
     BspSystem_ExitCritical(saved_interrupt_mask);
 }
@@ -177,10 +177,6 @@ void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
     else if (loader->healthy_intervals < BOOT_REQUIRED_HEALTHY_INTERVALS)
     {
         ++loader->healthy_intervals;
-    }
-    else
-    {
-        loader->healthy_intervals = BOOT_REQUIRED_HEALTHY_INTERVALS;
     }
     BootHw_Watchdog(healthy);
 }

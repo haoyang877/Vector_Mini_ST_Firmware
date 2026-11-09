@@ -711,6 +711,53 @@ static yg_protocol_result_t handle_start_command(ProtocolEndpoint *endpoint,
     return YG_PROTOCOL_OK;
 }
 
+/* 每帧从同一组无效值出发，APP 只填写本次确实读到的状态和测量。 */
+static const ProtocolFeedback s_empty_feedback = {
+    .reference_position_mrad = INT32_MIN,
+    .actual_position_mrad = INT32_MIN,
+    .reference_speed_mrad_s = INT32_MIN,
+    .actual_speed_mrad_s = INT32_MIN,
+    .bus_voltage_cV = INT16_MIN,
+    .bus_current_mA = INT16_MIN,
+    .reference_iq_mA = INT16_MIN,
+    .actual_iq_mA = INT16_MIN,
+    .mcu_temperature_centi_c = INT16_MIN,
+    .motor_temperature_centi_c = INT16_MIN,
+    .v_q_mV = INT16_MIN,
+    .v_d_mV = INT16_MIN,
+};
+
+static yg_protocol_result_t encode_feedback_reply(const ProtocolEndpoint *endpoint,
+                                                  const yg_protocol_message_t *request,
+                                                  ProtocolCode code,
+                                                  ProtocolResponse *response)
+{
+    bool query = request->message_type == PROTOCOL_GET_MOTOR_STATE;
+    uint8_t node_id = query ? request->destination_node : endpoint->node_id;
+    if (node_id == 0U || node_id == YG_PROTOCOL_BROADCAST_NODE_ID ||
+        (query && endpoint->motor.read_feedback == NULL))
+    {
+        return YG_PROTOCOL_INVALID_ARGUMENT;
+    }
+    ProtocolFeedback feedback = s_empty_feedback;
+    if (endpoint->motor.read_feedback != NULL)
+    {
+        bool available = endpoint->motor.read_feedback(endpoint->motor.context, &feedback);
+        if (query && !available && code == PROTOCOL_RESULT_OK)
+        {
+            code = PROTOCOL_RESULT_BUSY;
+        }
+    }
+    if (feedback.motor_state > 9U || feedback.control_mode > 10U || feedback.fault_code > 0x3FFFFU)
+    {
+        return YG_PROTOCOL_INVALID_FIELD;
+    }
+    feedback.node_id = node_id;
+    feedback.result = code;
+    feedback.correlated_seq = query ? 0U : request->sequence;
+    return encode_motor_feedback(&feedback, response);
+}
+
 static yg_protocol_result_t handle_target_command(ProtocolEndpoint *endpoint,
                                                   ProtocolExchange *exchange)
 {
@@ -741,11 +788,8 @@ static yg_protocol_result_t handle_target_command(ProtocolEndpoint *endpoint,
                                                          : PROTOCOL_RESULT_BAD_FIELD;
         }
     }
-    ProtocolFeedback feedback;
-    if (Protocol_BuildFeedback(
-            endpoint->motor.status, endpoint->node_id, code, request->sequence, &feedback) !=
-            YG_PROTOCOL_OK ||
-        encode_motor_feedback(&feedback, &endpoint->messages.feedback) != YG_PROTOCOL_OK)
+    if (encode_feedback_reply(endpoint, request, code, &endpoint->messages.feedback) !=
+        YG_PROTOCOL_OK)
     {
         return YG_PROTOCOL_INVALID_FIELD;
     }
@@ -793,84 +837,17 @@ static yg_protocol_result_t encode_motor_feedback(const ProtocolFeedback *feedba
     return YG_PROTOCOL_OK;
 }
 
-yg_protocol_result_t Protocol_BuildFeedback(const ProtocolMotorStatus *source,
-                                            uint8_t node_id,
-                                            uint16_t result,
-                                            uint16_t correlated_seq,
-                                            ProtocolFeedback *feedback)
-{
-    ProtocolFeedback value = {0};
-    if (feedback == NULL || node_id == 0U || node_id == YG_PROTOCOL_BROADCAST_NODE_ID)
-    {
-        return YG_PROTOCOL_INVALID_ARGUMENT;
-    }
-    value.node_id = node_id;
-    value.result = result;
-    value.correlated_seq = correlated_seq;
-    value.reference_position_mrad = INT32_MIN;
-    value.actual_position_mrad = INT32_MIN;
-    value.reference_speed_mrad_s = INT32_MIN;
-    value.actual_speed_mrad_s = INT32_MIN;
-    value.bus_voltage_cV = INT16_MIN;
-    value.bus_current_mA = INT16_MIN;
-    value.reference_iq_mA = INT16_MIN;
-    value.actual_iq_mA = INT16_MIN;
-    value.mcu_temperature_centi_c = INT16_MIN;
-    value.motor_temperature_centi_c = INT16_MIN;
-    value.v_q_mV = INT16_MIN;
-    value.v_d_mV = INT16_MIN;
-    if (source == NULL)
-    {
-        *feedback = value;
-        return YG_PROTOCOL_OK;
-    }
-    if (source->state > 9U || source->mode > 10U || source->faults > 0x3FFFFU)
-    {
-        return YG_PROTOCOL_INVALID_FIELD;
-    }
-    if (source->sample_available && source->measurements_available)
-    {
-        value = source->measurements;
-        value.node_id = node_id;
-        value.result = result;
-        value.correlated_seq = correlated_seq;
-    }
-    value.fault_code = source->faults;
-    value.motor_state = source->state;
-    value.control_mode = source->mode;
-    *feedback = value;
-    return YG_PROTOCOL_OK;
-}
-
 static yg_protocol_result_t handle_motor_status_query(ProtocolEndpoint *endpoint,
                                                       ProtocolExchange *exchange)
 {
-    const ProtocolMotorStatus *source = endpoint->motor.status;
     const yg_protocol_message_t *request = &exchange->request;
-    ProtocolResponse *response = &exchange->reply;
-    ProtocolFeedback feedback;
-    yg_protocol_result_t result;
+    ProtocolCode code = PROTOCOL_RESULT_BAD_LENGTH;
     if (request->payload_length == 0U)
     {
         Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){0});
+        code = PROTOCOL_RESULT_OK;
     }
-    if (source == NULL)
-    {
-        return YG_PROTOCOL_INVALID_ARGUMENT;
-    }
-    result = Protocol_BuildFeedback(
-        source,
-        request->destination_node,
-        request->payload_length != 0U
-            ? PROTOCOL_RESULT_BAD_LENGTH
-            : (source->sample_available ? PROTOCOL_RESULT_OK : PROTOCOL_RESULT_BUSY),
-        0U,
-        &feedback);
-    if (result != YG_PROTOCOL_OK)
-    {
-        return result;
-    }
-    return encode_motor_feedback(&feedback, response);
+    return encode_feedback_reply(endpoint, request, code, &exchange->reply);
 }
 
 static yg_protocol_result_t queue_pending_feedback(ProtocolEndpoint *endpoint)

@@ -109,11 +109,4 @@ void MotorAxis_OuterOverrun(MotorAxis *axis);
  */
 void MotorAxis_ProcessPositionPlan(MotorAxis *axis);
 
-/**
- * @brief 读取启动配置的设备节点地址。
- * @return 节点地址。
- * @note 仅初始化后使用；不公开配置指针。
- * @param axis 调用方持有的实例状态。
- */
-uint8_t MotorAxis_NodeId(const MotorAxis *axis);
 #endif

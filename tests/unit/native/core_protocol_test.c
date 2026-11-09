@@ -11,8 +11,10 @@ static MotorLifecycle life;
 static ProtocolEndpoint endpoint;
 static AppProtocol adapter;
 static unsigned starts, target_calls;
-static bool stop_allowed = true, stopped = true;
+static bool stopped = true;
+static unsigned stop_requests;
 static uint32_t target_epoch = 1U;
+static bool stop_after_target;
 static MotorTarget last_target;
 static MotorControlMode reported_mode = MOTOR_CONTROL_NONE;
 static unsigned calibration_requests;
@@ -29,10 +31,10 @@ static void print_vector(const char *name, const uint8_t *data, size_t length)
     puts("");
 }
 
-bool MotorLifecycle_RequestRemoteStop(MotorLifecycle *instance)
+void MotorLifecycle_RequestStop(MotorLifecycle *instance)
 {
-    (void)instance;
-    return stop_allowed;
+    assert(instance == &life);
+    ++stop_requests;
 }
 bool MotorLifecycle_ArePhasesDisabled(const MotorLifecycle *life)
 {
@@ -189,7 +191,9 @@ static void test_target_mode_mapping(void)
         reported_mode = modes[i].mode;
         endpoint.motor.target(endpoint.motor.context, &request, &reply);
         assert(reply.status == PROTOCOL_OK && last_target.mode == modes[i].mode);
-        assert(adapter.status.mode == modes[i].wire);
+        ProtocolFeedback feedback = s_empty_feedback;
+        assert(endpoint.motor.read_feedback(endpoint.motor.context, &feedback));
+        assert(feedback.control_mode == modes[i].wire);
     }
     unsigned calls_before = target_calls;
     ProtocolCommand request = {.mode = 0U, .sequence = 7U};
@@ -202,6 +206,13 @@ static void test_target_mode_mapping(void)
     --request.sequence;
     endpoint.motor.target(endpoint.motor.context, &request, &reply);
     assert(reply.status == PROTOCOL_OK && target_calls == calls_before + 1U);
+    /* 目标已写入，返回前被停机抢占；同序号重发不可复用已结束的会话。 */
+    ++request.sequence;
+    stop_after_target = true;
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
+    assert(reply.status == PROTOCOL_OK && target_calls == calls_before + 2U);
+    endpoint.motor.target(endpoint.motor.context, &request, &reply);
+    assert(reply.status == PROTOCOL_DENIED && target_calls == calls_before + 2U);
 }
 
 int main(void)
@@ -263,15 +274,10 @@ int main(void)
     assert(reply.status == PROTOCOL_DENIED && target_calls == 2U);
     stopped = false;
     endpoint.motor.stop(endpoint.motor.context, &request, &reply);
-    assert(reply.status == PROTOCOL_ACCEPTED && reply.token != 0U);
-    uint32_t stop_token = reply.token;
+    assert(reply.status == PROTOCOL_ACCEPTED && reply.detail == 1U && stop_requests == 1U);
     stopped = true;
     endpoint.motor.stop(endpoint.motor.context, &request, &reply);
-    assert(reply.status == PROTOCOL_OK && reply.token == stop_token);
-    stop_allowed = false;
-    endpoint.motor.stop(endpoint.motor.context, &request, &reply);
-    assert(reply.status == PROTOCOL_DENIED && reply.token == 0U);
-    stop_allowed = true;
+    assert(reply.status == PROTOCOL_OK && reply.detail == 0U && stop_requests == 2U);
     /* 未实现的线路模式仍由 APP 拒绝；无需模拟运行时撤销固定绑定。 */
     request.mode = 4U;
     endpoint.motor.target(endpoint.motor.context, &request, &reply);
@@ -292,6 +298,11 @@ MotorControlResult MotorLifecycle_SetTarget(MotorLifecycle *instance, const Moto
     (void)instance;
     ++target_calls;
     last_target = *target;
+    if (stop_after_target)
+    {
+        ++target_epoch;
+        stop_after_target = false;
+    }
     return MOTOR_CONTROL_ACCEPTED;
 }
 uint32_t MotorLifecycle_WorkEpoch(const MotorLifecycle *instance)

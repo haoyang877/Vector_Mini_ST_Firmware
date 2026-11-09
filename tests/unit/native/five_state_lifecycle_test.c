@@ -179,7 +179,7 @@ void MotorOuterLoop_SlowTick(MotorOuterLoop *instance,
     if (stop_during_outer)
     {
         stop_during_outer = false;
-        MotorLifecycle_RequestRemoteStop(&life);
+        MotorLifecycle_RequestStop(&life);
     }
     if (fault_during_outer)
     {
@@ -279,7 +279,7 @@ static void test_control_and_stop(void)
     tick();
     assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_RUNNING && !phases_disabled);
     uint32_t epoch = MotorLifecycle_WorkEpoch(&life);
-    MotorLifecycle_RequestRemoteStop(&life);
+    MotorLifecycle_RequestStop(&life);
     tick();
     assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_IDLE && phases_disabled);
     MotorLifecycle_PostOutcome(
@@ -317,7 +317,7 @@ static void test_faults_and_safety(void)
     assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_CURRENT) == MOTOR_CONTROL_ACCEPTED);
     tick();
     stop_fails = true;
-    MotorLifecycle_RequestRemoteStop(&life);
+    MotorLifecycle_RequestStop(&life);
     tick();
     assert(MotorLifecycle_GetState(&life) == MOTOR_STATE_FAULT);
     assert(MotorLifecycle_RequestClear(&life) != MOTOR_CONTROL_ACCEPTED);
@@ -436,7 +436,8 @@ static void test_calibration_stop_fault_and_late_result(void)
            MOTOR_CONTROL_ACCEPTED);
     uint32_t cancelled_epoch = MotorLifecycle_WorkEpoch(&life);
     MotorLifecycle_BeginFastTick(&life);
-    assert(MotorLifecycle_RequestRemoteStop(&life));
+    MotorLifecycle_RequestStop(&life);
+    assert(life.stop_pending && life.power_enable_epoch == 0U);
     tick();
     MotorLifecycle_PostOutcome(
         &life, (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE}, cancelled_epoch);
@@ -513,7 +514,8 @@ static void test_linearization_waits_for_publication(void)
     calibration_epoch = MotorLifecycle_WorkEpoch(&life);
     MotorLifecycle_PostOutcome(
         &life, (MotorTaskResult){MOTOR_TASK_FINALIZE, MOTOR_FAULT_NONE}, calibration_epoch);
-    assert(MotorLifecycle_RequestRemoteStop(&life));
+    MotorLifecycle_RequestStop(&life);
+    assert(life.stop_pending && life.power_enable_epoch == 0U);
     interrupt_mask = BspSystem_EnterCritical();
     assert(!MotorLifecycle_ReadPendingCalibrationPublication(&life, &publication_epoch));
     MotorLifecycle_CompleteCalibrationPublication(&life, calibration_epoch, true);
@@ -545,7 +547,8 @@ static void test_joint_zero_rechecks_power(void)
         assert(phases_disabled);
         if (condition == 1)
         {
-            assert(MotorLifecycle_RequestRemoteStop(&life));
+            MotorLifecycle_RequestStop(&life);
+            assert(life.stop_pending && life.power_enable_epoch == 0U);
         }
         if (condition == 2)
         {
@@ -640,7 +643,7 @@ static void test_live_targets(void)
     target.speed_rad_s = 1.0f;
     assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_INVALID);
     target.speed_rad_s = 0.0f;
-    MotorLifecycle_RequestRemoteStop(&life);
+    MotorLifecycle_RequestStop(&life);
     assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_DENIED);
     tick();
     assert(MotorLifecycle_RequestEnable(&life, MOTOR_CONTROL_SPEED) == MOTOR_CONTROL_ACCEPTED);
@@ -740,7 +743,8 @@ static void test_wheel_position_targets(void)
         MotorTarget target = {.mode = MOTOR_CONTROL_POSITION, .position_rad = 14.0f};
         assert(MotorLifecycle_SetTarget(&life, &target) == MOTOR_CONTROL_ACCEPTED);
         assert(motor.position_target_rad == 14.0f);
-        assert(MotorLifecycle_RequestRemoteStop(&life));
+        MotorLifecycle_RequestStop(&life);
+        assert(life.stop_pending && life.power_enable_epoch == 0U);
         tick();
         assert(MotorLifecycle_IsStopped(&life) && phases_disabled);
     }

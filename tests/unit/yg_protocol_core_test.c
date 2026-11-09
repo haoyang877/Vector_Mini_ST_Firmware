@@ -136,7 +136,7 @@ static void readonly_payload_codecs(void)
 
 static void motor_status_adapter(void)
 {
-    s_test_motor_status = (ProtocolMotorStatus){0};
+    s_test_motor_status = (TestMotorStatus){0};
     ProtocolExchange exchange = {.request = {YG_PROTOCOL_VERSION,
                                              YG_PROTOCOL_FLAGS_ACK_REQUEST,
                                              2U,

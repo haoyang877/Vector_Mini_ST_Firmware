@@ -138,7 +138,7 @@ void MotorAxis_SupervisorTick(MotorAxis *axis)
 #endif
 }
 
-void MotorAxis_OuterTick(MotorAxis *axis)
+static void update_output_feedback(MotorAxis *axis)
 {
     Encoder_UpdateSlowEstimate(&axis->rotor_encoder);
 #if BSP_ENABLED_LINEAR_HALL
@@ -164,25 +164,30 @@ void MotorAxis_OuterTick(MotorAxis *axis)
     }
 #endif
     /* 等待现有上电采样窗口结束，避免传感器启动初值参与首次辨圈。 */
-    if (axis->current_offsets.complete && Encoder_IsOnline(&axis->rotor_encoder) &&
-        (axis->configuration.device.encoder.calib_flag & ENC_CALIB_LINEARIZED) != 0U &&
-        (axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) != 0U &&
-        MotorLifecycle_GetState(&axis->lifecycle) != MOTOR_STATE_CALIBRATION)
+    if (!axis->current_offsets.complete || !Encoder_IsOnline(&axis->rotor_encoder) ||
+        (axis->configuration.device.encoder.calib_flag & ENC_CALIB_LINEARIZED) == 0U ||
+        (axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) == 0U ||
+        MotorLifecycle_GetState(&axis->lifecycle) == MOTOR_STATE_CALIBRATION)
     {
-        uint16_t motor_q15 = axis->rotor_encoder.linearized_q15;
-        if (OutputEncoder_IsReady(&axis->output_encoder))
-        {
-            OutputEncoder_Update(&axis->output_encoder, motor_q15);
-        }
-        else if (axis->output_encoder.params.gear_ratio == 1.0f ||
-                 (axis->linear_hall.calibration_success &&
-                  isfinite(axis->linear_hall.val.sin_cal) &&
-                  isfinite(axis->linear_hall.val.cos_cal) &&
-                  (axis->linear_hall.val.sin_cal != 0.0f || axis->linear_hall.val.cos_cal != 0.0f)))
-        {
-            OutputEncoder_Locate(&axis->output_encoder, motor_q15, axis->linear_hall.val.angle_rad);
-        }
+        return;
     }
+    uint16_t motor_q15 = axis->rotor_encoder.linearized_q15;
+    if (OutputEncoder_IsReady(&axis->output_encoder))
+    {
+        OutputEncoder_Update(&axis->output_encoder, motor_q15);
+    }
+    else if (axis->output_encoder.params.gear_ratio == 1.0f ||
+             (axis->linear_hall.calibration_success && isfinite(axis->linear_hall.val.sin_cal) &&
+              isfinite(axis->linear_hall.val.cos_cal) &&
+              (axis->linear_hall.val.sin_cal != 0.0f || axis->linear_hall.val.cos_cal != 0.0f)))
+    {
+        OutputEncoder_Locate(&axis->output_encoder, motor_q15, axis->linear_hall.val.angle_rad);
+    }
+}
+
+void MotorAxis_OuterTick(MotorAxis *axis)
+{
+    update_output_feedback(axis);
     MotorOuterWork work;
     MotorLifecycle_BeginOuter(&axis->lifecycle, &work);
     if (work.allowed)
@@ -289,9 +294,4 @@ void MotorAxis_ProcessPositionPlan(MotorAxis *axis)
         MotorOuterLoop_PublishPositionPlan(&axis->outer, work, valid);
         BspSystem_ExitControlCritical(mask);
     }
-}
-
-uint8_t MotorAxis_NodeId(const MotorAxis *axis)
-{
-    return axis->configuration.device.node_id;
 }

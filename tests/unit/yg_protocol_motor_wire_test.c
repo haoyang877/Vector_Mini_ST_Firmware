@@ -103,13 +103,13 @@ static void test_open_loop_vectors(void)
 
 static void test_minimal_state(void)
 {
-    ProtocolMotorStatus source = {.state = 5U, .sample_available = true};
-    ProtocolFeedback feedback;
-    ProtocolResponse encoded_response = {0};
-    uint8_t *payload = encoded_response.data;
-    CHECK(Protocol_BuildFeedback(&source, 3U, 0U, 0U, &feedback) == YG_PROTOCOL_OK);
-    CHECK(feedback.valid_bits == 0U);
-    CHECK(encode_motor_feedback(&feedback, &encoded_response) == YG_PROTOCOL_OK);
+    CHECK(test_reset_protocol(3U));
+    s_test_motor_status = (TestMotorStatus){.state = 5U, .sample_available = true};
+    ProtocolExchange query = {
+        .request = {.message_type = PROTOCOL_GET_MOTOR_STATE, .destination_node = 3U}};
+    CHECK(handle_motor_status_query(&endpoint, &query) == YG_PROTOCOL_OK);
+    uint8_t *payload = query.reply.data;
+    CHECK(YgProtocol_ReadU16Le(payload + 24U) == 0U);
     printf("VECTOR minimal_state ");
     for (unsigned i = 0; i < PROTOCOL_FEEDBACK_SIZE; ++i)
     {

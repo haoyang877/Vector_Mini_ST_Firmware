@@ -86,9 +86,8 @@ static bool ready=true;
 static void log_step(unsigned n) { order[count++]=n; }
 void BspPwm_Disable(void);
 static const MotorAxisHardware hardware={.power.disable=BspPwm_Disable};
-void MotorAxis_Init(MotorAxis *axis) { axis->hardware=&hardware;axis->lifecycle=(MotorLifecycle){0};assert(axis==&app.axis); log_step(1); }
+void MotorAxis_Init(MotorAxis *axis) { axis->hardware=&hardware;axis->configuration.device.node_id=7U;axis->lifecycle=(MotorLifecycle){0};assert(axis==&app.axis); log_step(1); }
 void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorLifecycle *life) { assert(protocol==&app.protocol && endpoint==&app.endpoint && life==&app.axis.lifecycle); }
-uint8_t MotorAxis_NodeId(const MotorAxis *axis) { assert(axis==&app.axis); return 7; }
 bool Protocol_Init(ProtocolEndpoint *endpoint, uint8_t node) { assert(endpoint==&app.endpoint && node==7);log_step(2);return ready; }
 static bool bind_device_description(AppContext *context) { assert(context==&app);log_step(4);return ready; }
 bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }

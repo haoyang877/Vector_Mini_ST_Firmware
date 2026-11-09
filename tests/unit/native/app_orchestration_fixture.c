@@ -27,18 +27,13 @@ static void bytes(uint32_t kind, const uint8_t *data, unsigned count)
 void MotorAxis_Init(MotorAxis *instance)
 {
     instance->hardware = &hardware;
-    (void)instance;
+    instance->configuration.device.node_id = 7U;
     event(1, 0);
-}
-uint8_t MotorAxis_NodeId(const MotorAxis *instance)
-{
-    (void)instance;
-    event(2, 7);
-    return 7;
 }
 bool Protocol_Init(ProtocolEndpoint *instance, uint8_t node)
 {
     (void)instance;
+    assert(node == 7U);
     instance->node_id = node;
     event(3, node);
     return failure_stage != 1;
@@ -162,7 +157,7 @@ bool MotorLifecycle_LockStop(MotorLifecycle *instance)
 }
 bool BootHw_EnterLoader(uint8_t node)
 {
-    assert(depth == 1 && stopped);
+    assert(depth == 1 && stopped && node == app.axis.configuration.device.node_id);
     event(37, node);
     ++enters;
     return false;
@@ -186,11 +181,6 @@ void MotorCalibration_ProcessPublication(MotorCalibration *cal)
 {
     assert(cal == &app.axis.calibration);
     event(41, 0);
-}
-void AppProtocol_Refresh(AppProtocol *protocol)
-{
-    assert(protocol == &app.protocol);
-    event(42, 0);
 }
 void Protocol_Process(ProtocolEndpoint *instance, uint32_t time)
 {
@@ -267,7 +257,8 @@ static void request(const BootEntryRequest *value, BootEntryResult expected, uin
 }
 static void reset_entry(void)
 {
-    app.loader.requested = false;
+    app.loader.request = (BootEntryRequest){0};
+    app.loader.result = BOOT_ENTRY_UNAVAILABLE;
     stopped = false;
     lock_allowed = true;
     depth = 0;
@@ -313,6 +304,7 @@ static void check_loader(void)
     request(&valid, BOOT_ENTRY_PENDING, 0);
     stopped = true;
     request(&valid, BOOT_ENTRY_READY, valid.boot_epoch);
+    app.axis.configuration.device.node_id = 9U;
     boot_service.tx_complete(boot_service.context, valid.boot_epoch, true);
     assert(enters == 1 && depth == 0);
     boot_service.tx_complete(boot_service.context, valid.boot_epoch, true);
@@ -343,7 +335,8 @@ static void check_loader(void)
     stopped = false;
     boot_service.tx_complete(boot_service.context, valid.boot_epoch, true);
     assert(enters == 1);
-    app.loader.requested = false;
+    app.loader.request = (BootEntryRequest){0};
+    app.loader.result = BOOT_ENTRY_UNAVAILABLE;
     stopped = true;
     app.loader.healthy_intervals = 0;
     app.loader.health_checked_ms = 0;

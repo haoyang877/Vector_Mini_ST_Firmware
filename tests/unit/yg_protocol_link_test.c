@@ -142,7 +142,7 @@ static void irq_receive_budget(void)
     BspCanFrame frame;
     assert(fresh_link(7U));
     endpoint.motor = service;
-    endpoint.motor.status = &s_test_motor_status;
+    endpoint.motor.read_feedback = test_read_feedback;
     assert(encode_can_frame(&request, 3U, &frame) == YG_PROTOCOL_OK);
     injected_frame = (BspCanFrame){.identifier = frame.identifier,
                                    .length = frame.length,
@@ -180,7 +180,7 @@ static void backlog_and_interrupt_handoff(void)
     BspCanFrame frame;
     assert(fresh_link(7U));
     endpoint.motor = service;
-    endpoint.motor.status = &s_test_motor_status;
+    endpoint.motor.read_feedback = test_read_feedback;
     motor_calls = 0U;
     sent_count = 0U;
     sent = false;
@@ -418,7 +418,7 @@ static void start_route_contract(void)
     BspCanFrame packed;
     assert(fresh_link(1U));
     endpoint.motor = service;
-    endpoint.motor.status = &s_test_motor_status;
+    endpoint.motor.read_feedback = test_read_feedback;
     start_stop_barrier = 0U;
     sent_count = 0U;
     assert(encode_can_frame(&request, 2U, &packed) == YG_PROTOCOL_OK);
@@ -462,7 +462,7 @@ static void start_route_contract(void)
     /* 新会话中 STOP 先抵达，之后重发的旧 START 只得到陈旧身份结果。 */
     assert(fresh_link(1U));
     endpoint.motor = service;
-    endpoint.motor.status = &s_test_motor_status;
+    endpoint.motor.read_feedback = test_read_feedback;
     request.message_type = PROTOCOL_STOP;
     request.sequence = 0x1004U;
     request.payload_length = 0U;
@@ -524,7 +524,7 @@ static void multimode_start_vectors(void)
     {
         assert(fresh_link(1U));
         endpoint.motor = service;
-        endpoint.motor.status = &s_test_motor_status;
+        endpoint.motor.read_feedback = test_read_feedback;
         motor_calls = 0U;
         sent_count = 0U;
         sent = false;
@@ -539,7 +539,7 @@ static void multimode_start_vectors(void)
     }
     assert(fresh_link(1U));
     endpoint.motor = service;
-    endpoint.motor.status = &s_test_motor_status;
+    endpoint.motor.read_feedback = test_read_feedback;
     motor_calls = 0U;
     sent_count = 0U;
     sent = false;
@@ -588,7 +588,7 @@ static void power_route_contract(void)
                                          .payload = cases[index].payload};
         assert(fresh_link(7U));
         endpoint.motor = service;
-        endpoint.motor.status = &s_test_motor_status;
+        endpoint.motor.read_feedback = test_read_feedback;
         motor_calls = 0U;
         sent_count = 0U;
         sent = false;
@@ -612,7 +612,7 @@ static void power_route_contract(void)
 /* 解绑或重新初始化后不得保留旧快照，查询必须回退为无新鲜数据。 */
 static void status_binding_reset(void)
 {
-    const ProtocolMotorStatus source = {.sample_available = true, .state = 6U, .mode = 3U};
+    const TestMotorStatus source = {.sample_available = true, .state = 6U, .mode = 3U};
     const yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
                                            .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
                                            .source_node = 2U,
@@ -631,7 +631,7 @@ static void status_binding_reset(void)
         s_test_motor_status = source;
         if (reset == 0U)
         {
-            s_test_motor_status = (ProtocolMotorStatus){0};
+            s_test_motor_status = (TestMotorStatus){0};
         }
         else
         {
@@ -651,7 +651,7 @@ static void rejected_frames_do_not_execute(void)
     assert(fresh_link(7U));
     ProtocolMotor service = {.stop = motor_handler};
     endpoint.motor = service;
-    endpoint.motor.status = &s_test_motor_status;
+    endpoint.motor.read_feedback = test_read_feedback;
     yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
                                      .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
                                      .source_node = 2U,
@@ -900,7 +900,7 @@ static void boot_ready_queue_contract(void)
     {
         assert(fresh_link(7U));
         endpoint.motor = motor_service;
-        endpoint.motor.status = &s_test_motor_status;
+        endpoint.motor.read_feedback = test_read_feedback;
         endpoint.loader = boot_service;
         tracked_allowed = true;
         hardware_busy = hardware_complete = false;

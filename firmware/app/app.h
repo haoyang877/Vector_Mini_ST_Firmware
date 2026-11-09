@@ -39,7 +39,7 @@ void App_Init(AppContext *app);
 void App_Start(AppContext *app);
 
 /**
- * @brief 按顺序推进后台事务、状态刷新、通信及Loader交接。
+ * @brief 按顺序推进后台事务、通信及 Loader 交接。
  * @note 仅在main前台循环调用；不能从中断或并发上下文调用。
  *       通信和交接分别读取当时毫秒时钟，不能合并为提前捕获的时间快照。
  * @param app 板级零初始化的应用实例。

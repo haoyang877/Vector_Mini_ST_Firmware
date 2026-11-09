@@ -33,7 +33,7 @@ BSP 先准备关相硬件，APP 再装载配置和绑定服务，之后才开放
 | --- | --- | --- |
 | 20 kHz ADC | main直接调用（AT32）或HAL回调（STM32） → MotorAxis_SampleFast → MotorAxis_ControlFast | 编码器 Begin、母线电压、零偏/电流、Clarke、观测器、编码器读回、生命周期复核、控制或标定、结果与故障关相 |
 | 2 kHz 监督 | BspApp_OnControlTick → MotorAxis_SupervisorTick | MCU 温度、STOP/故障/标定收尾；与监督同频时执行外环，否则由分频单独派发 |
-| 前台 | App_Process | LUT 候选发布、状态刷新、协议服务、仅 LoaderApp 执行交接与试运行健康检查 |
+| 前台 | App_Process | 位置建表、LUT 候选发布、协议服务与按请求采样、仅 LoaderApp 执行交接与试运行健康检查 |
 
 编码器传输与中间计算重叠。上电零偏在关相 IDLE 累计 2048 个快拍，约 102.4 ms，
 完成前电流无效；每次上电重校，Flash 旧偏置不提供本次资格。

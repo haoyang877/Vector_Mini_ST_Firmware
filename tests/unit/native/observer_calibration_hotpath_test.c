@@ -10,6 +10,8 @@
 #include "flux_observer.c"
 #include "encoder_calibration.c"
 
+static EncoderCalibrationSession session;
+
 static bool leave_align;
 static unsigned current_calls;
 static bool simulate_motion;
@@ -137,7 +139,7 @@ static MotorTaskResult step_lut(MotorConfiguration *configuration,
 {
     const EncoderCalibrationControl control = {
         configuration, foc, motor, encoder, observer, startup};
-    return EncoderCalibration_StepLut(&control, workspace);
+    return EncoderCalibration_StepLut(&session, &control, workspace);
 }
 
 static MotorTaskResult step_electrical_zero(MotorConfiguration *configuration,
@@ -149,7 +151,7 @@ static MotorTaskResult step_electrical_zero(MotorConfiguration *configuration,
     assert(calibration == &configuration->device.encoder);
     const EncoderCalibrationControl control = {
         .configuration = configuration, .foc = foc, .motor = motor, .encoder = encoder};
-    return EncoderCalibration_StepElecZero(&control);
+    return EncoderCalibration_StepElecZero(&session, &control);
 }
 
 static void check_long_sweep_position(void)
@@ -288,7 +290,7 @@ static void check_prepare(void)
     memset(configuration.device.encoder.linearization_lut_q15,
            0x5A,
            sizeof(configuration.device.encoder.linearization_lut_q15));
-    EncoderCalibration_Cancel();
+    EncoderCalibration_Cancel(&session);
     memset(&workspace, 0xA5, sizeof(workspace));
     leave_align = false;
     motor.speed_target_rad_s = 3.0f;
@@ -297,7 +299,7 @@ static void check_prepare(void)
     motor.iq_target_a = -1.0f;
     MotorTaskResult result =
         step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
-    assert(result.result == MOTOR_TASK_RUNNING && s_lut.stage.startup.clear_bin == 0U);
+    assert(result.result == MOTOR_TASK_RUNNING && session.lut.stage.startup.clear_bin == 0U);
     assert(motor.speed_target_rad_s == 3.0f && motor.speed_ramped_rad_s == 2.0f);
     assert(motor.id_target_a == 1.0f && motor.iq_target_a == -1.0f);
     motor = (MotorControlState){0};
@@ -305,22 +307,23 @@ static void check_prepare(void)
     assert(workspace.bins.samples[0] == 0xA5A5U && current_calls == 0U);
     result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING &&
-           s_lut.stage.startup.clear_bin == ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
+           session.lut.stage.startup.clear_bin == ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
     assert(workspace.error_sum[0] == 0 &&
            workspace.bins.samples[ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK - 1U] == 0U);
     assert(workspace.bins.samples[ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK] ==
            0xA5A5U); /* 首拍不再清6 KiB。 */
-    s_lut.speed_pi.integral_output = 0.4f;
-    EncoderCalibration_Cancel();
-    assert(EncoderCalibration_IsIdle() && s_lut.stage.startup.clear_bin == 0U);
-    assert(s_lut.speed_pi.integral_output == 0.0f);
+    session.lut.speed_pi.integral_output = 0.4f;
+    EncoderCalibration_Cancel(&session);
+    assert(EncoderCalibration_IsIdle(&session) && session.lut.stage.startup.clear_bin == 0U);
+    assert(session.lut.speed_pi.integral_output == 0.0f);
     memset(&workspace, 0xA5, sizeof(workspace));
     for (unsigned i = 0U; i <= ENCODER_OFFSET_LUT_SIZE / ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK;
          ++i)
     {
         result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
         assert(result.result == MOTOR_TASK_RUNNING);
-        assert(s_lut.stage.startup.clear_bin == i * ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
+        assert(session.lut.stage.startup.clear_bin ==
+               i * ENCODER_CALIBRATION_PREPARE_BINS_PER_TICK);
     }
     for (unsigned i = 0U; i < ENCODER_OFFSET_LUT_SIZE; ++i)
     {
@@ -330,22 +333,22 @@ static void check_prepare(void)
     leave_align = true;
     result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING);
-    assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
+    assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
     simulate_motion = true;
     motion_ticks = 4096U;
     result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING);
-    assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
-    assert(s_lut.stage.startup.stable_ticks == 1U);
+    assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
+    assert(session.lut.stage.startup.stable_ticks == 1U);
     simulate_motion = false;
-    EncoderCalibration_Cancel();
+    EncoderCalibration_Cancel(&session);
     result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING && startup.state_ticks == 0U);
     result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
     assert(result.result == MOTOR_TASK_RUNNING);
-    assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
-    EncoderCalibration_Cancel();
-    assert(EncoderCalibration_IsIdle() && s_lut.stage.startup.clear_bin == 0U);
+    assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
+    EncoderCalibration_Cancel(&session);
+    assert(EncoderCalibration_IsIdle(&session) && session.lut.stage.startup.clear_bin == 0U);
     assert(configuration.device.encoder.calib_flag ==
            (ENC_CALIB_LINEARIZED | ENC_CALIB_ELECTRICAL_ZERO));
     assert(current_calls == 0U); /* 准备检查没有调用功率控制。 */
@@ -372,21 +375,22 @@ static void check_commit(void)
             workspace.bins.candidate[i] = (int16_t)((i * 73U) ^ 0x8421U);
         }
         uint16_t expected = apply_lut(workspace.bins.candidate, encoder.directed_q15);
-        s_lut.workspace = &workspace;
-        s_lut.phase = CS_OBS_BUILD_LUT;
-        assert(!EncoderCalibration_PublishLut(calibration, &encoder));
-        s_lut.phase = CS_OBS_STOP_DECEL;
+        session.lut.workspace = &workspace;
+        session.lut.phase = CS_OBS_BUILD_LUT;
+        assert(!EncoderCalibration_PublishLut(&session, calibration, &encoder));
+        session.lut.phase = CS_OBS_STOP_DECEL;
         FocState foc = {0};
         MotorControlState motor = {0};
         SensorlessStartupState startup = {0};
         assert(finish_lut(
+                   &session,
                    &(EncoderCalibrationControl){.foc = &foc, .motor = &motor, .startup = &startup})
                    .result == MOTOR_TASK_FINALIZE);
-        assert(!EncoderCalibration_IsIdle());
+        assert(!EncoderCalibration_IsIdle(&session));
         assert(calibration->calib_flag == (ENC_CALIB_ALL | ENC_CALIB_MECHANICAL_ZERO));
-        assert(EncoderCalibration_PublishLut(calibration, &encoder));
-        assert(EncoderCalibration_IsIdle());
-        assert(!EncoderCalibration_PublishLut(calibration, &encoder));
+        assert(EncoderCalibration_PublishLut(&session, calibration, &encoder));
+        assert(EncoderCalibration_IsIdle(&session));
+        assert(!EncoderCalibration_PublishLut(&session, calibration, &encoder));
         assert(memcmp(calibration->linearization_lut_q15,
                       workspace.bins.candidate,
                       sizeof(calibration->linearization_lut_q15)) == 0);
@@ -402,11 +406,11 @@ static void check_commit(void)
         {
             assert(storage.bytes[i] == 0x5A);
         }
-        s_lut.workspace = &workspace;
-        s_lut.phase = CS_LUT_PUBLISH_PENDING;
+        session.lut.workspace = &workspace;
+        session.lut.phase = CS_LUT_PUBLISH_PENDING;
         EncoderCalibration before_cancel = *calibration;
-        EncoderCalibration_Cancel();
-        assert(!EncoderCalibration_PublishLut(calibration, &encoder));
+        EncoderCalibration_Cancel(&session);
+        assert(!EncoderCalibration_PublishLut(&session, calibration, &encoder));
         assert(memcmp(calibration, &before_cancel, sizeof(*calibration)) == 0);
     }
 }
@@ -422,7 +426,7 @@ static void trace_cycle(MotorTaskResult result, const MotorControlState *motor)
     uint32_t bits;
     trace_word((uint32_t)result.result);
     trace_word((uint32_t)result.error);
-    trace_word((uint32_t)EncoderCalibration_GetPhase());
+    trace_word((uint32_t)EncoderCalibration_GetPhase(&session));
     memcpy(&bits, &motor->speed_target_rad_s, sizeof(bits));
     trace_word(bits);
     memcpy(&bits, &motor->id_target_a, sizeof(bits));
@@ -479,7 +483,7 @@ static void check_lut_flow(const CalibrationMotion *motion)
     configuration.application.current_limit_a = 6.0f;
     simulate_motion = true;
     motion_ticks = 0U;
-    EncoderCalibration_Cancel();
+    EncoderCalibration_Cancel(&session);
     MotorTaskResult result = {MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
     uint32_t phases = 0U;
     unsigned ticks = 0U;
@@ -487,9 +491,9 @@ static void check_lut_flow(const CalibrationMotion *motion)
     while (result.result == MOTOR_TASK_RUNNING && ticks < LUT_FLOW_MAX_TICKS)
     {
         sample_motion(motion, &observer, &encoder);
-        EncoderCalibrationPhase previous_phase = EncoderCalibration_GetPhase();
+        EncoderCalibrationPhase previous_phase = EncoderCalibration_GetPhase(&session);
         result = step_lut(&configuration, &foc, &motor, &encoder, &observer, &startup, &workspace);
-        EncoderCalibrationPhase phase = EncoderCalibration_GetPhase();
+        EncoderCalibrationPhase phase = EncoderCalibration_GetPhase(&session);
         if (phase >= CS_OBS_STARTUP && phase <= CS_OBS_STOP_CURRENT)
         {
             phases |= 1U << (phase - CS_OBS_STARTUP);
@@ -510,11 +514,11 @@ static void check_lut_flow(const CalibrationMotion *motion)
         (1U << (CS_OBS_BUILD_LUT - CS_OBS_STARTUP)) | (1U << (CS_OBS_STOP_DECEL - CS_OBS_STARTUP)) |
         (1U << (CS_OBS_STOP_CURRENT - CS_OBS_STARTUP));
     assert(result.result == MOTOR_TASK_FINALIZE && ticks < LUT_FLOW_MAX_TICKS);
-    assert(phases == expected_phases && !EncoderCalibration_IsIdle());
+    assert(phases == expected_phases && !EncoderCalibration_IsIdle(&session));
     assert(configuration.device.encoder.calib_flag == 0U);
-    assert(EncoderCalibration_PublishLut(&configuration.device.encoder, &encoder));
+    assert(EncoderCalibration_PublishLut(&session, &configuration.device.encoder, &encoder));
     assert(configuration.device.encoder.calib_flag == ENC_CALIB_LINEARIZED);
-    assert(EncoderCalibration_IsIdle());
+    assert(EncoderCalibration_IsIdle(&session));
     int32_t peak_residual_q15 = 0;
     for (unsigned ideal_q15 = 0U; ideal_q15 < 65536U; ideal_q15 += 16U)
     {
@@ -578,13 +582,13 @@ static void check_flow(void)
     assert(result.result == MOTOR_TASK_COMPLETED && ticks == 30001U);
     assert(configuration.device.encoder.electrical_zero_q15 <= 2U);
     assert(motor.id_target_a == 0.0f && motor.iq_target_a == 0.0f);
-    assert(EncoderCalibration_IsIdle());
+    assert(EncoderCalibration_IsIdle(&session));
     result =
         step_electrical_zero(&configuration, &configuration.device.encoder, &foc, &motor, &encoder);
-    assert(result.result == MOTOR_TASK_RUNNING && !EncoderCalibration_IsIdle());
-    EncoderCalibration_Cancel();
-    assert(EncoderCalibration_IsIdle());
-    EncoderCalibration_Cancel();
+    assert(result.result == MOTOR_TASK_RUNNING && !EncoderCalibration_IsIdle(&session));
+    EncoderCalibration_Cancel(&session);
+    assert(EncoderCalibration_IsIdle(&session));
+    EncoderCalibration_Cancel(&session);
     printf("PASS calibration flow: trace=%08x\n", (unsigned)trace_hash);
 }
 
@@ -614,7 +618,7 @@ static void reset_fixture(CalibrationFixture *fixture)
     reset_observer_speed = false;
     leave_align = false;
     motion_ticks = 0U;
-    EncoderCalibration_Cancel();
+    EncoderCalibration_Cancel(&session);
 }
 
 static MotorTaskResult step_fixture(CalibrationFixture *fixture)
@@ -633,12 +637,13 @@ static MotorTaskResult step_fixture(CalibrationFixture *fixture)
 static void reach_phase(CalibrationFixture *fixture, EncoderCalibrationPhase target)
 {
     unsigned ticks = 0U;
-    while (EncoderCalibration_GetPhase() != target && ticks++ < LUT_FLOW_MAX_TICKS)
+    while (EncoderCalibration_GetPhase(&session) != target && ticks++ < LUT_FLOW_MAX_TICKS)
     {
         MotorTaskResult result = step_fixture(fixture);
-        assert(result.result == MOTOR_TASK_RUNNING || EncoderCalibration_GetPhase() == target);
+        assert(result.result == MOTOR_TASK_RUNNING ||
+               EncoderCalibration_GetPhase(&session) == target);
     }
-    assert(EncoderCalibration_GetPhase() == target && ticks < LUT_FLOW_MAX_TICKS);
+    assert(EncoderCalibration_GetPhase(&session) == target && ticks < LUT_FLOW_MAX_TICKS);
 }
 
 static void check_cancel(void)
@@ -655,18 +660,18 @@ static void check_cancel(void)
         reset_fixture(&fixture);
         reach_phase(&fixture, phases[index]);
         EncoderCalibration previous = fixture.configuration.device.encoder;
-        EncoderCalibration_Cancel();
-        EncoderCalibration_Cancel();
-        assert(EncoderCalibration_IsIdle());
-        assert(!EncoderCalibration_PublishLut(&fixture.configuration.device.encoder,
-                                              &fixture.encoder));
+        EncoderCalibration_Cancel(&session);
+        EncoderCalibration_Cancel(&session);
+        assert(EncoderCalibration_IsIdle(&session));
+        assert(!EncoderCalibration_PublishLut(
+            &session, &fixture.configuration.device.encoder, &fixture.encoder));
         assert(memcmp(&previous, &fixture.configuration.device.encoder, sizeof(previous)) == 0);
         assert(step_fixture(&fixture).result == MOTOR_TASK_RUNNING);
-        assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
-        assert(s_lut.stage.startup.clear_bin == 0U && s_lut.stage.startup.ticks == 0U &&
-               s_lut.stage.startup.stable_ticks == 0U);
+        assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
+        assert(session.lut.stage.startup.clear_bin == 0U && session.lut.stage.startup.ticks == 0U &&
+               session.lut.stage.startup.stable_ticks == 0U);
     }
-    EncoderCalibration_Cancel();
+    EncoderCalibration_Cancel(&session);
     puts("PASS calibration cancel and reentry in every phase");
 }
 
@@ -681,9 +686,9 @@ static void check_epoch_failure(void)
         ++fixture.observer.position_epoch;
         MotorTaskResult result = step_fixture(&fixture);
         assert(result.result == MOTOR_TASK_FAILED && result.error == MOTOR_FAULT_SENSORLESS);
-        assert(EncoderCalibration_IsIdle());
-        assert(!EncoderCalibration_PublishLut(&fixture.configuration.device.encoder,
-                                              &fixture.encoder));
+        assert(EncoderCalibration_IsIdle(&session));
+        assert(!EncoderCalibration_PublishLut(
+            &session, &fixture.configuration.device.encoder, &fixture.encoder));
         assert(fixture.motor.id_target_a == 0.0f && fixture.motor.iq_target_a == 0.0f);
         assert(fixture.motor.speed_target_rad_s == 0.0f &&
                fixture.motor.speed_ramped_rad_s == 0.0f);
@@ -704,19 +709,19 @@ static void check_startup_window(void)
     {
         assert(step_fixture(&fixture).result == MOTOR_TASK_RUNNING);
     }
-    assert(s_lut.stage.startup.stable_ticks > 0U);
-    uint32_t elapsed_ticks = s_lut.stage.startup.ticks;
+    assert(session.lut.stage.startup.stable_ticks > 0U);
+    uint32_t elapsed_ticks = session.lut.stage.startup.ticks;
     unstable_motion = true;
     assert(step_fixture(&fixture).result == MOTOR_TASK_RUNNING);
-    assert(s_lut.stage.startup.stable_ticks == 0U);
-    assert(s_lut.stage.startup.ticks == elapsed_ticks + 1U);
+    assert(session.lut.stage.startup.stable_ticks == 0U);
+    assert(session.lut.stage.startup.ticks == elapsed_ticks + 1U);
     unstable_motion = false;
     uint32_t required_ticks = (uint32_t)(SENSORLESS_ENCODER_CALIB_SPEED_STABLE_TIME_S / FOC_TS_S);
     for (uint32_t tick = 1U; tick < required_ticks; ++tick)
     {
         assert(step_fixture(&fixture).result == MOTOR_TASK_RUNNING);
-        assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
-        assert(s_lut.stage.startup.stable_ticks == tick);
+        assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
+        assert(session.lut.stage.startup.stable_ticks == tick);
     }
     /* 稳速最后一拍观测器复位，旧滤波速度不能放行新采样参考。 */
     reset_observer_speed = true;
@@ -725,16 +730,16 @@ static void check_startup_window(void)
     assert(fixture.startup.speed_feedback_rad_s == SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S);
     assert(fixture.motor.speed_ramped_rad_s == SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S);
     assert(fixture.observer.electrical_velocity_rad_s == 0.0f);
-    assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
-    assert(s_lut.stage.startup.stable_ticks == 0U);
+    assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
+    assert(session.lut.stage.startup.stable_ticks == 0U);
     reset_observer_speed = false;
     for (uint32_t tick = 1U; tick < required_ticks; ++tick)
     {
         assert(step_fixture(&fixture).result == MOTOR_TASK_RUNNING);
-        assert(EncoderCalibration_GetPhase() == CS_OBS_STARTUP);
+        assert(EncoderCalibration_GetPhase(&session) == CS_OBS_STARTUP);
     }
     assert(step_fixture(&fixture).result == MOTOR_TASK_RUNNING);
-    assert(EncoderCalibration_GetPhase() == CS_OBS_SAMPLE_CW);
+    assert(EncoderCalibration_GetPhase(&session) == CS_OBS_SAMPLE_CW);
 
     /* 开环等待与闭环失稳共用启动总时限，闭环交接不会重新计时。 */
     uint32_t timeout_ticks = (uint32_t)(SENSORLESS_ENCODER_CALIB_STARTUP_TIMEOUT_S / FOC_TS_S);
@@ -753,7 +758,7 @@ static void check_startup_window(void)
         }
         assert(result.result == MOTOR_TASK_FAILED && result.error == MOTOR_FAULT_SENSORLESS);
         assert(ticks >= timeout_ticks && ticks <= timeout_ticks + 1U);
-        assert(EncoderCalibration_IsIdle());
+        assert(EncoderCalibration_IsIdle(&session));
         assert(fixture.motor.id_target_a == 0.0f && fixture.motor.iq_target_a == 0.0f);
         assert(fixture.motor.speed_target_rad_s == 0.0f &&
                fixture.motor.speed_ramped_rad_s == 0.0f);
@@ -773,13 +778,13 @@ static void check_braking_cutoff(void)
         fixture.observer.electrical_velocity_rad_s = 0.0f;
         MotorTaskResult result = step_fixture(&fixture);
         assert(result.result == MOTOR_TASK_FINALIZE && result.error == MOTOR_FAULT_NONE);
-        assert(!EncoderCalibration_IsIdle());
+        assert(!EncoderCalibration_IsIdle(&session));
         assert(fixture.motor.id_target_a == 0.0f && fixture.motor.iq_target_a == 0.0f);
         assert(fixture.motor.speed_target_rad_s == 0.0f &&
                fixture.motor.speed_ramped_rad_s == 0.0f);
-        assert(
-            EncoderCalibration_PublishLut(&fixture.configuration.device.encoder, &fixture.encoder));
-        assert(EncoderCalibration_IsIdle());
+        assert(EncoderCalibration_PublishLut(
+            &session, &fixture.configuration.device.encoder, &fixture.encoder));
+        assert(EncoderCalibration_IsIdle(&session));
     }
     simulate_motion = false;
     puts("PASS calibration low-speed braking cutoff in both stop phases");

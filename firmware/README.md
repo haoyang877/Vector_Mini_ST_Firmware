@@ -16,26 +16,26 @@
 两板入口分别为 `projects/stm32g4/application/main.c` 和
 `projects/at32f456/application/main.c`。启动顺序为
 `Bsp_Init → App_Init → Bsp_Start → App_Start`，主循环调用 `App_Process`。
-AT32 ADC 入口确认完成后直接执行 `MotorAxis_SampleFast → MotorAxis_ControlFast` 并递增 `g_app_fast_samples`；
+AT32 ADC 入口确认完成后直接执行 `MotorAxis_SampleFast → MotorAxis_ControlFast`，生命周期登记本拍；
 STM32 保留 HAL 完成回调，经 `BspApp_OnFastSample → MotorAxis_SampleFast → MotorAxis_ControlFast`；
-监督事件经 `BspApp_OnControlTick → App_SupervisorTick → MotorAxis_SupervisorTick`。
+监督事件经 `BspApp_OnControlTick → MotorAxis_SupervisorTick`。
 
 当前 APP 开放零目标启动、STOP、清错和三类编码器标定。
-普通目标、在线参数读写/保存和标定进度接口已关闭；标定不自动保存 Flash。
+同模式目标通过 116 提交；三类角度标定完成后在关相前台自动保存到 Flash。在线参数读写/保存与标定进度查询返回不支持。
 启动零偏在关相的 IDLE 快拍累计 2048 次，20 kHz 下约 102.4 ms。
 完整链路见[软件架构](../docs/architecture/software_architecture.md)。
 
 ## Keil Watch 对象
 
-这些非静态符号保留用于只读观测，运行写入仍归所属模块。
+板级实例的这些成员供只读观测，运行写入仍归所属模块。
 
 | 对象 | 所属源码 | 内容 |
 | --- | --- | --- |
-| `s_motor_configuration` | app/runtime/motor_axis.c | model/application/device 配置与来源、确认位 |
-| `s_motor_state` | app/runtime/motor_axis.c | 模式、故障、目标和动态控制状态 |
-| `s_foc_state` | app/runtime/motor_axis.c | 测量值、PI、坐标变换、调制和估算量 |
-| `s_rotor_encoder` | app/runtime/motor_axis.c | 角度、位置和速度估计；不含独立硬件错误诊断 |
-| `g_motor_context` | app/runtime/motor_lifecycle.c | 生命周期、启停意图、标定类型和会话代际 |
+| `g_app.axis.configuration` | app/motor_axis.c | model/application/device 配置与来源、确认位 |
+| `g_app.axis.motor` | app/motor_axis.c | 模式、故障、目标和动态控制状态 |
+| `g_app.axis.foc` | app/motor_axis.c | 测量值、PI、坐标变换、调制和估算量 |
+| `g_app.axis.rotor_encoder` | app/motor_axis.c | 角度、位置和速度估计；不含独立硬件错误诊断 |
+| `g_app.axis.state_machine` | app/motor_state_machine.c | 状态机、启停意图、标定类型和会话代际 |
 
 见[Watch 指南](../docs/guides/watch_motor_commands.md)。调试前确认板上镜像与 AXF 匹配；
 源码检查不代表实机验收，电机出力时不通过暂停 CPU 停车。

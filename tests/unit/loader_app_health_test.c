@@ -8,78 +8,66 @@
 #include "yg_protocol.h"
 #include "app_protocol.h"
 #include "boot_hw.h"
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "bsp_can.h"
 #include "bsp_pwm.h"
 
-static uint32_t s_health_checked_ms, s_observed_supervisor_ticks;
-static bool s_communication_ready;
-static uint8_t s_healthy_intervals;
-static bool s_boot_supported, s_entry_requested;
-static bool confirm_image(void *context, uint32_t version, uint32_t crc32);
-static void publish_identity(void)
+static AppContext g_app;
+static bool try_confirm_trial_image(void *context, uint32_t version, uint32_t crc32);
+static void publish_identity(void *context)
 {
+    (void)context;
 }
 static uint32_t model_now_ms, clock_reads, foreground_stage;
 static uint32_t fast_calls, supervisor_calls;
-volatile uint32_t g_app_fast_samples;
-static uint32_t s_supervisor_ticks, s_watchdog_last_ms, s_watchdog_last_fast, s_watchdog_last_slow;
-static bool s_watchdog_enabled;
-static void halt_disabled(void)
+void MotorAxis_ProcessPositionPlan(MotorAxis *instance)
 {
-    assert(false);
+    (void)instance;
 }
-void BspWatchdog_Feed(void)
+void MotorCalibration_ProcessPublication(MotorCalibration *cal)
 {
-}
-
-void MotorAxis_ProcessPositionPlan(void)
-{
-}
-void MotorAxis_ProcessCalibrationPublication(OutputEncoderCalibrationProgress progress)
-{
-    (void)progress;
+    assert(cal == &g_app.axis.calibration);
     assert(foreground_stage == 0U);
     foreground_stage = 1U;
-}
-void AppProtocol_Refresh(void)
-{
-    assert(foreground_stage == 1U);
-    foreground_stage = 2U;
 }
 uint32_t BspSystem_TimeMs(void)
 {
     ++clock_reads;
     if (clock_reads == 1U)
     {
-        assert(foreground_stage == 2U);
-        foreground_stage = 3U;
+        assert(foreground_stage == 1U);
+        foreground_stage = 2U;
         return model_now_ms - 1U;
     }
-    assert(clock_reads == 2U && foreground_stage == 4U);
-    foreground_stage = 5U;
+    assert(clock_reads == 2U && foreground_stage == 3U);
+    foreground_stage = 4U;
     return model_now_ms;
 }
-void Protocol_Process(uint32_t now_ms)
+void Protocol_Process(ProtocolEndpoint *instance, uint32_t now_ms)
 {
-    assert(foreground_stage == 3U && now_ms == model_now_ms - 1U);
-    foreground_stage = 4U;
+    (void)instance;
+    assert(foreground_stage == 2U && now_ms == model_now_ms - 1U);
+    foreground_stage = 3U;
 }
-static void poll_entry(uint32_t now_ms)
+static void update_loader_entry_readiness(AppLoader *loader, uint32_t now_ms)
 {
-    assert(foreground_stage == 5U && now_ms == model_now_ms);
-    foreground_stage = 6U;
+    assert(loader == &g_app.loader);
+    assert(foreground_stage == 4U && now_ms == model_now_ms);
+    foreground_stage = 5U;
 }
-void MotorAxis_SampleFast(void)
+void MotorAxis_SampleFast(MotorAxis *instance)
 {
+    (void)instance;
 }
 
-void MotorAxis_ControlFast(void)
+void MotorAxis_ControlFast(MotorAxis *instance)
 {
+    (void)instance;
     ++fast_calls;
 }
-void MotorAxis_SupervisorTick(void)
+void MotorAxis_SupervisorTick(MotorAxis *instance)
 {
+    (void)instance;
     ++supervisor_calls;
 }
 
@@ -87,8 +75,8 @@ static void process_at(uint32_t now_ms)
 {
     model_now_ms = now_ms;
     foreground_stage = clock_reads = 0U;
-    App_Process();
-    assert(foreground_stage == 6U && clock_reads == 2U);
+    App_Process(&g_app);
+    assert(foreground_stage == 5U && clock_reads == 2U);
 }
 static void test_tick_entries(void)
 {
@@ -96,7 +84,7 @@ static void test_tick_entries(void)
     assert(fast_calls == 1U && supervisor_calls == 0U);
     for (unsigned tick = 0U; tick < SUPERVISOR_FREQ / 5U; ++tick)
     {
-        App_SupervisorTick();
+        MotorAxis_SupervisorTick(&g_app.axis);
     }
     assert(supervisor_calls == SUPERVISOR_FREQ / 5U && fast_calls == 1U);
 }
@@ -106,21 +94,24 @@ static bool model_healthy, model_link, last_healthy;
 static bool model_idle = true, model_off = true;
 static uint32_t confirm_calls;
 
-bool MotorLifecycle_ReadBootHealth(uint32_t *progress)
+bool MotorStateMachine_ReadBootHealth(MotorStateMachine *instance, uint32_t *progress)
 {
+    (void)instance;
     *progress = model_progress;
     return model_healthy;
 }
-bool MotorLifecycle_IsStopped(void)
+bool MotorStateMachine_IsStopped(const MotorStateMachine *instance)
 {
+    (void)instance;
     return false;
 }
 bool MotorAxis_SaveIdle(void)
 {
     return model_idle;
 }
-bool BspPwm_ArePhasesDisabled(void)
+bool MotorStateMachine_ArePhasesDisabled(const MotorStateMachine *machine)
 {
+    (void)machine;
     return model_off;
 }
 bool BootHw_Confirm(uint32_t version, uint32_t crc32)
@@ -128,8 +119,9 @@ bool BootHw_Confirm(uint32_t version, uint32_t crc32)
     ++confirm_calls;
     return version == 0x10000U && crc32 == 7U;
 }
-bool Protocol_IsReady(void)
+bool Protocol_IsReady(ProtocolEndpoint *instance)
 {
+    (void)instance;
     return model_link;
 }
 
@@ -141,8 +133,12 @@ void BootHw_Watchdog(bool healthy)
 }
 int main(void)
 {
+    g_app.loader = (AppLoader){.state_machine = &g_app.axis.state_machine,
+                               .communication_ready = &g_app.communication_ready,
+                               .endpoint = &g_app.endpoint,
+                               .publish_identity = publish_identity};
     test_tick_entries();
-    s_communication_ready = model_healthy = model_link = true;
+    g_app.communication_ready = model_healthy = model_link = true;
     model_progress = 1U;
     process_at(99U);
     assert(calls == 0U);
@@ -160,34 +156,36 @@ int main(void)
     process_at(400U);
     assert(feeds == 1U && !last_healthy);
     model_healthy = true;
-    s_health_checked_ms = UINT32_MAX - 50U;
-    s_observed_supervisor_ticks = UINT32_MAX;
+    g_app.loader.health_checked_ms = UINT32_MAX - 50U;
+    g_app.loader.observed_supervisor_ticks = UINT32_MAX;
     model_progress = 0U;
     process_at(49U);
     assert(feeds == 2U && last_healthy);
-    s_boot_supported = true;
-    s_healthy_intervals = 0U;
-    s_health_checked_ms = 0U;
+    g_app.loader.supported = true;
+    g_app.loader.healthy_intervals = 0U;
+    g_app.loader.health_checked_ms = 0U;
     for (uint32_t i = 1U; i <= 10U; ++i)
     {
         ++model_progress;
         process_at(i * 100U);
-        assert(!confirm_image(NULL, 0x10000U, 7U) && confirm_calls == 0U);
+        assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U) && confirm_calls == 0U);
     }
     ++model_progress;
     process_at(1100U);
-    assert(s_healthy_intervals == 11U && confirm_image(NULL, 0x10000U, 7U));
+    assert(g_app.loader.healthy_intervals == 11U &&
+           try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     model_off = false;
-    assert(!confirm_image(NULL, 0x10000U, 7U));
+    assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     model_off = true;
-    s_entry_requested = true;
-    assert(!confirm_image(NULL, 0x10000U, 7U));
-    s_entry_requested = false;
+    g_app.loader.request.boot_epoch = 1U;
+    assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
+    g_app.loader.request.boot_epoch = 0U;
     model_healthy = false;
-    assert(!confirm_image(NULL, 0x10000U, 7U));
+    assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     process_at(1200U);
     model_healthy = true;
-    assert(s_healthy_intervals == 0U && !confirm_image(NULL, 0x10000U, 7U));
+    assert(g_app.loader.healthy_intervals == 0U &&
+           !try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     assert(confirm_calls == 1U);
     puts("PASS actual APP foreground/tick order and bounded watchdog health/progress");
     return 0;

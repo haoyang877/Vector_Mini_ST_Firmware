@@ -12,9 +12,11 @@ void AT32KeilControl_Init(AT32KeilControl *control)
     g_openloop_rejected_starts = 0U;
 }
 
-bool AT32KeilControl_Poll(AT32KeilControl *control, AT32OlModel *model, uint32_t now_ms)
+bool AT32KeilControl_Poll(AT32KeilControl *control,
+                          AT32OlModel *model,
+                          uint32_t requested,
+                          uint32_t now_ms)
 {
-    uint32_t requested = g_openloop_enable;
     if (!control->active)
     {
         if (requested == 0U)

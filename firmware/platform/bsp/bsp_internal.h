@@ -56,14 +56,6 @@ void Adc_Stop(void);
  */
 bool Flash_Init(void);
 
-/**
- * @brief AT32停机Flash事务切换有界看门狗窗口，结束时恢复原重载值。
- * @param saving true进入事务，false退出；必须成对调用。
- * @return 未启用看门狗或切换并核对成功为true，否则false。
- * @note 仅已关相且全中断屏蔽的前台；等待硬件期间不循环喂狗，不启动看门狗。
- */
-bool McuSystem_SetFlashWatchdog(bool saving);
-
 /* AT32启动编排；测试入口与完整APP复用初始化顺序。 */
 /** @brief 准备系统时钟、PWM和监督定时器。
  * @note 外设初始化按默认成功处理；前台一次调用，等待时钟就绪后继续。

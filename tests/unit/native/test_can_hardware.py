@@ -32,7 +32,9 @@ static struct {struct {uintptr_t TxFIFOQSA,RxFIFO0SA;} msgRam;} hfdcan1;
 #define FDCAN_RXF0S_F0GI_Pos 8U
 """
         else:
-            source += '\n#include "at32f45x.h"\n#define BSP_APP_LIFECYCLE 1\ncan_type sim_can;\n'
+            source += (
+                '\n#include "at32f45x.h"\n#define BSP_APP_STATE_MACHINE 1\ncan_type sim_can;\n'
+            )
             extra = [
                 "-I",
                 ROOT / "tests/unit/native/at32f456_io_fake",

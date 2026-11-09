@@ -26,27 +26,9 @@ static unsigned irq = 1U, ipsr, erases, programs, reads, polls, locks;
 static unsigned error_after, busy_after, corrupt_after, operation, remaining;
 static uint32_t pending_address, pending_word, error_flag;
 static bool sampling_paused;
-static bool flash_watchdog_active;
-static bool fail_watchdog_prepare, fail_watchdog_restore;
-bool McuSystem_SetFlashWatchdog(bool saving)
-{
-    assert(irq && !ipsr && power_off);
-    if (saving)
-    {
-        assert(!flash_watchdog_active);
-        if (fail_watchdog_prepare)
-        {
-            return false;
-        }
-        flash_watchdog_active = true;
-        return true;
-    }
-    flash_watchdog_active = false;
-    return !fail_watchdog_restore;
-}
 void Adc_Stop(void)
 {
-    assert(irq && !ipsr && power_off && !sampling_paused && flash_watchdog_active);
+    assert(irq && !ipsr && power_off && !sampling_paused);
     sampling_paused = true;
 }
 void Adc_Start(void)
@@ -188,7 +170,6 @@ static void reset(void)
     error_after = busy_after = corrupt_after = operation = error_flag = 0U;
     blocked_unlock = s_flash_blocked = missing_completion = false;
     sampling_paused = false;
-    flash_watchdog_active = fail_watchdog_prepare = fail_watchdog_restore = false;
 }
 
 static void guards_unchanged(void)
@@ -240,7 +221,6 @@ int main(void)
         reset();
         unsigned size = sizes[i];
         assert(param_store_write(input, size));
-        assert(!flash_watchdog_active);
         assert(erases == (size + 2047U) / 2048U && programs == (size + 3U) / 4U);
         assert(sim_flash.ctrl_bit.oplk && !sim_flash.ctrl_bit.fprgm && !sim_flash.ctrl_bit.secers);
         assert(param_store_read(result, size) && memcmp(input, result, size) == 0);
@@ -254,12 +234,6 @@ int main(void)
                programs == before_programs);
         guards_unchanged();
     }
-    reset();
-    fail_watchdog_prepare = true;
-    assert(!param_store_write(input, 12U) && !erases && !programs && s_flash_blocked);
-    reset();
-    fail_watchdog_restore = true;
-    assert(!param_store_write(input, 12U) && !flash_watchdog_active && s_flash_blocked);
     reset();
     blocked_unlock = true;
     assert(!param_store_write(input, sizeof(input) - 1U) && !erases && !programs);

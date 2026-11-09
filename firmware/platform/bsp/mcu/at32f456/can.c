@@ -74,7 +74,7 @@ void BspCan_Start(void)
     /* 同寄存器跨时钟域，一次写入两项，避免两次位域写互相覆盖。 */
     MCU_CAN->lbtcfg = (MCU_CAN->lbtcfg & ~0x77000000U) | ((uint32_t)CAN_RE_TRANS_TIMES_1 << 28U) |
                       ((uint32_t)CAN_RE_ARBI_TIMES_UNLIMIT << 24U);
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
+#if defined(BSP_APP_STATE_MACHINE) && BSP_APP_STATE_MACHINE
     MCU_CAN->inten |= CAN_RIE_INT;
 #endif
 }
@@ -161,7 +161,7 @@ bool BspCan_IsTransmitComplete(void)
            MCU_CAN->tstat_bit.tstat_2 == CAN_TSTAT_TRANSMITTED;
 }
 
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
+#if defined(BSP_APP_STATE_MACHINE) && BSP_APP_STATE_MACHINE
 void MCU_CAN_IRQ_HANDLER(void)
 {
     MCU_CAN->sts = CAN_RIF_FLAG;

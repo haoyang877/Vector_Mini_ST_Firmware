@@ -47,7 +47,7 @@ AT32外设初始化按默认成功处理：McuSystem_Init/Start为void，仅等�
 不维护启动状态或上报初始化异常。Bsp_Init/Start也不缓存启动阶段，调用者负责按顺序各调用一次。
 Flash_Init不参与AT32初始化失败分支；Flash运行期读写、看门狗和电机故障仍保留原检查。
 AT32 main的ADC入口通过BspAdc_CompleteFast确认并清标志，直接执行MotorAxis_SampleFast → MotorAxis_ControlFast，
-完成后递增g_app_fast_samples。STM32 ADC入口仍调用BspAdc_HandleInterrupt，保留HAL回调后清标志。
+快拍进展由生命周期登记。STM32 ADC入口仍调用BspAdc_HandleInterrupt，保留HAL回调后清标志。
 监督与SysTick入口调用BspSystem_HandleControlInterrupt和BspSystem_HandleTickInterrupt；
 CAN事件由APP组合层实现，监督回调仍由main连接APP。
 MCU保留完成确认、清标志、HAL派发及1ms时基；main不读取寄存器、句柄或引入SDK类型。

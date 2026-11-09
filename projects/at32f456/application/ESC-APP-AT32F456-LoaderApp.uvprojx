@@ -335,7 +335,7 @@
               <MiscControls>--diag_suppress=1 -DFIRMWARE_TARGET_AT32_OFF --preinclude ..\..\..\firmware\config\board_config.h</MiscControls>
               <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U</Define>
               <Undefine />
-              <IncludePath>..\..\..\shared\targets\yg_esc_v1_at32f456;.;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\platform\bsp</IncludePath>
+              <IncludePath>..\..\..\shared\targets\yg_esc_v1_at32f456;.;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\app;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\parameters;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -377,12 +377,12 @@
       </TargetOption>
       <Groups>
         <Group>
-          <GroupName>App</GroupName>
+          <GroupName>00_App</GroupName>
           <Files>
             <File>
               <FileName>app.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\composition\app.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app.c</FilePath>
             </File>
             <File>
               <FileName>app_rtt.c</FileName>
@@ -392,7 +392,7 @@
             <File>
               <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\runtime\motor_axis.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_axis.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -446,9 +446,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_lifecycle.c</FileName>
+              <FileName>motor_calibration.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\runtime\motor_lifecycle.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_calibration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -504,7 +504,7 @@
             <File>
               <FileName>motor_state_machine.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\motor_state_machine\motor_state_machine.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_state_machine.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -560,7 +560,7 @@
             <File>
               <FileName>app_protocol.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\composition\app_protocol.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app_protocol.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -614,65 +614,14 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_stop_request.c</FileName>
+              <FileName>app_loader.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\interfaces\motor_stop_request.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>1</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument />
-                  <IncludeLibraryModules />
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>3</Optim>
-                    <oTime>0</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls />
-                      <Define />
-                      <Undefine />
-                      <IncludePath />
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
+              <FilePath>..\..\..\firmware\app\app_loader.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Motor</GroupName>
+          <GroupName>10_Motor</GroupName>
           <Files>
             <File>
               <FileName>motor_control.c</FileName>
@@ -1603,7 +1552,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Parameters</GroupName>
+          <GroupName>20_Parameters</GroupName>
           <Files>
             <File>
               <FileName>parameter_record.c</FileName>
@@ -1776,7 +1725,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Communication</GroupName>
+          <GroupName>30_Communication</GroupName>
           <Files>
             <File>
               <FileName>yg_protocol.c</FileName>
@@ -1791,7 +1740,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Platform</GroupName>
+          <GroupName>40_Platform</GroupName>
           <Files>
             <File>
               <FileName>main.c</FileName>
@@ -1841,7 +1790,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Shared</GroupName>
+          <GroupName>50_Shared</GroupName>
           <Files>
             <File>
               <FileName>yg_protocol_can_id.c</FileName>
@@ -1932,7 +1881,7 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Mcu_SDK</GroupName>
+          <GroupName>90_Vendor</GroupName>
           <Files>
             <File>
               <FileName>system_at32f45x.c</FileName>

@@ -155,8 +155,7 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
                                const EncoderCalibration *motor,
                                float ratio,
                                int32_t direction,
-                               float travel,
-                               OutputEncoderCalibrationProgress progress)
+                               float travel)
 {
     uint8_t covered[LINEAR_HALL_LUT_SIZE / 8U] = {0};
     unsigned count = 0U;
@@ -168,10 +167,6 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
     const float step = _2PI / (float)LINEAR_HALL_LUT_SIZE;
     for (unsigned i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES - 8U; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
         OutputEncoderCalibSample filtered_sample_value = filtered_sample(cal, i + 4U);
         const OutputEncoderCalibSample *sample = &filtered_sample_value;
         LinearHall_Update(hall, sample->sin_counts, sample->cos_counts);
@@ -249,8 +244,7 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
 bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
                             const OutputEncoderCalib *cal,
                             LinearHall *hall,
-                            const EncoderCalibration *motor,
-                            OutputEncoderCalibrationProgress progress)
+                            const EncoderCalibration *motor)
 {
     encoder->ready = false;
     memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
@@ -272,10 +266,6 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float travel = 0.0f, previous = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
         LinearHall_Update(&corrected, cal->samples[i].sin_counts, cal->samples[i].cos_counts);
         if (i != 0U)
         {
@@ -295,7 +285,7 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
         encoder->params.status = OUTPUT_ENCODER_CAL_RELATION;
         return false;
     }
-    hall->lut_status = build_hall_lut(cal, hall, motor, ratio, direction, travel, progress);
+    hall->lut_status = build_hall_lut(cal, hall, motor, ratio, direction, travel);
     if (hall->lut_status != LINEAR_HALL_LUT_OK)
     {
         memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
@@ -306,10 +296,6 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float sine = 0.0f, cosine = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
         float phase = sample_phase(&cal->samples[i], &corrected, motor, ratio, direction);
         sine += sinf(phase);
         cosine += cosf(phase);
@@ -318,10 +304,6 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float peak_error = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
         float error = sample_phase(&cal->samples[i], &corrected, motor, ratio, direction) - phase;
         peak_error = fmaxf(peak_error, fabsf(delta(error)));
     }

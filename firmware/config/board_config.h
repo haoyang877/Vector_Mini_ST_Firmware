@@ -7,7 +7,7 @@
 
 /* AT32正式工程的应用装配。 */
 #if defined(FIRMWARE_TARGET_AT32_OFF)
-#define BSP_APP_LIFECYCLE              1
+#define BSP_APP_STATE_MACHINE              1
 #endif
 
 #if BSP_BOARD == BSP_BOARD_AT32F456

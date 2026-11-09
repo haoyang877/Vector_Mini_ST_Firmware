@@ -23,7 +23,7 @@ MotorAxis在观测器调用前完成本拍电流的Clarke变换，并以原式
 
 | 源码 | 核心工作 |
 | --- | --- |
-| [motor_lifecycle.c](../../firmware/app/runtime/motor_lifecycle.c) | APP命令格式与数值范围校验，不拥有控制器或控制计算 |
+| [motor_state_machine.c](../../firmware/app/motor_state_machine.c) | 五态判断与功率动作、控制目标校验与写入、外环输入和反馈快照 |
 | [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调速度/位置外环（AT32F456/YQ-5708 每 250 µs，其余配置每 500 µs），分发20kHz任务；不读取APP状态机或服务命令 |
 | [position_control.c](../../firmware/motor/control/position_control.c) | 位置 OTG 参考 → 位置PD → 限幅速度参考 → 速度PI → 电流参考 |
 | [foc.c](../../firmware/motor/control/foc.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
@@ -38,7 +38,7 @@ Axis持有的`FocState`直接包含母线电压、三相电流及MCU温度；
 `bus_current_estimated_a`及功率为估算值，`bus_current_a`为硬件实测值。
 快慢拍测量字段不构成同一时刻的采样快照。
 目标和反馈使用A、rad/s、rad、V；线路整数尺度由通信边界换算。
-`motor_lifecycle.c`内的`validate_target`只验证格式及数值范围，不授予运行许可。
+`MotorStateMachine_SetTarget` 在所属会话已经运行时才接纳目标，启相许可由本轴状态机决定。
 `MotorOuterLoop_SlowTick`写电流参考，快环读取并执行，禁止通信直接写控制器积分。
 
 | 模式 | 慢拍 | 快拍 |

@@ -4,10 +4,6 @@
 #include <string.h>
 #include "bsp_system.h"
 #include "at32f45x.h"
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
-#include "at32f45x_debug.h"
-#include "at32f45x_wdt.h"
-#endif
 #include "bsp.h"
 #include "boot_hw.h"
 #include "bsp_pwm.h"
@@ -75,7 +71,8 @@ __attribute__((noinline)) void McuSystem_Start(void)
     tmr_flag_clear(MCU_CONTROL_TIMER, TMR_OVF_FLAG);
     tmr_interrupt_enable(MCU_CONTROL_TIMER, TMR_OVF_INT, TRUE);
     NVIC_SetPriority(MCU_CONTROL_IRQ, MCU_CONTROL_IRQ_PRIORITY);
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE && OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
+#if defined(BSP_APP_STATE_MACHINE) && BSP_APP_STATE_MACHINE &&                                     \
+    OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
     NVIC_SetPriority(PendSV_IRQn, MCU_CONTROL_IRQ_PRIORITY);
 #endif
     NVIC_EnableIRQ(MCU_CONTROL_IRQ);
@@ -138,105 +135,17 @@ BspResult BspSystem_ReadIdentity(uint8_t record[64])
     return BSP_OK;
 }
 
-#if defined(BSP_APP_LIFECYCLE) && BSP_APP_LIFECYCLE
+#if defined(BSP_APP_STATE_MACHINE) && BSP_APP_STATE_MACHINE
 static void halt_disabled(void)
 {
     __disable_irq();
     BspPwm_Disable();
     __DSB();
-    /* 不再喂狗，已启用的硬件看门狗负责复位。 */
+    /* 故障处理保持关相，等待外部复位。 */
     for (;;)
     {
         __WFI();
     }
-}
-
-#ifndef BSP_WATCHDOG_RELOAD
-#define BSP_WATCHDOG_RELOAD 511U
-#endif
-static bool s_watchdog_started;
-static bool s_flash_watchdog_active;
-static uint32_t s_flash_watchdog_reload;
-
-static bool set_watchdog_reload(uint32_t reload)
-{
-    WDT->cmd = 0x5555U;
-    WDT->rld = reload;
-    uint32_t remaining = 200000U;
-    while (WDT->sts != 0U && remaining > 0U)
-    {
-        --remaining;
-    }
-    if (remaining == 0U || WDT->rld != reload)
-    {
-        return false;
-    }
-    WDT->cmd = 0xAAAAU;
-    return true;
-}
-
-bool McuSystem_SetFlashWatchdog(bool saving)
-{
-    if (!s_watchdog_started)
-    {
-        return true;
-    }
-    if (!BspPwm_ArePhasesDisabled() || __get_PRIMASK() == 0U || __get_IPSR() != 0U)
-    {
-        return false;
-    }
-    if (saving)
-    {
-        if (s_flash_watchdog_active || WDT->sts != 0U)
-        {
-            return false;
-        }
-        s_flash_watchdog_reload = WDT->rld;
-        s_flash_watchdog_active = true;
-        /* 分频保持不变；仅停机擦写期间使用12位重载上限，等待不循环喂狗。 */
-        return set_watchdog_reload(4095U);
-    }
-    if (!s_flash_watchdog_active)
-    {
-        return true;
-    }
-    bool restored = set_watchdog_reload(s_flash_watchdog_reload);
-    if (restored)
-    {
-        s_flash_watchdog_active = false;
-    }
-    return restored;
-}
-
-static bool watchdog_init(void)
-{
-    DEBUGMCU->apb1_frz &= ~(1U << 12U);
-    crm_clock_source_enable(CRM_CLOCK_SOURCE_LICK, TRUE);
-    uint32_t remaining = 200000U;
-    while (crm_flag_get(CRM_LICK_STABLE_FLAG) == RESET && remaining > 0U)
-    {
-        --remaining;
-    }
-    if (remaining == 0U)
-    {
-        return false;
-    }
-    WDT->cmd = 0x5555U;
-    WDT->div = 0U;
-    WDT->rld = BSP_WATCHDOG_RELOAD;
-    WDT->win = 4095U;
-    remaining = 200000U;
-    while (WDT->sts != 0U && remaining > 0U)
-    {
-        --remaining;
-    }
-    if (remaining == 0U || WDT->div != 0U || WDT->rld != BSP_WATCHDOG_RELOAD)
-    {
-        return false;
-    }
-    WDT->cmd = 0xAAAAU;
-    WDT->cmd = 0xCCCCU;
-    return true;
 }
 
 BspResult Bsp_Init(void)
@@ -256,28 +165,6 @@ BspResult Bsp_Start(void)
     McuSystem_Start();
 
     return BSP_OK;
-}
-
-BspResult BspWatchdog_Start(void)
-{
-    if (s_watchdog_started)
-    {
-        return BSP_NOT_READY;
-    }
-    if (!watchdog_init())
-    {
-        return BSP_IO_ERROR;
-    }
-    s_watchdog_started = true;
-    return BSP_OK;
-}
-
-void BspWatchdog_Feed(void)
-{
-    if (s_watchdog_started)
-    {
-        WDT->cmd = 0xAAAAU;
-    }
 }
 
 void BspSystem_StartCycleCounter(void)
@@ -368,11 +255,3 @@ bool BspSystem_CompareExchange32(volatile uint32_t *address, uint32_t expected, 
     __DMB();
     return true;
 }
-
-#if !defined(BSP_APP_LIFECYCLE) || !BSP_APP_LIFECYCLE
-bool McuSystem_SetFlashWatchdog(bool saving)
-{
-    (void)saving;
-    return true;
-}
-#endif

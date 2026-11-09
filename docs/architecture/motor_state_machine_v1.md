@@ -1,54 +1,20 @@
-# 电机五状态核心
+# 电机五态与功率交接
 
-更新日期：2026-10-30。按用户要求删除旧八态框架并重写；自检当前只占位。
+核对日期 2026-11-09。STM32G431 和 AT32F456 共用一套状态机，每根轴持有自己的 `MotorStateMachine`。上电进入 `IDLE`。`SELF_TEST` 保留枚举值，当前没有生产入口。
 
-## 状态与路径
+| 主线 | 谁提出 | 何时改变主状态 |
+| --- | --- | --- |
+| 空闲 → 运行 | 前台受理启动，登记模式、起始目标和会话 | 外环发布启相意图，ADC 拍首复核本会话、采样、模式、STOP 和故障。只有 PWM 启相且读回确认后，才提交 `RUN` |
+| 运行或标定 → 空闲 | 前台 STOP 或快拍任务请求停机 | 请求立即撤销许可。ADC 遇到待停请求先关相；监督拍或外环提交入口消费 STOP、清目标、撤销会话、确认关相，再提交 `STOP`。关相失败时进入故障 |
+| 空闲 → 标定 | 前台受理指定标定类型 | 从关相空闲且输入有效的轴发起，受理时提交 `CALIBRATE`。需要通电的标定由 ADC 再复核并启相；机械零位保持关相 |
+| 标定 → 空闲 | 快拍报告算法完成 | 先关相。需要安装 LUT 时由 ADC 在读角前复核会话；前台复核并保存，成功后由监督拍提交 `COMPLETE`。联合标定在同一会话转入电零位 |
+| 任意状态 → 故障 | 保护逻辑锁存故障，或启相关相确认失败 | 快环看到故障立即抑制功率，慢拍处理故障并提交 `FAULT`。故障锁存和主状态写入发生在各自的执行上下文 |
+| 故障 → 空闲 | 前台显式 CLEAR | 必须关相、输入有效、故障源满足恢复条件。若原子清故障字失败则恢复 `FAULT`；成功只回空闲，启动需重新请求 |
 
-| 状态 | 行为与出口 |
-| --- | --- |
-| IDLE 空闲 | 上电直接进入；等待明确运行或标定请求 |
-| SELF_TEST 自检 | 仅保留枚举，当前没有入口和自检实现 |
-| CALIBRATION 标定 | 执行编码器线性化、电气零位或机械零位；完成后回空闲 |
-| RUNNING 运行 | 实际启相后进入；停止后回空闲 |
-| FAULT 故障 | 关闭输出；满足恢复条件并明确清错后回空闲 |
+## 从代码跟一条路径
 
-启动等待和停止收尾不是主状态。等待启相时仍为空闲，但请求占用会阻止第二次启动；
-标定由明确的类型化接口请求；通信160的kind 1、2、6在APP适配层映射为三种类型。
-保存、去重和通用任务查询仍不恢复。
-仅在关相空闲且没有待启动时允许修改参数。
-
-## 代码职责
-
-- [motor_state_machine.c](../../firmware/app/motor_state_machine/motor_state_machine.c)：
-  唯一五态纯迁移函数；不访问硬件、不拥有通信、任务或运行上下文。
-- [motor_state_machine.h](../../firmware/app/motor_state_machine/motor_state_machine.h)：
-  六个单一事件与纯函数接口，没有事件位图、动作位图或通用规则引擎。
-- [motor_lifecycle.c](../../firmware/app/runtime/motor_lifecycle.c)：
-  唯一运行上下文，直接实现启停、标定、状态监督及功率保护。
-  内部函数仅文件可见，没有跨文件上下文接口或公开转发层。
-- [motor_axis.c](../../firmware/app/runtime/motor_axis.c)：
-  持有单轴对象并编排快慢环；快环进入BeginFastTick，结束时PostOutcome，
-  两个入口各自负责所属阶段的故障检查和关相。
-  标定分支复用已有算法；主循环调用ProcessCalibrationPublication发布已验证的LUT。
-
-原motor_state_rules、motor_state_internal及同目录runtime/requests/maintenance实现均已删除。
-外部APP调用改为MotorLifecycle_*；MotorStateMachine_*仅剩Step纯函数。
-
-## 运行约束
-
-自检占位不代表可以忽略启相条件：仍检查参数、母线、采样、编码器/模式、零偏和故障。
-ADC只在当前请求代际和许可匹配时启相。STOP先撤销许可、关相，再清目标并撤销旧代计算。
-故障不会自动恢复运行；清错仅回空闲，必须重新明确启动。
-
-标定完成先关相，监督层再通过COMPLETE回到空闲。线性化任务先发布FINALIZE，
-保持CALIBRATION但停止快环执行，前台发布候选后才允许完成。STOP和故障撤销原代际，
-迟到的完成或发布结果不能影响新请求。三类标定只改变RAM配置，不自动写Flash。
-
-调用示例见[标定请求接口](../guides/motor_calibration_request.md)，
-状态在线路上的映射见[标定接入语义v1.5](../protocols/README.md#feedback)。
-三类通信启动见[标定通信v1.6](../protocols/README.md#parameters)。
-
-监督准备、外环计算和提交现由MotorLifecycle_SupervisorTick一次完成。目标命令、启动资格明细和测量快照已删除，状态接口仅保留模式/故障/主状态。
-
-公共值契约现集中于interfaces/motor_state_types.h，ReadStatus一次返回状态/模式/故障；
-没有状态邮箱、目标进度或启动资格接口。停机服务独立保留实际关相确认。
+- 从 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 的 `transition_motor_state` 开始读。它按 RUN、CALIBRATE、COMPLETE、STOP、FAULT、CLEAR 处理实际事件。初始化之后的主状态写入全部在这里。`MotorStateMachine_NextState` 给出五态之间允许的转换。
+- 启动请求登记后，外环批准本次启相，ADC 在 `BeginFastTick` 处理 RUN。STOP、标定保存成功后的 COMPLETE、首次 FAULT 共用关相和会话收尾。CLEAR 在关相和故障源恢复后才回空闲，若同时发生新故障则仍锁存 FAULT。
+- 每次 ADC 采样后，[MotorAxis_ControlFast](../../firmware/app/motor_axis.c) 先调用 `BeginFastTick` 检查故障和启相许可，再读取主状态。运行态执行 `MotorControl_Step`，可执行的标定态执行 `MotorCalibration_StepFast`。最后 `FinishFastTick` 接收本拍结果并检查新故障。
+- 前台在 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 校验目标并直接写本轴，也从本轴读取 CAN 反馈。外环在 `MotorStateMachine_CommitOuterResult` 直接写有效结果。ADC 单独复核启相条件。
+- 标定的停稳、LUT 安装和 Flash 保存见 [motor_calibration.c](../../firmware/app/motor_calibration.c)，线路状态和命令编号见[协议说明](../protocols/README.md)。除 Flash 事务外，这些交接不暂缓 ADC。

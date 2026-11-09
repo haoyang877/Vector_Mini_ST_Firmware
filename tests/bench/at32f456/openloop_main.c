@@ -55,7 +55,7 @@ volatile struct
     uint32_t heartbeat, heartbeat_inverse;
 } g_openloop_command = {.magic = 0x4F4C3430U, .version = 1U};
 
-volatile struct
+typedef struct
 {
     uint32_t begin, milliseconds, state, fault, calibration_samples, running_samples;
     uint32_t encoder_samples, encoder_errors, angle, max_cycles, power_build, reset_cause;
@@ -64,7 +64,8 @@ volatile struct
     float offset_a, offset_b, offset_c, current_a, current_b, current_c;
     float peak_current, bus_v, duty_a, duty_b, duty_c;
     uint32_t end;
-} g_openloop_snapshot;
+} AT32OpenLoopSnapshot;
+volatile AT32OpenLoopSnapshot g_openloop_snapshot;
 
 /* 与主快照使用同一发布序号；母线电流保留ADC原码，零偏在关相基线中确定。 */
 volatile struct
@@ -73,11 +74,28 @@ volatile struct
 } g_openloop_aux_snapshot;
 
 static AT32OlModel s_model;
+/* ADC 单写，含采样失败的中断。前台跨过一次中断就放弃本次遥测。 */
+static volatile uint32_t s_adc_revision;
 static uint16_t s_raw[4];
 static volatile uint32_t s_fast_samples, s_encoder_samples, s_encoder_errors, s_max_cycles;
 static volatile uint16_t s_angle;
 static uint32_t s_reset_cause, s_nonce, s_heartbeat, s_last_feed_sample, s_last_published;
-static bool s_output_on, s_hold_snapshot, s_wdt_test;
+static bool s_output_on;
+static volatile bool s_hold_snapshot, s_wdt_test;
+
+typedef struct
+{
+    uint32_t command, nonce, posted_ms;
+    bool heartbeat;
+#if defined(AT32_KEIL_OPENLOOP) && AT32_KEIL_OPENLOOP
+    uint32_t keil_enable;
+#endif
+} BenchControlRequest;
+
+/* 单个待处理槽。前台发布后不再写，ADC 消费完才归还。紧急关相关口独立于槽。 */
+static BenchControlRequest s_request;
+static volatile bool s_request_ready, s_stop_requested;
+static void consume_controls(void);
 
 #if defined(AT32_OPENLOOP_CAPTURE) && AT32_OPENLOOP_CAPTURE
 /* 单次开环板内1kHz原码记录；只在RUNNING写入，关相后读取，不占用控制接口。 */
@@ -220,16 +238,19 @@ void SysTick_Handler(void)
 void ADC1_2_IRQHandler(void)
 {
     uint32_t began = DWT->CYCCNT;
+    ++s_adc_revision;
     record_fault_stage(1U);
     bool adc_ok = BspAdc_CompleteFast();
     if (!adc_ok)
     {
         AT32Ol_Stop(&s_model, AT32_OL_ADC_ERROR);
+        consume_controls();
         record_fault_stage(0xA0U);
         stop_outputs();
         return;
     }
     ++s_fast_samples;
+    consume_controls();
     record_fault_stage(2U);
     uint16_t raw[4];
     for (unsigned phase = 0U; phase < 3U; ++phase)
@@ -327,65 +348,134 @@ void UsageFault_Handler(void)
     fatal_stop();
 }
 
-static void command_poll(void)
+/* 快拍独占模型。过期启动一律拒绝，停机照常处理。 */
+static void apply_command(uint32_t command, uint32_t nonce, uint32_t posted_ms)
 {
-    uint32_t key = BspSystem_EnterCritical();
-    uint32_t command = g_openloop_command.command;
-    uint32_t nonce = g_openloop_command.nonce;
-    uint32_t heartbeat = g_openloop_command.heartbeat;
-    if (g_openloop_command.magic == 0x4F4C3430U && g_openloop_command.version == 1U)
-    {
-        if (heartbeat != s_heartbeat && g_openloop_command.heartbeat_inverse == ~heartbeat)
-        {
-            s_heartbeat = heartbeat;
-            AT32Ol_Heartbeat(&s_model, BspSystem_TimeMs());
-        }
-        if (command != 0U && nonce != 0U && nonce != s_nonce &&
-            g_openloop_command.inverse == ~command)
-        {
-            s_nonce = nonce;
-            g_openloop_command.result = 2U;
+    bool fresh = (uint32_t)(BspSystem_TimeMs() - posted_ms) < AT32_OL_LEASE_MS;
+    g_openloop_command.result = 2U;
 #if defined(AT32_CLOSEDLOOP_TEST) && AT32_CLOSEDLOOP_TEST
-            if (command >= 10U && command <= 13U)
-            {
-                if (!BspPwm_ArePhasesDisabled() ||
-                    !AT32Cl_Begin(&s_closedloop, &s_model, command - 9U, BspSystem_TimeMs()))
-                {
-                    g_openloop_command.result = 4U;
-                }
-            }
-#else
-            if (command == 1U)
-            {
-                if (!BspPwm_ArePhasesDisabled() || !AT32Ol_Begin(&s_model, BspSystem_TimeMs()))
-                {
-                    g_openloop_command.result = 4U;
-                }
-            }
-#endif
-            else if (command == 2U)
-            {
-                AT32Ol_Stop(&s_model, AT32_OL_USER_STOP);
-                stop_outputs();
-            }
-            else if (command == 3U || command == 4U)
-            {
-                s_hold_snapshot = command == 3U;
-            }
-            else if (command == 5U && !AT32_OPENLOOP_POWER_ENABLED &&
-                     s_model.state != AT32_OL_RUNNING && s_model.state != AT32_OL_ARMING &&
-                     BspPwm_ArePhasesDisabled())
-            {
-                s_wdt_test = true;
-            }
-            else
-            {
-                g_openloop_command.result = 4U;
-            }
-            g_openloop_command.completed_nonce = nonce;
+    if (command >= 10U && command <= 13U)
+    {
+        if (!fresh || !BspPwm_ArePhasesDisabled() ||
+            !AT32Cl_Begin(&s_closedloop, &s_model, command - 9U, posted_ms))
+        {
+            g_openloop_command.result = 4U;
         }
     }
-    BspSystem_ExitCritical(key);
+#else
+    if (command == 1U)
+    {
+        if (!fresh || !BspPwm_ArePhasesDisabled() || !AT32Ol_Begin(&s_model, posted_ms))
+        {
+            g_openloop_command.result = 4U;
+        }
+    }
+#endif
+    else if (command == 2U)
+    {
+        AT32Ol_Stop(&s_model, AT32_OL_USER_STOP);
+        stop_outputs();
+    }
+    else if (command == 3U || command == 4U)
+    {
+        s_hold_snapshot = command == 3U;
+    }
+    else if (command == 5U && !AT32_OPENLOOP_POWER_ENABLED && s_model.state != AT32_OL_RUNNING &&
+             s_model.state != AT32_OL_ARMING && BspPwm_ArePhasesDisabled())
+    {
+        s_wdt_test = true;
+    }
+    else
+    {
+        g_openloop_command.result = 4U;
+    }
+    g_openloop_command.completed_nonce = nonce;
+}
+
+static void post_controls(void)
+{
+    uint32_t nonce = g_openloop_command.nonce;
+    uint32_t command = g_openloop_command.command;
+    uint32_t heartbeat = g_openloop_command.heartbeat;
+    bool valid = g_openloop_command.magic == 0x4F4C3430U && g_openloop_command.version == 1U;
+    bool new_command = valid && command != 0U && nonce != 0U && nonce != s_nonce &&
+                       g_openloop_command.inverse == ~command && nonce == g_openloop_command.nonce;
+    bool new_heartbeat =
+        valid && heartbeat != s_heartbeat && g_openloop_command.heartbeat_inverse == ~heartbeat;
+    bool stop = new_command && command == 2U;
+#if defined(AT32_KEIL_OPENLOOP) && AT32_KEIL_OPENLOOP
+    uint32_t enable = g_openloop_enable;
+    bool poll_keil = s_keil_control.active || enable != 0U;
+    stop = stop || (s_keil_control.active && enable != 1U);
+#else
+    const bool poll_keil = false;
+#endif
+    if (stop)
+    {
+        /* 即使 ADC 停滞也立即物理关相；下一拍先锁存 STOP 再处理任何旧启动。 */
+        s_stop_requested = true;
+        BspSystem_MemoryBarrier();
+        BspPwm_Disable();
+    }
+    if (s_request_ready || (!new_command && !new_heartbeat && !poll_keil))
+    {
+        return;
+    }
+    BenchControlRequest request = {.posted_ms = BspSystem_TimeMs(), .heartbeat = new_heartbeat};
+    if (new_command)
+    {
+        request.command = command;
+        request.nonce = nonce;
+        s_nonce = nonce;
+    }
+    if (new_heartbeat)
+    {
+        s_heartbeat = heartbeat;
+    }
+#if defined(AT32_KEIL_OPENLOOP) && AT32_KEIL_OPENLOOP
+    request.keil_enable = enable;
+#endif
+    s_request = request;
+    BspSystem_MemoryBarrier();
+    s_request_ready = true;
+}
+
+static void consume_controls(void)
+{
+    if (s_stop_requested)
+    {
+        s_stop_requested = false;
+        AT32Ol_Stop(&s_model, AT32_OL_USER_STOP);
+        stop_outputs();
+    }
+    if (!s_request_ready)
+    {
+        return;
+    }
+    BspSystem_MemoryBarrier();
+    BenchControlRequest request = s_request;
+    s_request_ready = false;
+    if (request.heartbeat)
+    {
+        AT32Ol_Heartbeat(&s_model, request.posted_ms);
+    }
+    if (request.command != 0U)
+    {
+        apply_command(request.command, request.nonce, request.posted_ms);
+    }
+#if defined(AT32_KEIL_OPENLOOP) && AT32_KEIL_OPENLOOP
+    if (request.keil_enable != 0U && !s_keil_control.active && !BspPwm_ArePhasesDisabled())
+    {
+        AT32Ol_Stop(&s_model, AT32_OL_OUTPUT_ERROR);
+        g_openloop_enable = 0U;
+        stop_outputs();
+    }
+    else if (AT32KeilControl_Poll(
+                 &s_keil_control, &s_model, request.keil_enable, request.posted_ms))
+    {
+        stop_outputs();
+    }
+#endif
 }
 
 static void publish(void)
@@ -395,47 +485,61 @@ static void publish(void)
     {
         return;
     }
+    uint32_t revision = s_adc_revision;
+    BspSystem_MemoryBarrier();
+    AT32OpenLoopSnapshot snapshot = {0};
+    snapshot.milliseconds = now;
+    snapshot.state = s_model.state;
+    snapshot.fault = s_model.fault;
+    snapshot.calibration_samples = s_model.calibration_samples;
+    snapshot.running_samples = s_model.running_samples;
+    snapshot.encoder_samples = s_encoder_samples;
+    snapshot.encoder_errors = s_encoder_errors;
+    snapshot.angle = s_angle;
+    snapshot.max_cycles = s_max_cycles;
+    snapshot.power_build = AT32_OPENLOOP_POWER_ENABLED;
+    snapshot.reset_cause = s_reset_cause;
+    snapshot.cctrl = TMR1->cctrl;
+    snapshot.brk = TMR1->brk;
+    snapshot.gpioa = GPIOA->idt;
+    snapshot.gpiob = GPIOB->idt;
+    snapshot.wdt_div = WDT->div;
+    snapshot.wdt_reload = WDT->rld;
+    snapshot.debug_freeze = DEBUGMCU->apb1_frz;
+    snapshot.raw_a = s_raw[0];
+    snapshot.raw_b = s_raw[1];
+    snapshot.raw_c = s_raw[2];
+    snapshot.raw_vbus = s_raw[3];
+    snapshot.offset_a = s_model.offsets[0];
+    snapshot.offset_b = s_model.offsets[1];
+    snapshot.offset_c = s_model.offsets[2];
+    snapshot.current_a = s_model.current_a[0];
+    snapshot.current_b = s_model.current_a[1];
+    snapshot.current_c = s_model.current_a[2];
+    snapshot.peak_current = s_model.peak_current_a;
+    snapshot.bus_v = s_model.bus_v;
+    snapshot.duty_a = s_model.duty[0];
+    snapshot.duty_b = s_model.duty[1];
+    snapshot.duty_c = s_model.duty[2];
+    float bus_counts = BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT);
+#if defined(AT32_CLOSEDLOOP_TEST) && AT32_CLOSEDLOOP_TEST
+    AT32ClTelemetry closedloop = s_closedloop.telemetry;
+#endif
+    BspSystem_MemoryBarrier();
+    if (revision != s_adc_revision)
+    {
+        return;
+    }
     s_last_published = now;
-    uint32_t key = BspSystem_EnterCritical();
     uint32_t version = (g_openloop_snapshot.begin + 2U) & ~1U;
-    g_openloop_snapshot.begin = version | 1U;
-    g_openloop_snapshot.milliseconds = now;
-    g_openloop_snapshot.state = s_model.state;
-    g_openloop_snapshot.fault = s_model.fault;
-    g_openloop_snapshot.calibration_samples = s_model.calibration_samples;
-    g_openloop_snapshot.running_samples = s_model.running_samples;
-    g_openloop_snapshot.encoder_samples = s_encoder_samples;
-    g_openloop_snapshot.encoder_errors = s_encoder_errors;
-    g_openloop_snapshot.angle = s_angle;
-    g_openloop_snapshot.max_cycles = s_max_cycles;
-    g_openloop_snapshot.power_build = AT32_OPENLOOP_POWER_ENABLED;
-    g_openloop_snapshot.reset_cause = s_reset_cause;
-    g_openloop_snapshot.cctrl = TMR1->cctrl;
-    g_openloop_snapshot.brk = TMR1->brk;
-    g_openloop_snapshot.gpioa = GPIOA->idt;
-    g_openloop_snapshot.gpiob = GPIOB->idt;
-    g_openloop_snapshot.wdt_div = WDT->div;
-    g_openloop_snapshot.wdt_reload = WDT->rld;
-    g_openloop_snapshot.debug_freeze = DEBUGMCU->apb1_frz;
-    g_openloop_snapshot.raw_a = s_raw[0];
-    g_openloop_snapshot.raw_b = s_raw[1];
-    g_openloop_snapshot.raw_c = s_raw[2];
-    g_openloop_snapshot.raw_vbus = s_raw[3];
-    g_openloop_snapshot.offset_a = s_model.offsets[0];
-    g_openloop_snapshot.offset_b = s_model.offsets[1];
-    g_openloop_snapshot.offset_c = s_model.offsets[2];
-    g_openloop_snapshot.current_a = s_model.current_a[0];
-    g_openloop_snapshot.current_b = s_model.current_a[1];
-    g_openloop_snapshot.current_c = s_model.current_a[2];
-    g_openloop_snapshot.peak_current = s_model.peak_current_a;
-    g_openloop_snapshot.bus_v = s_model.bus_v;
-    g_openloop_snapshot.duty_a = s_model.duty[0];
-    g_openloop_snapshot.duty_b = s_model.duty[1];
-    g_openloop_snapshot.duty_c = s_model.duty[2];
+    snapshot.begin = version | 1U;
+    snapshot.end = version;
+    g_openloop_snapshot.begin = snapshot.begin;
+    BspSystem_MemoryBarrier();
+    g_openloop_snapshot = snapshot;
     g_openloop_aux_snapshot.begin = version | 1U;
     g_openloop_aux_snapshot.milliseconds = now;
     ++g_openloop_aux_snapshot.sequence;
-    float bus_counts = BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT);
     g_openloop_aux_snapshot.bus_current_counts =
         isfinite(bus_counts) ? (uint32_t)bus_counts : UINT32_MAX;
     g_openloop_aux_snapshot.bus_current_enabled = BSP_ENABLED_BUS_CURRENT;
@@ -443,38 +547,25 @@ static void publish(void)
     g_openloop_aux_snapshot.begin = version;
 #if defined(AT32_CLOSEDLOOP_TEST) && AT32_CLOSEDLOOP_TEST
     g_closedloop_snapshot.begin = version | 1U;
-    g_closedloop_snapshot.value = s_closedloop.telemetry;
+    g_closedloop_snapshot.value = closedloop;
     g_closedloop_snapshot.end = version;
     g_closedloop_snapshot.begin = version;
 #endif
-    g_openloop_snapshot.end = version;
+    BspSystem_MemoryBarrier();
     g_openloop_snapshot.begin = version;
-    BspSystem_ExitCritical(key);
 }
 
 #if defined(AT32_KEIL_OPENLOOP) && AT32_KEIL_OPENLOOP
-static void keil_poll(void)
+static void publish_keil_telemetry(void)
 {
-    uint32_t key = BspSystem_EnterCritical();
-    if (g_openloop_enable != 0U && !s_keil_control.active && !BspPwm_ArePhasesDisabled())
-    {
-        AT32Ol_Stop(&s_model, AT32_OL_OUTPUT_ERROR);
-        g_openloop_enable = 0U;
-        stop_outputs();
-    }
-    else if (AT32KeilControl_Poll(&s_keil_control, &s_model, BspSystem_TimeMs()))
-    {
-        stop_outputs();
-    }
-    BspSystem_ExitCritical(key);
     static uint32_t previous_slot;
     uint32_t slot = s_fast_samples / AT32_RTT_FAST_TICKS;
     if (slot == previous_slot)
     {
         return;
     }
-    previous_slot = slot;
-    key = BspSystem_EnterCritical();
+    uint32_t revision = s_adc_revision;
+    BspSystem_MemoryBarrier();
     AT32OpenLoopTelemetrySample sample = {s_fast_samples,
                                           s_model.state,
                                           s_model.fault,
@@ -490,7 +581,12 @@ static void keil_poll(void)
                                           s_model.current_a[1],
                                           s_model.current_a[2],
                                           s_model.bus_v};
-    BspSystem_ExitCritical(key);
+    BspSystem_MemoryBarrier();
+    if (revision != s_adc_revision)
+    {
+        return;
+    }
+    previous_slot = sample.fast_samples / AT32_RTT_FAST_TICKS;
     /* 缓冲区写入和格式化只在前台执行，不占用ADC中断或临界区。 */
     AT32OpenLoopTelemetry_Publish(&sample);
 }
@@ -533,9 +629,9 @@ int main(void)
     McuSystem_Start();
     for (;;)
     {
-        command_poll();
+        post_controls();
 #if defined(AT32_KEIL_OPENLOOP) && AT32_KEIL_OPENLOOP
-        keil_poll();
+        publish_keil_telemetry();
 #endif
         publish();
         /* 前台和快采样均前进才喂狗；CPU暂停/前台卡死/采样停滞均不能保持输出。 */

@@ -27,6 +27,7 @@ NATIVE = (
     "test_adc_fast_dispatch",
     "test_interrupt_routing",
     "test_app_orchestration",
+    "test_app_instances",
     "test_calibration_save",
     "test_output_encoder",
     "test_encoder_sample_overlap",

@@ -29,7 +29,7 @@ def main() -> None:
         "yg_protocol_motor_wire.exe" if os.name == "nt" else "yg_protocol_motor_wire"
     )
     # 使用实际APP能力配置验证编码结果，防止控制入口已接通但发现页仍遗漏模式。
-    startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
+    startup = (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
     capabilities = re.search(r"ProtocolCaps capabilities = \{.*?\};", startup, re.DOTALL)
     if capabilities is None:
         raise RuntimeError("未找到APP能力配置")

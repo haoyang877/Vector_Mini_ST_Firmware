@@ -5,10 +5,10 @@
 
 ## 结构与阅读入口
 
-- [转换规则](../../../firmware/app/motor_state_machine/motor_state_machine.c)：
+- [转换规则](../../../firmware/app/motor_state_machine.c)：
   MotorStateRules_Step 依次处理参数、公共优先级、普通状态事件和统一输出约束。
   handle_state_event 按九个主状态组织，入口、守卫和出口集中在对应分支。
-- [监督所有者](../../../firmware/app/motor_state_machine/motor_state_machine.c)：
+- [监督所有者](../../../firmware/app/motor_state_machine.c)：
   MotorStateMachine_Tick 展示有序阶段，工作由同文件私有函数完成；不新增公开 API。
 - 单一上下文、协议、参数 schema12、维护身份和共享镜像契约保持。
   事实采集改名 state_read_facts，短变量使用 context/event/facts 等明确名称。

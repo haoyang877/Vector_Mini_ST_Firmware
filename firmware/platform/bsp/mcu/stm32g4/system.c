@@ -177,16 +177,6 @@ failed:
     return BSP_IO_ERROR;
 }
 
-BspResult BspWatchdog_Start(void)
-{
-    return BSP_NOT_SUPPORTED;
-}
-
-void BspWatchdog_Feed(void)
-{
-    /* 独立APP没有应用看门狗；Loader继承看门狗仍由BootHw管理。 */
-}
-
 void Error_Handler(void)
 {
     /* USER CODE BEGIN Error_Handler_Debug */

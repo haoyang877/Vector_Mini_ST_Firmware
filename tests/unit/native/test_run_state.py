@@ -19,17 +19,16 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
     sources = [
-        ROOT / "tests/unit/native/five_state_lifecycle_test.c",
-        ROOT / "firmware/app/motor_state_machine/motor_state_machine.c",
-        *sorted((ROOT / "firmware/app/runtime").glob("motor_lifecycle*.c")),
+        ROOT / "tests/unit/native/motor_state_machine_integration_test.c",
+        ROOT / "tests/unit/native/motor_state_machine_test.c",
+        ROOT / "firmware/app/motor_state_machine.c",
         ROOT / "firmware/motor/protection/motor_fault.c",
-        ROOT / "firmware/app/composition/app_protocol.c",
+        ROOT / "firmware/app/app_protocol.c",
         ROOT / "shared/protocol/yg_protocol_crc.c",
         ROOT / "shared/protocol/yg_protocol_frame_codec.c",
         ROOT / "shared/protocol/yg_protocol_can_id.c",
         ROOT / "tests/unit/yg_protocol_bsp_stubs.c",
         ROOT / "tests/unit/bsp_preemption_stubs.c",
-        ROOT / "firmware/app/interfaces/motor_stop_request.c",
     ]
     summary = []
     for board in (1, 2):

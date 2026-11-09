@@ -16,7 +16,7 @@ def main() -> None:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     compiler = [args.cc] + (["cc"] if Path(args.cc).stem.lower() == "zig" else [])
-    for name, implementation in (("core_protocol", "firmware/app/composition/app_protocol.c"),):
+    for name, implementation in (("core_protocol", "firmware/app/app_protocol.c"),):
         executable = args.out / f"{name}.exe"
         command = (
             compiler
@@ -37,7 +37,6 @@ def main() -> None:
         )
         if name == "core_protocol":
             command += [
-                str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
                 str(ROOT / "shared/protocol/yg_protocol_crc.c"),
                 str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
                 str(ROOT / "shared/protocol/yg_protocol_can_id.c"),

@@ -18,7 +18,9 @@ def function_source(source: str, name: str) -> str:
     """返回真实 C 函数定义，跳过同名调用和声明。"""
     # A call may precede the definition (e.g. the board fast ADC adapter).
     match = re.search(
-        r"^[ \t]*(?:[A-Za-z_]\w*\s+)+\**" + re.escape(name) + r"\s*\([^;{}]*\)\s*\{",
+        r"^[ \t]*(?:__attribute__\(\(noinline\)\)\s+)?(?:[A-Za-z_]\w*\s+)+\**"
+        + re.escape(name)
+        + r"\s*\([^;{}]*\)\s*\{",
         source,
         re.M,
     )
@@ -72,7 +74,7 @@ int main(void) {
 
 def board_orchestration_fixture(source: str | None = None) -> str:
     """执行真实应用Init/Start，核对协议、采样和健康监督先后关系。"""
-    source = source or (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
+    source = source or (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
     return (
         r"""
 #include <assert.h>
@@ -80,34 +82,31 @@ def board_orchestration_fixture(source: str | None = None) -> str:
 #include <stdbool.h>
 #include "bsp_system.h"
 static unsigned order[24],count;
-static bool s_communication_ready,ready=true,s_watchdog_enabled;
-volatile uint32_t g_app_fast_samples;
-static volatile uint32_t s_supervisor_ticks;
-static uint32_t s_watchdog_last_ms,s_watchdog_last_fast,s_watchdog_last_slow;
+#include "app.h"
+static AppContext app;
+static bool ready=true;
 static void log_step(unsigned n) { order[count++]=n; }
-static void MotorAxis_Init(void) { log_step(1); }
-static unsigned MotorAxis_NodeId(void) { return 7; }
-static bool Protocol_Init(unsigned n) { assert(n==7);log_step(2);return ready; }
-static bool bind_device_description(void) { log_step(4);return ready; }
-static bool Protocol_Start(void) { log_step(5);return ready; }
-BspResult BspWatchdog_Start(void) { log_step(6);return BSP_OK; }
-uint32_t BspSystem_TimeMs(void) { log_step(7);return 123; }
-static void BspPwm_Disable(void) { log_step(8); }
-static void halt_disabled(void) { assert(false); }
+void BspPwm_Disable(void);
+static const MotorAxisHardware hardware={.power.disable=BspPwm_Disable};
+void MotorAxis_Init(MotorAxis *axis) { axis->hardware=&hardware;axis->configuration.device.node_id=7U;axis->state_machine=(MotorStateMachine){0};assert(axis==&app.axis); log_step(1); }
+void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorStateMachine *machine) { assert(protocol==&app.protocol && endpoint==&app.endpoint && machine==&app.axis.state_machine); }
+bool Protocol_Init(ProtocolEndpoint *endpoint, uint8_t node) { assert(endpoint==&app.endpoint && node==7);log_step(2);return ready; }
+static bool configure_protocol_device_info(AppContext *context) { assert(context==&app);log_step(4);return ready; }
+bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }
+void BspPwm_Disable(void) { log_step(8); }
 """
-        + function_source(source, "start_watchdog")
         + function_source(source, "App_Init")
         + function_source(source, "App_Start")
         + r"""
 int main(void) {
- g_app_fast_samples=s_supervisor_ticks=9;
- App_Init();assert(count==3 && s_communication_ready && g_app_fast_samples==0 && s_supervisor_ticks==0);
- App_Start();assert(count==6 && s_watchdog_enabled && s_watchdog_last_ms==123);
- const unsigned expected[]={1,2,4,5,6,7};
- for(unsigned i=0;i<6;i++) assert(order[i]==expected[i]);
- count=0;ready=false;App_Init();assert(!s_communication_ready && count==3 && order[2]==8);
- App_Start();assert(count==6 && order[3]==8 && order[4]==6 && order[5]==7);
- puts("PASS app binding order, watchdog startup and failed communication shuts output");return 0;
+ app.axis.state_machine.fast_sample_ticks=app.axis.state_machine.supervisor_ticks=9;
+ App_Init(&app);assert(count==3 && app.communication_ready && app.axis.state_machine.fast_sample_ticks==0 && app.axis.state_machine.supervisor_ticks==0);
+ App_Start(&app);assert(count==4 && app.communication_ready);
+ const unsigned expected[]={1,2,4,5};
+ for(unsigned i=0;i<4;i++) assert(order[i]==expected[i]);
+ App_Init(&app);assert(count==4);app=(AppContext){0};count=0;ready=false;App_Init(&app);assert(!app.communication_ready && count==3 && order[2]==8);
+ App_Start(&app);assert(count==4 && order[3]==8);
+ puts("PASS app binding order and failed communication shuts output");return 0;
 }
 """
     )
@@ -132,10 +131,11 @@ static jmp_buf exit_entry;
 static unsigned trace[8],count,failure,iterations;
 static void step(unsigned n) { trace[count++]=n; }
 static BspResult Bsp_Init(void) { step(1);return failure==1 ? BSP_IO_ERROR : BSP_OK; }
-static void App_Init(void) { step(2); }
+static unsigned g_app;
+static void App_Init(unsigned *app) { assert(app==&g_app);step(2); }
 static BspResult Bsp_Start(void) { step(3);return failure==2 ? BSP_IO_ERROR : BSP_OK; }
-static void App_Start(void) { step(4); }
-static void App_Process(void) { step(5);if(++iterations==2)longjmp(exit_entry,1); }
+static void App_Start(unsigned *app) { assert(app==&g_app);step(4); }
+static void App_Process(unsigned *app) { assert(app==&g_app);step(5);if(++iterations==2)longjmp(exit_entry,1); }
 static void startup_failed(void) { longjmp(exit_entry,1); }
 """.replace("static BspResult Bsp_", "BspResult Bsp_")
         + rtt
@@ -150,7 +150,7 @@ int main(void) {
   assert(count==(failure==1 ? 1U : failure==2 ? 3U : 6U));
   for(unsigned i=0;i<count;i++)assert(trace[i]==expected[i]);
  }
- puts("PASS dual-board main: BSP/APP lifecycle and failure ordering");return 0;
+ puts("PASS dual-board main: BSP/APP state_machine and failure ordering");return 0;
 }
 """
     )
@@ -202,8 +202,8 @@ int main(void) {
     )
 
 
-def at32_lifecycle_fixture() -> str:
-    """验证AT32无启动状态缓存的初始化顺序及独立看门狗重复启动保护。"""
+def at32_startup_fixture() -> str:
+    """验证AT32无启动状态缓存的初始化顺序。"""
     source = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf-8")
     return (
         r"""
@@ -211,8 +211,7 @@ def at32_lifecycle_fixture() -> str:
 #include <stdio.h>
 #include "bsp.h"
 #include "board_config.h"
-static unsigned trace[8],count,watchdog_calls;
-static bool s_watchdog_started,watchdog_ok=true;
+static unsigned trace[8],count;
 static void step(unsigned value) { assert(count<8U);trace[count++]=value; }
 static bool BootHw_Init(void) { step(1);return false; }
 static void McuSystem_Init(void) { step(2); }
@@ -222,11 +221,9 @@ static bool Flash_Init(void) { step(5);return true; }
 static void McuEncoder_Init(void) { step(6); }
 static void Adc_Start(void) { step(7); }
 static void McuSystem_Start(void) { step(8); }
-static bool watchdog_init(void) { ++watchdog_calls;return watchdog_ok; }
 """
         + function_source(source, "Bsp_Init")
         + function_source(source, "Bsp_Start")
-        + function_source(source, "BspWatchdog_Start")
         + r"""
 static void expect_trace(const unsigned *expected,unsigned length) {
  assert(count==length);
@@ -237,12 +234,7 @@ int main(void) {
  assert(Bsp_Init()==BSP_OK && count==6U);
  assert(Bsp_Start()==BSP_OK);
  expect_trace(ok,8U);
- watchdog_ok=false;
- assert(BspWatchdog_Start()==BSP_IO_ERROR && !s_watchdog_started && watchdog_calls==1U);
- watchdog_ok=true;
- assert(BspWatchdog_Start()==BSP_OK && s_watchdog_started && watchdog_calls==2U);
- assert(BspWatchdog_Start()==BSP_NOT_READY && watchdog_calls==2U);
- puts("PASS AT32 lifecycle: no startup state, ordered initialization, independent watchdog guard");
+ puts("PASS AT32 state_machine: no startup state, ordered initialization");
  return 0;
 }
 """
@@ -305,7 +297,7 @@ def main() -> None:
         ("platform_init_test", platform_init_fixture()),
         ("board_startup_test", board_startup_fixture()),
         ("board_orchestration_test", board_orchestration_fixture()),
-        ("at32_lifecycle_test", at32_lifecycle_fixture()),
+        ("at32_startup_test", at32_startup_fixture()),
     ):
         path = out / (name + ".c")
         path.write_text(fixture, encoding="utf-8")

@@ -136,17 +136,17 @@ static void queued_round_trip(void)
     rx = (CanQueue){.storage = rx_storage, .capacity = 2U};
     assert(encode_can_frame(&message, 2U, &frame) == YG_PROTOCOL_OK);
     assert(memcmp(frame.data, golden, sizeof(golden)) == 0);
-    assert(ProtocolBoot_SendNext(&tx) == YG_PROTOCOL_QUEUE_EMPTY && send_calls == 0U);
+    assert(ProtocolBoot_SendNext(&endpoint, &tx) == YG_PROTOCOL_QUEUE_EMPTY && send_calls == 0U);
     assert(queue_push(&tx, &frame));
     message.sequence = 3U;
     assert(encode_can_frame(&message, 2U, &next) == YG_PROTOCOL_OK);
     assert(queue_push(&tx, &next));
-    assert(ProtocolBoot_SendNext(&tx) == YG_PROTOCOL_TRANSPORT_BUSY);
-    assert(ProtocolBoot_SendNext(&tx) == YG_PROTOCOL_TRANSPORT_BUSY);
+    assert(ProtocolBoot_SendNext(&endpoint, &tx) == YG_PROTOCOL_TRANSPORT_BUSY);
+    assert(ProtocolBoot_SendNext(&endpoint, &tx) == YG_PROTOCOL_TRANSPORT_BUSY);
     assert(queue_count(&tx) == 2U && send_calls == 2U);
     assert(memcmp(sent.data, golden, 32U) == 0);
     send_ok = true;
-    assert(ProtocolBoot_SendNext(&tx) == YG_PROTOCOL_OK);
+    assert(ProtocolBoot_SendNext(&endpoint, &tx) == YG_PROTOCOL_OK);
     assert(queue_count(&tx) == 1U);
     assert(queue_push(&rx, &sent));
     assert(queue_push(&rx, &sent));
@@ -156,9 +156,9 @@ static void queued_round_trip(void)
     assert(queue_pop(&rx, &received));
     assert(decode_can_frame(&received, 3U, &decoded) == YG_PROTOCOL_OK);
     assert(decoded.sequence == 2U && decoded.payload_length == 8U);
-    assert(ProtocolBoot_SendNext(&tx) == YG_PROTOCOL_OK);
+    assert(ProtocolBoot_SendNext(&endpoint, &tx) == YG_PROTOCOL_OK);
     assert(sent.data[8] == 3U && queue_count(&tx) == 0U);
-    assert(ProtocolBoot_SendNext(&tx) == YG_PROTOCOL_QUEUE_EMPTY && send_calls == 4U);
+    assert(ProtocolBoot_SendNext(&endpoint, &tx) == YG_PROTOCOL_QUEUE_EMPTY && send_calls == 4U);
     sent.extended = false;
     /* 接收队列只复制数据，非法格式统一由前台解包拒绝。 */
     assert(queue_push(&rx, &sent));

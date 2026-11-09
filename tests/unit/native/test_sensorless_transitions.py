@@ -22,7 +22,7 @@ PRELUDE = r"""
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "motor_control.h"
 #include "sensorless_startup.h"
 #include "motor_axis_profile.h"

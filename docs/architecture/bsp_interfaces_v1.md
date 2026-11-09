@@ -67,8 +67,6 @@ void BspSystem_MemoryBarrier(void);
 bool BspSystem_CompareExchange32(volatile uint32_t *address, uint32_t expected, uint32_t desired);
 BspResult BspSystem_ReadUid(uint8_t uid[BSP_SYSTEM_UID_BYTES]);
 BspResult BspSystem_ReadIdentity(uint8_t record[BSP_SYSTEM_IDENTITY_BYTES]);
-BspResult BspWatchdog_Start(void);
-void BspWatchdog_Feed(void);
 ```
 
 ### 模拟信号
@@ -170,7 +168,7 @@ bool BootHw_IsAvailable(void);
 | 编码器 | MT6835、SPI2四线，APP沿用DMA | TLE5012B、SPI2三线换向 |
 | PWM | TMR1，保留原六路使能、死区、映射 | TIM1，直接读写比较值和六路/主输出位 |
 | CAN | CAN1单PTB，单帧在途 | FDCAN1硬件FIFO，单帧在途 |
-| 看门狗 | 原AT32应用看门狗 | 独立APP无应用看门狗，Loader继承路径保持 |
+| Loader 试运行保护 | 当前普通 APP 无应用看门狗 | G431 LoaderApp 维护继承的硬件看门狗 |
 
 功能用`BSP_SUPPORTED_*`描述实板能力，用`BSP_ENABLED_*`选择本目标功能，用应用的
 `BSP_REQUIRED_*`阻止缺少保护所需功能。禁用功能保留同一公开函数，明确返回NOT_SUPPORTED；

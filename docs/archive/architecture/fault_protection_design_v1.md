@@ -29,7 +29,7 @@
 当前源码入口：
 [采样](../../../firmware/motor/sensing/motor_current.c)、
 [故障处理](../../../firmware/motor/protection/motor_fault.c)、
-[快速环](../../../firmware/app/composition/app.c)、
+[快速环](../../../firmware/app/app.c)、
 [平台接口](../../../firmware/platform/bsp/include/bsp_pwm.h)、
 旧状态快照接口（`motor_status_mailbox.h`，已删除）、
 [参数](../../../firmware/parameters/parameter_record.h)。

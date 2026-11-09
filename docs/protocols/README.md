@@ -1,7 +1,7 @@
 # 通信协议
 
-核对：2026-11-04，`the-system-refactor` 当前源码。本文件是唯一现行协议说明。
-依据 [yg_protocol.h](../../firmware/communication/yg_protocol.h)、[yg_protocol.c](../../firmware/communication/yg_protocol.c)、[APP 适配](../../firmware/app/composition/app_protocol.c)及[Loader](../../loader/runtime/main.c)。
+线路约定基线为 2026-11-04 的 `the-system-refactor`。2026-11-09 按 APP 重构分支复核了 108、116/124、STOP 及设备绑定。本文件是唯一现行协议说明。
+依据 [yg_protocol.h](../../firmware/communication/yg_protocol.h)、[yg_protocol.c](../../firmware/communication/yg_protocol.c)、[APP 适配](../../firmware/app/app_protocol.c)及[Loader](../../loader/runtime/main.c)。
 除镜像清单外，所有多字节整数均为小端；表中偏移从各自 payload 的第 0 字节算起。
 
 ## 代码入口
@@ -13,14 +13,12 @@
 - [yg_protocol_boot.c](../../firmware/communication/yg_protocol_boot.c)：Loader 命令、握手票据、超时和发送完成确认。
 - [yg_protocol.h](../../firmware/communication/yg_protocol.h)：值类型、线路结果码和调用接口。
 
-内部命令直接使用本文件拥有的状态。队列、默认状态和 `Protocol_Motor` / `Protocol_Jobs` /
-`Protocol_Boot` 回调均静态初始化，不调用 Bind 或注册函数；电机和启动快照地址也由 APP 静态提供。
-启动时只设置运行时取得的节点号、设备信息并开启 CAN。
+每个 `ProtocolEndpoint` 持有本节点的队列和业务绑定。APP 在启动时绑定所属轴的电机与标定回调、设置节点号及设备信息，并在 BSP 启动后开启 CAN。LoaderApp 另外绑定升级交接服务。
 
 一次命令由 `ProtocolExchange` 保存，`request` 是解码后的消息，`reply` 是本次回复。
 分发器及各命令处理函数接收同一个对象。业务参数使用 `ProtocolCommand`、
 `ProtocolJobRequest` 等值结构体，执行结果通过对应的结果结构体返回。
-`ProtocolMotor` 同时提供 `start/target/stop/clear_fault` 操作和 `status` 只读快照地址。
+`ProtocolMotor` 提供 `start/target/stop/clear_fault` 和 `read_feedback`。108 查询及 116 对应的 124 反馈各自在回包时读取一次所属轴；目标请求先处理，再取反馈。若连续两次读取都被控制中断打断，108 回 BUSY，124 保留本条目标的结果码并清除测量有效位。
 六个业务编码函数统一接收 `ProtocolResponse`，填写其中的 `data` 和 `length`。
 线路字段仍按约定的小端字节顺序逐项编码。
 
@@ -41,7 +39,7 @@ Keil Watch 展开 `g_protocol_command` 可看 APP 最近一次解析的有效请
 它记录 APP 收到的命令；独立 Loader 固件中的升级数据由 Loader 自己处理。
 
 以 117 启动命令为例：`Protocol_Process → handle_can_request → handle_command →
-handle_start_command → start_motor → MotorLifecycle_RequestEnable`。
+handle_start_command → request_motor_start → MotorStateMachine_RequestStart`。
 `handle_start_command` 检查主机来源、4 字节长度和三个保留字节，直接从 `payload[0]` 读取模式。
 它将模式、来源和序号填入 `ProtocolCommand`，调用静态绑定到 `start_motor` 的 `Protocol_Motor.start`。
 业务返回后，它把结果码与细节写入 `exchange.reply`。`handle_can_request` 组好回复，
@@ -216,7 +214,7 @@ GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, ep
 160 请求：`kind:u16, zero:u16`；仅支持 1 编码器 LUT、2 电角零位、6 机械零位。
 161/162 请求为非零 `ticket:u32`，均不支持；取消活动标定用 110。其他 kind 不启动任务。
 三条命令统一回复 12 B：`result:u16, detail:u16, ticket:u32, kind:u16, phase:u8, effects:u8`。
-受理时 ticket 非零、phase=1（进行中）、effects=1（未保存），完成后回空闲，不自动保存 Flash。
+受理时 ticket 非零、phase=1（进行中）、effects=1（未保存），受理时尚未保存。标定候选就绪后，前台复核原会话和实际关相状态并自动写 Flash。保存成功后回空闲，写失败锁存存储故障。
 ticket 只是受理编号，不提供历史查询或后续授权。
 detail：1 不支持类别、3 状态不允许、6 字段错误、7 执行失败；失败时任务元数据可全为 0。
 
@@ -276,7 +274,7 @@ GET_INFO 不延长默认启动窗口；空 STATUS 用于驻留发现，事务 ST
 
 通信位于一个目录：`yg_protocol.c` 负责 CAN 收发流程、设备查询、启停、目标、反馈、标定和参数拒绝；
 `yg_protocol_boot.c` 负责 Loader 命令与发送握手，公共头为 `yg_protocol.h`。APP 通过 `Protocol_Init/Start/Process`、`Protocol_RxInterrupt` 接入，
-业务交给 AppProtocol/MotorLifecycle，硬件收发使用 BspCan。
+业务交给 AppProtocol/MotorStateMachine，硬件收发使用 BspCan。
 RX/TX 各 8 帧；一次 ISR 最多取 3 帧，一次前台最多处理/发送各 8 帧。
 执行前为回复和反馈预留空间；发送忙时保留帧，不重复执行业务。
 升级票据、具体发送槽位、超时和完成回调都由 Boot 单元持有，普通业务不维护 Loader 状态。

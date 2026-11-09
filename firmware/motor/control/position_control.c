@@ -12,18 +12,6 @@
 #define POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO 1.50f
 #define POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S 0.03f
 
-typedef struct
-{
-    PositionCascadeConfig config;
-    PiController speed_controller;
-    float filtered_speed_rad_s;
-    float velocity_filter_alpha;
-    uint16_t loop_count;
-    bool configured;
-} PositionCascadeState;
-
-static PositionCascadeState s_state;
-
 static float position_cascade_clamp(float value, float limit)
 {
     if (value > limit)
@@ -58,28 +46,29 @@ static bool position_cascade_config_valid(const PositionCascadeConfig *config)
            isfinite(config->speed_ki * config->current_limit_a);
 }
 
-static bool position_cascade_run(float measured_position_rad,
+static bool position_cascade_run(PositionCascadeState *state,
+                                 float measured_position_rad,
                                  float measured_speed_rad_s,
                                  PositionCascadeControlOutput *output)
 {
-    const PositionCascadeConfig *config = &s_state.config;
+    const PositionCascadeConfig *config = &state->config;
     float position_error_rad = config->target_position - measured_position_rad;
     if (!isfinite(position_error_rad))
     {
         return false;
     }
-    if (++s_state.loop_count >= config->call_divider)
+    if (++state->loop_count >= config->call_divider)
     {
         float filtered_speed_rad_s = measured_speed_rad_s;
         float speed_command_rad_s;
         float speed_limit_rad_s;
         float iq_reference_a;
-        s_state.loop_count = 0U;
+        state->loop_count = 0U;
         if (config->velocity_filter_hz > 0.0f)
         {
-            filtered_speed_rad_s = s_state.filtered_speed_rad_s +
-                                   s_state.velocity_filter_alpha *
-                                       (measured_speed_rad_s - s_state.filtered_speed_rad_s);
+            filtered_speed_rad_s =
+                state->filtered_speed_rad_s +
+                state->velocity_filter_alpha * (measured_speed_rad_s - state->filtered_speed_rad_s);
         }
         if (!isfinite(filtered_speed_rad_s))
         {
@@ -99,36 +88,38 @@ static bool position_cascade_run(float measured_position_rad,
             return false;
         }
         iq_reference_a =
-            PiController_Run(&s_state.speed_controller, speed_command_rad_s, filtered_speed_rad_s);
+            PiController_Run(&state->speed_controller, speed_command_rad_s, filtered_speed_rad_s);
         if (!isfinite(iq_reference_a))
         {
             return false;
         }
         /* 没有前馈；接受的总输出就是 PI 份额，保留原积分限幅跟踪。 */
-        PiController_TrackOutput(&s_state.speed_controller, iq_reference_a);
-        s_state.filtered_speed_rad_s = filtered_speed_rad_s;
+        PiController_TrackOutput(&state->speed_controller, iq_reference_a);
+        state->filtered_speed_rad_s = filtered_speed_rad_s;
     }
     output->position_reference = config->target_position;
-    output->speed_reference = s_state.speed_controller.reference;
-    output->speed_feedback_rad_s = s_state.filtered_speed_rad_s;
-    output->iq_reference = s_state.speed_controller.output;
+    output->speed_reference = state->speed_controller.reference;
+    output->speed_feedback_rad_s = state->filtered_speed_rad_s;
+    output->iq_reference = state->speed_controller.output;
     output->target_reached =
         fabsf(position_error_rad) <= config->position_error_window &&
-        fabsf(s_state.filtered_speed_rad_s) <= POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S;
+        fabsf(state->filtered_speed_rad_s) <= POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S;
     return true;
 }
 
-bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControl(PositionCascadeState *state,
+                                   const PositionCascadeConfig *config,
                                    float measured_position,
                                    float measured_speed,
                                    PositionCascadeControlOutput *output)
 {
     return config != NULL &&
            PositionCascade_UpdateControlLimited(
-               config, measured_position, measured_speed, config->current_limit_a, output);
+               state, config, measured_position, measured_speed, config->current_limit_a, output);
 }
 
-bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
+                                          const PositionCascadeConfig *config,
                                           float measured_position,
                                           float measured_speed,
                                           float available_current_a,
@@ -141,9 +132,9 @@ bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
     {
         return false;
     }
-    alpha = s_state.velocity_filter_alpha;
-    if (!s_state.configured || config->velocity_filter_hz != s_state.config.velocity_filter_hz ||
-        config->update_period_s != s_state.config.update_period_s)
+    alpha = state->velocity_filter_alpha;
+    if (!state->configured || config->velocity_filter_hz != state->config.velocity_filter_hz ||
+        config->update_period_s != state->config.update_period_s)
     {
         float ratio = 6.2831853072f * config->velocity_filter_hz * config->update_period_s;
         alpha = ratio / (1.0f + ratio);
@@ -152,46 +143,47 @@ bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
             return false;
         }
     }
-    if (!s_state.configured)
+    if (!state->configured)
     {
-        s_state.filtered_speed_rad_s = measured_speed;
+        state->filtered_speed_rad_s = measured_speed;
     }
-    s_state.config = *config;
-    s_state.velocity_filter_alpha = alpha;
-    s_state.configured = true;
+    state->config = *config;
+    state->velocity_filter_alpha = alpha;
+    state->configured = true;
     float limit_a = fminf(available_current_a, config->current_limit_a);
-    PiController_Configure(&s_state.speed_controller,
+    PiController_Configure(&state->speed_controller,
                            config->speed_kp * config->current_limit_a,
                            config->speed_ki * config->current_limit_a,
                            config->update_period_s,
                            -limit_a,
                            limit_a);
     /* 下调电流上限即使落在分频等待拍也立即作用，不清掉已有支撑积分。 */
-    PiController_TrackOutput(&s_state.speed_controller,
-                             position_cascade_clamp(s_state.speed_controller.output, limit_a));
-    return position_cascade_run(measured_position, measured_speed, output);
+    PiController_TrackOutput(&state->speed_controller,
+                             position_cascade_clamp(state->speed_controller.output, limit_a));
+    return position_cascade_run(state, measured_position, measured_speed, output);
 }
 
-bool PositionCascade_UpdateTargetControl(float target_position,
+bool PositionCascade_UpdateTargetControl(PositionCascadeState *state,
+                                         float target_position,
                                          float measured_position,
                                          float measured_speed,
                                          PositionCascadeControlOutput *output)
 {
-    if (!s_state.configured || output == NULL || !isfinite(target_position) ||
+    if (!state->configured || output == NULL || !isfinite(target_position) ||
         !isfinite(measured_position) || !isfinite(measured_speed))
     {
         return false;
     }
-    s_state.config.target_position = target_position;
-    return position_cascade_run(measured_position, measured_speed, output);
+    state->config.target_position = target_position;
+    return position_cascade_run(state, measured_position, measured_speed, output);
 }
 
-void PositionCascade_Reset(void)
+void PositionCascade_Reset(PositionCascadeState *state)
 {
-    memset(&s_state, 0, sizeof(s_state));
+    memset(state, 0, sizeof(*state));
 }
 
-const PositionCascadeConfig *PositionCascade_GetConfiguration(void)
+const PositionCascadeConfig *PositionCascade_GetConfiguration(const PositionCascadeState *state)
 {
-    return s_state.configured ? &s_state.config : NULL;
+    return state->configured ? &state->config : NULL;
 }

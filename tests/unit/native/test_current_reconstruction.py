@@ -164,6 +164,11 @@ int main(void) {
     pwm(400,2100,3800); clear_current(&f,&m);
     m.ModeNow = Calib_CurrentOffset; set_raw(100,-30,20); Current_Cal(&f,&m);
     near(f.Ic,20 * SENSING_CURR_FACTOR);
+    /* 真正关相的零偏采集不使用旧偏置换算电流，也不产生伪过流。 */
+    timer.CCER=0x1000; m.A_Offset=0; m.B_Offset=65535; m.C_Offset=1000;
+    Current_Cal(&f,&m);
+    near(f.Ia,0); near(f.Ib,0); near(f.Ic,0); assert(last_error==No_Error);
+    m.A_Offset=m.B_Offset=m.C_Offset=2048; pwm(400,2100,3800);
     m.ModeNow = Speed_Mode; Current_Cal(&f,&m);
     near(f.Ic,-70 * SENSING_CURR_FACTOR);
     clear_current(&f,&m); m.A_Offset = 1000;

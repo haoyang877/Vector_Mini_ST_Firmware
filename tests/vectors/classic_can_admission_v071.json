@@ -12,7 +12,7 @@
       "name": "version-query",
       "id": 879,
       "request": "00000000",
-      "reply": "00070100"
+      "reply": "00070200"
     },
     {
       "name": "psp-even-query",

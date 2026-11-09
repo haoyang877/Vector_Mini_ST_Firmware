@@ -42,6 +42,7 @@ static volatile uint32_t pending_load_profile = UINT32_MAX;
 static void task_reset_runtime(void)
 {
     EncoderCalibration_Reset();
+    CurrentOffsetCalibration_Reset();
     if (ModeLast == Calib_Friction)
     {
         FocFrictionIdentification_Abort(&MotorControl, &PI_Speed);
@@ -383,6 +384,7 @@ bool MotorControl_IsConfigurationValid(void)
 void MotorControl_Init(void)
 {
     MotorThermalControl_Init(time_hw_now_ms());
+	CurrentOffsetCalibration_Reset();
 	Encoder_ParamInit(&OnBoard_Encoder);
 	
 	Fluxobserver_ParamInit(&Fluxobserver);
@@ -548,6 +550,12 @@ void FOC20kHzIRQHandler(void)
 	bool encoder_sample_started;
     uint8_t encoder_sample_stage;
     bool current_sample_valid;
+	/* 零偏标定只允许高阻采样；直接调试切换也不能继承运行时的相输出。 */
+	if (MotorControl.ModeNow == Calib_CurrentOffset && !motor_hw_phase_outputs_disabled())
+	{
+		Stop_PWM_Generate();
+		CurrentOffsetCalibration_Reset();
+	}
 	FAST_PROFILE_BEGIN(FAST_PROFILE_EMPTY);
 	FAST_PROFILE_END(FAST_PROFILE_EMPTY);
 	FAST_PROFILE_BEGIN(FAST_PROFILE_ENCODER_REQUEST);
@@ -781,7 +789,8 @@ void FOC20kHzIRQHandler(void)
 		Stop_PWM_Generate();
 	}
 	/* 设零与保存不需要功率输出；包括标定结束转入保存的同一快拍。 */
-	if ((MotorControl.ModeNow == Set_ZeroPosition || MotorControl.ModeNow == Save_Param) &&
+	if ((MotorControl.ModeNow == Set_ZeroPosition || MotorControl.ModeNow == Save_Param ||
+		 MotorControl.ModeNow == Calib_CurrentOffset) &&
 		!motor_hw_phase_outputs_disabled())
 	{
 		Stop_PWM_Generate();
@@ -789,6 +798,7 @@ void FOC20kHzIRQHandler(void)
 	
 	if(ModeLast == Motor_Disable && MotorControl.ModeNow != Motor_Disable &&
 		MotorControl.ModeNow != Set_ZeroPosition && MotorControl.ModeNow != Save_Param &&
+		MotorControl.ModeNow != Calib_CurrentOffset &&
 		MotorControl.axis_profile_valid)
 	{
 		/* The first mode-3 tick validates/initializes the controller while

@@ -11,6 +11,8 @@
  * @note 电机快环在停机清理或装配切换时调用，不操作 PWM，不写 Flash。
  */
 void EncoderCalibration_Reset(void);
+/** @brief 清除未完成的电流零偏采样；不修改已应用偏置、不操作Flash或PWM。 */
+void CurrentOffsetCalibration_Reset(void);
 
 /** @brief 查询 Mode 13 是否已完成准备，可安排独立的 PWM 启用拍。
  * @return true 表示当前为待启用状态；false 表示尚未准备或已经进入其他阶段。

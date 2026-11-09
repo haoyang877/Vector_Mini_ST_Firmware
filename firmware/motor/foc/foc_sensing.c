@@ -139,6 +139,13 @@ bool Current_Cal(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 	static uint8_t overcurrent_count;
 	unsigned sample_sector = motor_hw_current_sample_sector();
 	bool raw_overcurrent;
+	/* 旧偏置在本次零偏采集完成前不可用于电流判断；采样任务直接累加ADC原码。 */
+	if (MotorControl->ModeNow == Calib_CurrentOffset && motor_hw_phase_outputs_disabled())
+	{
+		FOC->Ia = FOC->Ib = FOC->Ic = 0.0f;
+		overcurrent_count = 0U;
+		return true;
+	}
 
 	/*when actual current is near zero, adc offset is outght to be around 2048*/
 	if(MotorControl->A_Offset < 1948 || MotorControl->A_Offset > 2148 ||

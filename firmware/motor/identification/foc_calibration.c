@@ -28,6 +28,8 @@ static uint32_t electrical_zero_loop_count;
 static uint32_t electrical_zero_sample_count;
 static uint16_t electrical_zero_sample_anchor;
 static int64_t electrical_zero_unwrapped_sum;
+static uint32_t current_offset_sample_count;
+static uint32_t current_offset_sum_a, current_offset_sum_b, current_offset_sum_c;
 
 #define OBS_CALIB_ALIGN_TIME        1.5f
 #define ENC_ZERO_ALIGN_TIME         (ENCODER_ELEC_ZERO_CURRENT_RAMP_TIME_S + \
@@ -1636,40 +1638,37 @@ void Task_Calib_EleAngelOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorCont
 	electrical_zero_loop_count++;
 }
 
-/**
-	* @brief  Calibrate current sensor ADC zero offset
-	*         automatically executed at power-up
-	* @param  *FOC: FOC struct pointer
-	* @param  *MotorControl: MotorControl struct pointer
- **/
+void CurrentOffsetCalibration_Reset(void)
+{
+	current_offset_sample_count = 0U;
+	current_offset_sum_a = current_offset_sum_b = current_offset_sum_c = 0U;
+}
+
+/** @brief 关相采样1秒后只更新RAM零偏并停机；需要持久化时另行显式保存。 */
 void Task_Calib_CurrentOffset(FOC_TypeDef *FOC, MotorControl_TypeDef *MotorControl)
 {
-	static uint32_t offset_count;
-	static uint32_t A_offset_sum,B_offset_sum,C_offset_sum;
-	
-	A_offset_sum += CURRENT_ADC->IA_ADC_CHANNEL;
-	B_offset_sum += CURRENT_ADC->IB_ADC_CHANNEL;
-	C_offset_sum += CURRENT_ADC->IC_ADC_CHANNEL;
-	offset_count++;
-	
-	/*accumulate 1s (20000 cycles @ 20kHz)*/
-	if(offset_count >= 20000)
+	(void)FOC;
+	current_offset_sum_a += CURRENT_ADC->IA_ADC_CHANNEL;
+	current_offset_sum_b += CURRENT_ADC->IB_ADC_CHANNEL;
+	current_offset_sum_c += CURRENT_ADC->IC_ADC_CHANNEL;
+	current_offset_sample_count++;
+	if(current_offset_sample_count >= FOC_FREQ)
 	{
-		MotorControl->A_Offset = (uint16_t)(A_offset_sum / offset_count);
-		MotorControl->B_Offset = (uint16_t)(B_offset_sum / offset_count);
-		MotorControl->C_Offset = (uint16_t)(C_offset_sum / offset_count);
-		
-		offset_count = 0;
-		A_offset_sum = B_offset_sum = C_offset_sum = 0;
-		
-		/*check offset is around half scale (2048)*/
-		// if(MotorControl->A_Offset < 2018 || MotorControl->A_Offset > 2078 ||
-		//    MotorControl->B_Offset < 2018 || MotorControl->B_Offset > 2078 ||
-		//    MotorControl->C_Offset < 2018 || MotorControl->C_Offset > 2078)
-		// {
-		// 	Set_ErrorNow(CurrentOffset_Error);
-		// }
-		
+		uint16_t a = (uint16_t)(current_offset_sum_a / current_offset_sample_count);
+		uint16_t b = (uint16_t)(current_offset_sum_b / current_offset_sample_count);
+		uint16_t c = (uint16_t)(current_offset_sum_c / current_offset_sample_count);
+		/* 与运行时零偏有效范围一致；三相全部合格才一次性应用。 */
+		if (a < 1948U || a > 2148U || b < 1948U || b > 2148U || c < 1948U || c > 2148U)
+		{
+			Set_ErrorNow(CurrentOffset_Error);
+		}
+		else
+		{
+			MotorControl->A_Offset = a;
+			MotorControl->B_Offset = b;
+			MotorControl->C_Offset = c;
+		}
+		CurrentOffsetCalibration_Reset();
 		Set_ModeNow(Motor_Disable);
 	}
 }

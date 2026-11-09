@@ -127,6 +127,7 @@ static void sensorless_task(void) { assert(guarded); task_seen=true; ++task_call
 #define Task_TryClearError() ((void)0)
 #define LED_SetState(...) ((void)0)
 #define task_reset_runtime clear_running_data
+#define CurrentOffsetCalibration_Reset() ((void)0)
 #define Stop_PWM_Generate stop_pwm
 #define Start_PWM_Generate start_pwm
 #define Start_Damping_Brake start_pwm
@@ -278,9 +279,18 @@ static void check_prepared_stop_restart(void) {
     }
     puts("PASS actual prepared STOP: clears pending mode13 stage with Disabled/PWM-off, clean restart into modes 13/5/15");
 }
+static void check_offset_power_off(void) {
+    setup(); MotorControl.ModeNow=Calib_CurrentOffset;
+    for(unsigned i=0U;i<20U;++i) tick();
+    assert(!starts && !pwm_enabled && ModeLast==Calib_CurrentOffset);
+    setup(); MotorControl.ModeNow=Calib_CurrentOffset;
+    ModeLast=Current_Mode; pwm_enabled=true;
+    tick(); assert(stops==1U && !starts && !pwm_enabled);
+    puts("PASS mode11: no phase enable, inherited active outputs disabled before sampling");
+}
 int main(void) {
     MotorThermalControl_Init(0U);
-    check_phase_grid(); check_real_dispatch(); check_mode13_power_entry(); check_prepared_stop_restart();
+    check_phase_grid(); check_real_dispatch(); check_mode13_power_entry(); check_prepared_stop_restart(); check_offset_power_off();
     return 0;
 }
 '''

@@ -479,21 +479,19 @@ enum {ADC_SINGLE_ENDED=0, TIM_CHANNEL_1=1, TIM_CHANNEL_2=2, TIM_CHANNEL_3=3,
       TIM_CHANNEL_4=4, ADC_IT_JEOC=1, ADC_IT_JEOS=2};
 static int hadc1, hadc2, htim1, htim7;
 static unsigned hiz_state_calls;
-static void PWM_Outputs_HiZ(void) { hiz_state_calls++; }
-static struct { bool axis_profile_valid; } MotorControl;
+static void Stop_PWM_Generate(void) { hiz_state_calls++; }
+static struct { bool axis_profile_valid; unsigned ModeNow; } MotorControl;
 static bool configured;
 static unsigned phases, sampling, communication, adc_started;
 static unsigned adc_irq_mask = ADC_IT_JEOC;
 static void flash_read_param(void) { MotorControl.axis_profile_valid = configured; }
-static void MotorControl_Init(void) {}
+static void MotorControl_Init(void) { MotorControl.ModeNow = configured ? 11U : 0U; }
 static void motor_hw_outer_init(void) {}
-static bool MotorControl_IsConfigurationValid(void) { return MotorControl.axis_profile_valid; }
 static void delay_init(int clock) { (void)clock; }
 static void HAL_ADCEx_Calibration_Start(int *adc, int mode) { (void)adc; (void)mode; }
 static void HAL_TIM_PWM_Start(int *timer, int channel) {
     (void)timer; if (channel == TIM_CHANNEL_4) sampling++; else phases++;
 }
-static void HAL_TIMEx_OCN_Start(int *timer, int channel) { (void)timer; (void)channel; phases++; }
 static void HAL_ADCEx_InjectedStart(int *adc) { (void)adc; adc_started++; }
 static void __HAL_ADC_ENABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask |= mask; }
 static void __HAL_ADC_DISABLE_IT(int *adc, int mask) { assert(adc == &hadc2); adc_irq_mask &= ~mask; }
@@ -506,11 +504,13 @@ int main(void) {
     assert(hiz_state_calls == 1);
     assert(adc_irq_mask == ADC_IT_JEOS);
     assert(version_prints == 1);
+    assert(MotorControl.ModeNow == 0U);
     configured = true;
     Board_Init();
-    assert(phases == 6 && sampling == 2 && adc_started == 4 && communication == 2);
+    assert(phases == 0 && sampling == 2 && adc_started == 4 && communication == 2);
     assert(version_prints == 2);
-    assert(hiz_state_calls == 1);
+    assert(hiz_state_calls == 2);
+    assert(MotorControl.ModeNow == 11U);
     assert(adc_irq_mask == ADC_IT_JEOS);
     puts("PASS actual board startup: unconfigured phase outputs released to high impedance, sampling and communication retained");
     return 0;
@@ -584,12 +584,7 @@ def main():
     board_fixture.write_text(joint_board_startup_fixture(), encoding="utf-8")
     build("joint_board_startup_test", [board_fixture])
     loader_fixture = args.out / "joint_loader_startup_test.c"
-    loader_source = joint_board_startup_fixture().replace(
-        "enum {ADC_SINGLE_ENDED", "enum {Motor_Disable=0};\nstatic bool ModeSwitch_Handle(int mode) { assert(mode==0); return true; }\nenum {ADC_SINGLE_ENDED")
-    loader_source = loader_source.replace("phases == 6", "phases == 0").replace(
-        "assert(hiz_state_calls == 1);\n    assert(adc_irq_mask", "assert(hiz_state_calls == 1);\n    assert(adc_irq_mask", 1)
-    loader_source = loader_source.replace("assert(hiz_state_calls == 1);\n    assert(adc_irq_mask == ADC_IT_JEOS);\n    puts", "assert(hiz_state_calls == 2);\n    assert(adc_irq_mask == ADC_IT_JEOS);\n    puts")
-    loader_source = loader_source.replace("int main(void) {", "int main(void) {\n    (void)MotorControl_IsConfigurationValid; (void)HAL_TIMEx_OCN_Start;")
+    loader_source = joint_board_startup_fixture()
     loader_fixture.write_text("#define APP_LOADER_LAYOUT 1\n" + loader_source, encoding="utf-8")
     build("joint_loader_startup_test", [loader_fixture])
 

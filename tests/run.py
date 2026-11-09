@@ -20,6 +20,7 @@ NATIVE = (
     "test_bus_voltage_protection",
     "test_current_oversampling",
     "test_current_reconstruction",
+    "test_current_offset_startup",
     "test_fast_trig",
     "test_motor_gpio_hiz",
     "test_fast_irq_schedule",

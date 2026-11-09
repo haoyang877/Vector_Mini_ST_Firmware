@@ -1,4 +1,6 @@
-当前候选 **v0.7.1**：修复CAN接收积压与回复队列，保留Loader；已完成离线测试、Keil构建及节点2的60秒静止通信实测，有效反馈49.986Hz。详见[修复与验证报告](docs/reports/2026-10-27-can-rx-reply-queue-v071.md)。
+当前版本 **v0.7.2（build 0）**：上电保持三相关断，自动校准电流偏置，完成后进入停机，仅更新 RAM、不自动保存 Flash。改动和验证范围见[版本记录](docs/reports/2026-11-09-startup-current-offset-v072.md)。保留 v0.7.1 的 CAN 接收与回复队列修复。
+
+日常维护入口：[V0.7.x 固件维护方法](docs/guides/v071_firmware_maintenance.md)，包含构建合包、烧录、单板参数、标定、通信验收和回退。
 
 <img src="./docs/assets/project/logo.png" width="600"/>
 

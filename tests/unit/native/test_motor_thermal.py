@@ -352,6 +352,7 @@ static struct { int a,b,c; } adc;
 #define OVERCURRENT_CONFIRM_CYCLES 4
 static ErrorNow_TypeDef error;
 static unsigned motor_hw_current_sample_sector(void){return 0;}
+static bool motor_hw_phase_outputs_disabled(void){return true;}
 static void Set_ErrorNow(ErrorNow_TypeDef e){error=e;}
 """
         + function_source(sense, "Current_Reconstruct")

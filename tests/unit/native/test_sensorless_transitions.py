@@ -896,6 +896,7 @@ def main():
     run=run[run.index('static float Sensorless_AngleDifference'):run.index('/**\n\t* @brief  Mode-3')]
     cal=(ROOT/'firmware/motor/identification/foc_calibration.c').read_text(encoding="utf-8")
     helpers=cal[cal.index('static int32_t calibration_error_sum_storage'):cal.index('/**\n\t* @brief  Calibrate Rs')]
+    helpers+=function_source(cal,'CurrentOffsetCalibration_Reset')
     reset=function_source((ROOT/'firmware/motor/foc/foc_sensorless.c').read_text(encoding="utf-8"),'SensorlessStartup_Reset')
     encoder_source=(ROOT/'firmware/platform/stm32g4/bsp/encoder.c').read_text(encoding='utf-8')
     fixture=PRELUDE+reset+run+helpers+function_source(encoder_source,'Encoder_SetElectricalZeroQ15')+function_source(cal,'Task_Calib_EncoderOffset')+function_source(cal,'Task_Calib_EncoderObserver')+function_source(cal,'Task_Calib_EleAngelOffset')+CASES

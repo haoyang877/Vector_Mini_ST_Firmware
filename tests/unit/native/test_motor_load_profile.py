@@ -108,6 +108,7 @@ static float reply_value;
 bool motor_hw_phase_outputs_disabled(void) { return gate_off; }
 void motor_hw_outer_barrier(void) { }
 void EncoderCalibration_Reset(void) { record_reset('E'); calibration_start_pending=false; }
+void CurrentOffsetCalibration_Reset(void) { }
 bool EncoderObserverCalibration_IsPowerStartReady(void) { return calibration_start_pending; }
 void Task_Position_Mode_Reset(void) { record_reset('P'); ++position_resets; }
 void FOC_CurrentController_Reset(FOC_TypeDef *f) {

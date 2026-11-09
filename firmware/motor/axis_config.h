@@ -63,15 +63,34 @@ static inline bool MotorAxisProfile_IsContinuousWheel(const MotorAxisProfile *pr
 }
 
 /**
+ * @brief 选择位置使能、指令及轨迹参考共用的行程策略。
+ * @param profile 已验证的轴记录。
+ * @return 连续车轮及显式解除 PITCH 行程的调试轴返回 false。
+ */
+static inline bool MotorAxisProfile_UsesPositionLimits(const MotorAxisProfile *profile)
+{
+#if defined(MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS) && MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
+    if (profile != NULL && profile->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
+        profile->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION &&
+        profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION &&
+        profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH)
+    {
+        return false;
+    }
+#endif
+    return !MotorAxisProfile_IsContinuousWheel(profile);
+}
+
+/**
  * @brief 检查位置指令是否位于轴的闭区间内。
- * @param profile 调用方已验证且启用行程限制的轴记录。
+ * @param profile 调用方已验证的非空轴记录。
  * @param target_rad 有限的位置指令，rad。
- * @return 指令位于闭区间内时返回 true。
+ * @return 限位轴接受闭区间内的目标，无行程限制的轴接受有限目标。
  */
 static inline bool MotorAxisProfile_TargetWithinBounds(const MotorAxisProfile *profile,
                                                        float target_rad)
 {
-    return isfinite(target_rad) && (MotorAxisProfile_IsContinuousWheel(profile) ||
+    return isfinite(target_rad) && (!MotorAxisProfile_UsesPositionLimits(profile) ||
                                     (target_rad >= profile->minimum_position_rad &&
                                      target_rad <= profile->maximum_position_rad));
 }
@@ -80,8 +99,8 @@ static inline bool MotorAxisProfile_TargetWithinBounds(const MotorAxisProfile *p
  * @brief 检查已验证轴记录的运行范围，不执行 CRC。
  * @param profile 只读轴记录，NULL 返回 false。
  * @param valid 参数恢复已通过记录校验。
- * @param actual 有限实际位置，单位 rad，必须严格位于上下界内。
- * @param target 有限目标位置，单位 rad，允许等于边界。
+ * @param actual 有限实际位置，单位 rad；启用行程检查时须严格位于上下界内。
+ * @param target 有限目标位置，单位 rad；启用行程检查时允许等于边界。
  * @return 记录/修订与实际/目标范围允许时返回 true，否则返回 false。
  * @note 快环可调用；仅软件停机边界，不保证机械无过冲，未配置范围沿用既有语义。
  */
@@ -90,7 +109,7 @@ static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profi
                                                    float actual,
                                                    float target)
 {
-    if (MotorAxisProfile_IsContinuousWheel(profile))
+    if (!MotorAxisProfile_UsesPositionLimits(profile))
     {
         return valid && isfinite(actual) && isfinite(target);
     }

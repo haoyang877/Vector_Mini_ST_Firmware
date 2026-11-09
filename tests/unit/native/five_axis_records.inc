@@ -12,6 +12,10 @@ int main(void)
     for (unsigned node = 3; node <= 7; ++node)
     {
         bool wheel = node < 5, ht = node <= 5;
+        bool unrestricted = wheel;
+#if defined(MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS) && MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
+        unrestricted = wheel || node == 6;
+#endif
         assert(Param_CreateAxis(node, wheel ? 0 : -1, wheel ? 0 : 1, .5f, &heat, &configuration));
         Param_Upload(&record, &configuration);
         assert(record.record_crc32 == five_axis_crc[node - 3]);
@@ -63,8 +67,9 @@ int main(void)
         assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));
         assert(MotorAxisPreset_HasLinearHall(p) == (node == 6 || node == 7));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, 0, 0));
-        assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, -8.0f, 14.0f) == wheel);
-        assert(MotorAxisProfile_TargetWithinBounds(&record.axis_profile, -16.0f) == wheel);
+        assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, -8.0f, 14.0f) == unrestricted);
+        assert(MotorAxisProfile_TargetWithinBounds(&record.axis_profile, -16.0f) == unrestricted);
+        assert(!MotorAxisProfile_AllowsPosition(&record.axis_profile, false, 0, 0));
         assert(!MotorAxisProfile_AllowsPosition(&record.axis_profile, true, NAN, 0));
         assert(!MotorAxisProfile_TargetWithinBounds(&record.axis_profile, INFINITY));
         if (wheel)
@@ -90,8 +95,8 @@ int main(void)
             const MotorAxisProfile *axis = &full.application.axis_profile;
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, limit));
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, -limit));
-            assert(!MotorAxisProfile_AllowsPosition(axis, true, limit, 0));
-            assert(!MotorAxisProfile_TargetWithinBounds(axis, limit + 0.001f));
+            assert(MotorAxisProfile_AllowsPosition(axis, true, limit, 0) == unrestricted);
+            assert(MotorAxisProfile_TargetWithinBounds(axis, limit + 0.001f) == unrestricted);
             InterfaceParam old = record;
             old.axis_profile.minimum_position_rad = -21.949001f;
             old.axis_profile.maximum_position_rad = node == 6 ? 19.939001f : 1.0f;

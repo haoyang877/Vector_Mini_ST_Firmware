@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [APP 实例化合并与 PITCH 实机验收](2026-11-09-app-instance-integration.md) — 双板构建、CAN 升级及闭环实测通过；联合角度标定 4 次通过 3 次。
+
 - [合并状态机接口并删减重复检查](2026-11-09-state-machine-api.md) — 合并目标、外环和反馈实现，双板状态及目标对照通过。
 
 - [标定发布流程精简](2026-11-09-calibration-publication-simplify.md) — 删除候选准备与 ADC 的重复检查，双板定向对照及全部原生套件通过。

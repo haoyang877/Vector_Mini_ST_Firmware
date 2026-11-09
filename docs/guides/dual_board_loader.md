@@ -1,9 +1,8 @@
 # 双板 Loader 开发候选与维护
 
-核对日期2026-11-06，Loader v2.2.0 / APP v1.6.0。支持G431和AT32F456CCU7独立构建，
-共用现有升级状态机和镜像核心。新候选未执行实机验收，不作为量产发布包。
-本次已同步重构分支`ba800000`，APP入口以Loader设计为准；
-离线结果见[同步记录](../plans/completed/2026-11-06-dual-board-loader-sync-v1.md)。
+核对日期 2026-11-09，Loader v2.2.0 / APP v1.6.0。支持G431和AT32F456CCU7独立构建，
+共用现有升级状态机和镜像核心。AT32 PITCH 节点 6 已完成初装、参数迁移、两轮 CAN 升级和 APP 槽外逐字节核验。
+STM32G431 本轮完成离线回归和构建。两板适用范围和实测记录见[实例化合并验收](../plans/completed/2026-11-09-app-instance-integration.md)。
 
 ## 功能与固定边界
 

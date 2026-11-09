@@ -6,9 +6,8 @@
 
 | 计划 | 当前状态 |
 | --- | --- |
-| [APP 实例化合并验收](2026-11-09-app-instance-integration.md) | 双板离线回归及 AT32 PITCH 台架 |
 | [Hall 单拍突跳根因排查](2026-11-06-hall-spike-rootcause-v1.md) | 无运行滤波；分层片内捕获及实机单变量验证 |
-| [双板 Loader 开发与评审 v1](2026-11-02-dual-board-loader-v1.md) | 离线实现和PR/release通过；AT32实机预检因SWD回读不稳定停止，零Flash写入，已恢复运行状态；安装/升级待重测 |
+| [双板 Loader 开发与评审 v1](2026-11-02-dual-board-loader-v1.md) | 离线实现和PR/release通过；11 月 9 日 PITCH 初装和两轮 CAN 升级通过；历史预检及其余硬件场景见计划 |
 | [AT32 位置和速度外环 4 kHz](2026-11-05-outer-4khz-v1.md) | ADC 每五拍派发；板上时序和参数由轨迹会话调试 |
 | [单轴位置 S 曲线 OTG](2026-11-05-position-otg-v1.md) | 重构分支实现与离线连续性验证，板上时序待测 |
 | [运行中 q 轴与低延迟测速验证](2026-11-05-speed-120hz-validation-v1.md) | 运行中 q 轴幅相和 120 Hz 目标按板上证据验收，低速波动独立核对 |

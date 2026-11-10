@@ -109,7 +109,7 @@
     "app_output": "outputs/build/keil/ESC-APP-AT32F456",
     "app_boot_source": "firmware/platform/bsp/mcu/at32f456/boot_loader.c",
     "selection_directory": "shared/targets/yg_esc_v1_at32f456",
-    "app_defines": "AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U",
+    "app_defines": "AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U,AT32_KEIL_CALIBRATION=1",
     "app_boot_replace": "boot.c",
     "app_scatter_template": "projects/at32f456/application/at32f456_app.sct"
   },

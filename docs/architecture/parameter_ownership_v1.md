@@ -1,6 +1,6 @@
 # 参数所有权与四类配置
 
-更新：2026-11-03。当前 APP 接入启动参数装载与配置校验，Keil调试命令及在线参数事务已删除。
+更新：2026-11-10。APP负责启动装载、在线标量提交与显式保存；Keil调试命令已删除。
 存储契约见[schema14](../../firmware/parameters/README.md#storage)。
 
 | 类别 | 默认来源 | 活动对象 |
@@ -26,8 +26,9 @@ Watch 全局符号只用于观测，不构成跨模块写接口。
 - 标定：任务写入候选；LUT 完成后先关相，前台复核原会话、STOP 和故障后发布。
 - 运行状态：模式、目标、PI 积分、测量和观测历史不写入参数记录。
 
-启动参数记录与停机保存复用同一份2288字节静态暂存区；LUT 标定独占另一份6144字节工作区。
-PITCH、YAW 标定完成后由 MotorAxis_ProcessCalibrationPublication 调用 Param_Upload
+启动与停机保存复用4372字节整轴暂存区，其中schema14前缀2288字节。
+参数候选与LUT标定互斥复用6144字节工作区，候选不占用大型自动栈对象。
+PITCH、YAW 标定完成后由 MotorCalibration_ProcessPublication 调用 Param_Upload
 及 BspFlash_Write；写前复核原会话、STOP/故障与关相状态，写入及回读完成后通知成功。
 当前参数服务120/121/122及123/125调用MotorAxis的停机业务；活动/保存revision每轴独立。
 Flash实际写入/回读结果同步返回，失败保持错误和关相。标定自动保存使用同一份持久化状态。

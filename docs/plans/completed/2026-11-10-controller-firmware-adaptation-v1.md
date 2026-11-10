@@ -24,7 +24,7 @@ Loader双板实现保持既有产品边界，当前阶段只进行离线验证�
 源码按本计划独立提交回退；原有本地文件不纳入实现提交。
 所有生成产物归outputs/motion-lease与当前verify运行目录。
 
-## P0 当前结果
+## P0 提交时结果
 已接入118续租、能力位13和固定500ms，普通117受理启用，新的116目标续租。
 监督上下文到期报告CAN失联故障并走停机路径，107清错与117新启动分别显式执行。
 原生回归增加六种模式、重复目标/查询不续租、重复和迟到118拒绝、
@@ -61,13 +61,47 @@ CRC与独立zlib参考向量f0cf3629在双板一致。
 PI配置上限为数值接口边界，需要后续电机台架确认实际整定范围。
 维护候选复用标定union工作区，普通维护不屏蔽ADC，Flash事务沿用现有保护。
 
-## 当前验证
-双板针对性测试通过参数版本/重试/范围/保存失败/重启回读、默认恢复、坐标CRC、输出/NTC过期，
-标定票据测试覆盖成功、STOP取消、终态重查和故障。
-Release尝试20261110-controller-services-release中的46组原生和21项集成通过。
-已发现并修复该次检查中的Python import排序；原142项Python单测仍有两项历史失败，
-文档检查保持132条问题。该工作区含用户未提交改动，release的clean-source检查拒绝构建，
-因此该次summary不是固件发布通过证明。
-独立执行build_firmware --target all曾完成6个产品镜像，均0错误/0警告。
-下一步在本次源码提交的独立干净校验目录复核release，记录当前summary与实际产物哈希。
-未烧录、未操作电机。高频控制会话/真实boot_epoch及实机停机/参数整定验收为后续范围。
+## 本轮离线验收结果
+
+生产功能提交b329923，任务效果回归/连续目标边界提交efd7ef3，
+参数float32量化幂等修复提交6f1b0df。
+本轮阶段1..4已完成代码开发与离线验收；阶段5为后续高频扩展，不纳入本轮实现承诺。
+共享参数目录为shared/protocol/parameter_catalog_v1.json，
+原生测试校验其ID、类型、倍率、权限和PI范围与生产映射一致。
+
+在6f1b0df的独立干净副本执行release：
+46组原生检查、21项集成通过；Python单测141/142通过，剩余失败为文档卫生。
+format/lint/project-layout/architecture/interfaces/hygiene通过，
+文档检查保留120条既有缺失链接/索引问题，Release总结果为FAIL。
+自动release入口因此跳过构建；独立build_firmware --target all实际完成6个目标，
+均0错误/0警告。18个AXF/HEX/MAP哈希与同次summary的产物清单逐项相符。
+4个APP镜像的FromELF符号检查没有发现__aeabi_d*及整数/单精度转double运行库符号。
+
+当前证据按原始内容复制至：
+- outputs/controller-services/exact-source/outputs/runs/20261110-controller-services-complete/summary.json
+- outputs/controller-services/exact-source/outputs/controller-services-build.json
+- outputs/controller-services/exact-source/outputs/build/
+- outputs/runs/20261110-controller-services-repo-final/summary.json（目录及归档后的仓库检查）
+
+G431普通APP代码/只读数据75856字节，AT32普通APP81672字节；
+两份LoaderApp镜像分别78048及84664字节，仍在各自96KiB槽内。
+参数候选复用6144字节标定工作区，无大型配置自动栈副本。
+四个APP的ZI数据分别22636、48568、22700、48632字节，含既有运行区及静态栈等。
+以上为编译/离线证据，不代表实机时序、长期运行或固件发布门禁通过。
+实机停机/总线抖动、NTC、参数整定、Flash断电行为和升级后场景仍待明确台架验收。
+
+## 接口协作与后续边界
+
+线上契约统一在docs/protocols/README.md，固定黄金payload为
+tests/fixtures/protocol/controller_services_v1.json及yg_protocol_core_v1_9_vectors.json。
+能力位13/14/15/16依次为通信租约、参数服务、标定票据、输出反馈。
+120/121/122保留请求长度，123读取真实保存值，125恢复控制调参，
+126分别提供独立Hall单圈角和既有连续跟踪角；0x70为活动/保存坐标CRC。
+
+坐标CRC排除PI和启动电流零偏，用于主控持久软件零位核对。
+票据/RAM revision仅本次上电有效，主控重连时丢弃旧票据。
+通信租约固定500ms及续租计数高水位要求保持v1约定，实际产品值需台架核对。
+连续116位置目标接续既有OTG的参考p/v/a，速度目标接续参考斜坡；
+当前没有跨节点同步执行或绕过OTG的周期直接位置跟踪能力。
+真实boot_epoch、高频控制会话、跨重启去重及严格同步执行留给后续版本。
+未烧录、未操作电机；主工作区原有未提交工程及实验数据已保留。

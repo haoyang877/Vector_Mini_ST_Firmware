@@ -50,7 +50,7 @@ handle_start_command → request_motor_start → MotorStateMachine_RequestStart`
 
 APP 支持设备查询、启停、目标更新、反馈和三类标定。线路模式为 **1 电流、2 速度、3 位置、6 Vq、9 开环电压、10 开环电流**。
 参数120/121/122及123/125、任务161/162和输出反馈126已接入；101的enable=1不支持。
-只有配套 G431 LoaderApp 提供 56/57 交接和确认。AT32 APP 不因此获得 Loader 能力。
+双板配套LoaderApp提供56/57交接和确认，独立APP按实际CAPS报告升级能力。
 版本和支持能力应以实际设备查询为准；代码支持不等于已完成实机验收。
 
 <a id="can-frame"></a>
@@ -118,7 +118,7 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 | 126 | OUTPUT_FEEDBACK v1 | 0 | 成功32 B，错误4 B |
 | 124 | MOTION_FEEDBACK | 不接收 | 设备发送 45 B |
 | 160 | START_JOB | 4 | 12 B；仅 kind=1、2、6 |
-| 161 / 162 | GET_JOB_STATUS / CANCEL_JOB | 4 | 12 B；当前不支持 |
+| 161 / 162 | GET_JOB_STATUS / CANCEL_JOB | 4 | 12 B；票据查询及取消 |
 | 56 / 57 | ENTER_LOADER / CONFIRM_APP | 8 | 配套 LoaderApp 的 4 B 回复 |
 
 未列出的 CMD 不执行，也不回复。公共 result：**0 完成、1 已受理、2 不支持、3 长度错、
@@ -205,21 +205,22 @@ GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, ep
 <a id="parameters"></a>
 ## 参数和标定
 
-参数请求保留校验，但 APP 不读写或保存参数：
+参数请求保持原有长度和字段布局：
 
 - 120：`id:u8, zero[3]`。
 - 121：`id:u8, value_type:u8, value_len=4:u8, zero:u8, expected_revision:u32, value[4]`；value_type 为 1/i32 或 2/u32。
 - 122：`expected_revision:u32`。
 
-合法主站请求均回复 **2/0**；长度错为 3/0，字段错为 4/6，非主站为 7/0。
+合法主站请求交给参数服务；长度错为3/0，结构字段错为4/6，非主站为7/0。
 参数成功回复、revision和保存结果见下文参数服务v1。Flash 启动记录见[参数模块](../../firmware/parameters/README.md)。
 
 160 请求：`kind:u16, zero:u16`；仅支持 1 编码器 LUT、2 电角零位、6 机械零位。
-161/162 请求为非零 `ticket:u32`，均不支持；取消活动标定用 110。其他 kind 不启动任务。
+161/162请求为非零`ticket:u32`，分别查询和取消任务；110也可中止标定。其他kind不启动任务。
 三条命令统一回复 12 B：`result:u16, detail:u16, ticket:u32, kind:u16, phase:u8, effects:u8`。
 受理时 ticket 非零、phase=1（进行中）、effects=1（未保存），受理时尚未保存。标定候选就绪后，前台复核原会话和实际关相状态并自动写 Flash。保存成功后回空闲，写失败锁存存储故障。
 ticket 只是受理编号，不提供历史查询或后续授权。
-detail：1 不支持类别、3 状态不允许、6 字段错误、7 执行失败；失败时任务元数据可全为 0。
+detail：1不支持类别、2过期票据、3状态不允许、4冲突重试、5过期序号、6字段错误、
+7执行失败、8保存失败；运行中的阶段detail见标定票据v1。拒绝受理时任务元数据可全为0。
 
 <a id="upgrade"></a>
 ## Loader 升级

@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "encoding": "little-endian i32/u32",
+  "raw_value": "physical_value * scale",
+  "write_state": "idle_phases_disabled",
+  "saved_read_state": "stopped",
+  "range_authority": "firmware/parameters/parameter_values.c and product axis envelope",
+  "parameters": [
+    {
+      "id": 0,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "revision",
+      "access": 1
+    },
+    {
+      "id": 1,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 2,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "A",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 3,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "node_id",
+      "access": 1
+    },
+    {
+      "id": 4,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "little_endian_marker",
+      "access": 1
+    },
+    {
+      "id": 5,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "pole_pairs",
+      "access": 1
+    },
+    {
+      "id": 6,
+      "value_type": 1,
+      "scale": 1000000000,
+      "unit": "Wb",
+      "access": 1
+    },
+    {
+      "id": 7,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "Ohm",
+      "access": 1
+    },
+    {
+      "id": 8,
+      "value_type": 1,
+      "scale": 1000000000,
+      "unit": "H",
+      "access": 1
+    },
+    {
+      "id": 9,
+      "value_type": 1,
+      "scale": 1000000000,
+      "unit": "H",
+      "access": 1
+    },
+    {
+      "id": 10,
+      "value_type": 1,
+      "scale": 1000000000,
+      "unit": "H",
+      "access": 1
+    },
+    {
+      "id": 11,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "V/A",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 1000
+    },
+    {
+      "id": 12,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "V/(A*s)",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 100000
+    },
+    {
+      "id": 13,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "V/A",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 1000
+    },
+    {
+      "id": 14,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "V/(A*s)",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 100000
+    },
+    {
+      "id": 16,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "s/rad",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 1000
+    },
+    {
+      "id": 17,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1/rad",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 1000
+    },
+    {
+      "id": 19,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s^2",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 20,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s^2",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 21,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1/s",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 50
+    },
+    {
+      "id": 22,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 10
+    },
+    {
+      "id": 23,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 24,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s^2",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 25,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s^2",
+      "access": 3,
+      "range_rule": "positive_product_axis_envelope"
+    },
+    {
+      "id": 26,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad",
+      "access": 1
+    },
+    {
+      "id": 64,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "encoder_q15_counts",
+      "access": 5
+    },
+    {
+      "id": 65,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "encoder_q15_counts",
+      "access": 5
+    },
+    {
+      "id": 66,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "bool",
+      "access": 5
+    },
+    {
+      "id": 67,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "bool",
+      "access": 5
+    },
+    {
+      "id": 68,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "counts",
+      "access": 5
+    },
+    {
+      "id": 69,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "counts",
+      "access": 5
+    },
+    {
+      "id": 70,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "counts",
+      "access": 5
+    },
+    {
+      "id": 76,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "mOhm",
+      "access": 1
+    },
+    {
+      "id": 77,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "bool",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "id": 78,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "configuration_source",
+      "access": 1
+    },
+    {
+      "id": 96,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "A",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 97,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "A",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 98,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "s",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 99,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 100,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 101,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 102,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "1",
+      "access": 3,
+      "range_rule": "complete_winding_thermal_config"
+    },
+    {
+      "id": 104,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "bool",
+      "access": 3,
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "id": 105,
+      "value_type": 1,
+      "scale": 1000000,
+      "unit": "A*s^2/rad",
+      "access": 3,
+      "range_rule": "complete_speed_feedforward_config"
+    },
+    {
+      "id": 106,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s^2",
+      "access": 3,
+      "range_rule": "complete_speed_feedforward_config"
+    },
+    {
+      "id": 107,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "rad/s^3",
+      "access": 3,
+      "range_rule": "complete_speed_feedforward_config"
+    },
+    {
+      "id": 108,
+      "value_type": 1,
+      "scale": 1000,
+      "unit": "A",
+      "access": 3,
+      "range_rule": "complete_speed_feedforward_config"
+    },
+    {
+      "id": 112,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "coordinate_crc32_v1",
+      "access": 1,
+      "read_state": "stopped"
+    }
+  ]
+}

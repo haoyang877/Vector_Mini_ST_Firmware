@@ -855,7 +855,7 @@ static void test_wheel_position_targets(void)
 
 static void test_calibration_ticket_cancel_and_failure(void)
 {
-    for (unsigned failure = 0; failure < 2; ++failure)
+    for (unsigned failure = 0; failure < 3; ++failure)
     {
         reset();
         ProtocolJobRequest start = {.operation = PROTOCOL_JOB_START,
@@ -869,7 +869,16 @@ static void test_calibration_ticket_cancel_and_failure(void)
         assert(reply.status == PROTOCOL_OK && reply.token == token);
         if (failure)
         {
-            MotorFault_Report(&motor, MOTOR_FAULT_CALIBRATION_STORAGE);
+            if (failure == 2U)
+            {
+                MotorStateMachine_FinishFastTick(
+                    &machine,
+                    (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE},
+                    machine.epoch);
+                MotorStateMachine_CompleteCalibrationPublication(&machine, machine.epoch, true);
+            }
+            MotorFault_Report(
+                &motor, failure == 1U ? MOTOR_FAULT_CALIBRATION_STORAGE : MOTOR_FAULT_OVERCURRENT);
             tick();
         }
         else
@@ -882,8 +891,13 @@ static void test_calibration_ticket_cancel_and_failure(void)
         ProtocolJobRequest query = {.operation = PROTOCOL_JOB_QUERY, .job_id = token};
         endpoint.jobs.handler(endpoint.jobs.context, &query, &reply);
         assert(reply.phase == (failure ? PROTOCOL_JOB_PHASE_FAILED : PROTOCOL_JOB_PHASE_CANCELLED));
-        assert(reply.effects == PROTOCOL_JOB_EFFECT_UNCOMMITTED);
-        assert(reply.detail == (failure ? 8U : 0U));
+        assert(reply.effects ==
+               (failure == 2U ? PROTOCOL_JOB_EFFECT_COMMITTED : PROTOCOL_JOB_EFFECT_UNCOMMITTED));
+        uint16_t expected_detail = failure == 1U ? 8U : failure == 2U ? 7U : 0U;
+        assert(reply.detail == expected_detail);
+        motor.fault_code = MOTOR_FAULT_NONE;
+        endpoint.jobs.handler(endpoint.jobs.context, &query, &reply);
+        assert(reply.detail == expected_detail);
         query.job_id = token + 1U;
         endpoint.jobs.handler(endpoint.jobs.context, &query, &reply);
         assert(reply.status == PROTOCOL_DENIED && reply.detail == PROTOCOL_JOB_DETAIL_STALE_TOKEN);

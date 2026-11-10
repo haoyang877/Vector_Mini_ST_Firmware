@@ -41,6 +41,14 @@ extern "C"
     float BspAdc_ReadChannel(BspAdcChannel channel);
 
     /**
+     * @brief 读取一份新完成的电机NTC采样并确认完成标志。
+     * @param celsius 非空输出，单位摄氏度；坏采样返回NAN。
+     * @return 有新完成采样返回true；未安装或尚无新采样返回false并保持输出。
+     * @note 监督单读者调用，不等待、不屏蔽中断；与MCU温度独立。
+     */
+    bool BspAdc_ReadMotorTemperature(float *celsius);
+
+    /**
      * @brief 直接保存三相零偏。
      * @param offsets_counts 三个等效12位零偏计数，不保留指针。
      * @note 依次写入，不校验、不屏蔽中断。

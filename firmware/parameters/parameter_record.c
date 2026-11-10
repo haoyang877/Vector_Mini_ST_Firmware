@@ -73,7 +73,6 @@ void Param_RestoreLinearHall(const InterfaceParam *param, LinearHall *hall)
 /* OEN1 兼容读取；OEN2 为128点，OEN3 将1024点表与输出相位整体保存。 */
 #define PARAM_OUTPUT_ENCODER_V1 0x314e454fU
 #define PARAM_OUTPUT_ENCODER_V2 0x324e454fU
-#define PARAM_OUTPUT_ENCODER_V3 0x334e454fU
 typedef char OutputEncoderLayout[(sizeof(OutputEncoderRecord) == 2084U &&
                                   offsetof(OutputEncoderRecord, hall_lut_status) == 28U &&
                                   offsetof(OutputEncoderRecord, crc32) == 2080U &&
@@ -569,6 +568,19 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             configuration->model.motor_q_inductance_h * CURRENT_LOOP_BANDWIDTH_RAD_S;
         configuration->model.iq_ki = configuration->model.id_ki;
     }
+    /* 已保存的显式整定在模型默认装配后生效。零增益是合法的关闭整定。 */
+    if (isfinite(param->id_kp) && param->id_kp >= 0.0f && param->id_kp <= PARAMETER_PI_KP_MAX &&
+        isfinite(param->iq_kp) && param->iq_kp >= 0.0f && param->iq_kp <= PARAMETER_PI_KP_MAX &&
+        isfinite(param->id_ki) && param->id_ki >= 0.0f &&
+        param->id_ki <= PARAMETER_CURRENT_KI_MAX && isfinite(param->iq_ki) &&
+        param->iq_ki >= 0.0f && param->iq_ki <= PARAMETER_CURRENT_KI_MAX &&
+        !current_sense_profile_changed)
+    {
+        configuration->model.id_kp = param->id_kp;
+        configuration->model.iq_kp = param->iq_kp;
+        configuration->model.id_ki = param->id_ki;
+        configuration->model.iq_ki = param->iq_ki;
+    }
     configuration->application.speed_limit_rad_s =
         isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f &&
                 param->speed_limit_rad_s <=
@@ -608,6 +620,18 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     if (preset == NULL)
     {
         configuration->application.axis_profile_valid = param_apply_joint_profile(configuration);
+        configuration->application.speed_kp = param->speed_kp;
+        configuration->application.speed_ki = param->speed_ki;
+        configuration->application.cascade_position_kp = param->cascade_pos_kp;
+        configuration->application.cascade_position_kd = param->cascade_pos_kd;
+        configuration->application.speed_acceleration_rad_s2 = param->speed_acceleration_rad_s2;
+        configuration->application.speed_deceleration_rad_s2 = param->speed_deceleration_rad_s2;
+        configuration->application.position_acceleration_rad_s2 =
+            param->position_acceleration_rad_s2;
+        configuration->application.position_deceleration_rad_s2 =
+            param->position_deceleration_rad_s2;
+        configuration->application.position_maximum_speed_rad_s =
+            fminf(param->position_maximum_speed_rad_s, position_speed_limit);
     }
     else
     {
@@ -648,4 +672,20 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         Param_Return_Default(configuration);
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
     }
+}
+
+uint32_t Param_CoordinateCrc(const MotorAxisRecord *record)
+{
+    const InterfaceParam *motor = &record->motor;
+    uint32_t crc = Crc32_Compute(&motor->motor_pole_pairs, sizeof(motor->motor_pole_pairs), 0U);
+    uint32_t bytes =
+        offsetof(InterfaceParam, id_kp) - offsetof(InterfaceParam, encoder_electrical_zero_q15);
+    crc = Crc32_Compute(&motor->encoder_electrical_zero_q15, bytes, crc);
+    crc = Crc32_Compute(&motor->hall_sin_off_counts, 20U, crc);
+    crc = Crc32_Compute(&record->output.magic, sizeof(record->output.magic), crc);
+    crc = Crc32_Compute(&record->output.params, sizeof(record->output.params), crc);
+    return Crc32_Compute(&record->output.hall_lut_status,
+                         sizeof(record->output.hall_lut_status) +
+                             sizeof(record->output.hall_lut_q15),
+                         crc);
 }

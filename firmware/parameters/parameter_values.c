@@ -36,19 +36,19 @@ static const ScalarField s_fields[] = {
     READ_FIELD(7U, model.motor_phase_resistance_ohm, 1000000U),
     READ_FIELD(8U, model.motor_d_inductance_h, 1000000000U),
     READ_FIELD(9U, model.motor_q_inductance_h, 1000000000U),
-    READ_FIELD(11U, model.id_kp, 1000U),
-    READ_FIELD(12U, model.id_ki, 1000U),
-    READ_FIELD(13U, model.iq_kp, 1000U),
-    READ_FIELD(14U, model.iq_ki, 1000U),
-    READ_FIELD(16U, application.speed_kp, 1000000U),
-    READ_FIELD(17U, application.speed_ki, 1000000U),
-    READ_FIELD(19U, application.speed_acceleration_rad_s2, 1000U),
-    READ_FIELD(20U, application.speed_deceleration_rad_s2, 1000U),
+    WRITE_FIELD(11U, model.id_kp, 1000U),
+    WRITE_FIELD(12U, model.id_ki, 1000U),
+    WRITE_FIELD(13U, model.iq_kp, 1000U),
+    WRITE_FIELD(14U, model.iq_ki, 1000U),
+    WRITE_FIELD(16U, application.speed_kp, 1000000U),
+    WRITE_FIELD(17U, application.speed_ki, 1000000U),
+    WRITE_FIELD(19U, application.speed_acceleration_rad_s2, 1000U),
+    WRITE_FIELD(20U, application.speed_deceleration_rad_s2, 1000U),
     WRITE_FIELD(21U, application.cascade_position_kp, 1000000U),
     WRITE_FIELD(22U, application.cascade_position_kd, 1000000U),
     WRITE_FIELD(23U, application.position_maximum_speed_rad_s, 1000U),
-    READ_FIELD(24U, application.position_acceleration_rad_s2, 1000U),
-    READ_FIELD(25U, application.position_deceleration_rad_s2, 1000U),
+    WRITE_FIELD(24U, application.position_acceleration_rad_s2, 1000U),
+    WRITE_FIELD(25U, application.position_deceleration_rad_s2, 1000U),
     READ_FIELD(26U, application.position_error_window_rad, 1000U),
     CAL_FIELD(0x44U, device.phase_a_offset_counts, 1000U),
     CAL_FIELD(0x45U, device.phase_b_offset_counts, 1000U),
@@ -162,12 +162,6 @@ ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
         }
         candidate.value_type = PARAMETER_VALUE_I32;
         candidate.access = field->access;
-        if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
-            (parameter_id == 21U || parameter_id == 22U || parameter_id == 23U))
-        {
-            /* 启动 joint profile 会覆盖这些字段，不能承诺单值改写的掉电持久语义。 */
-            candidate.access &= (uint8_t)~PARAMETER_ACCESS_WRITE_IDLE;
-        }
     }
     else
     {
@@ -320,12 +314,6 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     {
         return PARAMETER_READ_ONLY;
     }
-    if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
-        (request->parameter_id == 21U || request->parameter_id == 22U ||
-         request->parameter_id == 23U))
-    {
-        return PARAMETER_READ_ONLY;
-    }
     if (request->value_type != PARAMETER_VALUE_I32)
     {
         return PARAMETER_BAD_TYPE;
@@ -360,6 +348,50 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     }
     switch (request->parameter_id)
     {
+    case 11U:
+    case 12U:
+    case 13U:
+    case 14U:
+    case 16U:
+    case 17U:
+    {
+        float maximum = PARAMETER_PI_KP_MAX;
+        if (request->parameter_id == 12U || request->parameter_id == 14U)
+        {
+            maximum = PARAMETER_CURRENT_KI_MAX;
+        }
+        else if (request->parameter_id == 17U)
+        {
+            maximum = PARAMETER_SPEED_KI_MAX;
+        }
+        if (si_value < 0.0f || si_value > maximum)
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        memcpy((uint8_t *)configuration + field->offset, &si_value, sizeof(si_value));
+        break;
+    }
+    case 19U:
+    case 20U:
+    case 24U:
+    case 25U:
+    {
+        float maximum = configuration->preset != NULL
+                            ? configuration->preset->control.acceleration_rad_s2
+                            : PARAM_APP_POSITION_ACCEL_MAX_RAD_S2;
+        if (request->parameter_id == 20U || request->parameter_id == 25U)
+        {
+            maximum = configuration->preset != NULL
+                          ? configuration->preset->control.deceleration_rad_s2
+                          : maximum;
+        }
+        if (si_value <= 0.0f || si_value > maximum)
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        memcpy((uint8_t *)configuration + field->offset, &si_value, sizeof(si_value));
+        break;
+    }
     case 1U:
         if (si_value <= 0.0f || si_value > speed_ceiling(configuration))
         {
@@ -408,7 +440,9 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
         break;
     case 23U:
         if (si_value <= 0.0f || si_value > configuration->application.speed_limit_rad_s ||
-            si_value > speed_ceiling(configuration))
+            si_value > speed_ceiling(configuration) ||
+            (configuration->preset == NULL &&
+             si_value > PARAM_APP_POSITION_RESTORE_SPEED_MAX_RAD_S))
         {
             return PARAMETER_OUT_OF_RANGE;
         }

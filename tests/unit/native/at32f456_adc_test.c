@@ -72,8 +72,15 @@ int main(void)
     ADC2->odt = 372;
     assert(BspAdc_ReadRawChannel(BSP_ADC_MOTOR_TEMPERATURE) == 372);
     assert(fabsf(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE) - 25.0f) < 0.1f);
+    float ntc = -99.0f;
+    assert(!BspAdc_ReadMotorTemperature(&ntc) && ntc == -99.0f);
+    sim_adc[1].flags |= ADC_OCCE_FLAG;
+    assert(BspAdc_ReadMotorTemperature(&ntc) && fabsf(ntc - 25.0f) < 0.1f);
+    assert(!BspAdc_ReadMotorTemperature(&ntc));
     ADC2->odt = 0;
     assert(isnan(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE)));
+    sim_adc[1].flags |= ADC_OCCE_FLAG;
+    assert(BspAdc_ReadMotorTemperature(&ntc) && isnan(ntc));
     Adc_Stop();
     assert(!sim_dma_enabled && !sim_temperature_dma_enabled);
     assert(sim_adc[0].edge == ADC_PREEMPT_TRIG_EDGE_NONE &&

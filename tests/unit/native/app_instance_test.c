@@ -5,12 +5,16 @@
 #include "bsp_encoder.h"
 #include "bsp_pwm.h"
 #include "bsp_system.h"
+#include "motor_axis_profile.h"
+#include "crc32.h"
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
 static AppContext apps[2];
 static uint32_t now_ms;
+static bool load_saved, write_fails;
 static unsigned depth;
 static bool nested;
 static bool calibrating;
@@ -49,6 +53,11 @@ static BspResult read_a(void *data, size_t length)
     if (nested)
     {
         App_Init(&apps[1]);
+    }
+    if (load_saved)
+    {
+        memcpy(data, &devices[0].saved, sizeof(MotorAxisRecord));
+        return BSP_OK;
     }
     return initial_record(data);
 }
@@ -100,6 +109,10 @@ static BspResult store(unsigned id, const void *data, size_t length)
     assert(data == &apps[id].axis.record && length == sizeof(MotorAxisRecord));
     assert(depth && devices[id].disabled);
     ++devices[id].record_writes;
+    if (write_fails)
+    {
+        return BSP_IO_ERROR;
+    }
     memcpy(&devices[id].saved, data, length);
     return BSP_OK;
 }
@@ -193,6 +206,11 @@ void BspSystem_ExitControlCritical(uint32_t key)
 }
 void BspSystem_MemoryBarrier(void)
 {
+}
+bool BspAdc_ReadMotorTemperature(float *celsius)
+{
+    (void)celsius;
+    return false;
 }
 uint32_t BspSystem_TimeMs(void)
 {
@@ -404,6 +422,140 @@ static void motion_permission_expires(void)
         assert(!apps[1].axis.state_machine.motion_lease_active);
     }
 }
+static void parameter_and_output_services(void)
+{
+    MotorAxis *axis = &apps[0].axis;
+    nested = false;
+    devices[0].disabled = true;
+    axis->state_machine.state = MOTOR_STATE_IDLE;
+    axis->state_machine.stop_pending = false;
+    axis->state_machine.start_pending = false;
+    axis->state_machine.starts_locked = false;
+    axis->state_machine.calibration_type = MOTOR_CALIBRATION_NONE;
+    axis->state_machine.calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
+    axis->motor.fault_code = MOTOR_FAULT_NONE;
+    axis->motor.control_mode = MOTOR_CONTROL_NONE;
+#if BSP_BOARD == BSP_BOARD_STM32G4
+    assert(MotorAxisProfile_Create(
+        &axis->configuration.application.axis_profile, "roll", -1.0f, 1.0f, 2.0f));
+    axis->configuration.application.axis_profile_valid = true;
+    axis->configuration.application.speed_ceiling_rad_s = 2.0f;
+    axis->configuration.model.thermal = (MotorWindingThermalConfig){3, 7, 66, .8f, .7f, 1, .5f};
+#endif
+    axis->configuration.device.phase_a_offset_counts = 2048.0f;
+    axis->configuration.device.phase_b_offset_counts = 2048.0f;
+    axis->configuration.device.phase_c_offset_counts = 2048.0f;
+#if BSP_BOARD == BSP_BOARD_AT32F456
+    axis->configuration.device.node_id = 3U;
+#endif
+    axis->configuration.configuration_confirmed = true;
+    ParameterWriteRequest write = {.parameter_id = 1U,
+                                   .value_type = PARAMETER_VALUE_I32,
+                                   .expected_revision = axis->parameters.revision,
+                                   .raw_value = 1000U};
+    uint32_t before = axis->parameters.revision;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    assert(axis->parameters.revision == before + 1U);
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    assert(axis->parameters.revision == before + 1U);
+    write.raw_value = 1100U;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_REVISION_CONFLICT);
+    write.expected_revision = axis->parameters.revision;
+    write.raw_value = 0U;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OUT_OF_RANGE);
+    write.parameter_id = 16U;
+    write.raw_value = 500000U;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    assert(axis->speed_pi.proportional_gain == 0.5f);
+    uint32_t revision = axis->parameters.revision;
+    unsigned writes = devices[0].record_writes;
+    assert(MotorAxis_SaveParameters(axis, revision) == PARAMETER_OK);
+    assert(axis->parameters.saved_revision == revision && devices[0].record_writes == writes + 1U);
+    assert(MotorAxis_SaveParameters(axis, revision) == PARAMETER_OK);
+    assert(devices[0].record_writes == writes + 1U);
+    load_saved = true;
+    ParameterValue value;
+    assert(MotorAxis_ReadParameter(axis, 16U, true, &value) == PARAMETER_OK);
+    assert(value.raw_value == 500000U);
+    assert(MotorAxis_ReadParameter(axis, 0x70U, true, &value) == PARAMETER_OK);
+    uint32_t coordinate_crc = value.raw_value;
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
+    assert(value.raw_value == coordinate_crc);
+    write.parameter_id = 16U;
+    write.expected_revision = axis->parameters.revision;
+    write.raw_value = 600000U;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
+    assert(value.raw_value == coordinate_crc);
+    ++axis->configuration.device.encoder.mechanical_zero_q15;
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
+    assert(value.raw_value != coordinate_crc);
+    write_fails = true;
+    assert(MotorAxis_SaveParameters(axis, axis->parameters.revision) == PARAMETER_PERSIST_FAILED);
+    assert(axis->parameters.saved_revision == 0U);
+    assert(devices[0].disabled && !axis->state_machine.parameters_updating);
+    write_fails = false;
+    axis->state_machine.state = MOTOR_STATE_RUNNING;
+    assert(MotorAxis_SaveParameters(axis, axis->parameters.revision) == PARAMETER_WRONG_STATE);
+    axis->state_machine.state = MOTOR_STATE_IDLE;
+    MotorOutputFeedback output;
+    axis->output_feedback = (MotorOutputTelemetry){.hall_position_rad = 1.25f,
+                                                   .tracked_position_rad = -2.5f,
+                                                   .zero_rad = 0.125f,
+                                                   .gear_ratio = 8.0f,
+                                                   .sample_ms = now_ms,
+                                                   .sample_counter = 123U,
+                                                   .flags = 31U};
+    assert(apps[0].endpoint.motor.read_output(&apps[0].protocol, &output));
+    assert(output.flags == 31U && output.hall_mrad == 1250 && output.tracked_mrad == -2500);
+    now_ms += 11U;
+    assert(apps[0].endpoint.motor.read_output(&apps[0].protocol, &output));
+    assert((output.flags & 3U) == 0U && output.hall_mrad == INT32_MIN);
+    axis->motor_temperature = (MotorTemperatureTelemetry){25.0f, now_ms, true};
+    ProtocolFeedback feedback = {0};
+    axis->state_machine.fast_samples_fresh = true;
+    assert(apps[0].endpoint.motor.read_feedback(&apps[0].protocol, &feedback));
+    assert(feedback.motor_temperature_centi_c == 2500 && (feedback.valid_bits & (1U << 9)));
+    now_ms += 31U;
+    feedback = (ProtocolFeedback){0};
+    assert(apps[0].endpoint.motor.read_feedback(&apps[0].protocol, &feedback));
+    assert(!(feedback.valid_bits & (1U << 9)) && feedback.motor_temperature_centi_c == INT16_MIN);
+    assert(apps[1].axis.parameters.revision != axis->parameters.revision);
+    uint32_t restore_revision = axis->parameters.revision;
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
+    uint32_t before_restore_crc = value.raw_value;
+    MotorAxisProfile before_restore_profile = axis->configuration.application.axis_profile;
+    assert(MotorAxis_RestoreControlDefaults(axis, restore_revision) == PARAMETER_OK);
+    assert(axis->parameters.revision == restore_revision + 1U);
+    assert(ParameterValue_ConfigurationValid(&axis->configuration));
+    assert(memcmp(&before_restore_profile,
+                  &axis->configuration.application.axis_profile,
+                  sizeof(before_restore_profile)) == 0);
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
+    assert(value.raw_value == before_restore_crc);
+    assert(MotorAxis_RestoreControlDefaults(axis, restore_revision) == PARAMETER_REVISION_CONFLICT);
+    axis->parameters.revision = UINT32_MAX;
+    write.expected_revision = UINT32_MAX;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OUT_OF_RANGE);
+    MotorAxisRecord canonical = {0};
+    canonical.motor.motor_pole_pairs = 7.0f;
+    canonical.motor.encoder_electrical_zero_q15 = 0x1234U;
+    canonical.motor.encoder_mechanical_zero_q15 = 0x5678U;
+    canonical.motor.encoder_calib_flag = 7U;
+    canonical.motor.encoder_reverse = 1U;
+    canonical.motor.hall_sin_off_counts = 2000.0f;
+    canonical.motor.hall_cos_off_counts = 2100.0f;
+    canonical.motor.hall_sin_amp = 1000.0f;
+    canonical.motor.hall_cos_amp = 1100.0f;
+    canonical.motor.hall_tag_status = 0x48410180U;
+    canonical.output.magic = PARAM_OUTPUT_ENCODER_V3;
+    canonical.output.params = (OutputEncoderParams){8.0f, .125f, .25f, -1, 0x180U};
+    canonical.output.hall_lut_status = 0x80U;
+    printf("COORDINATE_CRC %08x\n", (unsigned)Param_CoordinateCrc(&canonical));
+
+    puts("PASS parameter revision/retry/limits, real save/failure/reload, coordinate CRC, "
+         "output/NTC freshness");
+}
 int main(void)
 {
     run(false);
@@ -413,6 +565,7 @@ int main(void)
     assert(memcmp(reference, devices, sizeof(devices)) == 0);
     stop_between_snapshot_and_commit();
     motion_permission_expires();
+    parameter_and_output_services();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");
     return 0;

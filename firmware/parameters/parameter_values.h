@@ -2,6 +2,10 @@
 #define PARAMETER_VALUES_H
 
 #include <stdint.h>
+
+#define PARAMETER_PI_KP_MAX 1000.0f
+#define PARAMETER_CURRENT_KI_MAX 100000.0f
+#define PARAMETER_SPEED_KI_MAX 1000.0f
 #include "motor_config.h"
 
 /** 内部业务结果，通信层显式映射，不直接作为线上 result 编号。 */
@@ -63,6 +67,13 @@ typedef struct
     uint16_t sequence;
     uint32_t expected_revision;
 } ParameterSaveRequest;
+
+/** @brief 本次上电内的活动/已保存版本；零保存版本表示尚无可验证记录。 */
+typedef struct
+{
+    uint32_t revision, saved_revision;
+    ParameterStatus save_status;
+} ParameterPersistence;
 
 /**
  * @brief 从稳定活动配置读取一个有明确来源的标量。

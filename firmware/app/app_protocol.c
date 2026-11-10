@@ -3,6 +3,7 @@
 #include "yg_protocol.h"
 #include "scaled_integer.h"
 #include <limits.h>
+#include <math.h>
 
 /* 线上编号与内部枚举独立。0 表示没有可启动的模式。 */
 static const uint8_t s_wire_modes[] = {
@@ -178,6 +179,73 @@ request_motor_fault_clear(void *context, const ProtocolCommand *request, Protoco
                                                      : PROTOCOL_DENIED;
 }
 
+static void read_calibration_job_result(AppProtocol *adapter, ProtocolJobReply *reply)
+{
+    *reply = adapter->job;
+    reply->status = PROTOCOL_OK;
+    MotorStateMachine *machine = adapter->state_machine;
+    if (machine->calibration_result_epoch != adapter->job_epoch)
+    {
+        reply->status = PROTOCOL_DENIED;
+        reply->detail = PROTOCOL_JOB_DETAIL_STALE_TOKEN;
+        return;
+    }
+    reply->effects = machine->calibration_saved_epoch == adapter->job_epoch
+                         ? PROTOCOL_JOB_EFFECT_COMMITTED
+                         : PROTOCOL_JOB_EFFECT_UNCOMMITTED;
+    switch (machine->calibration_result)
+    {
+    case MOTOR_CALIBRATION_RESULT_COMPLETED:
+        reply->phase = PROTOCOL_JOB_PHASE_COMPLETED;
+        break;
+    case MOTOR_CALIBRATION_RESULT_CANCELLED:
+        reply->phase = PROTOCOL_JOB_PHASE_CANCELLED;
+        break;
+    case MOTOR_CALIBRATION_RESULT_FAILED:
+        reply->phase = PROTOCOL_JOB_PHASE_FAILED;
+        reply->detail = machine->calibration_failure == MOTOR_FAULT_CALIBRATION_STORAGE
+                            ? 8U
+                            : PROTOCOL_JOB_DETAIL_OPERATION_FAILED;
+        break;
+    default:
+        reply->phase = machine->stop_pending ? PROTOCOL_JOB_PHASE_CANCEL_REQUESTED
+                                             : PROTOCOL_JOB_PHASE_IN_PROGRESS;
+        if (!machine->stop_pending)
+        {
+            if (machine->calibration_handoff == MOTOR_CALIBRATION_AWAITING_PUBLICATION)
+            {
+                reply->detail = 0x1010U;
+            }
+            else if (machine->calibration_handoff == MOTOR_CALIBRATION_AWAITING_COMPLETION)
+            {
+                reply->detail = 0x1011U;
+            }
+            else
+            {
+                switch (machine->calibration_type)
+                {
+                case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:
+                    reply->detail = 0x1001U;
+                    break;
+                case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
+                    reply->detail = 0x1002U;
+                    break;
+                case MOTOR_CALIBRATION_MECHANICAL_ZERO:
+                    reply->detail = 0x1003U;
+                    break;
+                case MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO:
+                    reply->detail = 0x1004U;
+                    break;
+                default:
+                    reply->detail = 0x1000U;
+                    break;
+                }
+            }
+        }
+        break;
+    }
+}
+
 static void request_encoder_calibration(void *context,
                                         const ProtocolJobRequest *request,
                                         ProtocolJobReply *reply)
@@ -186,7 +254,41 @@ static void request_encoder_calibration(void *context,
     *reply = (ProtocolJobReply){.status = PROTOCOL_UNSUPPORTED};
     if (request->operation != PROTOCOL_JOB_START)
     {
+        if (adapter->job.token == 0U || request->job_id != adapter->job.token)
+        {
+            reply->status = PROTOCOL_DENIED;
+            reply->detail = PROTOCOL_JOB_DETAIL_STALE_TOKEN;
+            return;
+        }
+        read_calibration_job_result(adapter, reply);
+        if (request->operation == PROTOCOL_JOB_CANCEL && reply->status == PROTOCOL_OK &&
+            reply->phase == PROTOCOL_JOB_PHASE_IN_PROGRESS)
+        {
+            MotorStateMachine_RequestStop(adapter->state_machine);
+            read_calibration_job_result(adapter, reply);
+        }
         return;
+    }
+    if (adapter->job.token != 0U)
+    {
+        uint16_t delta = (uint16_t)(request->sequence - adapter->job_start_sequence);
+        if (delta == 0U)
+        {
+            if (request->kind != adapter->job.kind)
+            {
+                reply->status = PROTOCOL_INVALID_ARGUMENT;
+                reply->detail = PROTOCOL_JOB_DETAIL_CONFLICTING_RETRY;
+                return;
+            }
+            read_calibration_job_result(adapter, reply);
+            return;
+        }
+        if (delta > INT16_MAX)
+        {
+            reply->status = PROTOCOL_DENIED;
+            reply->detail = PROTOCOL_JOB_DETAIL_STALE_SEQUENCE;
+            return;
+        }
     }
 
     MotorCalibrationType calibration_type;
@@ -222,6 +324,9 @@ static void request_encoder_calibration(void *context,
         reply->kind = request->kind;
         reply->phase = PROTOCOL_JOB_PHASE_IN_PROGRESS;
         reply->effects = PROTOCOL_JOB_EFFECT_UNCOMMITTED;
+        adapter->job = *reply;
+        adapter->job_epoch = adapter->state_machine->calibration_result_epoch;
+        adapter->job_start_sequence = request->sequence;
     }
     else if (result == MOTOR_CONTROL_DENIED)
     {
@@ -346,10 +451,50 @@ static bool read_motor_feedback(void *context, ProtocolFeedback *values)
         (int16_t)encode_feedback_measurement(status.iq_a, 1000, INT16_MAX, 1U << 7, valid);
     values->mcu_temperature_centi_c =
         (int16_t)encode_feedback_measurement(status.temperature_c, 100, INT16_MAX, 1U << 8, valid);
+    values->motor_temperature_centi_c = (int16_t)encode_feedback_measurement(
+        status.motor_temperature_valid ? status.motor_temperature_c : NAN,
+        100,
+        INT16_MAX,
+        1U << 9,
+        valid);
     values->v_q_mV =
         (int16_t)encode_feedback_measurement(status.vq_v, 1000, INT16_MAX, 1U << 10, valid);
     values->v_d_mV =
         (int16_t)encode_feedback_measurement(status.vd_v, 1000, INT16_MAX, 1U << 11, valid);
+    return true;
+}
+
+static bool read_output_feedback(void *context, MotorOutputFeedback *feedback)
+{
+    AppProtocol *adapter = context;
+    MotorStatus status;
+    if (!MotorStateMachine_ReadStatus(adapter->state_machine, &status))
+    {
+        return false;
+    }
+    uint16_t valid = 0U;
+    *feedback = (MotorOutputFeedback){.flags = status.output.flags & (uint16_t)~3U,
+                                      .age_ms = status.output_age_ms,
+                                      .sample_counter = status.output.sample_counter,
+                                      .hall_mrad = INT32_MIN,
+                                      .tracked_mrad = INT32_MIN,
+                                      .zero_mrad = INT32_MIN,
+                                      .gear_ratio_milli = INT32_MIN};
+    if ((status.output.flags & 1U) != 0U)
+    {
+        feedback->hall_mrad = encode_feedback_measurement(
+            status.output.hall_position_rad, 1000, INT32_MAX, 1U, &valid);
+    }
+    if ((status.output.flags & 2U) != 0U)
+    {
+        feedback->tracked_mrad = encode_feedback_measurement(
+            status.output.tracked_position_rad, 1000, INT32_MAX, 2U, &valid);
+    }
+    feedback->flags |= valid;
+    feedback->zero_mrad =
+        encode_feedback_measurement(status.output.zero_rad, 1000, INT32_MAX, 0U, &valid);
+    feedback->gear_ratio_milli =
+        encode_feedback_measurement(status.output.gear_ratio, 1000, INT32_MAX, 0U, &valid);
     return true;
 }
 
@@ -362,7 +507,8 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorSta
                                       .target = set_motor_target,
                                       .stop = request_motor_stop,
                                       .clear_fault = request_motor_fault_clear,
-                                      .read_feedback = read_motor_feedback};
+                                      .read_feedback = read_motor_feedback,
+                                      .read_output = read_output_feedback};
     endpoint->jobs = (ProtocolJobs){adapter, request_encoder_calibration};
     endpoint->device_status.role = PROTOCOL_DEVICE_ROLE_APP;
 }

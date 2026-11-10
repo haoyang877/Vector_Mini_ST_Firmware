@@ -11,6 +11,9 @@ typedef struct
     ProtocolCommand last_target;
     uint32_t last_target_epoch, calibration_request_number;
     uint32_t renewal_counter;
+    ProtocolJobReply job;
+    uint32_t job_epoch;
+    uint16_t job_start_sequence;
 } AppProtocol;
 
 /**

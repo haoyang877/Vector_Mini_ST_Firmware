@@ -53,7 +53,7 @@ static yg_protocol_result_t encode_job_reply(const ProtocolJobReply *reply,
 static void write_job_error_reply(ProtocolResponse *response, ProtocolCode code, uint16_t detail);
 static yg_protocol_result_t handle_job_command(ProtocolEndpoint *endpoint,
                                                ProtocolExchange *exchange);
-static yg_protocol_result_t reject_parameter_command(ProtocolEndpoint *endpoint,
+static yg_protocol_result_t handle_parameter_command(ProtocolEndpoint *endpoint,
                                                      ProtocolExchange *exchange);
 
 /* CAN 接收与前台入口 */
@@ -360,6 +360,42 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
     case PROTOCOL_BOOT_ENTER:
     case PROTOCOL_BOOT_CONFIRM:
         return ProtocolBoot_HandleCommand(endpoint, exchange);
+    case PROTOCOL_OUTPUT_FEEDBACK:
+    {
+        if (request->source_node != PROTOCOL_MASTER_ID)
+        {
+            Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_FORBIDDEN, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        if (request->payload_length != 0U)
+        {
+            Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_BAD_LENGTH, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        MotorOutputFeedback values;
+        if (endpoint->motor.read_output == NULL)
+        {
+            Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_UNSUPPORTED, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        if (!endpoint->motor.read_output(endpoint->motor.context, &values))
+        {
+            Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_BUSY, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_OK, 0U);
+        uint8_t *data = exchange->reply.data;
+        YgProtocol_WriteU16Le(data + 4U, 1U);
+        YgProtocol_WriteU16Le(data + 6U, values.flags);
+        YgProtocol_WriteU32Le(data + 8U, values.age_ms);
+        YgProtocol_WriteU32Le(data + 12U, (uint32_t)values.hall_mrad);
+        YgProtocol_WriteU32Le(data + 16U, (uint32_t)values.tracked_mrad);
+        YgProtocol_WriteU32Le(data + 20U, (uint32_t)values.zero_mrad);
+        YgProtocol_WriteU32Le(data + 24U, (uint32_t)values.gear_ratio_milli);
+        YgProtocol_WriteU32Le(data + 28U, values.sample_counter);
+        exchange->reply.length = 32U;
+        return YG_PROTOCOL_OK;
+    }
     case PROTOCOL_GET_MOTOR_STATE:
         return handle_motor_status_query(endpoint, exchange);
     case PROTOCOL_ENABLE:
@@ -395,10 +431,12 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
     }
     case PROTOCOL_START:
         return handle_start_command(endpoint, exchange);
+    case PROTOCOL_READ_SAVED_PARAMETER:
+    case PROTOCOL_RESTORE_CONTROL_DEFAULTS:
     case PROTOCOL_READ_PARAMETER:
     case PROTOCOL_WRITE_PARAMETER:
     case PROTOCOL_SAVE_PARAMETER:
-        return reject_parameter_command(endpoint, exchange);
+        return handle_parameter_command(endpoint, exchange);
     case PROTOCOL_START_JOB:
     case PROTOCOL_GET_JOB_STATUS:
     case PROTOCOL_CANCEL_JOB:
@@ -1028,7 +1066,7 @@ static yg_protocol_result_t handle_job_command(ProtocolEndpoint *endpoint,
     return YG_PROTOCOL_OK;
 }
 
-static yg_protocol_result_t reject_parameter_command(ProtocolEndpoint *endpoint,
+static yg_protocol_result_t handle_parameter_command(ProtocolEndpoint *endpoint,
                                                      ProtocolExchange *exchange)
 {
     const yg_protocol_message_t *request = &exchange->request;
@@ -1039,6 +1077,8 @@ static yg_protocol_result_t reject_parameter_command(ProtocolEndpoint *endpoint,
         return YG_PROTOCOL_OK;
     }
     bool write = request->message_type == PROTOCOL_WRITE_PARAMETER;
+    bool read = request->message_type == PROTOCOL_READ_PARAMETER ||
+                request->message_type == PROTOCOL_READ_SAVED_PARAMETER;
     if (request->payload == NULL || request->payload_length != (write ? 12U : 4U))
     {
         Protocol_WriteResult(reply, PROTOCOL_RESULT_BAD_LENGTH, 0U);
@@ -1046,14 +1086,14 @@ static yg_protocol_result_t reject_parameter_command(ProtocolEndpoint *endpoint,
     }
     const uint8_t *data = request->payload;
     if ((write && ((data[1] != 1U && data[1] != 2U) || data[2] != 4U || data[3] != 0U)) ||
-        (request->message_type == PROTOCOL_READ_PARAMETER &&
-         (data[1] != 0U || data[2] != 0U || data[3] != 0U)))
+        (read && (data[1] != 0U || data[2] != 0U || data[3] != 0U)))
     {
         Protocol_WriteResult(reply, PROTOCOL_RESULT_BAD_FIELD, 6U);
         return YG_PROTOCOL_OK;
     }
     ProtocolCommandArgs args = {0};
-    if (request->message_type == PROTOCOL_SAVE_PARAMETER)
+    if (request->message_type == PROTOCOL_SAVE_PARAMETER ||
+        request->message_type == PROTOCOL_RESTORE_CONTROL_DEFAULTS)
     {
         args.parameter.expected_revision = YgProtocol_ReadU32Le(data);
     }
@@ -1068,6 +1108,27 @@ static yg_protocol_result_t reject_parameter_command(ProtocolEndpoint *endpoint,
         }
     }
     Protocol_RecordCommand(endpoint, request, args);
-    Protocol_WriteResult(reply, PROTOCOL_RESULT_UNSUPPORTED, 0U);
+    ProtocolParameterReply result = {.status = PROTOCOL_UNSUPPORTED};
+    ProtocolParameterRequest command = {.type = request->message_type,
+                                        .id = args.parameter.id,
+                                        .value_type = args.parameter.value_type,
+                                        .value = args.parameter.value,
+                                        .expected_revision = args.parameter.expected_revision};
+    if (endpoint->parameters.handler != NULL)
+    {
+        endpoint->parameters.handler(endpoint->parameters.context, &command, &result);
+    }
+    Protocol_WriteResult(reply, Protocol_StatusToCode(result.status), result.detail);
+    if (result.status == PROTOCOL_OK)
+    {
+        reply->data[4] = result.id;
+        reply->data[5] = result.value_type;
+        reply->data[6] = result.access;
+        reply->data[7] = result.flags;
+        YgProtocol_WriteU32Le(reply->data + 8U, result.value);
+        YgProtocol_WriteU32Le(reply->data + 12U, result.revision);
+        YgProtocol_WriteU32Le(reply->data + 16U, result.saved_revision);
+        reply->length = 20U;
+    }
     return YG_PROTOCOL_OK;
 }

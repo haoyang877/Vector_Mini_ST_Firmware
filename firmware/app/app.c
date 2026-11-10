@@ -24,6 +24,93 @@
 
 static bool configure_protocol_device_info(AppContext *app);
 
+static void handle_parameter_request(void *context,
+                                     const ProtocolParameterRequest *request,
+                                     ProtocolParameterReply *reply)
+{
+    MotorAxis *axis = context;
+    ParameterStatus result;
+    ParameterValue value = {0};
+    switch (request->type)
+    {
+    case PROTOCOL_READ_PARAMETER:
+    case PROTOCOL_READ_SAVED_PARAMETER:
+        result = MotorAxis_ReadParameter(
+            axis, request->id, request->type == PROTOCOL_READ_SAVED_PARAMETER, &value);
+        break;
+    case PROTOCOL_WRITE_PARAMETER:
+    {
+        ParameterWriteRequest write = {.parameter_id = request->id,
+                                       .value_type = request->value_type,
+                                       .expected_revision = request->expected_revision,
+                                       .raw_value = request->value};
+        result = MotorAxis_WriteParameter(axis, &write);
+        if (result == PARAMETER_OK)
+        {
+            result = MotorAxis_ReadParameter(axis, request->id, false, &value);
+        }
+        break;
+    }
+    case PROTOCOL_SAVE_PARAMETER:
+        result = MotorAxis_SaveParameters(axis, request->expected_revision);
+        break;
+    case PROTOCOL_RESTORE_CONTROL_DEFAULTS:
+        result = MotorAxis_RestoreControlDefaults(axis, request->expected_revision);
+        break;
+    default:
+        result = PARAMETER_UNSUPPORTED;
+        break;
+    }
+    ProtocolStatus status = PROTOCOL_FAILED;
+    uint16_t detail = 7U;
+    switch (result)
+    {
+    case PARAMETER_OK:
+        status = PROTOCOL_OK;
+        detail = 0U;
+        break;
+    case PARAMETER_UNSUPPORTED:
+        status = PROTOCOL_UNSUPPORTED;
+        detail = 1U;
+        break;
+    case PARAMETER_WRONG_STATE:
+        status = PROTOCOL_DENIED;
+        detail = 5U;
+        break;
+    case PARAMETER_READ_ONLY:
+        status = PROTOCOL_DENIED;
+        detail = 2U;
+        break;
+    case PARAMETER_REVISION_CONFLICT:
+        status = PROTOCOL_DENIED;
+        detail = 6U;
+        break;
+    case PARAMETER_BAD_TYPE:
+    case PARAMETER_INVALID_ARGUMENT:
+        status = PROTOCOL_INVALID_ARGUMENT;
+        detail = 3U;
+        break;
+    case PARAMETER_OUT_OF_RANGE:
+        status = PROTOCOL_OUT_OF_RANGE;
+        detail = 4U;
+        break;
+    default:
+        break;
+    }
+    *reply = (ProtocolParameterReply){
+        .status = status,
+        .detail = detail,
+        .id = value.parameter_id,
+        .value_type = value.value_type,
+        .access = value.access,
+        .value = value.raw_value,
+        .revision = axis->parameters.revision,
+        .saved_revision = axis->parameters.saved_revision,
+        .flags = (axis->parameters.saved_revision != 0U ? 1U : 0U) |
+                 (axis->parameters.revision != axis->parameters.saved_revision ? 2U : 0U) |
+                 (axis->parameters.save_status == PARAMETER_PERSIST_FAILED ? 4U : 0U)};
+}
+
 static void update_identity_info_page(void *context);
 
 /**
@@ -42,6 +129,7 @@ void App_Init(AppContext *app)
     MotorAxis_Init(&app->axis);
     AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.state_machine);
 
+    app->endpoint.parameters = (ProtocolParameters){&app->axis, handle_parameter_request};
     app->communication_ready =
         Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
     if (app->communication_ready)
@@ -133,14 +221,15 @@ static bool configure_protocol_device_info(AppContext *app)
                          .boot_version = TARGET_LOADER_VERSION,
                          .boot_api = TARGET_BOOT_API};
     /* supported_modes使用线路模式编号的位图，不是内部MotorControlMode枚举。 */
-    ProtocolCaps capabilities = {.default_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
-                                 .max_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
-                                 .features = PROTOCOL_FEATURE_MOTION_LEASE | (1UL << 8U) |
-                                             (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
-                                 .supported_modes = (1U << 1) | (1U << 2) | (1U << 3) | (1U << 6) |
-                                                    (1U << 9) | (1U << 10),
-                                 .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
-                                 .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
+    ProtocolCaps capabilities = {
+        .default_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
+        .max_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
+        .features = PROTOCOL_FEATURE_MOTION_LEASE | PROTOCOL_FEATURE_PARAMETER_SERVICE |
+                    PROTOCOL_FEATURE_JOB_STATUS | PROTOCOL_FEATURE_OUTPUT_FEEDBACK | (1UL << 8U) |
+                    (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
+        .supported_modes = (1U << 1) | (1U << 2) | (1U << 3) | (1U << 6) | (1U << 9) | (1U << 10),
+        .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
+        .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
     uint8_t target_payload[DEVICE_IDENTITY_INFO_BYTES];
     uint8_t identity_record[DEVICE_IDENTITY_RECORD_BYTES];
     const uint32_t target_description[] = {

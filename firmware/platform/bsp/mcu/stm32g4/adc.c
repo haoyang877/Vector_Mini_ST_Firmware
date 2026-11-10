@@ -158,6 +158,13 @@ float BspAdc_ReadChannel(BspAdcChannel channel)
     }
 }
 
+bool BspAdc_ReadMotorTemperature(float *celsius)
+{
+    /* STM32G431当前产品未安装电机NTC，不能用片内温度替代。 */
+    (void)celsius;
+    return false;
+}
+
 void BspAdc_SetPhaseOffsets(const float offsets_counts[3])
 {
     for (unsigned phase = 0U; phase < 3U; ++phase)

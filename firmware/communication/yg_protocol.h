@@ -192,6 +192,14 @@ typedef void (*ProtocolMotorHandler)(void *context,
                                      const ProtocolCommand *request,
                                      ProtocolReply *reply);
 
+/** @brief Type126 v1，独立Hall实测单圈角与连续跟踪角分别表达。 */
+typedef struct
+{
+    uint16_t flags;
+    uint32_t age_ms, sample_counter;
+    int32_t hall_mrad, tracked_mrad, zero_mrad, gear_ratio_milli;
+} MotorOutputFeedback;
+
 /** @brief 电机操作均由 APP 静态提供；不支持的操作直接返回 UNSUPPORTED。 */
 typedef struct
 {
@@ -203,6 +211,8 @@ typedef struct
     ProtocolMotorHandler clear_fault;
     /** 前台填写线路状态和有效测量。未测字段保留预置哨兵，返回是否有状态样本。 */
     bool (*read_feedback)(void *context, ProtocolFeedback *feedback);
+    /** 前台读取有版本的输出轴状态；失败时通信回复BUSY。 */
+    bool (*read_output)(void *context, MotorOutputFeedback *feedback);
 } ProtocolMotor;
 
 #define PROTOCOL_START_JOB 160U
@@ -253,6 +263,33 @@ typedef struct
     uint16_t sequence;
     uint8_t source_node;
 } ProtocolJobRequest;
+
+/** @brief 参数请求值；type为120/121/122/123/125，所有权归前台调用者。 */
+typedef struct
+{
+    uint16_t type;
+    uint8_t id, value_type;
+    uint32_t expected_revision, value;
+} ProtocolParameterRequest;
+
+/** @brief 参数成功结果；flags位0已保存值有效，位1活动值未保存，位2最近保存失败。 */
+typedef struct
+{
+    ProtocolStatus status;
+    uint16_t detail;
+    uint8_t id, value_type, access, flags;
+    uint32_t value, revision, saved_revision;
+} ProtocolParameterReply;
+
+/** @brief 前台参数服务绑定，空handler返回不支持。 */
+typedef struct
+{
+    void *context;
+    /** 前台同步完成RAM或Flash业务；通信层独占线路编码。 */
+    void (*handler)(void *context,
+                    const ProtocolParameterRequest *request,
+                    ProtocolParameterReply *reply);
+} ProtocolParameters;
 
 /** @brief 设备查询页的三个小端字段。 */
 typedef struct
@@ -524,6 +561,7 @@ struct ProtocolEndpoint
     BootState boot;
     ProtocolMotor motor;
     ProtocolJobs jobs;
+    ProtocolParameters parameters;
     BootEntryService loader;
     ProtocolDeviceStatus device_status;
 };

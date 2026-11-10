@@ -49,7 +49,7 @@ handle_start_command → request_motor_start → MotorStateMachine_RequestStart`
 ## 当前支持
 
 APP 支持设备查询、启停、目标更新、反馈和三类标定。线路模式为 **1 电流、2 速度、3 位置、6 Vq、9 开环电压、10 开环电流**。
-参数读写/保存未接入，合法请求返回不支持；101 的 enable=1 也不支持。
+参数120/121/122及123/125、任务161/162和输出反馈126已接入；101的enable=1不支持。
 只有配套 G431 LoaderApp 提供 56/57 交接和确认。AT32 APP 不因此获得 Loader 能力。
 版本和支持能力应以实际设备查询为准；代码支持不等于已完成实机验收。
 
@@ -113,7 +113,9 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 | 116 | SET_CONTROL | 20 / 32 | 4 B 结果及一帧 124 反馈 |
 | 117 | START_CONTROL | 4 | 4 B；按指定模式请求启动 |
 | 118 | RENEW_MOTION | 4 | 4 B result/detail，通信租约 v1 |
-| 120 / 121 / 122 | READ / WRITE / SAVE_PARAM | 4 / 12 / 4 | 4 B；参数功能未接入 |
+| 120 / 121 / 122 | READ / WRITE / SAVE_PARAM | 4 / 12 / 4 | 成功20 B，错误4 B |
+| 123 / 125 | READ_SAVED / RESTORE_CONTROL_DEFAULTS | 4 / 4 | 成功20 B，错误4 B |
+| 126 | OUTPUT_FEEDBACK v1 | 0 | 成功32 B，错误4 B |
 | 124 | MOTION_FEEDBACK | 不接收 | 设备发送 45 B |
 | 160 | START_JOB | 4 | 12 B；仅 kind=1、2、6 |
 | 161 / 162 | GET_JOB_STATUS / CANCEL_JOB | 4 | 12 B；当前不支持 |
@@ -195,7 +197,7 @@ SN 是独立生产身份，不等于 MCU UID。缺少设备描述时，1/2 返�
 
 GET_CAPS 为 16 B：`features:u32, supported_modes:u16, max_full_frame:u16, max_block_data:u16,
 write_alignment:u16, default_watchdog_ms:u16, max_watchdog_ms:u16`。
-当前 APP 为 `0x3D00, 0x064E, 64, 46, 0, 500, 500`；supported_modes 的 bit n 对应线路模式 n。
+当前 APP 为 `0x1FD00, 0x064E, 64, 46, 0, 500, 500`；supported_modes 的 bit n 对应线路模式 n。
 
 GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, epoch_valid:u16, boot_epoch:u64`。
 当前 APP 为 result=6、role=1、其余 0。升级身份使用 UID、镜像信息和主机 nonce，不使用无效 boot_epoch。
@@ -210,7 +212,7 @@ GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, ep
 - 122：`expected_revision:u32`。
 
 合法主站请求均回复 **2/0**；长度错为 3/0，字段错为 4/6，非主站为 7/0。
-没有成功读写、revision 更新或保存完成流程。Flash 启动记录见[参数模块](../../firmware/parameters/README.md)。
+参数成功回复、revision和保存结果见下文参数服务v1。Flash 启动记录见[参数模块](../../firmware/parameters/README.md)。
 
 160 请求：`kind:u16, zero:u16`；仅支持 1 编码器 LUT、2 电角零位、6 机械零位。
 161/162 请求为非零 `ticket:u32`，均不支持；取消活动标定用 110。其他 kind 不启动任务。
@@ -309,4 +311,100 @@ Type118只接受主站2的ACK单播，payload为4字节u32小端renewal_counter�
 未支持的旧设备不得依靠Type118维持运动许可。
 黄金payload向量见tests/fixtures/protocol/motion_lease_v1.json。
 
-后续120/121/122、161/162和独立输出角仍按既有支持状态解释。
+参数、任务和输出反馈扩展按以下v1契约解释。
+
+## 参数服务 v1
+
+CAPS.features位14声明120/121/122/123/125整组服务。既有120/121/122请求长度不变。
+123读取Flash保存值，请求与120相同；读取需关相停机并复用标定工作区。125恢复控制调参默认值，请求为expected_revision:u32。
+所有命令只接受主站2的ACK单播，不能广播。错误回复保留result:u16/detail:u16共4字节。
+
+成功回复共20字节，依次为result:u16=0、detail:u16=0、id:u8、value_type:u8、
+access:u8、flags:u8、value:u32、revision:u32、saved_revision:u32。
+access沿用目录位0可读、位1关相IDLE可写、位2标定结果。保存/默认回复的id/type/access/value为零。
+flags位0保存版本已知，位1活动版本与保存版本不同，位2最近一次Flash写入失败。
+detail固定为0成功、1未登记、2只读、3类型/字段错误、4范围错误、5状态不允许、
+6版本冲突、7持久化失败。具体result分别为0、2、5、4、11、5、5、8。
+
+revision在每次APP启动设为1，只有实际RAM值变化才递增，UINT32_MAX后拒绝新修改和标定。
+启动整轴schema14/OEN3记录有效时saved_revision=1，无记录或旧扩展时0；版本仅在本次APP运行内有意义，
+不能用作boot_epoch或跨重启去重。123始终读取并验证Flash，不用RAM活动值冒充保存值。
+当写失败后Flash仍留有可验证旧记录时可读取旧值，saved_revision=0表示其版本未知。
+
+121仅在IDLE且实际关相、没有待启动/停止、故障或维护锁时改RAM。
+expected_revision须等于活动版本；紧邻一次提交的同值同类型重试返回当前值且不增加版本。
+同版本写入相同值也不增加版本，版本冲突不写配置。写入重新装配PI并重置积分，
+维护标志禁止启相并使监督跳过中间配置扫描，ADC保持运行。
+122同步返回实际写入及BSP回读结果；版本未变且已保存时重试不再写Flash。
+保存失败使saved_revision未知并保留错误，不自动启相或回放目标。
+标定自动保存成功同样推进revision并更新saved_revision。
+
+125仅恢复控制整定/应用包络默认值并推进RAM版本，随后须122保存。
+保留节点、生产身份、轴角色/行程、硬件参数、电机模型、热模型及编码器/Hall/输出零位与LUT。
+这一范围不改变坐标和传感器模型，所以不清除既有标定资格。模型、安装方向、减速比等只读项
+不能通过此服务修改，未来开放时必须单独定义标定失效。
+kind7/8仍返回不支持；显式保存使用122，控制默认使用125。
+
+目录单位、类型、范围、权限的实现来源为parameter_values.c/h和parameter_record.c。
+参数目录v1登记在firmware/parameters/README.md，黄金payload在
+tests/fixtures/protocol/controller_services_v1.json。
+
+## 标定票据 v1
+
+CAPS.features位15声明161/162。160仍只接受kind1/2/6，请求和12字节回复布局保持不变。
+每次成功受理产生递增非零ticket，保留最近一次受理任务直到下一次受理或APP重启。
+查询/取消须匹配此ticket，旧ticket和重启后未知ticket返回5/2。
+160同序号同kind重试返回当前任务而不重启，同序号不同kind返回4/4，
+半范围旧序号返回5/5。计数耗尽后拒绝新任务。ticket仅在本次APP运行内有效，重启可能重新使用数值；
+客户端须在重新发现/连接恢复时丢弃旧票据。当前协议没有跨重启任务查询或持久任务代际。
+
+161有效查询result=0，phase分别为1运行中、2完成、3取消待关相、
+4取消完成、5失败；终态来自状态机真实结束事件，不由IDLE推断。
+标定算法阶段内切换继续保留原ticket。完成须实际保存成功并经过COMPLETE；
+Flash失败或其他故障返回失败。终态detail=7表示执行失败，8表示Flash保存失败。
+运行中detail表达阶段：0x1000准备、0x1001 LUT、0x1002电零位、0x1003机械零位、
+0x1004联合电零位、0x1010待发布/保存、0x1011已保存待状态机完成。
+失败原因保存在任务终态中，之后107清错仍可查询。
+effects=1表示尚未确认Flash持久提交，RAM候选可能已更新。2代表本任务Flash保存已完成，
+包括保存失败标记/上次系数的记录更新，即使任务以失败结束也保留2；有效性仍由phase和标定标志判断。
+162对进行中任务登记STOP，首次回复通常phase3，持续161查询至4或5；
+对终态重复取消返回原终态。普通110同样产生可查询的取消结果。
+取消受理后如硬件关相失败必须报告失败，不能伪报取消完成。
+
+## 电机NTC与输出反馈 v1
+
+原108/124的45字节字段和电机轴角度/速度语义保持不变。
+电机NTC由独立ADC完成标志确认新样本，监督每10ms读取，超过30ms无新样本、
+开短路换算无定义或未安装时bit9清零且温度为INT16_MIN。MCU温度继续使用独立槽位。
+该接口补齐测量，不新增绕组NTC跳闸策略，现有热模型及MCU保护继续独立执行。
+
+CAPS.features位16声明Type126。主站2的ACK单播空请求返回32字节v1。
+偏移0为result:u16，2为detail:u16，4为version:u16=1，6为flags:u16，
+8为age_ms:u32，12为hall_position_mrad:i32，16为tracked_position_mrad:i32，
+20为output_zero_mrad:i32，24为gear_ratio_milli:i32，28为sample_counter:u32。
+错误只返回4字节。未知版本客户端须拒绝按v1解读。
+
+flags位0独立Hall实测角有效，位1连续跟踪角有效，位2输出机械零位已设置，
+位3输出关系标定成功，位4实际存在独立Hall。无传感器不能设置位0或位4。
+Hall实测角为校正后的输出单圈角减输出机械零位，回绕到[0,2pi)，
+持续跟踪角由既有OutputEncoder结合Hall初始辨圈和转子增量得到，可能跨多圈。
+两者使用独立字段，不能用跟踪角冒充独立传感器。
+年龄自最后一次伴随新ADC进展的外环采样计算，超过10ms清位0/1，
+无首样本时age_ms=UINT32_MAX；无效角使用INT32_MIN，其他标定/安装状态仍可查询。
+sample_counter用于观测采样进展，不能当作真实启动代际或同步时间戳。
+
+### 坐标指纹 v1
+
+参数ID0x70提供u32只读坐标CRC32。120读取当前活动坐标，123读取经CRC校验的实际
+schema14/OEN3保存记录。两种读取均须停机，标定或待启停时返回状态拒绝。
+旧OEN1/OEN2未转换到OEN3保存前，保存指纹读取返回持久化失败。
+启动将这类记录的saved_revision置0，显式122可在RAM值未变化时完成OEN3保存。
+指纹依次覆盖小端存储的极对数、编码器电/机械零位/标志/方向/保留字/LUT、
+Hall幅值偏置及标定标记、OEN3识别字、输出安装参数、Hall LUT状态和完整LUT。
+采用与shared/checksum/crc32一致的CRC32/ISO-HDLC及串接顺序。
+排除PI整定、启动电流零偏、设备温度及本次上电revision，跨重启相同坐标得到同值。
+该指纹用于发现配置变化，不能提供身份认证或无碰撞保证。
+
+主控软件零位持久记录应绑定UID/节点/减速比/方向及此坐标指纹，并核对活动和已保存
+指纹一致再恢复。机械标零、LUT或输出关系校准会改变指纹，普通PI调参不改变它。
+保存失败或读取不支持/失败时保持待重新确认；RAM revision与APP版本不能替代坐标指纹。

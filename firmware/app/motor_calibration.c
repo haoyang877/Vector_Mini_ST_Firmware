@@ -21,7 +21,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
 #endif
         }
         return EncoderCalibration_StepLut(
-            &calibration->session, &calibration->drive, &calibration->workspace);
+            &calibration->session, &calibration->drive, &calibration->workspace.encoder);
     case MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO:
     case MOTOR_CALIBRATION_ELECTRICAL_ZERO:
         return EncoderCalibration_StepElecZero(&calibration->session, &calibration->drive);
@@ -181,15 +181,30 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
         if (calibration->write_record(calibration->record, sizeof(*calibration->record)) != BSP_OK)
         {
             fault = MOTOR_FAULT_CALIBRATION_STORAGE;
+            if (calibration->parameters != NULL)
+            {
+                calibration->parameters->saved_revision = 0U;
+                calibration->parameters->save_status = PARAMETER_PERSIST_FAILED;
+            }
+        }
+        else
+        {
+            /* 保存失败状态/上次系数也会改写记录，持久效果必须如实登记。 */
+            if (calibration->parameters != NULL)
+            {
+                if (calibration->parameters->revision != UINT32_MAX)
+                {
+                    ++calibration->parameters->revision;
+                }
+                calibration->parameters->saved_revision = calibration->parameters->revision;
+                calibration->parameters->save_status = PARAMETER_OK;
+            }
+            MotorStateMachine_CompleteCalibrationPublication(
+                calibration->state_machine, epoch, true);
         }
         if (fault != MOTOR_FAULT_NONE)
         {
             MotorFault_Report(calibration->drive.motor, fault);
-        }
-        else
-        {
-            MotorStateMachine_CompleteCalibrationPublication(
-                calibration->state_machine, epoch, true);
         }
     }
     BspSystem_ExitCritical(mask);

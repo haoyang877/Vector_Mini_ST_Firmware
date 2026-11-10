@@ -76,6 +76,7 @@ static ProtocolResponse send_calibration_command(uint16_t message_type,
                                                  uint8_t source_node,
                                                  uint32_t payload_length)
 {
+    static uint16_t job_sequence;
     uint8_t request_payload[4];
     YgProtocol_WriteU32Le(request_payload, request_value);
     ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
@@ -83,7 +84,7 @@ static ProtocolResponse send_calibration_command(uint16_t message_type,
                                              .source_node = source_node,
                                              .destination_node = 1U,
                                              .message_type = message_type,
-                                             .sequence = 1U,
+                                             .sequence = ++job_sequence,
                                              .payload_length = payload_length,
                                              .payload = request_payload}};
     assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
@@ -132,9 +133,8 @@ static void test_calibration_protocol(void)
     {
         ProtocolResponse response =
             send_calibration_command(unsupported_operations[index], 1U, PROTOCOL_MASTER_ID, 4U);
-        assert(YgProtocol_ReadU16Le(response.data) == 2U);
-        print_vector(index == 0U ? "calibration_query_unsupported"
-                                 : "calibration_cancel_unsupported",
+        assert(YgProtocol_ReadU16Le(response.data) == 5U);
+        print_vector(index == 0U ? "calibration_query_stale" : "calibration_cancel_stale",
                      response.data,
                      response.length);
     }
@@ -244,12 +244,12 @@ int main(void)
                                                  .message_type = parameter_types[i],
                                                  .payload = bytes,
                                                  .payload_length = i == 1U ? 12U : 4U}};
-        assert(reject_parameter_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        assert(handle_parameter_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
         print_vector(parameter_names[i], exchange.reply.data, exchange.reply.length);
     }
     ProtocolResponse job_response =
         send_calibration_command(PROTOCOL_GET_JOB_STATUS, 42U, PROTOCOL_MASTER_ID, 4U);
-    print_vector("unbound_job_unsupported", job_response.data, job_response.length);
+    print_vector("unissued_job_stale", job_response.data, job_response.length);
     test_calibration_protocol();
     ProtocolCommand request = {.mode = 2U, .source_node = 4U, .sequence = 1U};
     endpoint.motor.start(endpoint.motor.context, &request, &reply);

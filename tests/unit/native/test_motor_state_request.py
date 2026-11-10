@@ -52,7 +52,7 @@ def main() -> None:
             result.check_returncode()
         if name == "core_protocol":
             vectors = json.loads(
-                (ROOT / "tests/fixtures/protocol/yg_protocol_core_v1_8_vectors.json").read_text(
+                (ROOT / "tests/fixtures/protocol/yg_protocol_core_v1_9_vectors.json").read_text(
                     encoding="utf-8"
                 )
             )

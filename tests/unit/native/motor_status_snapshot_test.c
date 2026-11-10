@@ -27,6 +27,11 @@ void BspSystem_MemoryBarrier(void)
         motor.control_mode = MOTOR_CONTROL_CURRENT;
     }
 }
+uint32_t BspSystem_TimeMs(void)
+{
+    return 0U;
+}
+
 /* REAL_FUNCTIONS */
 int main(void)
 {

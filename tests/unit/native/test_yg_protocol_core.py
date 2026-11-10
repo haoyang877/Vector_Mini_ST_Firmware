@@ -1,6 +1,7 @@
 """验证 yg_protocol 核心接口之间的纯 C 调用关系；不访问硬件。"""
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -48,7 +49,18 @@ def main() -> None:
         ]
     )
     subprocess.run(command, check=True)
-    subprocess.run([str(executable)], check=True)
+    result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+    print(result.stdout, end="")
+    vectors = json.loads(
+        (ROOT / "tests/fixtures/protocol/controller_services_v1.json").read_text(encoding="utf-8")
+    )
+    for name in (
+        "parameter_read_revision1_saved1_value1000",
+        "save_success_revision1",
+        "output_v1_empty",
+    ):
+        if f"VECTOR {name} {vectors[name]}" not in result.stdout.splitlines():
+            raise RuntimeError(f"驱动服务黄金字节不匹配：{name}")
 
 
 if __name__ == "__main__":

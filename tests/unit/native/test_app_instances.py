@@ -1,5 +1,6 @@
 """双实例嵌套执行实际 APP、控制、标定及协议模块，宿主侧仅替换板级设备。"""
 
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -36,6 +37,15 @@ def main() -> None:
                 ROOT / "tests/unit/bsp_preemption_stubs.c",
             ],
         )
+
+        vector = json.loads(
+            (ROOT / "tests/fixtures/protocol/controller_services_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        log = (args.out / f"instances_{board}.log").read_text(encoding="utf-8")
+        if f"COORDINATE_CRC {vector['coordinate_crc_v1_hex']}" not in log.splitlines():
+            raise RuntimeError("坐标CRC与独立zlib黄金向量不一致")
 
 
 if __name__ == "__main__":

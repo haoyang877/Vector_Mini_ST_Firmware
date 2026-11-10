@@ -24,6 +24,33 @@ static void bytes(uint32_t kind, const uint8_t *data, unsigned count)
     for (unsigned i = 0; i < count; ++i)
         event(kind, data[i]);
 }
+ParameterStatus
+MotorAxis_ReadParameter(MotorAxis *axis, uint8_t id, bool saved, ParameterValue *value)
+{
+    (void)axis;
+    (void)id;
+    (void)saved;
+    (void)value;
+    return PARAMETER_UNSUPPORTED;
+}
+ParameterStatus MotorAxis_WriteParameter(MotorAxis *axis, const ParameterWriteRequest *request)
+{
+    (void)axis;
+    (void)request;
+    return PARAMETER_UNSUPPORTED;
+}
+ParameterStatus MotorAxis_SaveParameters(MotorAxis *axis, uint32_t revision)
+{
+    (void)axis;
+    (void)revision;
+    return PARAMETER_UNSUPPORTED;
+}
+ParameterStatus MotorAxis_RestoreControlDefaults(MotorAxis *axis, uint32_t revision)
+{
+    (void)axis;
+    (void)revision;
+    return PARAMETER_UNSUPPORTED;
+}
 void MotorAxis_Init(MotorAxis *instance)
 {
     instance->hardware = &hardware;
@@ -101,7 +128,7 @@ bool Protocol_SetInfo(ProtocolEndpoint *instance,
     event(22, caps->supported_modes);
     event(23, caps->max_full_frame);
     event(24, caps->max_block_data);
-    assert(caps->features == 0x3d00U && caps->supported_modes == 0x64eU);
+    assert(caps->features == 0x1fd00U && caps->supported_modes == 0x64eU);
     assert(caps->default_watchdog_ms == 500U && caps->max_watchdog_ms == 500U);
     return failure_stage != 4;
 }

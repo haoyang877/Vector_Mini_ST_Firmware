@@ -123,16 +123,13 @@ int main(void) {
                               configuration.model.id_ki,configuration.model.iq_ki};
         assert(memcmp(actual,expected,sizeof(expected))==0);
     }
-    /* 已保存R/L按当前目标带宽派生PI；旧增益不覆盖新带宽，导出反映实际值。 */
+    /* 显式保存的电流PI覆盖默认派生值，装载和再次导出保留人工整定。 */
     {
         p=saved;
         p.motor_phase_resistance_ohm=1.25f;
         p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
         p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
-        const float expected[]={p.motor_d_inductance_h*CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                p.motor_q_inductance_h*CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                p.motor_phase_resistance_ohm*CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                p.motor_phase_resistance_ohm*CURRENT_LOOP_BANDWIDTH_RAD_S};
+        const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         p.record_crc32=Param_RecordCrc(&p);
         Param_Download(&p,sizeof(p),&configuration);
         const float actual[]={configuration.model.id_kp,configuration.model.iq_kp,
@@ -143,7 +140,7 @@ int main(void) {
         const float exported[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         assert(memcmp(exported,expected,sizeof(expected))==0);
     }
-    puts("PASS default PI and stored model use current bandwidth without changing calibration");
+    puts("PASS default PI bandwidth and explicit stored tuning preserve calibration");
     policy_golden_vectors(&saved);
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;

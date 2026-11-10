@@ -19,6 +19,9 @@
 #include "sensorless_startup.h"
 #include "linear_hall.h"
 #include <math.h>
+#include <string.h>
+#include <stddef.h>
+#include "crc32.h"
 
 /* 当前产品各有一组板级 PWM 和一个参数区；模拟轴可显式绑定独立端点。 */
 static const MotorAxisHardware s_board_hardware = {
@@ -67,10 +70,17 @@ void MotorAxis_Init(MotorAxis *axis)
             (6.283185307f / 65536.0f);
         axis->output_encoder.params.status |= OUTPUT_ENCODER_ZERO_SET;
     }
+    bool output_record_valid = false;
     if (axis->configuration.configuration_source == MOTOR_CONFIGURATION_STORED)
     {
-        (void)Param_RestoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
+        output_record_valid =
+            Param_RestoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
     }
+    axis->parameters.revision = 1U;
+    axis->parameters.saved_revision =
+        output_record_valid && axis->record.output.magic == PARAM_OUTPUT_ENCODER_V3 ? 1U : 0U;
+    axis->parameters.save_status = PARAMETER_OK;
+    axis->calibration.parameters = &axis->parameters;
     MotorCurrentOffsets_Init(
         &axis->current_offsets, &axis->configuration, &axis->foc, BSP_ENABLED_BUS_CURRENT != 0);
     axis->current_offsets.phases_disabled = axis->hardware->power.phases_disabled;
@@ -86,6 +96,7 @@ void MotorAxis_Init(MotorAxis *axis)
     axis->calibration.output = &axis->output_encoder;
     axis->calibration.record = &axis->record;
     const MotorStateMachineBindings bindings = {.configuration = &axis->configuration,
+                                                .parameter_revision = &axis->parameters.revision,
                                                 .motor = &axis->motor,
                                                 .foc = &axis->foc,
                                                 .speed_pi = &axis->speed_pi,
@@ -94,6 +105,8 @@ void MotorAxis_Init(MotorAxis *axis)
                                                 .outer = &axis->outer,
                                                 .calibration = &axis->calibration.session,
                                                 .temperature = &axis->temperature,
+                                                .motor_temperature = &axis->motor_temperature,
+                                                .output = &axis->output_feedback,
                                                 .power = &axis->hardware->power};
     MotorStateMachine_Init(&axis->state_machine, &bindings);
     Encoder_InitFeedback(&axis->configuration.device.encoder,
@@ -131,6 +144,18 @@ void MotorAxis_SupervisorTick(MotorAxis *axis)
 {
 #if BSP_ENABLED_MCU_TEMPERATURE
     McuTemperature_Update(&axis->temperature, &axis->foc, &axis->motor);
+#endif
+#if BSP_ENABLED_MOTOR_TEMPERATURE
+    if (axis->state_machine.supervisor_ticks % 20U == 0U)
+    {
+        float celsius;
+        if (BspAdc_ReadMotorTemperature(&celsius))
+        {
+            axis->motor_temperature.celsius = celsius;
+            axis->motor_temperature.sample_ms = BspSystem_TimeMs();
+            axis->motor_temperature.valid = isfinite(celsius);
+        }
+    }
 #endif
     MotorStateMachine_SupervisorTick(&axis->state_machine);
 #if OUTER_LOOP_DIVIDER == SUPERVISOR_DIVIDER
@@ -194,6 +219,56 @@ void MotorAxis_OuterTick(MotorAxis *axis)
     {
         MotorOuterLoop_SlowTick(
             &axis->outer, &axis->configuration, &work.motor, &work.speed_pi, &axis->rotor_encoder);
+    }
+    uint32_t sample_counter = axis->state_machine.fast_sample_ticks;
+    if (sample_counter != axis->output_feedback.sample_counter)
+    {
+        uint16_t flags = 0U;
+#if BSP_ENABLED_LINEAR_HALL
+        if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
+        {
+            flags |= 1U << 4;
+            const LinearHallSample *hall = &axis->linear_hall.val;
+            if (axis->linear_hall.calibration_success &&
+                (axis->linear_hall.lut_status & LINEAR_HALL_LUT_OK) != 0U &&
+                isfinite(hall->sin_counts) && isfinite(hall->cos_counts) &&
+                hall->sin_counts > 0.0f && hall->sin_counts < 4095.0f && hall->cos_counts > 0.0f &&
+                hall->cos_counts < 4095.0f && (hall->sin_cal != 0.0f || hall->cos_cal != 0.0f) &&
+                isfinite(hall->angle_rad))
+            {
+                flags |= 1U;
+            }
+        }
+#endif
+        if (axis->output_encoder.ready && Encoder_IsOnline(&axis->rotor_encoder) &&
+            (axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) != 0U &&
+            (axis->configuration.device.encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
+            axis->state_machine.state != MOTOR_STATE_CALIBRATION)
+        {
+            flags |= 1U << 1;
+        }
+        if ((axis->output_encoder.params.status & OUTPUT_ENCODER_ZERO_SET) != 0U)
+        {
+            flags |= 1U << 2;
+        }
+        if ((axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) != 0U)
+        {
+            flags |= 1U << 3;
+        }
+        float angle = fmodf(axis->linear_hall.val.angle_rad - axis->output_encoder.params.zero_rad,
+                            6.283185307f);
+        if (angle < 0.0f)
+        {
+            angle += 6.283185307f;
+        }
+        axis->output_feedback =
+            (MotorOutputTelemetry){.hall_position_rad = angle,
+                                   .tracked_position_rad = axis->output_encoder.position_rad,
+                                   .zero_rad = axis->output_encoder.params.zero_rad,
+                                   .gear_ratio = axis->output_encoder.params.gear_ratio,
+                                   .sample_ms = BspSystem_TimeMs(),
+                                   .sample_counter = sample_counter,
+                                   .flags = flags};
     }
     MotorStateMachine_CommitOuterResult(&axis->state_machine, &work);
 }
@@ -299,4 +374,247 @@ void MotorAxis_ProcessPositionPlan(MotorAxis *axis)
         MotorOuterLoop_PublishPositionPlan(&axis->outer, work, valid);
         BspSystem_ExitControlCritical(mask);
     }
+}
+
+/* 维护仅由前台串行调用。标志使监督跳过正在修改的配置，不屏蔽ADC。 */
+static bool begin_parameter_update(MotorAxis *axis)
+{
+    MotorStateMachine *machine = &axis->state_machine;
+    if (machine->state != MOTOR_STATE_IDLE || !MotorStateMachine_IsStopped(machine) ||
+        machine->starts_locked || machine->drive.motor->fault_code != MOTOR_FAULT_NONE ||
+        machine->calibration_type != MOTOR_CALIBRATION_NONE)
+    {
+        return false;
+    }
+    machine->parameters_updating = true;
+    BspSystem_MemoryBarrier();
+    return true;
+}
+
+static void finish_parameter_update(MotorAxis *axis)
+{
+    Foc_ConfigureControllers(&axis->configuration, &axis->foc, &axis->speed_pi);
+    Foc_ResetCurrent(&axis->foc);
+    PiController_Reset(&axis->speed_pi);
+    MotorOuterLoop_RequestReset(&axis->outer);
+    BspSystem_MemoryBarrier();
+    axis->state_machine.parameters_updating = false;
+}
+
+ParameterStatus MotorAxis_WriteParameter(MotorAxis *axis, const ParameterWriteRequest *request)
+{
+    if (request->parameter_id == 0x70U)
+    {
+        return PARAMETER_READ_ONLY;
+    }
+    ParameterValue current;
+    ParameterStatus status = ParameterValue_Read(
+        &axis->configuration, axis->parameters.revision, request->parameter_id, &current);
+    if (status != PARAMETER_OK)
+    {
+        return status;
+    }
+    if ((current.access & PARAMETER_ACCESS_WRITE_IDLE) == 0U)
+    {
+        return PARAMETER_READ_ONLY;
+    }
+    if (request->expected_revision != axis->parameters.revision)
+    {
+        /* 只允许紧邻一次成功提交的同值重试，不推进修订号。 */
+        if (request->expected_revision != UINT32_MAX &&
+            request->expected_revision + 1U == axis->parameters.revision &&
+            request->value_type == current.value_type && request->raw_value == current.raw_value)
+        {
+            return PARAMETER_OK;
+        }
+        return PARAMETER_REVISION_CONFLICT;
+    }
+    if (!begin_parameter_update(axis))
+    {
+        return PARAMETER_WRONG_STATE;
+    }
+    if (axis->parameters.revision == UINT32_MAX)
+    {
+        axis->state_machine.parameters_updating = false;
+        return PARAMETER_OUT_OF_RANGE;
+    }
+    status = ParameterValue_Apply(&axis->configuration, request);
+    if (status == PARAMETER_OK &&
+        (request->raw_value != current.raw_value || request->value_type != current.value_type))
+    {
+        ++axis->parameters.revision;
+    }
+    finish_parameter_update(axis);
+    return status;
+}
+
+ParameterStatus MotorAxis_SaveParameters(MotorAxis *axis, uint32_t expected_revision)
+{
+    if (!ParameterValue_ConfigurationValid(&axis->configuration) ||
+        !MotorDeviceOffsets_InRange(&axis->configuration.device))
+    {
+        return PARAMETER_INVALID_ARGUMENT;
+    }
+    if (expected_revision != axis->parameters.revision)
+    {
+        return PARAMETER_REVISION_CONFLICT;
+    }
+    if (!begin_parameter_update(axis))
+    {
+        return PARAMETER_WRONG_STATE;
+    }
+    if (axis->parameters.saved_revision == axis->parameters.revision)
+    {
+        axis->state_machine.parameters_updating = false;
+        return PARAMETER_OK;
+    }
+    Param_Upload(&axis->record.motor, &axis->configuration);
+#if BSP_ENABLED_LINEAR_HALL
+    if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
+    {
+        Param_StoreLinearHall(&axis->record.motor, &axis->linear_hall);
+    }
+#endif
+    Param_StoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
+    uint32_t mask = BspSystem_EnterCritical();
+    /* Flash事务复核实际关相；STOP/故障抢占过准备阶段时不写。 */
+    ParameterStatus result = PARAMETER_WRONG_STATE;
+    if (MotorStateMachine_IsStopped(&axis->state_machine) &&
+        axis->motor.fault_code == MOTOR_FAULT_NONE && !axis->state_machine.starts_locked)
+    {
+        result = axis->hardware->write_record(&axis->record, sizeof(axis->record)) == BSP_OK
+                     ? PARAMETER_OK
+                     : PARAMETER_PERSIST_FAILED;
+        axis->parameters.save_status = result;
+        axis->parameters.saved_revision = result == PARAMETER_OK ? axis->parameters.revision : 0U;
+    }
+    BspSystem_ExitCritical(mask);
+    axis->state_machine.parameters_updating = false;
+    return result;
+}
+
+ParameterStatus
+MotorAxis_ReadParameter(MotorAxis *axis, uint8_t id, bool saved, ParameterValue *value)
+{
+    if (!saved && id == 0x70U)
+    {
+        if (!MotorStateMachine_IsStopped(&axis->state_machine) ||
+            axis->state_machine.calibration_type != MOTOR_CALIBRATION_NONE)
+        {
+            return PARAMETER_WRONG_STATE;
+        }
+        Param_Upload(&axis->record.motor, &axis->configuration);
+#if BSP_ENABLED_LINEAR_HALL
+        if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
+        {
+            Param_StoreLinearHall(&axis->record.motor, &axis->linear_hall);
+        }
+#endif
+        Param_StoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
+        *value = (ParameterValue){.parameter_id = id,
+                                  .value_type = PARAMETER_VALUE_U32,
+                                  .access = PARAMETER_ACCESS_READ,
+                                  .revision = axis->parameters.revision,
+                                  .raw_value = Param_CoordinateCrc(&axis->record)};
+        return PARAMETER_OK;
+    }
+    if (!saved)
+    {
+        return ParameterValue_Read(&axis->configuration, axis->parameters.revision, id, value);
+    }
+    if (!MotorStateMachine_IsStopped(&axis->state_machine) ||
+        axis->state_machine.calibration_type != MOTOR_CALIBRATION_NONE)
+    {
+        return PARAMETER_WRONG_STATE;
+    }
+    if (axis->hardware->read_record(&axis->record, sizeof(axis->record)) != BSP_OK)
+    {
+        return PARAMETER_PERSIST_FAILED;
+    }
+    MotorConfiguration *stored = &axis->calibration.workspace.parameters;
+    memset(stored, 0, sizeof(*stored));
+    Param_Download(&axis->record.motor, sizeof(axis->record.motor), stored);
+    if (stored->configuration_source != MOTOR_CONFIGURATION_STORED)
+    {
+        return PARAMETER_PERSIST_FAILED;
+    }
+    if (id == 0x70U)
+    {
+        if (axis->record.output.magic != PARAM_OUTPUT_ENCODER_V3 ||
+            axis->record.output.motor_crc32 != axis->record.motor.record_crc32 ||
+            axis->record.output.crc32 !=
+                Crc32_Compute(&axis->record.output, offsetof(OutputEncoderRecord, crc32), 0U))
+        {
+            return PARAMETER_PERSIST_FAILED;
+        }
+        *value = (ParameterValue){.parameter_id = id,
+                                  .value_type = PARAMETER_VALUE_U32,
+                                  .access = PARAMETER_ACCESS_READ,
+                                  .revision = axis->parameters.saved_revision,
+                                  .raw_value = Param_CoordinateCrc(&axis->record)};
+        return PARAMETER_OK;
+    }
+    return ParameterValue_Read(stored, axis->parameters.saved_revision, id, value);
+}
+
+ParameterStatus MotorAxis_RestoreControlDefaults(MotorAxis *axis, uint32_t expected_revision)
+{
+    if (expected_revision != axis->parameters.revision)
+    {
+        return PARAMETER_REVISION_CONFLICT;
+    }
+    if (axis->parameters.revision == UINT32_MAX)
+    {
+        return PARAMETER_OUT_OF_RANGE;
+    }
+    if (!begin_parameter_update(axis))
+    {
+        return PARAMETER_WRONG_STATE;
+    }
+    MotorConfiguration *defaults = &axis->calibration.workspace.parameters;
+    memset(defaults, 0, sizeof(*defaults));
+    if (axis->configuration.preset != NULL)
+    {
+        const MotorAxisProfile *profile = &axis->configuration.application.axis_profile;
+        if (!Param_CreateAxis(axis->configuration.device.node_id,
+                              profile->minimum_position_rad,
+                              profile->maximum_position_rad,
+                              profile->maximum_speed_rad_s,
+                              &axis->configuration.model.thermal,
+                              defaults))
+        {
+            axis->state_machine.parameters_updating = false;
+            return PARAMETER_INVALID_ARGUMENT;
+        }
+    }
+    else
+    {
+        Param_Return_Default(defaults);
+    }
+    /* 仅控制调参恢复默认。传感器标定、装配几何和模型身份原样保留。 */
+    MotorApplicationConfig *app = &axis->configuration.application;
+    const MotorApplicationConfig *base = &defaults->application;
+    app->speed_limit_rad_s = fminf(base->speed_limit_rad_s, app->speed_ceiling_rad_s);
+    app->position_maximum_speed_rad_s =
+        fminf(base->position_maximum_speed_rad_s, app->speed_limit_rad_s);
+    app->current_limit_a = fminf(base->current_limit_a, axis->configuration.model.thermal.peak_a);
+    app->speed_acceleration_rad_s2 = base->speed_acceleration_rad_s2;
+    app->speed_deceleration_rad_s2 = base->speed_deceleration_rad_s2;
+    app->speed_kp = base->speed_kp;
+    app->speed_ki = base->speed_ki;
+    app->speed_feedforward = base->speed_feedforward;
+    app->speed_feedforward.current_limit_a =
+        fminf(app->speed_feedforward.current_limit_a, app->current_limit_a);
+    app->position_error_window_rad = base->position_error_window_rad;
+    app->position_acceleration_rad_s2 = base->position_acceleration_rad_s2;
+    app->position_deceleration_rad_s2 = base->position_deceleration_rad_s2;
+    app->cascade_position_kp = base->cascade_position_kp;
+    app->cascade_position_kd = base->cascade_position_kd;
+    axis->configuration.model.id_kp = defaults->model.id_kp;
+    axis->configuration.model.id_ki = defaults->model.id_ki;
+    axis->configuration.model.iq_kp = defaults->model.iq_kp;
+    axis->configuration.model.iq_ki = defaults->model.iq_ki;
+    ++axis->parameters.revision;
+    finish_parameter_update(axis);
+    return PARAMETER_OK;
 }

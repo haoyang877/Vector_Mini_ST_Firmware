@@ -234,16 +234,16 @@ static void reset(void)
     static const MotorPowerOutput power = {.enable = BspPwm_Enable,
                                            .disable = BspPwm_Disable,
                                            .phases_disabled = BspPwm_ArePhasesDisabled};
-    MotorStateMachineBindings bindings = {&configuration,
-                                          &motor,
-                                          &foc,
-                                          &pi,
-                                          &encoder,
-                                          &startup,
-                                          &outer,
-                                          &session,
-                                          &temperature,
-                                          &power};
+    MotorStateMachineBindings bindings = {.configuration = &configuration,
+                                          .motor = &motor,
+                                          .foc = &foc,
+                                          .speed_pi = &pi,
+                                          .rotor_encoder = &encoder,
+                                          .sensorless_startup = &startup,
+                                          .outer = &outer,
+                                          .calibration = &session,
+                                          .temperature = &temperature,
+                                          .power = &power};
     MotorStateMachine_Init(&machine, &bindings);
     assert(machine.state == MOTOR_STATE_IDLE);
     tick();
@@ -650,6 +650,15 @@ static void test_calibration_communication_to_idle(void)
         tick();
         assert(machine.state == MOTOR_STATE_IDLE && phases_disabled);
         assert(MotorStateMachine_GetCalibrationType(&machine) == MOTOR_CALIBRATION_NONE);
+        uint32_t ticket = adapter.job.token;
+        YgProtocol_WriteU32Le(payload, ticket);
+        exchange.request.message_type = PROTOCOL_GET_JOB_STATUS;
+        assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        assert(exchange.reply.data[0] == 0U && exchange.reply.data[10] == 2U &&
+               exchange.reply.data[11] == 2U);
+        exchange.request.message_type = PROTOCOL_CANCEL_JOB;
+        assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        assert(exchange.reply.data[10] == 2U && exchange.reply.data[11] == 2U);
     }
     puts("PASS calibration communication: three wire kinds -> real state machine -> completion -> "
          "IDLE");
@@ -844,6 +853,43 @@ static void test_wheel_position_targets(void)
     }
 }
 
+static void test_calibration_ticket_cancel_and_failure(void)
+{
+    for (unsigned failure = 0; failure < 2; ++failure)
+    {
+        reset();
+        ProtocolJobRequest start = {.operation = PROTOCOL_JOB_START,
+                                    .kind = PROTOCOL_JOB_KIND_ELECTRICAL_ZERO,
+                                    .sequence = (uint16_t)(20U + failure)};
+        ProtocolJobReply reply;
+        endpoint.jobs.handler(endpoint.jobs.context, &start, &reply);
+        assert(reply.status == PROTOCOL_ACCEPTED);
+        uint32_t token = reply.token;
+        endpoint.jobs.handler(endpoint.jobs.context, &start, &reply);
+        assert(reply.status == PROTOCOL_OK && reply.token == token);
+        if (failure)
+        {
+            MotorFault_Report(&motor, MOTOR_FAULT_CALIBRATION_STORAGE);
+            tick();
+        }
+        else
+        {
+            ProtocolJobRequest cancel = {.operation = PROTOCOL_JOB_CANCEL, .job_id = token};
+            endpoint.jobs.handler(endpoint.jobs.context, &cancel, &reply);
+            assert(reply.phase == PROTOCOL_JOB_PHASE_CANCEL_REQUESTED);
+            tick();
+        }
+        ProtocolJobRequest query = {.operation = PROTOCOL_JOB_QUERY, .job_id = token};
+        endpoint.jobs.handler(endpoint.jobs.context, &query, &reply);
+        assert(reply.phase == (failure ? PROTOCOL_JOB_PHASE_FAILED : PROTOCOL_JOB_PHASE_CANCELLED));
+        assert(reply.effects == PROTOCOL_JOB_EFFECT_UNCOMMITTED);
+        assert(reply.detail == (failure ? 8U : 0U));
+        query.job_id = token + 1U;
+        endpoint.jobs.handler(endpoint.jobs.context, &query, &reply);
+        assert(reply.status == PROTOCOL_DENIED && reply.detail == PROTOCOL_JOB_DETAIL_STALE_TOKEN);
+    }
+}
+
 void test_state_transition_matrix(void);
 
 uint32_t BspSystem_TimeMs(void)
@@ -877,6 +923,7 @@ int main(void)
     test_linearization_waits_for_publication();
     test_calibration_communication_to_idle();
     test_joint_zero_rechecks_power();
+    test_calibration_ticket_cancel_and_failure();
     puts("PASS core state machine and calibration: completion, publication, stale epochs, stop, "
          "fault "
          "shutdown, recovery and preemption");

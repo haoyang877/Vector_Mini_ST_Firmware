@@ -1,5 +1,6 @@
 /* 核心接口替换性测试：无真实业务处理器、无 HAL、无硬件动作。 */
 #include <assert.h>
+#include <stdio.h>
 #include "yg_protocol.h"
 #include <limits.h>
 #include <math.h>
@@ -324,8 +325,92 @@ static void maintenance_kind_extension_vectors(void)
     assert(memcmp(encoded, unsupported_reply, sizeof(unsupported_reply)) == 0);
 }
 
+static unsigned parameter_calls;
+static void parameter_service(void *context,
+                              const ProtocolParameterRequest *request,
+                              ProtocolParameterReply *reply)
+{
+    (void)context;
+    ++parameter_calls;
+    *reply = (ProtocolParameterReply){
+        .status = PROTOCOL_OK, .flags = 1U, .revision = 1U, .saved_revision = 1U};
+    if (request->type == PROTOCOL_READ_PARAMETER)
+    {
+        assert(request->id == 1U);
+        reply->id = 1U;
+        reply->value_type = 1U;
+        reply->access = 3U;
+        reply->value = 1000U;
+    }
+    else
+    {
+        assert(request->type == PROTOCOL_SAVE_PARAMETER && request->expected_revision == 1U);
+    }
+}
+
+static bool output_service(void *context, MotorOutputFeedback *reply)
+{
+    (void)context;
+    *reply = (MotorOutputFeedback){.age_ms = UINT32_MAX,
+                                   .hall_mrad = INT32_MIN,
+                                   .tracked_mrad = INT32_MIN,
+                                   .zero_mrad = INT32_MIN,
+                                   .gear_ratio_milli = INT32_MIN};
+    return true;
+}
+
+static void print_service_vector(const char *name, const ProtocolResponse *reply)
+{
+    printf("VECTOR %s ", name);
+    for (uint32_t i = 0; i < reply->length; ++i)
+    {
+        printf("%02x", reply->data[i]);
+    }
+    puts("");
+}
+
+static void parameter_and_output_contract(void)
+{
+    assert(test_reset_protocol(3U));
+    endpoint.parameters = (ProtocolParameters){NULL, parameter_service};
+    endpoint.motor.read_output = output_service;
+    parameter_calls = 0U;
+    uint8_t payload[4] = {1U, 0U, 0U, 0U};
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .source_node = 2U,
+                                             .destination_node = 3U,
+                                             .message_type = PROTOCOL_READ_PARAMETER,
+                                             .payload = payload,
+                                             .payload_length = 4U}};
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 20U && parameter_calls == 1U);
+    print_service_vector("parameter_read_revision1_saved1_value1000", &exchange.reply);
+    payload[1] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD && parameter_calls == 1U);
+    payload[1] = 0U;
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN && parameter_calls == 1U);
+    exchange.request.source_node = 2U;
+    exchange.request.message_type = PROTOCOL_SAVE_PARAMETER;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 20U && parameter_calls == 2U);
+    print_service_vector("save_success_revision1", &exchange.reply);
+    exchange.request.message_type = PROTOCOL_OUTPUT_FEEDBACK;
+    exchange.request.payload_length = 0U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 32U);
+    print_service_vector("output_v1_empty", &exchange.reply);
+    exchange.request.payload_length = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH);
+}
+
 void yg_protocol_contract_test(void)
 {
+    parameter_and_output_contract();
     service_boundaries();
     numeric_boundaries();
     full_feedback_snapshot();

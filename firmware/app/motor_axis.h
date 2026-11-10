@@ -11,6 +11,7 @@
 #include "parameter_record.h"
 #include "motor_sensing.h"
 #include "bsp_flash.h"
+#include "parameter_values.h"
 
 /** @brief 上电前绑定该轴独占的 PWM 和参数槽，指针在轴的寿命内有效。 */
 typedef struct
@@ -37,6 +38,7 @@ typedef struct
 
     /* 启动装载和停机前台保存串行复用，避免再分配整条记录。 */
     MotorAxisRecord record;
+    ParameterPersistence parameters;
 #if BSP_ENABLED_LINEAR_HALL
     /* 外环选定读槽后，ADC 只更新另一槽。两槽均在启动时清零。 */
     volatile OutputEncoderCalibSample hall_samples[2];
@@ -47,8 +49,45 @@ typedef struct
     MotorStateMachine state_machine;
     MotorCalibration calibration;
     volatile McuTemperatureTelemetry temperature;
+    MotorTemperatureTelemetry motor_temperature;
+    MotorOutputTelemetry output_feedback;
     MotorPositionPlan position_work;
 } MotorAxis;
+
+/**
+ * @brief 停机前台提交一个有版本约束的参数，重新装配控制器。
+ * @param axis 所属轴。
+ * @param request 含原始定点值及期望活动版本。
+ * @return 校验或提交结果；相同值重试不增加版本。
+ */
+ParameterStatus MotorAxis_WriteParameter(MotorAxis *axis, const ParameterWriteRequest *request);
+/**
+ * @brief 显式保存当前整轴记录，成功代表BSP写入和回读均完成。
+ * @param axis 所属轴。
+ * @param expected_revision 期望活动版本。
+ * @return 版本冲突、状态拒绝或实际持久化结果。
+ * @note 仅停机前台调用；Flash事务内允许全局临界区。
+ */
+ParameterStatus MotorAxis_SaveParameters(MotorAxis *axis, uint32_t expected_revision);
+/**
+ * @brief 读取当前或Flash中已保存的标量。
+ * @param axis 所属轴，复用记录暂存区。
+ * @param id 参数目录编号。
+ * @param saved 为true时读取并验证Flash记录。
+ * @param value 成功时填写标量。
+ * @return 实际读取或验证结果。
+ * @note 仅串行前台调用；不改变活动配置。
+ */
+ParameterStatus
+MotorAxis_ReadParameter(MotorAxis *axis, uint8_t id, bool saved, ParameterValue *value);
+/**
+ * @brief 恢复控制调参默认值，保留节点、生产身份及全部传感器标定。
+ * @param axis 所属轴。
+ * @param expected_revision 期望活动版本。
+ * @return RAM提交结果；随后由122显式保存。
+ * @note 仅关相IDLE前台调用，不恢复电机模型或安装几何。
+ */
+ParameterStatus MotorAxis_RestoreControlDefaults(MotorAxis *axis, uint32_t expected_revision);
 
 /** @brief AT32 测试通道只读借用本机 Hall 状态。 */
 typedef struct

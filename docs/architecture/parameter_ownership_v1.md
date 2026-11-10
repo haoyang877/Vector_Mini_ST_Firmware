@@ -29,7 +29,10 @@ Watch 全局符号只用于观测，不构成跨模块写接口。
 启动参数记录与停机保存复用同一份2288字节静态暂存区；LUT 标定独占另一份6144字节工作区。
 PITCH、YAW 标定完成后由 MotorAxis_ProcessCalibrationPublication 调用 Param_Upload
 及 BspFlash_Write；写前复核原会话、STOP/故障与关相状态，写入及回读完成后通知成功。
-当前协议参数命令仍返回UNSUPPORTED；ParameterValue_Read/Apply未绑定在线服务。
+当前参数服务120/121/122及123/125调用MotorAxis的停机业务；活动/保存revision每轴独立。
+Flash实际写入/回读结果同步返回，失败保持错误和关相。标定自动保存使用同一份持久化状态。
+参数候选与标定工作区以具名union互斥复用，维护时禁止启相，ADC持续运行。
+具体线上契约与坐标CRC见docs/protocols/README.md的v1章节。
 Keil 保存命令和未使用的手动保存入口已删除。
 
 ## 合法性与硬件边界

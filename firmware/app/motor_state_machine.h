@@ -62,6 +62,16 @@ typedef enum
     MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO /* 联合标定的电零位阶段，不接受外部请求。 */
 } MotorCalibrationType;
 
+/** @brief 状态机保存的真实标定终态；成功只在实际保存后的COMPLETE发布。 */
+typedef enum
+{
+    MOTOR_CALIBRATION_RESULT_NONE,
+    MOTOR_CALIBRATION_RESULT_RUNNING,
+    MOTOR_CALIBRATION_RESULT_COMPLETED,
+    MOTOR_CALIBRATION_RESULT_CANCELLED,
+    MOTOR_CALIBRATION_RESULT_FAILED
+} MotorCalibrationResult;
+
 /** @brief 关相后的标定交接，依次由快拍、前台和监督拍推进。 */
 typedef enum
 {
@@ -69,6 +79,22 @@ typedef enum
     MOTOR_CALIBRATION_AWAITING_PUBLICATION,
     MOTOR_CALIBRATION_AWAITING_COMPLETION
 } MotorCalibrationHandoff;
+
+/** @brief 监督单写的电机NTC，时间戳按毫秒回绕；无首样本时valid为false。 */
+typedef struct
+{
+    float celsius;
+    uint32_t sample_ms;
+    bool valid;
+} MotorTemperatureTelemetry;
+
+/** @brief 外环单写的输出反馈；计数来自实际完成的ADC快拍。 */
+typedef struct
+{
+    float hall_position_rad, tracked_position_rad, zero_rad, gear_ratio;
+    uint32_t sample_ms, sample_counter;
+    uint16_t flags;
+} MotorOutputTelemetry;
 
 /** @brief 一次性读取的状态值；模式和故障使用电机内部编号，不是线路编号。 */
 typedef struct
@@ -80,6 +106,10 @@ typedef struct
     float speed_reference_rad_s, speed_rad_s;
     float bus_voltage_v, bus_current_a;
     float iq_reference_a, iq_a, temperature_c, vq_v, vd_v;
+    float motor_temperature_c;
+    bool motor_temperature_valid;
+    MotorOutputTelemetry output;
+    uint32_t output_age_ms;
 } MotorStatus;
 
 /** @brief 同模式易失目标；位置rad、速度rad/s、电流A、电压V、电角频率Hz。 */
@@ -102,6 +132,7 @@ typedef struct
 typedef struct
 {
     const MotorConfiguration *configuration;
+    const uint32_t *parameter_revision;
     MotorControlState *motor;
     FocState *foc;
     PiController *speed_pi;
@@ -110,6 +141,8 @@ typedef struct
     MotorOuterLoop *outer;
     EncoderCalibrationSession *calibration;
     volatile McuTemperatureTelemetry *temperature;
+    const MotorTemperatureTelemetry *motor_temperature;
+    const MotorOutputTelemetry *output;
     const MotorPowerOutput *power;
 } MotorStateMachineBindings;
 
@@ -132,6 +165,9 @@ struct MotorStateMachine
     MotorStateMachineBindings drive;
     MotorFaultRecovery recovery;
     volatile MotorCalibrationType calibration_type;
+    volatile uint32_t calibration_result_epoch, calibration_saved_epoch;
+    volatile MotorCalibrationResult calibration_result;
+    volatile MotorFaultCode calibration_failure;
     uint32_t epoch; /* 当前会话号，外部只读。 */
     volatile uint32_t supervisor_ticks, outer_ticks;
     volatile uint32_t phase_enable_epoch; /* 本会话待 ADC 复核的启相许可，零表示无许可。 */
@@ -141,6 +177,7 @@ struct MotorStateMachine
     volatile MotorCalibrationHandoff calibration_handoff;
     volatile uint32_t motion_renewed_ms; /* 前台唯一写者，监督读取。 */
     volatile bool motion_lease_active;   /* 仅协议启动启用，结束会话撤销。 */
+    volatile bool parameters_updating;   /* 关相前台正在提交配置，禁止启相和配置扫描。 */
     bool start_pending;                  /* 普通启动已受理，尚未确认三相输出开启。 */
     bool fault_locked, fast_samples_fresh, starts_locked;
 };

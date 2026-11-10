@@ -128,11 +128,22 @@ static bool transition_motor_state(MotorStateMachine *machine, MotorStateEvent e
         return false;
     }
 
+    bool calibration_was_active = machine->calibration_type != MOTOR_CALIBRATION_NONE;
     /* STOP、标定完成及首次故障都结束会话，关相失败时故障优先。 */
     disable_phases_and_end_session(machine);
     machine->state = MotorStateMachine_NextState(
         machine->state,
         machine->drive.motor->fault_code == MOTOR_FAULT_NONE ? event : MOTOR_STATE_EVENT_FAULT);
+    if (calibration_was_active)
+    {
+        MotorCalibrationResult result =
+            machine->drive.motor->fault_code != MOTOR_FAULT_NONE ? MOTOR_CALIBRATION_RESULT_FAILED
+            : event == MOTOR_STATE_EVENT_COMPLETE ? MOTOR_CALIBRATION_RESULT_COMPLETED
+                                                  : MOTOR_CALIBRATION_RESULT_CANCELLED;
+        machine->calibration_failure = (MotorFaultCode)machine->drive.motor->fault_code;
+        BspSystem_MemoryBarrier();
+        machine->calibration_result = result;
+    }
     if (event == MOTOR_STATE_EVENT_STOP)
     {
         machine->stop_pending = false;
@@ -283,7 +294,7 @@ MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine, Mo
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (machine->start_pending || machine->starts_locked)
+    else if (machine->parameters_updating || machine->start_pending || machine->starts_locked)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -518,7 +529,7 @@ void MotorStateMachine_CommitOuterResult(MotorStateMachine *machine, const Motor
     {
         return;
     }
-    bool configuration_valid = active_configuration_valid(machine);
+    bool configuration_valid = machine->parameters_updating || active_configuration_valid(machine);
     uint32_t mask = BspSystem_EnterControlCritical();
     if (machine->stop_pending)
     {
@@ -574,7 +585,7 @@ static bool try_enable_permitted_phases(MotorStateMachine *machine)
     uint32_t epoch = machine->phase_enable_epoch;
     machine->phase_enable_epoch = 0U;
     bool permitted = false;
-    if (epoch == machine->epoch && !machine->starts_locked)
+    if (epoch == machine->epoch && !machine->starts_locked && !machine->parameters_updating)
     {
         if (machine->state == MOTOR_STATE_IDLE && machine->start_pending)
         {
@@ -711,6 +722,11 @@ bool MotorStateMachine_LockStartsAndRequestStop(MotorStateMachine *machine)
 MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machine,
                                                         MotorCalibrationType calibration_type)
 {
+    if (machine->drive.parameter_revision != NULL &&
+        *machine->drive.parameter_revision == UINT32_MAX)
+    {
+        return MOTOR_CONTROL_OUT_OF_RANGE;
+    }
     if (calibration_type <= MOTOR_CALIBRATION_NONE ||
         calibration_type > MOTOR_CALIBRATION_MECHANICAL_ZERO)
     {
@@ -722,8 +738,8 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machi
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (machine->start_pending || machine->stop_pending || machine->starts_locked ||
-             !EncoderCalibration_IsIdle(machine->drive.calibration))
+    else if (machine->parameters_updating || machine->start_pending || machine->stop_pending ||
+             machine->starts_locked || !EncoderCalibration_IsIdle(machine->drive.calibration))
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -736,6 +752,9 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machi
         {
             reset_targets_and_controllers(machine);
             machine->drive.motor->control_mode = MOTOR_CONTROL_NONE;
+            machine->calibration_result_epoch = machine->epoch;
+            machine->calibration_failure = MOTOR_FAULT_NONE;
+            machine->calibration_result = MOTOR_CALIBRATION_RESULT_RUNNING;
             machine->calibration_type = calibration_type;
             (void)transition_motor_state(machine, MOTOR_STATE_EVENT_CALIBRATE);
             result = MOTOR_CONTROL_ACCEPTED;
@@ -846,6 +865,7 @@ void MotorStateMachine_CompleteCalibrationPublication(MotorStateMachine *machine
     }
     if (publication_succeeded)
     {
+        machine->calibration_saved_epoch = calibration_epoch;
         BspSystem_MemoryBarrier();
         machine->calibration_handoff = MOTOR_CALIBRATION_AWAITING_COMPLETION;
     }
@@ -861,7 +881,8 @@ MotorControlResult MotorStateMachine_RequestFaultClear(MotorStateMachine *machin
 {
     uint32_t mask = BspSystem_EnterControlCritical();
     MotorControlResult result = MOTOR_CONTROL_DENIED;
-    if (machine->start_pending || machine->stop_pending || machine->starts_locked)
+    if (machine->parameters_updating || machine->start_pending || machine->stop_pending ||
+        machine->starts_locked)
     {
         result = MOTOR_CONTROL_BUSY;
     }
@@ -932,7 +953,7 @@ void MotorStateMachine_SupervisorTick(MotorStateMachine *machine)
     }
     MotorFault_UpdateRecovery(
         &machine->recovery, machine->drive.foc, (MotorFaultCode)machine->drive.motor->fault_code);
-    bool configuration_valid = active_configuration_valid(machine);
+    bool configuration_valid = machine->parameters_updating || active_configuration_valid(machine);
     uint32_t mask = BspSystem_EnterControlCritical();
     if (machine->calibration_handoff == MOTOR_CALIBRATION_AWAITING_COMPLETION)
     {
@@ -967,7 +988,30 @@ static MotorStatus build_motor_feedback_snapshot(const MotorStateMachine *machin
                    motor->control_mode != MOTOR_CONTROL_VQ;
     bool position = active && motor->control_mode == MOTOR_CONTROL_POSITION;
     bool speed = active && motor->control_mode == MOTOR_CONTROL_SPEED;
+    MotorOutputTelemetry output = {0};
+    uint32_t now_ms = BspSystem_TimeMs();
+    uint32_t age_ms = UINT32_MAX;
+    if (machine->drive.output != NULL)
+    {
+        output = *machine->drive.output;
+        if (output.sample_counter != 0U)
+        {
+            age_ms = (uint32_t)(now_ms - output.sample_ms);
+        }
+        if (age_ms > 10U)
+        {
+            output.flags &= (uint16_t)~3U;
+        }
+    }
+    const MotorTemperatureTelemetry *ntc = machine->drive.motor_temperature;
+    float motor_temperature_c =
+        ntc != NULL && ntc->valid && (uint32_t)(now_ms - ntc->sample_ms) <= 30U ? ntc->celsius
+                                                                                : NAN;
     return (MotorStatus){
+        .output = output,
+        .output_age_ms = age_ms,
+        .motor_temperature_c = motor_temperature_c,
+        .motor_temperature_valid = isfinite(motor_temperature_c),
         .state = machine->state,
         .mode = (uint16_t)motor->control_mode,
         .fault = (uint16_t)motor->fault_code,

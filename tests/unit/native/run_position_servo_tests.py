@@ -95,6 +95,8 @@ static bool configure_protocol_device_info(AppContext *context) { assert(context
 bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }
 void BspPwm_Disable(void) { log_step(8); }
 """
+        + "static void handle_parameter_request(void *c, const ProtocolParameterRequest *q, "
+        "ProtocolParameterReply *r) { (void)c; (void)q; r->status=PROTOCOL_UNSUPPORTED; }\n"
         + function_source(source, "App_Init")
         + function_source(source, "App_Start")
         + r"""

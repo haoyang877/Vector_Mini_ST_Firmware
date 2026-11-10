@@ -127,8 +127,8 @@ void McuAdc_Init(void)
 
 void Adc_Start(void)
 {
-    adc_flag_clear(MCU_ADC_FAST, ADC_PCCE_FLAG | ADC_TCF_FLAG | ADC_OCCO_FLAG);
-    adc_flag_clear(MCU_ADC_AUX, ADC_PCCE_FLAG | ADC_TCF_FLAG | ADC_OCCO_FLAG);
+    adc_flag_clear(MCU_ADC_FAST, ADC_PCCE_FLAG | ADC_TCF_FLAG | ADC_OCCO_FLAG | ADC_OCCE_FLAG);
+    adc_flag_clear(MCU_ADC_AUX, ADC_PCCE_FLAG | ADC_TCF_FLAG | ADC_OCCO_FLAG | ADC_OCCE_FLAG);
     NVIC_ClearPendingIRQ(MCU_ADC_IRQ);
 #if BSP_ENABLED_MOTOR_TEMPERATURE
     adc_ordinary_conversion_trigger_set(
@@ -236,6 +236,22 @@ float BspAdc_ReadChannel(BspAdcChannel channel)
     default:
         return NAN;
     }
+}
+
+bool BspAdc_ReadMotorTemperature(float *celsius)
+{
+#if BSP_ENABLED_MOTOR_TEMPERATURE
+    if (adc_flag_get(MCU_ADC_AUX, ADC_OCCE_FLAG) == RESET)
+    {
+        return false;
+    }
+    *celsius = BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE);
+    adc_flag_clear(MCU_ADC_AUX, ADC_OCCE_FLAG | ADC_OCCO_FLAG);
+    return true;
+#else
+    (void)celsius;
+    return false;
+#endif
 }
 
 void BspAdc_SetPhaseOffsets(const float offsets_counts[3])

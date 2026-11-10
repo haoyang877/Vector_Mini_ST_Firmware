@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "capabilities_features": 130304,
+  "parameter_reply_size": 20,
+  "read_parameter_request_id1": "01000000",
+  "parameter_read_revision1_saved1_value1000": "0000000001010301e80300000100000001000000",
+  "save_revision1": "01000000",
+  "save_success_revision1": "0000000000000001000000000100000001000000",
+  "query_ticket1": "01000000",
+  "job_completed_committed_ticket1_kind1": "000000000100000001000202",
+  "job_cancelled_uncommitted_ticket1_kind1": "000000000100000001000401",
+  "output_v1_empty": "0000000001000000ffffffff0000008000000080000000800000008000000000",
+  "coordinate_crc_v1_hex": "f0cf3629"
+}

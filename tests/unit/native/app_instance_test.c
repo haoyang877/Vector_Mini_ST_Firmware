@@ -534,6 +534,22 @@ static void parameter_and_output_services(void)
     assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
     assert(value.raw_value == before_restore_crc);
     assert(MotorAxis_RestoreControlDefaults(axis, restore_revision) == PARAMETER_REVISION_CONFLICT);
+    uint32_t quantized_revision = axis->parameters.revision;
+    write = (ParameterWriteRequest){.parameter_id = 16U,
+                                    .value_type = PARAMETER_VALUE_I32,
+                                    .expected_revision = quantized_revision,
+                                    .raw_value = 900000001U};
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    assert(axis->parameters.revision == quantized_revision + 1U);
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    write.expected_revision = axis->parameters.revision;
+    write.raw_value = 900000002U;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OK);
+    assert(axis->parameters.revision == quantized_revision + 1U);
+    write.parameter_id = 3U;
+    write.raw_value = axis->configuration.device.node_id;
+    assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_READ_ONLY);
+    write.parameter_id = 16U;
     axis->parameters.revision = UINT32_MAX;
     write.expected_revision = UINT32_MAX;
     assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_OUT_OF_RANGE);

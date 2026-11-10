@@ -423,7 +423,9 @@ ParameterStatus MotorAxis_WriteParameter(MotorAxis *axis, const ParameterWriteRe
         /* 只允许紧邻一次成功提交的同值重试，不推进修订号。 */
         if (request->expected_revision != UINT32_MAX &&
             request->expected_revision + 1U == axis->parameters.revision &&
-            request->value_type == current.value_type && request->raw_value == current.raw_value)
+            request->value_type == current.value_type &&
+            (request->raw_value == current.raw_value ||
+             ParameterValue_MatchesRequest(&axis->configuration, request)))
         {
             return PARAMETER_OK;
         }
@@ -438,9 +440,14 @@ ParameterStatus MotorAxis_WriteParameter(MotorAxis *axis, const ParameterWriteRe
         axis->state_machine.parameters_updating = false;
         return PARAMETER_OUT_OF_RANGE;
     }
+    if (request->value_type == current.value_type && request->raw_value == current.raw_value)
+    {
+        axis->state_machine.parameters_updating = false;
+        return PARAMETER_OK;
+    }
+    bool changed = !ParameterValue_MatchesRequest(&axis->configuration, request);
     status = ParameterValue_Apply(&axis->configuration, request);
-    if (status == PARAMETER_OK &&
-        (request->raw_value != current.raw_value || request->value_type != current.value_type))
+    if (status == PARAMETER_OK && changed)
     {
         ++axis->parameters.revision;
     }

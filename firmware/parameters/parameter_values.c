@@ -249,6 +249,29 @@ static float speed_ceiling(const MotorConfiguration *configuration)
     return limit;
 }
 
+bool ParameterValue_MatchesRequest(const MotorConfiguration *configuration,
+                                   const ParameterWriteRequest *request)
+{
+    if (request->parameter_id == 0x4DU || request->parameter_id == 0x68U)
+    {
+        bool active = request->parameter_id == 0x4DU
+                          ? configuration->configuration_confirmed
+                          : configuration->application.speed_feedforward.enabled;
+        return request->value_type == PARAMETER_VALUE_U32 && request->raw_value <= 1U &&
+               active == (request->raw_value == 1U);
+    }
+    const ScalarField *field = find_field(request->parameter_id);
+    if (field == NULL || request->value_type != PARAMETER_VALUE_I32)
+    {
+        return false;
+    }
+    int32_t raw;
+    float current;
+    memcpy(&raw, &request->raw_value, sizeof(raw));
+    memcpy(&current, (const uint8_t *)configuration + field->offset, sizeof(current));
+    return current == (float)raw / field->scale;
+}
+
 ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
                                      const ParameterWriteRequest *request)
 {

@@ -89,6 +89,15 @@ ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
                                     uint8_t parameter_id,
                                     ParameterValue *value);
 /**
+ * @brief 比较请求解码后的物理值与当前值，处理定点到float32的量化合并。
+ * @param configuration 有效活动配置。
+ * @param request 有效请求对象；未知ID或不匹配类型返回false。
+ * @return 解码后的实际值相同时返回true，不修改配置。
+ */
+bool ParameterValue_MatchesRequest(const MotorConfiguration *configuration,
+                                   const ParameterWriteRequest *request);
+
+/**
  * @brief 校验并应用具备既有产品范围的停机单标量。
  * @param configuration APP 独占配置，任何失败均保持原值。
  * @param request 原始值请求，仅读取 ID/类型和值；身份与 revision 由 APP 核对。

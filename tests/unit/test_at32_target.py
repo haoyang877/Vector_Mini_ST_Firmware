@@ -74,7 +74,7 @@ class At32TargetTests(unittest.TestCase):
             return canonical(options)
 
         baseline = files_by_group(old, old_path)
-        for name in ("ESC-APP-AT32F456",):
+        for name in ("ESC-APP-AT32F456-Standalone",):
             project = ROOT / f"projects/at32f456/application/{name}.uvprojx"
             tree = ET.parse(project)
             with self.subTest(target=name):
@@ -159,7 +159,7 @@ class At32TargetTests(unittest.TestCase):
         projects = (
             ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx",
             ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx",
-            ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx",
+            ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx",
         )
         old_entry = ROOT / "projects/stm32g4/application/main.c"
         new_entry = ROOT / "projects/at32f456/application/main.c"
@@ -184,7 +184,7 @@ class At32TargetTests(unittest.TestCase):
     def test_all_full_app_targets_share_identical_portable_sources(self):
         projects = (
             ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx",
-            ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx",
+            ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx",
         )
         source_sets = []
         for project in projects:
@@ -249,11 +249,11 @@ class At32TargetTests(unittest.TestCase):
             local[local.index("__Vectors       DCD") :],
             vendor[vendor.index("__Vectors       DCD") :],
         )
-        project = (base / "ESC-APP-AT32F456.uvprojx").read_text(encoding="utf8")
+        project = (base / "ESC-APP-AT32F456-Standalone.uvprojx").read_text(encoding="utf8")
         self.assertIn("<FilePath>startup_at32f456_app.s</FilePath>", project)
 
     def test_app_off_links_shared_application_and_explicit_board(self):
-        project = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
+        project = ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx"
         errors, _, _ = check_project(project)
         self.assertEqual(errors, [])
         tree = ET.parse(project)
@@ -399,8 +399,35 @@ class At32TargetTests(unittest.TestCase):
         self.assertLessEqual(values["AT32_PARAM_RAW_BYTES"], 3 * values["AT32_FLASH_SECTOR_BYTES"])
         self.assertEqual(
             values["AT32_PARAM_BASE"] + values["AT32_PARAM_BYTES"],
-            values["AT32_FLASH_BASE"] + 128 * 1024,
+            values["AT32_FLASH_BASE"] + values["AT32_FLASH_BYTES"],
         )
+        self.assertEqual(values["AT32_FLASH_BYTES"], 128 * 1024)
+
+    def test_keil_flash_algorithm_uses_lower_128_kib(self):
+        projects = sorted((ROOT / "projects/at32f456").rglob("*.uvprojx"))
+        projects.extend((ROOT / "loader/targets/yg_esc_v1_at32f456").glob("*.uvprojx"))
+        for project in projects:
+            with self.subTest(project=project.name):
+                tree = ET.parse(project)
+                driver = tree.findtext(".//FlashDriverDll")
+                options = [driver]
+                if project.with_suffix(".uvoptx").is_file():
+                    options.extend(
+                        entry.text
+                        for entry in ET.parse(project.with_suffix(".uvoptx")).findall(".//Name")
+                        if entry.text and "-FS0" in entry.text
+                    )
+                for option in options:
+                    span = re.search(r"-FS0([0-9A-Fa-f]+) -FL0([0-9A-Fa-f]+)", option)
+                    self.assertIsNotNone(span)
+                    self.assertEqual(
+                        tuple(int(x, 16) for x in span.groups()), (0x08000000, 0x20000)
+                    )
+                for name in ("IROM", "OCR_RVCT4"):
+                    region = tree.find(f".//OnChipMemories/{name}")
+                    start = int(region.findtext("StartAddress"), 0)
+                    size = int(region.findtext("Size"), 0)
+                    self.assertTrue(0x08000000 <= start < start + size <= 0x08020000)
 
     def test_vendor_import_retains_manifest_content(self):
         base = ROOT / "firmware/platform/sdk/at32f45x"

@@ -14,10 +14,10 @@
           <Device>AT32F456CCU7</Device>
           <Vendor>ArteryTek</Vendor>
           <PackID>ArteryTek.AT32F45x_DFP.2.0.2</PackID>
-          <Cpu>IRAM(0x20000000,0x1B000) IROM(0x08000000,0x40000) CPUTYPE("Cortex-M4") FPU2 CLOCK(180000000) ELITTLE</Cpu>
+          <Cpu>IRAM(0x20000000,0x1B000) IROM(0x08000000,0x1C000) CPUTYPE("Cortex-M4") FPU2 CLOCK(180000000) ELITTLE</Cpu>
           <FlashUtilSpec />
           <StartupFile />
-          <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0AT32F456_256 -FS08000000 -FL00040000 -FP0($$Device:AT32F456CCU7$Flash\AT32F456_256.FLM))</FlashDriverDll>
+          <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0AT32F456_256 -FS08000000 -FL00020000 -FP0($$Device:AT32F456CCU7$Flash\AT32F456_256.FLM))</FlashDriverDll>
           <DeviceId>0</DeviceId>
           <RegisterFile>$$Device:AT32F456CCU7$Device\Include\at32f45x.h</RegisterFile>
           <MemoryEnv />
@@ -247,7 +247,7 @@
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x40000</Size>
+                <Size>0x1C000</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -272,7 +272,7 @@
               <OCR_RVCT4>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x40000</Size>
+                <Size>0x1C000</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>

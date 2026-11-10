@@ -8,7 +8,7 @@
     <NodeIsExpanded>1</NodeIsExpanded>
   </project>
   <project>
-    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456.uvprojx</PathAndName>
+    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456-Standalone.uvprojx</PathAndName>
     <NodeIsExpanded>1</NodeIsExpanded>
   </project>
 </ProjectWorkspace>

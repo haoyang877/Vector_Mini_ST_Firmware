@@ -54,6 +54,11 @@ def read_twice(probe, address: int, size: int) -> bytes:
     return first
 
 
+def physical_flash_bytes(target: dict) -> int:
+    """全片备份和容量寄存器使用芯片容量，固件部署按目标分区限制。"""
+    return target.get("physical_flash_bytes", target_value(target, "TARGET_FLASH_BYTES"))
+
+
 def check_identity(probe, target: dict, uid: bytes) -> None:
     """写操作前核对真实UID及物理Flash容量，不按枚举顺序换板。"""
     if len(uid) != 12:
@@ -63,7 +68,7 @@ def check_identity(probe, target: dict, uid: bytes) -> None:
     capacity = 0x1FFFF7E0 if at32 else 0x1FFF75E0
     if read_twice(probe, address, 12) != uid:
         raise RuntimeError("实际UID与绑定设备不符")
-    if probe.memory_read16(capacity, 1)[0] * 1024 != target_value(target, "TARGET_FLASH_BYTES"):
+    if probe.memory_read16(capacity, 1)[0] * 1024 != physical_flash_bytes(target):
         raise RuntimeError("实际Flash容量与目标不符")
     if not at32 and probe.memory_read32(0xE0042000, 1)[0] & 0xFFF != 0x468:
         raise RuntimeError("实际芯片不是G431")
@@ -95,9 +100,7 @@ def capture(probe, target: dict, uid: bytes, directory: Path) -> dict:
     directory.mkdir(parents=True, exist_ok=False)
     check_identity(probe, target, uid)
     check_outputs_off(probe, target)
-    raw = read_twice(
-        probe, target_value(target, "TARGET_FLASH_BASE"), target_value(target, "TARGET_FLASH_BYTES")
-    )
+    raw = read_twice(probe, target_value(target, "TARGET_FLASH_BASE"), physical_flash_bytes(target))
     check_outputs_off(probe, target)
     (directory / "flash.bin").write_bytes(raw)
     base = target_value(target, "TARGET_FLASH_BASE")
@@ -116,7 +119,7 @@ def capture(probe, target: dict, uid: bytes, directory: Path) -> dict:
 
 def verify_protected(before: bytes, after: bytes, target: dict) -> dict:
     """APP更新只允许APP槽变化；比较Loader、参数及其余物理Flash。"""
-    size = target_value(target, "TARGET_FLASH_BYTES")
+    size = physical_flash_bytes(target)
     if len(before) != size or len(after) != size:
         raise ValueError("必须比较完整物理Flash快照")
     base = target_value(target, "TARGET_FLASH_BASE")

@@ -13,11 +13,11 @@ from project_paths import KEIL, ROOT
 # 发布验证覆盖两板普通APP及配套Loader产品；台架镜像只接受显式选择。
 RELEASE_PROJECTS = {
     "normal": KEIL / "ESC-APP-STM32G431.uvprojx",
-    "at32f456-app-off": ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx",
+    "at32f456-app-off": ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx",
     "g431-loader": ROOT / "loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx",
     "g431-loader-app": KEIL / "ESC-APP-STM32G431-LoaderApp.uvprojx",
     "at32-loader": ROOT / "loader/targets/yg_esc_v1_at32f456/ESC-LOADER-AT32F456.uvprojx",
-    "at32-loader-app": ROOT / "projects/at32f456/application/ESC-APP-AT32F456-LoaderApp.uvprojx",
+    "at32-loader-app": ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx",
 }
 
 
@@ -56,7 +56,6 @@ def main():
         / "projects/at32f456/bench/AT32F456_OpenLoop_Combined.uvprojx",
     }
     targets["at32f456-closedloop"] = ROOT / "projects/at32f456/bench/AT32F456_ClosedLoop.uvprojx"
-    targets["at32f456-app-off"] = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
     targets.update(RELEASE_PROJECTS)
     for kind, project in targets.items():
         # 默认构建完整产品集合，不把底层台架镜像混入发布。

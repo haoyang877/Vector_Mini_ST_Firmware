@@ -13,7 +13,7 @@
   </project>
 
   <project>
-    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456-LoaderApp.uvprojx</PathAndName>
+    <PathAndName>.\projects\at32f456\application\ESC-APP-AT32F456.uvprojx</PathAndName>
     <NodeIsActive>1</NodeIsActive>
     <NodeIsExpanded>1</NodeIsExpanded>
   </project>

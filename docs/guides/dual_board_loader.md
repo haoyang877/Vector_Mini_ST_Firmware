@@ -24,15 +24,16 @@ STM32G431 本轮完成离线回归和构建。两板适用范围和实测记录�
 | 参数 | 0x0801C000..0x0801F7FF | 14 KiB |
 | 生产身份 | 0x0801F800..0x0801FFFF | 2 KiB |
 
-两板所有运行分区均在Flash前128 KiB。AT32物理Flash仍为256 KiB；上半部只保留旧数据，
-新Loader/APP不会使用它。RAM末32字节是一次性邮箱；AT32保留32 KiB `ER_FAST`代码执行区。
+两板的 `TARGET_FLASH_BYTES` 均为 128 KiB。AT32 的 Keil 工程使用按扇区擦除，下载地址范围为
+`0x08000000..0x0801FFFF`。256 KiB 是芯片物理容量，SWD 全片备份、旧版迁移和保护区校验会读取上半区。
+RAM末32字节是一次性邮箱；AT32保留32 KiB `ER_FAST`代码执行区。
 两板的分区起址、容量及逻辑擦写粒度由回归检查保持一致。LoaderApp均从`0x08004000`
 启动并继承Loader看门狗，只允许健康及试运行确认路径喂狗。
 
 | 目标 | MCU标识 | 硬件标识 | 布局 | Keil APP工程 |
 | --- | --- | --- | --- | --- |
 | `vector_mini_st_g431` | 0x04310080 | 1 | 6 | `projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx` |
-| `yg_esc_v1_at32f456` | 0x04560100 | 2 | 7 | `projects/at32f456/application/ESC-APP-AT32F456-LoaderApp.uvprojx` |
+| `yg_esc_v1_at32f456` | 0x04560100 | 2 | 7 | `projects/at32f456/application/ESC-APP-AT32F456.uvprojx` |
 
 AT32身份在本仓库目标表登记，产品标识沿用0x59473236；不是新增线协议字段。
 不同板卡包严格互拒。生产编号分配在正式发布前与工装核对。

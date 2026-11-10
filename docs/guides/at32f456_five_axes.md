@@ -96,7 +96,7 @@ PITCH 和 YAW 配有独立的正交双线性霍尔。当前分支已包含 Hall 
 
 ## 五块新板首次配参
 
-**适用镜像**为重构分支的独立 `ESC-APP-AT32F456`。五块板烧同一个 APP，每块另写一条与安装位置匹配的参数记录。APP 从 `0x08000000` 启动，参数区为 `0x0803C000..0x0803FFFF`（16 KiB）。空白板启动时内部节点值为 255，预设指针为空，协议不注册产品地址。首次分配 ID 通过 SWD 完成。使用配套 LoaderApp 时应依其目标布局操作。[独立 APP 布局](../../shared/targets/at32f456_bringup.h)
+**适用镜像**为重构分支的独立 `ESC-APP-AT32F456-Standalone`。五块板烧同一个 APP，每块另写一条与安装位置匹配的参数记录。APP 从 `0x08000000` 启动，参数区为 `0x0801C000..0x0801FFFF`（16 KiB）。空白板启动时内部节点值为 255，预设指针为空，协议不注册产品地址。首次分配 ID 通过 SWD 完成。使用配套 LoaderApp 时应依其目标布局操作。[独立 APP 布局](../../shared/targets/at32f456_bringup.h)
 
 ### 1. 在电脑上生成五份记录
 
@@ -123,13 +123,13 @@ $yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
 ### 2. 将参数写入对应的物理板
 
 1. 逐块连接 SWD，在停机且六路输出关闭时，核对 MCU 为 AT32F456CCU7，并记录板序号或 UID、安装位置、预期 ID 和文件名。先备份本机参数区。发现已有记录或标定数据时，转入已有设备的备份、迁移流程。基础记录只包含前 2288 字节，已标定的设备还可能在其后保存输出编码器和 Hall LUT 扩展。
-2. 向新板烧录同一 APP，选择按扇区擦除，保留参数区。随后把该板的 bin 作为原始二进制从 `0x0803C000` 写入。以下为 J-Link Commander 的左轮示例，在仓库根目录连接目标后逐行执行。其他四块依次替换为步骤 1 的文件名，同时给备份文件加上该板自己的编号。先读备份并确认参数区为出厂擦除态，再执行写入。
+2. 向新板烧录同一 APP，选择按扇区擦除，保留参数区。随后把该板的 bin 作为原始二进制从 `0x0801C000` 写入。以下为 J-Link Commander 的左轮示例，在仓库根目录连接目标后逐行执行。其他四块依次替换为步骤 1 的文件名，同时给备份文件加上该板自己的编号。先读备份并确认参数区为出厂擦除态，再执行写入。
 
    ```text
    h
-   savebin outputs/first-fit/03-before.bin, 0x0803C000, 0x4000
-   loadbin outputs/first-fit/03-left.bin, 0x0803C000
-   verifybin outputs/first-fit/03-left.bin, 0x0803C000
+   savebin outputs/first-fit/03-before.bin, 0x0801C000, 0x4000
+   loadbin outputs/first-fit/03-left.bin, 0x0801C000
+   verifybin outputs/first-fit/03-left.bin, 0x0801C000
    ```
 
 3. 要求逐字节校验成功，记录所写文件的 SHA-256。随后执行复位并运行（Commander 中依次输入 `r`、`g`），或断电重启。若校验失败，保留备份和读回结果，先定位地址或文件错误。每块单板核对通过后再接入同一条 CAN 总线。

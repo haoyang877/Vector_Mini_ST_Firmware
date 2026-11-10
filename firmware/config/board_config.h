@@ -95,7 +95,7 @@
 /* 物理Flash为256KiB，运行分区位于前128KiB，参数和身份共16KiB。
  * 整轴记录4372字节（含OEN3），参数写入覆盖前三个2KiB扇区。 */
 #define AT32_FLASH_BASE          0x08000000U
-#define AT32_FLASH_BYTES         0x00040000U
+#define AT32_FLASH_BYTES         0x00020000U
 #define AT32_FLASH_SECTOR_BYTES  0x800U
 #define AT32_PARAM_BASE          0x0801C000U
 #define AT32_PARAM_BYTES         0x4000U

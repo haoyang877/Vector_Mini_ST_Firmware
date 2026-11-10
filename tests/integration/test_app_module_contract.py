@@ -34,7 +34,8 @@ class AppModuleContractTests(unittest.TestCase):
     def test_only_loader_app_links_the_handoff(self):
         root = APP.parents[1]
         for project, loader_enabled in (
-            ("projects/at32f456/application/ESC-APP-AT32F456.uvprojx", False),
+            ("projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx", False),
+            ("projects/at32f456/application/ESC-APP-AT32F456.uvprojx", True),
             ("projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx", False),
             ("projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx", True),
         ):

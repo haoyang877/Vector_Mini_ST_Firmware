@@ -74,6 +74,9 @@ def load_target(selection: str | Path | None = None, *, directory: Path | None =
             raise ValueError(f"目标身份不能为零：{name}")
     flash = values["TARGET_FLASH_BASE"]
     end = flash + values["TARGET_FLASH_BYTES"]
+    physical = target.get("physical_flash_bytes", values["TARGET_FLASH_BYTES"])
+    if not isinstance(physical, int) or not end <= flash + physical <= 0x100000000:
+        raise ValueError("物理 Flash 容量不足或地址越界")
     app = values["TARGET_APP_BASE"]
     param = values["TARGET_PARAM_BASE"]
     identity = values["TARGET_IDENTITY_BASE"]

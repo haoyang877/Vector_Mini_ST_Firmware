@@ -106,6 +106,7 @@ class LoaderTargetTests(unittest.TestCase):
         for name in names:
             target = load_target(name)
             self.assertEqual(target_value(target, "TARGET_APP_BASE"), 0x08004000)
+            self.assertEqual(target_value(target, "TARGET_FLASH_BYTES"), 128 * 1024)
             self.assertEqual(target_value(target, "TARGET_APP_BYTES"), 98304)
             self.assertEqual(
                 target_value(target, "TARGET_PARAM_BASE")

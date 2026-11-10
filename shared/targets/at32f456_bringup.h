@@ -4,7 +4,7 @@
 /* 独立关相验证APP；0表示尚无正式产品/布局分配，主机不得作为可升级目标。
  * 参数schema仍为14；不复用G431布局或伪造Loader能力。 */
 #define TARGET_FLASH_BASE 0x08000000U
-#define TARGET_FLASH_BYTES 0x40000U
+#define TARGET_FLASH_BYTES 0x20000U
 #define TARGET_APP_BASE 0x08000000U
 #define TARGET_APP_BYTES 0x1C000U
 #define TARGET_PARAM_BASE 0x0801C000U

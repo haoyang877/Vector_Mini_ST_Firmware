@@ -27,8 +27,14 @@ PITCH 节点 `0x06` 使用同一份 77,240 字节的 APP 镜像（CRC32 `8f918e7
 
 ## Hall 映射复现
 
+以下复现对应 11 月 9 日的第 3 次标定。
+
 第 3 次标定返回 CAN 故障位 `0x20`，Flash 中 Hall 幅值标定成功，输出扩展的 Hall LUT 状态为 2（映射不一致）。从该轴 RAM 读出 2,048 个标定样本，用本次固件的 `OutputEncoder_CalibEnd` 原生回放得到相同拒绝。建表用角度在索引 2034、2035 分别反向约 0.00037、0.00116 rad。该轮保持关相。第 4 次恢复并持久保存了有效标定。上述结果证明单台 PITCH 的这项标定仍有间歇拒绝；这批数据无法单独确定反向来自传感器、电气采样还是机械运动。[Hall 原码调查](../active/2026-11-06-hall-spike-rootcause-v1.md)
 
 ## 证据与回退
+
+2026-11-10 追加了从空板安装 PITCH 的实测。擦除前保存完整物理 Flash，擦除后双读 262,144 字节均为 FF。SWD 安装本次前 128 KiB 布局的 Loader 2.2.0 和 APP 1.6.0，在 0x0801C000 写入新生成的节点 6、YQ5708 配置，编码器标定有效位初始为 0。首次启动确认脚本在 Loader 启动窗口提前退出，随后在 Loader 救援模式经 CAN 重装同一 APP 并完成持久确认。
+
+本次联合标定用时 31.9 秒，电零位 Q15 为 8734，转子编码器和输出轴 Hall LUT 均有效。复位前后 4,372 字节记录逐字节相同，输出轴减速比 8，故障为 0，六路输出关闭。独立全片回读确认后 128 KiB 和生产身份页全为 FF。原始全片备份、空片验证、构建包和最终回读分别见 `outputs/pitch-factory-128-20261110/` 下的 `original/snapshot/flash.bin`、`blank.json`、`bundle/` 和 `final.json`。
 
 原始记录位于本重构工作区的 `outputs/instance-merge-20261109`。其中 `backup/snapshot` 保存初始全片备份，`migration` 绑定设备和源摘要，`can-production/summary.json` 记录两轮保护区比对，`prod-cal-1.json` 至 `prod-cal-4.json` 记录各次标定。失败样本与回放日志见 `prod-cal-3-samples.bin` 和 `hall-replay/real_samples.log`。速度、位置和复位见 `speed-summary.json`、`position-summary.json`、`final-state.json`。PR 汇总为 `outputs/runs/instance-merge-pr-03/summary.json`。干净检出中的发布清单位于上述证据目录下 `release-source/outputs/runs/instance-merge-release-03/release-manifest.json`。软件回退基线为 `b8bea79b`，板级恢复基线为该设备的原始全片备份。STM32G431 本轮只做离线验证和构建。

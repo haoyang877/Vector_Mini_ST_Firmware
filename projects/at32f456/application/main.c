@@ -10,6 +10,11 @@
 /* 该板中断向量只服务本机应用。 */
 AppContext g_app;
 
+#if defined(AT32_KEIL_CALIBRATION) && AT32_KEIL_CALIBRATION
+/* Watch 单次写入：1 请求 LUT 标定，2 请求停机。前台消费后清零。 */
+volatile uint32_t s_keil_calibration_command;
+#endif
+
 /* RTT 只读观测板级实例；不复制反馈。 */
 const MotorAxisFeedback MotorAxis_Feedback = {.linear_hall = &g_app.axis.linear_hall};
 
@@ -101,6 +106,22 @@ int main(void)
     App_Start(&g_app);
     for (;;)
     {
+#if defined(AT32_KEIL_CALIBRATION) && AT32_KEIL_CALIBRATION
+        uint32_t command = s_keil_calibration_command;
+        if (command != 0U)
+        {
+            s_keil_calibration_command = 0U;
+            if (command == 1U)
+            {
+                (void)MotorStateMachine_RequestCalibration(&g_app.axis.state_machine,
+                                                           MOTOR_CALIBRATION_ENCODER_LINEARIZATION);
+            }
+            else if (command == 2U)
+            {
+                MotorStateMachine_RequestStop(&g_app.axis.state_machine);
+            }
+        }
+#endif
         App_Process(&g_app);
     }
 }

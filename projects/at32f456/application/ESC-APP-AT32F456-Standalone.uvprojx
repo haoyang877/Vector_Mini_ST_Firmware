@@ -336,7 +336,7 @@
             <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls>--diag_suppress=1 -DFIRMWARE_TARGET_AT32_OFF --preinclude ..\..\..\firmware\config\board_config.h</MiscControls>
-              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U</Define>
+              <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,BSP_BOARD=2U,AT32_KEIL_CALIBRATION=1</Define>
               <Undefine></Undefine>
               <IncludePath>.;..\..\..\firmware\third_party\segger_rtt;..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\app;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\parameters;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>

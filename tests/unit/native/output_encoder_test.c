@@ -266,6 +266,8 @@ int main(void)
     paired_interval_mean();
     geared_drive(8, 1, 2.9f);
     geared_drive(8, -1, -2.9f);
+    geared_drive(40, 1, 2.9f);
+    geared_drive(40, -1, -2.9f);
     geared_drive(12, -1, .1f);
     geared_drive(3, 1, -.7f);
     for (int direction = -1; direction <= 1; direction += 2)

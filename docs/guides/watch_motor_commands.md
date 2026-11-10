@@ -1,10 +1,10 @@
-# Keil Watch 只读观测指南
+# Keil Watch 观测与 AT32 台架标定
 
-更新：2026-10-20。适用配置与运行状态分离后的核心 APP 主工程：`ESC-APP-STM32G431`。
+适用于两板 APP 的 `g_app` 实例。外设寄存器示例针对 STM32G431。
 本页描述人工观测步骤和当前源码中的变量，不授权烧录、复位或电机运动。
 旧SWD台架邮箱的删除范围见[历史附录](../archive/guides/watch_motor_commands_retirement.md)。
 
-2026-11-03已删除Keil全局命令入口。本页运行对象和参数仅供只读观测。
+运行对象和参数供只读观测。AT32 台架构建另提供下述一次性标定命令。
 
 ## 调试前检查
 
@@ -37,9 +37,17 @@ Keil 官方说明：[J-Link Flash 下载设置](https://www.keil.com/support/man
   始终以匹配板上镜像的 AXF 为准，不硬编码 RAM 地址。
 - 全局符号便于观察，公共头不提供这些对象的可写 `extern` 接口；产品代码仍通过请求、快照和显式对象参数访问。
 - Watch 中只输入无副作用的读表达式，不加入赋值、递增/递减或目标函数调用。
-  不编辑 Value 列；刷新得到的多个字段不是同一时刻的原子快照。
+  仅下述台架命令通过 Value 列写入。刷新得到的多个字段不是同一时刻的原子快照。
 
 操作方式见 [Keil Watch 官方说明](https://www.keil.com/support/man/docs/uv4/uv4_db_dbg_watchwin.asp)。
+
+## AT32 台架标定
+
+Loader 配套的 `ESC-APP-AT32F456` 和独立的 `ESC-APP-AT32F456-Standalone` 均默认启用 `AT32_KEIL_CALIBRATION=1`。加载与板上镜像匹配的 AXF，在 Watch 中添加 `s_keil_calibration_command`（可从 main.c 的 Symbols 中选择），按 F5 连续运行。
+
+1. 确认轴在 IDLE、无故障、配置已确认。PITCH/YAW 联合标定采样需要连续旋转 100 电机轴圈，40:1 装配约为 2.5 输出轴圈，须在脱开机械限位的工装上执行。
+2. 写一次 `1` 请求编码器 LUT 标定。命令回零表示已读取。观察 `g_app.axis.state_machine.state` 进入 CALIBRATION，并通过 `g_app.axis.calibration.session.lut.phase` 查看进度。拒绝的请求不会重试。
+3. 中止时写一次 `2`，保持 CPU 运行直至关相。正常完成后，核对回到 IDLE、故障为 0、编码器 LUT 和电零位有效位，以及 PITCH/YAW 的 Hall 标定结果。[标定流程](calibration_process.md)
 
 ## Watch 1：状态、安全与维护
 

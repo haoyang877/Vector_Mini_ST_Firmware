@@ -63,7 +63,7 @@ int main(void)
         assert(fabsf(configuration.model.iq_ki - (ht ? 14363.36f : 3226.22067f)) < .01f);
         assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : node == 6 ? 336 : 420));
         assert(p->electrical->speed_pll_hz == 600);
-        assert(p->electrical->gear_ratio == (ht ? 1 : 8));
+        assert(p->electrical->gear_ratio == (ht ? 1 : 40));
         assert(p->electrical->observer_gamma == 800000);
         assert(configuration.device.encoder.linearization_lut_q15[71] == -42);
         assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));

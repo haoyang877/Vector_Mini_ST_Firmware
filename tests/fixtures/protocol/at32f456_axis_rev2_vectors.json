@@ -40,13 +40,13 @@
       "node": 6,
       "role": 2,
       "axis_crc": "0x58450a2d",
-      "record_crc": "0x82245fca"
+      "record_crc": "0xa316f65c"
     },
     {
       "node": 7,
       "role": 3,
       "axis_crc": "0x3d22316b",
-      "record_crc": "0xcd9fe54e"
+      "record_crc": "0xecad4cd8"
     }
   ]
 }

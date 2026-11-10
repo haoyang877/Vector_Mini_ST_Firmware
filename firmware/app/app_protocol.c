@@ -2,6 +2,7 @@
 #include "motor_state_machine.h"
 #include "yg_protocol.h"
 #include "scaled_integer.h"
+#include "bsp_system.h"
 #include <limits.h>
 #include <math.h>
 
@@ -53,8 +54,10 @@ static void request_motor_start(void *context, const ProtocolCommand *request, P
     {
         return;
     }
-    reply->status =
-        encode_control_result(MotorStateMachine_RequestStart(adapter->state_machine, mode));
+    MotorControlResult result = request->start_flags == PROTOCOL_START_HOST_POSITION_UNLIMITED
+                                    ? MotorStateMachine_RequestHostPosition(adapter->state_machine)
+                                    : MotorStateMachine_RequestStart(adapter->state_machine, mode);
+    reply->status = encode_control_result(result);
     if (reply->status == PROTOCOL_ACCEPTED)
     {
         adapter->state_machine->motion_renewed_ms = BspSystem_TimeMs();
@@ -498,6 +501,12 @@ static bool read_output_feedback(void *context, MotorOutputFeedback *feedback)
     return true;
 }
 
+static void keep_host_position_alive(void *context)
+{
+    AppProtocol *adapter = context;
+    MotorStateMachine_KeepHostPositionAlive(adapter->state_machine);
+}
+
 void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorStateMachine *machine)
 {
     adapter->state_machine = machine;
@@ -507,6 +516,7 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorSta
                                       .target = set_motor_target,
                                       .stop = request_motor_stop,
                                       .clear_fault = request_motor_fault_clear,
+                                      .host_position_keepalive = keep_host_position_alive,
                                       .read_feedback = read_motor_feedback,
                                       .read_output = read_output_feedback};
     endpoint->jobs = (ProtocolJobs){adapter, request_encoder_calibration};

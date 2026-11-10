@@ -158,6 +158,7 @@ void MotorStateMachine_Init(MotorStateMachine *machine, const MotorStateMachineB
     machine->state = MOTOR_STATE_IDLE;
     machine->epoch = 2U;
     bindings->motor->control_mode = MOTOR_CONTROL_NONE;
+    bindings->motor->host_position_unlimited = false;
 }
 
 /* 启动和标定准入都读取本轴的实测输入。启相前由 ADC 再次复核。 */
@@ -280,7 +281,8 @@ static void disable_phases_on_fault(MotorStateMachine *machine)
 
 /* IDLE → RUNNING：前台登记，外环发布许可，ADC 确认实际启相。 */
 static void stop_on_unsafe_conditions(MotorStateMachine *machine, bool configuration_valid);
-MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine, MotorControlMode mode)
+static MotorControlResult
+request_start(MotorStateMachine *machine, MotorControlMode mode, bool host_position_unlimited)
 {
     if (!MotorControlMode_IsValid(mode))
     {
@@ -307,10 +309,12 @@ MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine, Mo
                                  ? Encoder_GetMechPos(machine->drive.rotor_encoder)
                                  : 0.0f;
         if (mode == MOTOR_CONTROL_POSITION &&
-            !MotorAxisProfile_AllowsPosition(&config->application.axis_profile,
-                                             config->application.axis_profile_valid,
-                                             position_rad,
-                                             position_rad))
+            !(host_position_unlimited
+                  ? config->application.axis_profile_valid && isfinite(position_rad)
+                  : MotorAxisProfile_AllowsPosition(&config->application.axis_profile,
+                                                    config->application.axis_profile_valid,
+                                                    position_rad,
+                                                    position_rad)))
         {
             result =
                 motor->fault_code == MOTOR_FAULT_NONE ? MOTOR_CONTROL_DENIED : MOTOR_CONTROL_FAULT;
@@ -322,6 +326,8 @@ MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine, Mo
         else
         {
             reset_targets_and_controllers(machine);
+            motor->host_position_unlimited = host_position_unlimited;
+            machine->host_feedback_ms = BspSystem_TimeMs();
             if (mode == MOTOR_CONTROL_POSITION)
             {
                 motor->position_target_rad = position_rad;
@@ -334,6 +340,24 @@ MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine, Mo
     }
     BspSystem_ExitControlCritical(mask);
     return result;
+}
+
+MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine, MotorControlMode mode)
+{
+    return request_start(machine, mode, false);
+}
+
+MotorControlResult MotorStateMachine_RequestHostPosition(MotorStateMachine *machine)
+{
+    return request_start(machine, MOTOR_CONTROL_POSITION, true);
+}
+
+void MotorStateMachine_KeepHostPositionAlive(MotorStateMachine *machine)
+{
+    if (machine->drive.motor->host_position_unlimited)
+    {
+        machine->host_feedback_ms = BspSystem_TimeMs();
+    }
 }
 
 /* 先检查该模式的全部字段和限值，拒绝时保留原目标。 */
@@ -392,10 +416,14 @@ static MotorControlResult validate_and_set_mode_target(MotorStateMachine *machin
         {
             return MOTOR_CONTROL_INVALID;
         }
-        if (!MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
-                                             configuration->application.axis_profile_valid,
-                                             Encoder_GetMechPos(drive->rotor_encoder),
-                                             target->position_rad))
+        if (!(motor->host_position_unlimited
+                  ? configuration->application.axis_profile_valid &&
+                        isfinite(Encoder_GetMechPos(drive->rotor_encoder)) &&
+                        isfinite(target->position_rad)
+                  : MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
+                                                    configuration->application.axis_profile_valid,
+                                                    Encoder_GetMechPos(drive->rotor_encoder),
+                                                    target->position_rad)))
         {
             return MOTOR_CONTROL_OUT_OF_RANGE;
         }
@@ -659,6 +687,8 @@ static void revoke_enable_and_request_stop(MotorStateMachine *machine)
     machine->start_pending = false;
     BspSystem_MemoryBarrier();
     machine->drive.motor->control_mode = MOTOR_CONTROL_NONE;
+    machine->drive.motor->host_position_unlimited = false;
+    machine->host_feedback_ms = 0U;
 }
 
 void MotorStateMachine_RequestStop(MotorStateMachine *machine)
@@ -684,6 +714,8 @@ static void disable_phases_and_end_session(MotorStateMachine *machine)
     }
     machine->drive.motor->control_mode = MOTOR_CONTROL_NONE;
     reset_targets_and_controllers(machine);
+    machine->drive.motor->host_position_unlimited = false;
+    machine->host_feedback_ms = 0U;
     (void)advance_session_epoch(machine);
     if (!machine->drive.power->phases_disabled())
     {
@@ -937,8 +969,10 @@ static void stop_on_unsafe_conditions(MotorStateMachine *machine, bool configura
 
 void MotorStateMachine_SupervisorTick(MotorStateMachine *machine)
 {
-    if (machine->motion_lease_active &&
-        (uint32_t)(BspSystem_TimeMs() - machine->motion_renewed_ms) >= PROTOCOL_MOTION_LEASE_MS)
+    if ((machine->motion_lease_active &&
+         (uint32_t)(BspSystem_TimeMs() - machine->motion_renewed_ms) >= PROTOCOL_MOTION_LEASE_MS) ||
+        (machine->drive.motor->host_position_unlimited &&
+         (uint32_t)(BspSystem_TimeMs() - machine->host_feedback_ms) >= PROTOCOL_MOTION_LEASE_MS))
     {
         machine->motion_lease_active = false;
         MotorFault_Report(machine->drive.motor, MOTOR_FAULT_CAN_DISCONNECTED);

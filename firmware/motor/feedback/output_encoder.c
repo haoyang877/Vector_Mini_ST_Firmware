@@ -125,15 +125,17 @@ static float sample_phase(const OutputEncoderCalibSample *sample,
     return motor_rad - (float)direction * ratio * hall->val.angle_rad;
 }
 
-static int32_t corrected_counts(const OutputEncoderCalibSample *sample,
-                                const EncoderCalibration *motor)
+static int32_t corrected_counts(int32_t motor_counts, const EncoderCalibration *motor)
 {
-    uint16_t raw = (uint16_t)sample->motor_counts;
-    return sample->motor_counts + (int16_t)(Encoder_Linearize(motor, raw) - raw);
+    uint16_t raw = (uint16_t)motor_counts;
+    return motor_counts + (int16_t)(Encoder_Linearize(motor, raw) - raw);
 }
 
-/* 同一窗口处理三路；仅建表使用，保留同一有效采样时刻。 */
-static OutputEncoderCalibSample filtered_sample(const OutputEncoderCalib *cal, unsigned i)
+/* 同窗计算配对角度。Hall 均值保留小数，避免重新量化造成局部角度倒退。 */
+static int32_t read_filtered_pair(const OutputEncoderCalib *cal,
+                                  unsigned i,
+                                  LinearHall *hall,
+                                  const EncoderCalibration *motor)
 {
     static const unsigned weights[9] = {1U, 8U, 28U, 56U, 70U, 56U, 28U, 8U, 1U};
     float motor_sum = 0.0f;
@@ -145,9 +147,8 @@ static OutputEncoderCalibSample filtered_sample(const OutputEncoderCalib *cal, u
         sin_sum += sample->sin_counts * weights[k];
         cos_sum += sample->cos_counts * weights[k];
     }
-    return (OutputEncoderCalibSample){(int32_t)lroundf(motor_sum / 256.0f),
-                                      (uint16_t)((sin_sum + 128U) / 256U),
-                                      (uint16_t)((cos_sum + 128U) / 256U)};
+    LinearHall_Update(hall, (float)sin_sum / 256.0f, (float)cos_sum / 256.0f);
+    return corrected_counts((int32_t)lroundf(motor_sum / 256.0f), motor);
 }
 
 static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
@@ -162,17 +163,15 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
     int32_t sum = 0;
     float first_angle = 0.0f, previous_angle = 0.0f, unwrapped = 0.0f, previous_error = 0.0f;
     float older_error = 0.0f, filtered_angle = 0.0f, filtered_error = 0.0f;
-    OutputEncoderCalibSample first_sample = filtered_sample(cal, 4U);
-    int32_t first_motor = corrected_counts(&first_sample, motor);
+    int32_t first_motor = 0;
     const float step = _2PI / (float)LINEAR_HALL_LUT_SIZE;
     for (unsigned i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES - 8U; ++i)
     {
-        OutputEncoderCalibSample filtered_sample_value = filtered_sample(cal, i + 4U);
-        const OutputEncoderCalibSample *sample = &filtered_sample_value;
-        LinearHall_Update(hall, sample->sin_counts, sample->cos_counts);
+        int32_t motor_counts = read_filtered_pair(cal, i + 4U, hall, motor);
         float angle = hall->val.angle_raw_rad;
         if (i == 0U)
         {
+            first_motor = motor_counts;
             first_angle = previous_angle = unwrapped = angle;
             continue;
         }
@@ -182,9 +181,8 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
             return LINEAR_HALL_LUT_MAPPING;
         }
         float end = unwrapped + span;
-        float reference = (float)direction *
-                          (float)(corrected_counts(sample, motor) - first_motor) *
-                          (_2PI / 65536.0f) / ratio;
+        float reference =
+            (float)direction * (float)(motor_counts - first_motor) * (_2PI / 65536.0f) / ratio;
         float error = reference - (end - first_angle);
         /* 先抑制配对点间的高频误差，再从 2048 点重采样至 1024 点。 */
         if (i >= 2U)
@@ -274,8 +272,9 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
         previous = corrected.val.angle_rad;
     }
     float motor_travel =
-        (float)(corrected_counts(&cal->samples[OUTPUT_ENCODER_CAL_SAMPLES - 1U], motor) -
-                corrected_counts(&cal->samples[0], motor)) *
+        (float)(corrected_counts(cal->samples[OUTPUT_ENCODER_CAL_SAMPLES - 1U].motor_counts,
+                                 motor) -
+                corrected_counts(cal->samples[0].motor_counts, motor)) *
         (_2PI / 65536.0f);
     int32_t direction = travel * motor_travel >= 0.0f ? 1 : -1;
     float ratio = encoder->params.gear_ratio;

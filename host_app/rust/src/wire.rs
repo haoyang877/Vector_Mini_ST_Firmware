@@ -122,6 +122,19 @@ pub fn u64le(data: &[u8], offset: usize) -> Result<u64> {
 }
 
 #[cfg(test)]
+pub(crate) fn test_reply(node: u8, kind: u16, sequence: u16, payload: &[u8]) -> (u32, Vec<u8>) {
+    let mut frame = encode(node, kind, sequence, payload).unwrap().remove(0).1;
+    frame[3] = 0x10;
+    frame[4] = node;
+    frame[5] = SOURCE;
+    frame[15] = crc8(&frame[..15]);
+    let end = 16 + payload.len();
+    let crc = crc16(&frame[..end]);
+    frame[end..end + 2].copy_from_slice(&crc.to_le_bytes());
+    (can_id(node, SOURCE), frame)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

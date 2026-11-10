@@ -31,6 +31,7 @@ int main(void)
         Param_Download(&record, sizeof(record), &configuration);
         const MotorAxisPreset *p = configuration.preset;
         assert(configuration.configuration_confirmed && p && p->node_id == node);
+        assert(strcmp(p->model_name, ht ? "HT8115-4" : node == 6 ? "YQ-5740" : "YQ-5708") == 0);
         assert(p->joint == roles[node-3] && configuration.model.motor_pole_pairs == (ht ? 21 : 14));
         assert(configuration.model.motor_phase_resistance_ohm == (ht ? 1.905f : .55f));
         assert(configuration.model.calibration_current_a == (ht ? 3.f : 1.6f));
@@ -48,7 +49,7 @@ int main(void)
         assert(configuration.application.position_deceleration_rad_s2 == configuration.application.speed_deceleration_rad_s2);
         if (node >= 6)
         {
-            const float ratio = p->electrical->gear_ratio;
+            const float ratio = p->gear_ratio;
             const float output_limit = 2.094395102f;
             assert(fabsf(p->speed_ceiling_rad_s / ratio - output_limit) < 1e-6f);
             assert(fabsf(p->control.acceleration_rad_s2 / ratio - output_limit) < 1e-6f);
@@ -63,7 +64,7 @@ int main(void)
         assert(fabsf(configuration.model.iq_ki - (ht ? 14363.36f : 3226.22067f)) < .01f);
         assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : node == 6 ? 336 : 420));
         assert(p->electrical->speed_pll_hz == 600);
-        assert(p->electrical->gear_ratio == (ht ? 1 : 40));
+        assert(p->gear_ratio == (ht ? 1 : 40));
         assert(p->electrical->observer_gamma == 800000);
         assert(configuration.device.encoder.linearization_lut_q15[71] == -42);
         assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));
@@ -91,7 +92,7 @@ int main(void)
         {
             const float degrees = node == 5 ? 150.0f : node == 6 ? 30.0f : 180.0f;
             assert(fabsf(p->output_travel_limit_rad - degrees * 0.01745329252f) < 1e-6f);
-            const float limit = p->output_travel_limit_rad * p->electrical->gear_ratio;
+            const float limit = p->output_travel_limit_rad * p->gear_ratio;
             MotorConfiguration full;
             assert(Param_CreateAxis(node, -limit, limit, .5f, &heat, &full));
             const MotorAxisProfile *axis = &full.application.axis_profile;

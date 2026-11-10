@@ -197,6 +197,8 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
                     ++calibration->parameters->revision;
                 }
                 calibration->parameters->saved_revision = calibration->parameters->revision;
+                calibration->parameters->stored_record_crc =
+                    calibration->record->motor.record_crc32;
                 calibration->parameters->save_status = PARAMETER_OK;
             }
             MotorStateMachine_CompleteCalibrationPublication(

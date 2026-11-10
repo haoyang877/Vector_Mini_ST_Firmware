@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "description": "型号配置 v1 小端载荷黄金向量；revision 为固定冲突检测样例，不表示真实设备。",
+  "vectors": [
+    {
+      "name": "prepare_yq5740",
+      "type": 191,
+      "request_payload_hex": "0103060178563412e8030000b80b0000581b0000e8fd000000350c0060ae0a0040420f0020a10700",
+      "response_payload_hex": "000000000100000001030621"
+    },
+    {
+      "name": "read_saved",
+      "type": 190,
+      "request_payload_hex": "01000000",
+      "response_payload_hex": "000000000103060978563412e8030000b80b0000581b0000e8fd000000350c0060ae0a0040420f0020a10700"
+    },
+    {
+      "name": "commit_prepared",
+      "type": 192,
+      "request_payload_hex": "11111111111111111111111101000000",
+      "response_payload_hex": "000000007856341201030609"
+    },
+    {
+      "name": "activate_saved",
+      "type": 193,
+      "request_payload_hex": "11111111111111111111111178563412",
+      "response_payload_hex": "01000000"
+    }
+  ]
+}

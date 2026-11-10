@@ -69,6 +69,47 @@ typedef struct
 #define PROTOCOL_READ_PARAMETER 120U
 #define PROTOCOL_WRITE_PARAMETER 121U
 #define PROTOCOL_SAVE_PARAMETER 122U
+#define PROTOCOL_READ_MOTOR_CONFIGURATION 190U
+#define PROTOCOL_PREPARE_MOTOR_CONFIGURATION 191U
+#define PROTOCOL_COMMIT_MOTOR_CONFIGURATION 192U
+#define PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION 193U
+#define PROTOCOL_FEATURE_MOTOR_CONFIGURATION (1UL << 17U)
+
+/** @brief 型号配置值请求；速度 mrad/s，热参数依次为 mA/mA/ms 和四个百万分比。 */
+typedef struct
+{
+    uint8_t operation, page, version, model, node, flags;
+    uint8_t uid[12];
+    uint32_t revision;
+    int32_t speed_mrad_s, thermal[7];
+} ProtocolMotorConfigurationRequest;
+
+/** @brief 型号配置查询结果；flags 区分确认、标定及待重启，revision 用于冲突检测。 */
+typedef struct
+{
+    ProtocolStatus status;
+    uint16_t detail;
+    uint8_t version, model, node, flags;
+    uint32_t revision;
+    int32_t speed_mrad_s, thermal[7];
+} ProtocolMotorConfigurationReply;
+
+/**
+ * @brief 前台串行处理型号配置，不保留请求指针。
+ * @param context 配置事务所有者。
+ * @param request 已完成线路格式和主站权限检查的值请求。
+ * @param reply 后端必须填写业务状态，保存操作仍须复核停机、修订和范围。
+ */
+typedef void (*ProtocolMotorConfigurationHandler)(void *context,
+                                                  const ProtocolMotorConfigurationRequest *request,
+                                                  ProtocolMotorConfigurationReply *reply);
+
+/** @brief 独立型号配置服务绑定；空回调表示固件未实现。 */
+typedef struct
+{
+    void *context;
+    ProtocolMotorConfigurationHandler handler;
+} ProtocolMotorConfiguration;
 
 #define PROTOCOL_TRANSFER_DATA_SIZE 64U
 
@@ -162,6 +203,9 @@ typedef struct
 #define PROTOCOL_START 117U
 #define PROTOCOL_ENABLE_SIZE 4U
 #define PROTOCOL_START_SIZE 4U
+#define PROTOCOL_START_HOST_POSITION_UNLIMITED 1U
+#define PROTOCOL_FEATURE_HOST_POSITION_SESSION (1UL << 18U)
+#define PROTOCOL_FEATURE_CALIBRATION_STATUS (1UL << 15U)
 #define PROTOCOL_CONTROL_SIZE 20U
 #define PROTOCOL_OPEN_LOOP_SIZE 32U
 #define PROTOCOL_REPLY_SIZE 4U
@@ -173,6 +217,7 @@ typedef struct
     uint16_t sequence;
     uint8_t mode;
     uint32_t renewal_counter;
+    uint8_t start_flags;
     int32_t position_mrad;
     int32_t speed_mrad_s;
     int32_t iq_mA;
@@ -209,6 +254,8 @@ typedef struct
     ProtocolMotorHandler target;
     ProtocolMotorHandler stop;
     ProtocolMotorHandler clear_fault;
+    /** 来源正确的合法状态查询续期；不参与其他来源或控制路径。 */
+    void (*host_position_keepalive)(void *context);
     /** 前台填写线路状态和有效测量。未测字段保留预置哨兵，返回是否有状态样本。 */
     bool (*read_feedback)(void *context, ProtocolFeedback *feedback);
     /** 前台读取有版本的输出轴状态；失败时通信回复BUSY。 */
@@ -305,6 +352,11 @@ typedef union
     ProtocolCommand motor;
     ProtocolJobRequest job;
     PageRequest page;
+    struct
+    {
+        uint32_t revision;
+        uint8_t operation, model, node;
+    } configuration;
     uint8_t enable;
     uint64_t boot_epoch;
     struct
@@ -411,7 +463,8 @@ bool Protocol_QueueReceivedFrame(ProtocolEndpoint *endpoint, const BspCanFrame *
 /**
  * @brief 在主循环后台推进协议收发；未 Start 时不处理。
  * @param now_ms 单调毫秒时间，用于升级回复的发送超时。
- * @note 有界、不等待；一次调用最多处理 8 个输入和 8 个发送帧。116 回复与 124 反馈
+ * @note 有界，不等待 CAN 回复；型号配置提交可执行 BSP 的有界 Flash 事务。
+ *       一次调用最多处理 8 个输入和 8 个发送帧。116 回复与 124 反馈
  *       成对预留发送空间；队列拥塞时保留 RX 请求，发送重试不重新执行业务。
  *       电机的目标顺序和完成语义由业务所有者决定。不得在 CAN ISR 调用。
  * @param endpoint 调用方持有的实例状态。
@@ -562,6 +615,7 @@ struct ProtocolEndpoint
     ProtocolMotor motor;
     ProtocolJobs jobs;
     ProtocolParameters parameters;
+    ProtocolMotorConfiguration configuration;
     BootEntryService loader;
     ProtocolDeviceStatus device_status;
 };

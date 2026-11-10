@@ -19,6 +19,11 @@ uint32_t BspSystem_TimeMs(void)
     return HAL_GetTick();
 }
 
+void BspSystem_Reset(void)
+{
+    NVIC_SystemReset();
+}
+
 /* 时基与PRIMASK恢复集中在本板同一系统原语文件。 */
 uint32_t BspSystem_EnterCritical(void)
 {

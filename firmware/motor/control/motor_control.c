@@ -160,7 +160,7 @@ static bool position_mode_update_control(MotorOuterLoop *outer,
     if (!(limit > 0.0f) || !isfinite(limits.jerk_rad_s3) ||
         !position_plan_sample(outer, otg, limits, motor->position_target_rad) ||
         /* 本拍已检查轴身份、实测位置和最终目标；生成的有限参考还须满足行程边界。 */
-        (configuration->application.axis_profile.magic != 0U &&
+        (!motor->host_position_unlimited && configuration->application.axis_profile.magic != 0U &&
          !MotorAxisProfile_TargetWithinBounds(&configuration->application.axis_profile,
                                               otg->reference.position_rad)))
     {
@@ -218,11 +218,15 @@ static bool motor_outer_loop_inputs_valid(const MotorConfiguration *configuratio
                isfinite(configuration->application.speed_deceleration_rad_s2);
     }
     float maximum_speed_rad_s = position_mode_maximum_speed(configuration);
-    return MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
-                                           configuration->application.axis_profile_valid,
-                                           position_rad,
-                                           motor->position_target_rad) &&
-           isfinite(configuration->application.position_error_window_rad) &&
+    bool position_allowed =
+        motor->host_position_unlimited
+            ? configuration->application.axis_profile_valid && isfinite(position_rad) &&
+                  isfinite(motor->position_target_rad)
+            : MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
+                                              configuration->application.axis_profile_valid,
+                                              position_rad,
+                                              motor->position_target_rad);
+    return position_allowed && isfinite(configuration->application.position_error_window_rad) &&
            configuration->application.position_error_window_rad > 0.0f &&
            configuration->application.position_error_window_rad <=
                POSITION_CASCADE_POSITION_ERROR_WINDOW_MAX_RAD &&

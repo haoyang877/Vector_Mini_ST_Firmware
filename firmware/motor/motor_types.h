@@ -36,6 +36,8 @@ typedef enum
 typedef struct
 {
     MotorControlMode control_mode;
+    /* 仅状态机发布/清除的上位机位置会话权限；外环只读，不属于配置或持久记录。 */
+    bool host_position_unlimited;
     /* 原子故障锁存字；保存MotorFaultCode值，不属于线上或持久化结构。 */
     volatile uint32_t fault_code;
     bool uses_sensorless_feedback;

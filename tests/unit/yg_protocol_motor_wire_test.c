@@ -118,8 +118,71 @@ static void test_minimal_state(void)
     printf("\n");
 }
 
+static unsigned host_start_calls, keepalive_calls;
+static void capture_host_start(void *context, const ProtocolCommand *request, ProtocolReply *reply)
+{
+    (void)context;
+    CHECK(request->mode == 3U && request->start_flags <= 1U);
+    ++host_start_calls;
+    reply->status = PROTOCOL_ACCEPTED;
+}
+static void capture_keepalive(void *context)
+{
+    (void)context;
+    ++keepalive_calls;
+}
+static void test_host_position_session_wire(void)
+{
+    CHECK(test_reset_protocol(3U));
+    endpoint.motor.start = capture_host_start;
+    endpoint.motor.host_position_keepalive = capture_keepalive;
+    uint8_t payload[] = {3U, 1U, 0U, 0U};
+    ProtocolExchange exchange = {.request = {.message_type = PROTOCOL_START,
+                                             .source_node = PROTOCOL_MASTER_ID,
+                                             .destination_node = 3U,
+                                             .payload = payload,
+                                             .payload_length = sizeof(payload)}};
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD &&
+          host_start_calls == 0U);
+    endpoint.device.capabilities.features |= PROTOCOL_FEATURE_HOST_POSITION_SESSION;
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_ACCEPTED &&
+          host_start_calls == 1U);
+    puts("HOST_POSITION_START 03010000");
+    const uint8_t invalid[][4] = {
+        {3U, 2U, 0U, 0U}, {2U, 1U, 0U, 0U}, {3U, 1U, 1U, 0U}, {3U, 1U, 0U, 1U}};
+    for (unsigned i = 0U; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
+    {
+        exchange.request.payload = invalid[i];
+        CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD &&
+              host_start_calls == 1U);
+    }
+    exchange.request.payload = payload;
+    exchange.request.source_node = 9U;
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_FORBIDDEN &&
+          host_start_calls == 1U);
+    exchange.request.source_node = PROTOCOL_MASTER_ID;
+    payload[1] = 0U;
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK && host_start_calls == 2U);
+    exchange.request.message_type = PROTOCOL_GET_MOTOR_STATE;
+    exchange.request.payload_length = 0U;
+    CHECK(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          keepalive_calls == 1U);
+    exchange.request.source_node = 9U;
+    CHECK(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          keepalive_calls == 1U);
+    exchange.request.source_node = PROTOCOL_MASTER_ID;
+    exchange.request.payload_length = 4U;
+    CHECK(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          keepalive_calls == 1U);
+}
+
 int main(void)
 {
+    test_host_position_session_wire();
     test_minimal_state();
     test_open_loop_vectors();
     CHECK(test_application_capabilities());

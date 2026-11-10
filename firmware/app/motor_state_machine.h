@@ -168,7 +168,8 @@ struct MotorStateMachine
     volatile uint32_t calibration_result_epoch, calibration_saved_epoch;
     volatile MotorCalibrationResult calibration_result;
     volatile MotorFaultCode calibration_failure;
-    uint32_t epoch; /* 当前会话号，外部只读。 */
+    uint32_t epoch;                     /* 当前会话号，外部只读。 */
+    volatile uint32_t host_feedback_ms; /* 不限位上位机会话最后一条合法状态查询的毫秒时间。 */
     volatile uint32_t supervisor_ticks, outer_ticks;
     volatile uint32_t phase_enable_epoch; /* 本会话待 ADC 复核的启相许可，零表示无许可。 */
     volatile uint32_t fast_sample_ticks;
@@ -225,6 +226,21 @@ void MotorStateMachine_RequestStop(MotorStateMachine *machine);
  */
 MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *machine,
                                                   MotorControlMode mode);
+
+/**
+ * @brief 请求仅本次上位机会话不限制位置行程的位置控制，启动时保持当前位置。
+ * @param machine 调用方持有的实例，前台已验证来源和协议能力。
+ * @return 同RequestStart；仅受理后发布权限，不跳过其他启动门禁。
+ * @note 前台调用；STOP、故障、复位或500ms未续期即结束权限，不持久化。
+ */
+MotorControlResult MotorStateMachine_RequestHostPosition(MotorStateMachine *machine);
+
+/**
+ * @brief 为已受理的上位机不限位位置会话续期，不启动输出或新建会话。
+ * @param machine 调用方持有的实例。
+ * @note 仅合法来源的状态查询处理器在前台调用，其他控制入口不可代为续期。
+ */
+void MotorStateMachine_KeepHostPositionAlive(MotorStateMachine *machine);
 
 /**
  * @brief 在原模式运行时校验并写入控制目标，不启动或切换模式。

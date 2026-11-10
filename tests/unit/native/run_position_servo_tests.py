@@ -90,6 +90,7 @@ void BspPwm_Disable(void);
 static const MotorAxisHardware hardware={.power.disable=BspPwm_Disable};
 void MotorAxis_Init(MotorAxis *axis) { axis->hardware=&hardware;axis->configuration.device.node_id=7U;axis->state_machine=(MotorStateMachine){0};assert(axis==&app.axis); log_step(1); }
 void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorStateMachine *machine) { assert(protocol==&app.protocol && endpoint==&app.endpoint && machine==&app.axis.state_machine); }
+void AppMotorConfiguration_Init(AppMotorConfiguration *service, MotorAxis *axis, ProtocolEndpoint *endpoint) { assert(service==&app.motor_configuration && axis==&app.axis && endpoint==&app.endpoint); }
 bool Protocol_Init(ProtocolEndpoint *endpoint, uint8_t node) { assert(endpoint==&app.endpoint && node==7);log_step(2);return ready; }
 static bool configure_protocol_device_info(AppContext *context) { assert(context==&app);log_step(4);return ready; }
 bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }

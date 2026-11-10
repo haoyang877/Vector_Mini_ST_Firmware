@@ -843,10 +843,10 @@ static void test_calibration_dispatch_and_publication(void)
     assert(calibration_publication_calls == 2U);
 #if BSP_ENABLED_LINEAR_HALL
     /* Hall 随观测器闭环采集；启动、构表、停止和电零位对齐均不采样。 */
-    static const MotorElectricalPreset electrical = {.gear_ratio = 8.0f};
-    static const MotorAxisPreset pitch = {.joint = MOTOR_JOINT_PITCH, .electrical = &electrical};
+    static const MotorAxisPreset pitch = {
+        .joint = MOTOR_JOINT_PITCH, .gear_ratio = YQ_JOINT_GEAR_RATIO, .has_linear_hall = true};
     axis.configuration.preset = &pitch;
-    OutputEncoder_Init(&axis.output_encoder, 8.0f);
+    OutputEncoder_Init(&axis.output_encoder, pitch.gear_ratio);
     LinearHall_Init(&axis.linear_hall);
     axis.state_machine.state = MOTOR_STATE_CALIBRATION;
     simulated_phase = CS_NULL;
@@ -919,8 +919,9 @@ static void test_calibration_dispatch_and_publication(void)
     memset(&axis.configuration.device.encoder, 0, sizeof(axis.configuration.device.encoder));
     for (unsigned i = 0; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        int32_t counts = (int32_t)(i * 8.0f * 65536.0f * 1.01f / (OUTPUT_ENCODER_CAL_SAMPLES - 1U));
-        float h = (float)counts * (_2PI / (65536.0f * 8.0f));
+        int32_t counts =
+            (int32_t)(i * pitch.gear_ratio * 65536.0f * 1.01f / (OUTPUT_ENCODER_CAL_SAMPLES - 1U));
+        float h = (float)counts * (_2PI / (65536.0f * pitch.gear_ratio));
         axis.calibration.output_calibration.samples[i] =
             (OutputEncoderCalibSample){counts,
                                        (uint16_t)(1800.0f - 1600.0f * sinf(h)),
@@ -943,12 +944,13 @@ static void test_output_encoder_startup(void)
     axis.configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
     axis.rotor_encoder.has_valid_sample = true;
     axis.linear_hall.calibration_success = true;
-    axis.linear_hall.val.sin_cal = -sinf(0.45f);
-    axis.linear_hall.val.cos_cal = cosf(0.45f);
-    axis.linear_hall.val.angle_rad = 0.45f;
-    const float ratios[] = {1.0f, 8.0f};
+    const float ratios[] = {1.0f, YQ_JOINT_GEAR_RATIO};
     for (unsigned i = 0U; i < sizeof(ratios) / sizeof(ratios[0]); ++i)
     {
+        float hall_angle = (_PI + 0.05f) / ratios[i];
+        axis.linear_hall.val.sin_cal = -sinf(hall_angle);
+        axis.linear_hall.val.cos_cal = cosf(hall_angle);
+        axis.linear_hall.val.angle_rad = hall_angle;
         OutputEncoder_Init(&axis.output_encoder, ratios[i]);
         axis.output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
         axis.current_offsets.complete = false;

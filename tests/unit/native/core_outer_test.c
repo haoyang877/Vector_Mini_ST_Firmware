@@ -219,6 +219,25 @@ static void check_configuration(void)
 }
 static void check_validation(void)
 {
+    setup(MOTOR_CONTROL_POSITION);
+    s_motor.host_position_unlimited = true;
+    s_position_rad = 8.0f;
+    s_motor.position_target_rad = 12.0f;
+    s_configuration.application.axis_profile.magic = 1U;
+    s_configuration.application.axis_profile.minimum_position_rad = -1.0f;
+    s_configuration.application.axis_profile.maximum_position_rad = 1.0f;
+    s_configuration.application.axis_profile.maximum_speed_rad_s = 0.4f;
+    for (unsigned i = 0U; i < 100U; ++i)
+    {
+        tick();
+    }
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.fault_code == MOTOR_FAULT_NONE);
+    CHECK(s_config.target_position >= 8.0f && s_config.maximum_speed == 0.4f);
+    CHECK(s_motor.iq_target_a <= s_configuration.application.current_limit_a);
+    s_motor.host_position_unlimited = false;
+    tick();
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
+
     const size_t offsets[] = {
         offsetof(MotorConfiguration, application.current_limit_a),
         offsetof(MotorConfiguration, application.speed_kp),

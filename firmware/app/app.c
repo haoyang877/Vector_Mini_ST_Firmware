@@ -128,6 +128,7 @@ void App_Init(AppContext *app)
     app->initialized = true;
     MotorAxis_Init(&app->axis);
     AppProtocol_Init(&app->protocol, &app->endpoint, &app->axis.state_machine);
+    AppMotorConfiguration_Init(&app->motor_configuration, &app->axis, &app->endpoint);
 
     app->endpoint.parameters = (ProtocolParameters){&app->axis, handle_parameter_request};
     app->communication_ready =
@@ -180,6 +181,10 @@ void App_Process(AppContext *app)
     MotorAxis_ProcessPositionPlan(&app->axis);
     MotorCalibration_ProcessPublication(&app->axis.calibration);
     Protocol_Process(&app->endpoint, BspSystem_TimeMs());
+    if (app->motor_configuration.restart_requested)
+    {
+        AppMotorConfiguration_Process(&app->motor_configuration, BspSystem_TimeMs());
+    }
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     AppLoader_Process(&app->loader, BspSystem_TimeMs());
 #endif
@@ -224,7 +229,8 @@ static bool configure_protocol_device_info(AppContext *app)
     ProtocolCaps capabilities = {
         .default_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
         .max_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
-        .features = PROTOCOL_FEATURE_MOTION_LEASE | PROTOCOL_FEATURE_PARAMETER_SERVICE |
+        .features = PROTOCOL_FEATURE_MOTOR_CONFIGURATION | PROTOCOL_FEATURE_HOST_POSITION_SESSION |
+                    PROTOCOL_FEATURE_MOTION_LEASE | PROTOCOL_FEATURE_PARAMETER_SERVICE |
                     PROTOCOL_FEATURE_JOB_STATUS | PROTOCOL_FEATURE_OUTPUT_FEEDBACK | (1UL << 8U) |
                     (1UL << 10U) | (1UL << 11U) | (1UL << 12U),
         .supported_modes = (1U << 1) | (1U << 2) | (1U << 3) | (1U << 6) | (1U << 9) | (1U << 10),

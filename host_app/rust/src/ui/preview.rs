@@ -36,10 +36,12 @@ impl PreviewRun {
         let mut steps = vec![];
         for (name, page, sample) in [
             ("connection", Page::Connection, false),
+            ("connection-bitrate", Page::Connection, false),
             ("home", Page::Home, false),
             ("workbench-empty", Page::Workbench, false),
             ("workbench", Page::Workbench, true),
             ("parameters", Page::Parameters, false),
+            ("parameters-yq", Page::Parameters, false),
             ("calibration", Page::Calibration, false),
             ("identification", Page::Identification, false),
             ("records", Page::Records, true),
@@ -59,18 +61,97 @@ impl PreviewRun {
         if single.is_some() {
             steps.truncate(1);
         } else {
-            for (name, mode) in [("maintenance-combined", UpgradeMode::Combined)] {
+            for (name, size) in [
+                ("workbench-vq", Vec2::new(1366.0, 768.0)),
+                ("workbench-iq", Vec2::new(1366.0, 768.0)),
+                ("workbench-position", Vec2::new(1366.0, 768.0)),
+                ("workbench-vq-1024", Vec2::new(1024.0, 700.0)),
+                ("workbench-position-1024", Vec2::new(1024.0, 700.0)),
+            ] {
                 steps.push(Step {
                     name,
-                    page: Page::Maintenance,
-                    sample: false,
+                    page: Page::Workbench,
+                    sample: true,
                     dark: true,
                     scale: 1.0,
-                    size: Vec2::new(1366.0, 768.0),
-                    mode,
+                    size,
+                    mode: UpgradeMode::App,
                     stale: false,
                 });
             }
+            for (name, dark, size) in [
+                ("mode-menu-dark", true, Vec2::new(1366.0, 768.0)),
+                ("mode-menu-light", false, Vec2::new(1366.0, 768.0)),
+                ("mode-menu-1024", true, Vec2::new(1024.0, 700.0)),
+                ("controls-idle", true, Vec2::new(1366.0, 768.0)),
+                ("controls-running", true, Vec2::new(1366.0, 768.0)),
+                ("controls-hard-stop", true, Vec2::new(1024.0, 700.0)),
+            ] {
+                steps.push(Step {
+                    name,
+                    page: Page::Workbench,
+                    sample: true,
+                    dark,
+                    scale: 1.0,
+                    size,
+                    mode: UpgradeMode::App,
+                    stale: false,
+                });
+            }
+            for (name, page) in [
+                ("home-1024", Page::Home),
+                ("parameters-1024", Page::Parameters),
+                ("calibration-1024", Page::Calibration),
+                ("identification-1024", Page::Identification),
+                ("records-1024", Page::Records),
+                ("maintenance-1024", Page::Maintenance),
+            ] {
+                steps.push(Step {
+                    name,
+                    page,
+                    sample: false,
+                    dark: true,
+                    scale: 1.0,
+                    size: Vec2::new(1024.0, 700.0),
+                    mode: UpgradeMode::App,
+                    stale: false,
+                });
+            }
+            for (name, page) in [
+                ("parameters-light", Page::Parameters),
+                ("maintenance-light", Page::Maintenance),
+            ] {
+                steps.push(Step {
+                    name,
+                    page,
+                    sample: false,
+                    dark: false,
+                    scale: 1.0,
+                    size: Vec2::new(1366.0, 768.0),
+                    mode: UpgradeMode::App,
+                    stale: false,
+                });
+            }
+            steps.push(Step {
+                name: "connection-1024",
+                page: Page::Connection,
+                sample: false,
+                dark: true,
+                scale: 1.0,
+                size: Vec2::new(1024.0, 700.0),
+                mode: UpgradeMode::App,
+                stale: false,
+            });
+            steps.push(Step {
+                name: "maintenance-combined",
+                page: Page::Maintenance,
+                sample: false,
+                dark: true,
+                scale: 1.0,
+                size: Vec2::new(1366.0, 768.0),
+                mode: UpgradeMode::Combined,
+                stale: false,
+            });
             for (name, dark, scale, size, stale) in [
                 (
                     "workbench-offline",
@@ -120,6 +201,13 @@ impl PreviewRun {
                 .get(self.index)
                 .is_some_and(|step| step.name == "theme-menu")
     }
+    pub(super) fn mode_menu(&self) -> bool {
+        self.frames == 2
+            && self
+                .steps
+                .get(self.index)
+                .is_some_and(|step| step.name.starts_with("mode-menu"))
+    }
 
     pub(super) fn tick(&mut self, app: &mut HostApp, ctx: &egui::Context) {
         if self.index >= self.steps.len() {
@@ -128,12 +216,58 @@ impl PreviewRun {
         let step = &self.steps[self.index];
         if self.frames == 0 {
             app.page = step.page;
+            app.bitrates = if step.name == "connection-bitrate" {
+                Bitrates {
+                    arbitration: 500_000,
+                    data: 2_000_000,
+                }
+            } else {
+                Bitrates::default()
+            };
+            app.motor_draft = crate::motor_configuration::Draft::default();
+            app.motor_thermal.clear();
+            if step.name == "parameters-yq" {
+                app.motor_draft.model = crate::motor_configuration::Model::Yq5740;
+                app.motor_draft.node = 6;
+            }
             app.upgrade_mode = step.mode;
+            app.control_mode = if step.name.starts_with("workbench-vq") {
+                ControlMode::Voltage
+            } else if step.name == "workbench-iq" {
+                ControlMode::Torque
+            } else if step.name.starts_with("workbench-position") {
+                ControlMode::Position
+            } else {
+                ControlMode::Speed
+            };
             app.capture = if step.sample {
                 Capture::preview_record()
             } else {
                 Capture::default()
             };
+            // 示例也遵循所选模式的反馈语义，避免展示该模式没有的参考量。
+            for sample in &mut app.capture.samples {
+                match app.control_mode {
+                    ControlMode::Voltage => {
+                        sample.values[4] = None;
+                    }
+                    ControlMode::Torque => {
+                        sample.values[4] = None;
+                        sample.values[5] = Some(0.3);
+                    }
+                    ControlMode::Position => {
+                        let x = (sample.time_s - 3.0).max(0.0);
+                        sample.values[0] = Some(0.12 * (1.0 - (-x * 1.8).exp()));
+                        sample.values[3] = Some(0.12 * (1.0 - (-x * 2.0).exp()));
+                        sample.values[1] = Some(0.216 * (-x * 1.8).exp());
+                        sample.values[4] = Some(0.24 * (-x * 2.0).exp());
+                    }
+                    ControlMode::Speed => {}
+                }
+            }
+            if let Some(worker) = &app.curve_worker {
+                worker.reset(app.capture.samples.iter().cloned().collect());
+            }
             app.theme = if step.dark {
                 egui::ThemePreference::Dark
             } else {
@@ -141,6 +275,48 @@ impl PreviewRun {
             };
             app.snapshot = Snapshot::default();
             app.bound_uid.clear();
+            app.connected = false;
+            app.hard_stop = false;
+            app.acknowledged = false;
+            if step.name.starts_with("controls-") {
+                app.connected = true;
+                app.bound_uid = "PREVIEW-NO-DEVICE".into();
+                app.snapshot = Snapshot {
+                    uid: app.bound_uid.clone(),
+                    role: 1,
+                    app_version: 1,
+                    product: app.target.product,
+                    hardware: app.target.hardware as u16,
+                    schema: app.target.schema,
+                    abi: app.target.abi,
+                    features: 0x7fd00,
+                    modes: 0x4e,
+                    motor_state: 5,
+                    mode: 0,
+                    bus_v: Some(24.0),
+                    bus_a: Some(0.0),
+                    iq_a: Some(0.0),
+                    vq_v: Some(0.0),
+                    position_rad: Some(1.0),
+                    speed_rad_s: Some(0.0),
+                    stop_confirmed: true,
+                    identity_at: Some(std::time::Instant::now()),
+                    feedback_at: Some(std::time::Instant::now()),
+                    ..Default::default()
+                };
+                if step.name == "controls-running" {
+                    app.snapshot.motor_state = 6;
+                    app.snapshot.mode = 2;
+                    app.snapshot.motion_may_run = true;
+                    app.snapshot.stop_confirmed = false;
+                    app.snapshot.speed_rad_s = Some(1.0);
+                } else if step.name == "controls-hard-stop" {
+                    app.hard_stop = true;
+                    app.snapshot.feedback_at =
+                        Some(std::time::Instant::now() - Duration::from_secs(8));
+                    app.status = "离线示例 · 通信超时后硬停，等待状态确认".into();
+                }
+            }
             app.window_s = 30.0;
             if step.stale {
                 app.snapshot.uid = "PREVIEW-STALE".into();
@@ -182,6 +358,8 @@ impl PreviewRun {
                 "logical_size":[ctx.content_rect().width(),ctx.content_rect().height()],"requested_size":[step.size.x,step.size.y],
                 "scale":ctx.pixels_per_point(),
                 "sample_count":app.capture.samples.len(),"preview":true,"connected":app.connected,
+                "control_mode":app.control_mode.wire(), "arbitration_bps":app.bitrates.arbitration,
+                "data_bps":app.bitrates.data,
                 "controls":app.control_evidence,"saved":saved.is_ok()}));
             if let Err(error) = saved {
                 eprintln!("预览保存失败：{error}");

@@ -47,6 +47,17 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *insta
     (void)type;
     return MOTOR_CONTROL_DENIED;
 }
+MotorControlResult MotorStateMachine_RequestHostPosition(MotorStateMachine *instance)
+{
+    (void)instance;
+    return MOTOR_CONTROL_DENIED;
+}
+
+void MotorStateMachine_KeepHostPositionAlive(MotorStateMachine *instance)
+{
+    (void)instance;
+}
+
 MotorControlResult MotorStateMachine_RequestFaultClear(MotorStateMachine *instance)
 {
     (void)instance;

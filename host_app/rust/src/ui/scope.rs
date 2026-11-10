@@ -1,7 +1,295 @@
-//! 三组 SI 趋势共用时间窗和游标；缺测或观察中断断线，不插值跨越未知数据。
+//! 四种信号共用时间窗和游标；缺测或观察中断断线，不插值跨越未知数据。
 
 use super::Palette;
-use crate::capture::Capture;
+use crate::capture::{MAX_SAMPLES, Sample};
+use crate::device::Snapshot;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+pub(super) const REFRESH_PERIOD: Duration = crate::device::OBSERVE_INTERVAL;
+
+#[derive(Clone)]
+pub(super) struct Curve {
+    pub range: (f64, f64),
+    pub actual: Vec<Vec<[f64; 2]>>,
+    pub reference: Vec<Vec<[f64; 2]>>,
+}
+
+pub(super) struct Scene {
+    pub start: f64,
+    pub end: f64,
+    pub references: bool,
+    pub has_samples: bool,
+    pub latest_sample_time: Option<f64>,
+    pub curves: [Curve; 4],
+}
+
+enum Message {
+    #[cfg(test)]
+    Sample(Sample),
+    Snapshot(Box<Snapshot>),
+    Observe(String, Instant, u32),
+    Pause,
+    Reset(Vec<Sample>),
+    View(f64, bool),
+    Stop,
+}
+
+pub(super) struct SnapshotSink(mpsc::Sender<Message>);
+impl SnapshotSink {
+    pub fn publish(&self, snapshot: Box<Snapshot>) {
+        let _ = self.0.send(Message::Snapshot(snapshot));
+    }
+}
+
+struct Recording {
+    uid: String,
+    start: Instant,
+    segment: u32,
+    last_at: Option<Instant>,
+}
+impl Recording {
+    fn sample(&mut self, snapshot: &Snapshot) -> Option<Sample> {
+        if snapshot.uid != self.uid || !snapshot.feedback_fresh() {
+            return None;
+        }
+        let at = snapshot.feedback_at?;
+        if self.last_at.is_some_and(|last| at <= last) {
+            return None;
+        }
+        let time_s = at.checked_duration_since(self.start)?.as_secs_f64();
+        if self
+            .last_at
+            .is_some_and(|last| at.duration_since(last) > Duration::from_millis(100))
+        {
+            self.segment += 1;
+        }
+        self.last_at = Some(at);
+        Some(Sample::from_snapshot(time_s, self.segment, snapshot))
+    }
+}
+
+pub(super) struct Worker {
+    sender: mpsc::Sender<Message>,
+    latest: Arc<Mutex<Arc<Scene>>>,
+    thread: Option<JoinHandle<()>>,
+    view: (f64, bool),
+}
+
+impl Worker {
+    pub fn new(ctx: egui::Context) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let latest = Arc::new(Mutex::new(Arc::new(prepare(&VecDeque::new(), 30.0, true))));
+        let output = latest.clone();
+        let thread = std::thread::Builder::new()
+            .name("yg-curve-refresh".into())
+            .spawn(move || {
+                let mut samples = VecDeque::new();
+                let mut window = 30.0;
+                let mut references = true;
+                let mut dirty = false;
+                let mut recording: Option<Recording> = None;
+                let mut next = Instant::now() + REFRESH_PERIOD;
+                loop {
+                    let message =
+                        receiver.recv_timeout(next.saturating_duration_since(Instant::now()));
+                    match message {
+                        Ok(Message::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        #[cfg(test)]
+                        Ok(Message::Sample(sample)) => {
+                            if samples.len() == MAX_SAMPLES {
+                                samples.pop_front();
+                            }
+                            samples.push_back(sample);
+                            dirty = true;
+                        }
+                        Ok(Message::Snapshot(snapshot)) => {
+                            if let Some(sample) = recording
+                                .as_mut()
+                                .and_then(|recording| recording.sample(&snapshot))
+                            {
+                                if samples.len() == MAX_SAMPLES {
+                                    samples.pop_front();
+                                }
+                                samples.push_back(sample);
+                                dirty = true;
+                            }
+                        }
+                        Ok(Message::Observe(uid, start, segment)) => {
+                            recording = Some(Recording {
+                                uid,
+                                start,
+                                segment,
+                                last_at: None,
+                            });
+                        }
+                        Ok(Message::Pause) => recording = None,
+                        Ok(Message::Reset(values)) => {
+                            samples = values.into();
+                            recording = None;
+                            dirty = true;
+                        }
+                        Ok(Message::View(seconds, show)) => {
+                            window = seconds;
+                            references = show;
+                            dirty = true;
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                    if Instant::now() >= next {
+                        if dirty {
+                            let scene = Arc::new(prepare(&samples, window, references));
+                            if let Ok(mut latest) = output.lock() {
+                                *latest = scene;
+                            }
+                            // egui 的即时请求会触发两次重绘；非零延迟只唤醒一次。
+                            ctx.request_repaint_after(Duration::from_millis(1));
+                            dirty = false;
+                        }
+                        next =
+                            crate::device::advance_deadline(next, REFRESH_PERIOD, Instant::now());
+                    }
+                }
+            })
+            .expect("曲线工作线程启动失败");
+        Self {
+            sender,
+            latest,
+            thread: Some(thread),
+            view: (30.0, true),
+        }
+    }
+    #[cfg(test)]
+    pub fn push(&self, sample: Sample) {
+        let _ = self.sender.send(Message::Sample(sample));
+    }
+    pub fn sink(&self) -> SnapshotSink {
+        SnapshotSink(self.sender.clone())
+    }
+    pub fn observe(&self, (uid, start, segment): (String, Instant, u32)) {
+        let _ = self.sender.send(Message::Observe(uid, start, segment));
+    }
+    pub fn pause(&self) {
+        let _ = self.sender.send(Message::Pause);
+    }
+    pub fn reset(&self, samples: Vec<Sample>) {
+        let _ = self.sender.send(Message::Reset(samples));
+    }
+    pub fn scene(&mut self, window: f64, references: bool) -> Arc<Scene> {
+        if self.view != (window, references) {
+            self.view = (window, references);
+            let _ = self.sender.send(Message::View(window, references));
+        }
+        self.latest.lock().expect("曲线快照锁异常").clone()
+    }
+}
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let _ = self.sender.send(Message::Stop);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+// 每个时间桶保留首尾和极值，减少绘制点数且保留尖峰；缺测和分段保持断线。
+fn simplify(path: &[[f64; 2]], start: f64, end: f64) -> Vec<[f64; 2]> {
+    let bucket = |p: &[f64; 2]| (((p[0] - start) / (end - start)) * 800.0).floor() as i32;
+    let mut result = vec![];
+    let mut offset = 0;
+    while offset < path.len() {
+        let mut stop = offset + 1;
+        while stop < path.len() && bucket(&path[stop]) == bucket(&path[offset]) {
+            stop += 1;
+        }
+        let min = (offset..stop)
+            .min_by(|&a, &b| path[a][1].total_cmp(&path[b][1]))
+            .unwrap();
+        let max = (offset..stop)
+            .max_by(|&a, &b| path[a][1].total_cmp(&path[b][1]))
+            .unwrap();
+        let mut keep = vec![offset, min, max, stop - 1];
+        keep.sort_unstable();
+        keep.dedup();
+        result.extend(keep.into_iter().map(|index| path[index]));
+        offset = stop;
+    }
+    result
+}
+
+fn prepare(samples: &VecDeque<Sample>, window: f64, references: bool) -> Scene {
+    let end = samples
+        .back()
+        .map(|p| p.time_s)
+        .unwrap_or(window)
+        .max(window.min(5.0));
+    let start = (end - window).max(0.0);
+    let points: Vec<_> = samples
+        .iter()
+        .filter(|p| p.time_s >= start && p.time_s <= end)
+        .collect();
+    let series = |index: usize| {
+        let mut paths = vec![];
+        let mut path = vec![];
+        let mut segment = None;
+        let flush = |path: &mut Vec<[f64; 2]>, paths: &mut Vec<Vec<[f64; 2]>>| {
+            if !path.is_empty() {
+                paths.push(simplify(path, start, end));
+                path.clear();
+            }
+        };
+        for p in &points {
+            if segment.is_some_and(|value| value != p.segment) {
+                flush(&mut path, &mut paths);
+            }
+            segment = Some(p.segment);
+            if let Some(value) = p.values[index].filter(|v| v.is_finite()) {
+                path.push([p.time_s, value]);
+            } else {
+                flush(&mut path, &mut paths);
+            }
+        }
+        flush(&mut path, &mut paths);
+        paths
+    };
+    let curves = std::array::from_fn(|channel| {
+        let actual_index = [0, 1, 2, 6][channel];
+        let reference_index = [3, 4, 5, 7][channel];
+        Curve {
+            range: bounds(
+                points
+                    .iter()
+                    .flat_map(|p| {
+                        [
+                            p.values[actual_index],
+                            if references {
+                                p.values[reference_index]
+                            } else {
+                                None
+                            },
+                        ]
+                    })
+                    .flatten(),
+            ),
+            actual: series(actual_index),
+            reference: if references {
+                series(reference_index)
+            } else {
+                vec![]
+            },
+        }
+    });
+    Scene {
+        start,
+        end,
+        references,
+        has_samples: !points.is_empty(),
+        latest_sample_time: samples.back().map(|sample| sample.time_s),
+        curves,
+    }
+}
 use eframe::egui::{self, Align2, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2};
 
 fn bounds(values: impl Iterator<Item = f64>) -> (f64, f64) {
@@ -22,12 +310,10 @@ fn bounds(values: impl Iterator<Item = f64>) -> (f64, f64) {
 
 pub(super) fn plot(
     ui: &mut egui::Ui,
-    capture: &Capture,
+    scene: &Scene,
     channel: usize,
-    window_s: f64,
     height: f32,
     cursor: Option<f64>,
-    references: bool,
 ) -> (Option<f64>, Rect) {
     let c = Palette::from_ctx(ui.ctx());
     let (rect, response) =
@@ -38,12 +324,14 @@ pub(super) fn plot(
             egui::Color32::from_rgb(75, 163, 224),
             egui::Color32::from_rgb(83, 192, 163),
             egui::Color32::from_rgb(218, 183, 113),
+            egui::Color32::from_rgb(186, 142, 235),
         ][channel]
     } else {
         [
             c.accent,
             egui::Color32::from_rgb(32, 133, 104),
             egui::Color32::from_rgb(162, 109, 29),
+            egui::Color32::from_rgb(127, 71, 174),
         ][channel]
     };
     painter.rect_filled(rect, 2.0, c.panel);
@@ -62,40 +350,14 @@ pub(super) fn plot(
     if !chart.is_positive() {
         return (None, rect);
     }
-    let end = capture
-        .samples
-        .back()
-        .map(|p| p.time_s)
-        .unwrap_or(window_s)
-        .max(window_s.min(5.0));
-    let start = (end - window_s).max(0.0);
-    let points: Vec<_> = capture
-        .samples
-        .iter()
-        .filter(|p| p.time_s >= start && p.time_s <= end)
-        .collect();
-    let reference = channel + 3;
-    let available_reference = points.iter().any(|p| p.values[reference].is_some());
-    let has_reference = references && available_reference;
-    let (low, high) = bounds(
-        points
-            .iter()
-            .flat_map(|p| {
-                [
-                    p.values[channel],
-                    if has_reference {
-                        p.values[reference]
-                    } else {
-                        None
-                    },
-                ]
-            })
-            .flatten(),
-    );
+    let (start, end) = (scene.start, scene.end);
+    let curve = &scene.curves[channel];
+    let has_reference = !curve.reference.is_empty();
+    let (low, high) = curve.range;
     let sx = |time: f64| chart.left() + ((time - start) / (end - start)) as f32 * chart.width();
     let sy = |value: f64| chart.bottom() - ((value - low) / (high - low)) as f32 * chart.height();
     let font = FontId::proportional(12.0);
-    let title = ["01   位置 · rad", "02   速度 · rad/s", "03   电流 Iq · A"][channel];
+    let title = ["位置 · rad", "速度 · rad/s", "电流 Iq · A", "电压 Vq · V"][channel];
     painter.text(
         rect.min + Vec2::new(12.0, 9.0),
         Align2::LEFT_TOP,
@@ -106,7 +368,7 @@ pub(super) fn plot(
     painter.text(
         rect.right_top() + Vec2::new(-12.0, 9.0),
         Align2::RIGHT_TOP,
-        if !references {
+        if !scene.references {
             "参考已隐藏"
         } else if has_reference {
             "实际 / 参考（虚线）"
@@ -152,42 +414,30 @@ pub(super) fn plot(
             c.muted,
         );
     }
-    let draw_series = |index: usize, dashed: bool| {
-        let mut path: Vec<Pos2> = vec![];
-        let mut segment = None;
-        let flush = |path: &mut Vec<Pos2>| {
+    let draw_series = |paths: &[Vec<[f64; 2]>], dashed: bool| {
+        for points in paths {
+            let path: Vec<_> = points
+                .iter()
+                .map(|p| Pos2::new(sx(p[0]), sy(p[1])))
+                .collect();
             if path.len() > 1 {
                 if dashed {
                     painter.extend(Shape::dashed_line(
-                        path,
+                        &path,
                         Stroke::new(1.2, c.muted),
                         5.0,
                         4.0,
                     ));
                 } else {
-                    painter.add(Shape::line(path.clone(), Stroke::new(1.7, signal)));
+                    painter.add(Shape::line(path, Stroke::new(1.7, signal)));
                 }
             } else if let Some(point) = path.first() {
                 painter.circle_filled(*point, 2.0, signal);
             }
-            path.clear();
-        };
-        for point in &points {
-            if segment.is_some_and(|id| id != point.segment) {
-                flush(&mut path);
-            }
-            segment = Some(point.segment);
-            match point.values[index].filter(|value| value.is_finite()) {
-                Some(value) => path.push(Pos2::new(sx(point.time_s), sy(value))),
-                None => flush(&mut path),
-            }
         }
-        flush(&mut path);
     };
-    if has_reference {
-        draw_series(reference, true);
-    }
-    draw_series(channel, false);
+    draw_series(&curve.reference, true);
+    draw_series(&curve.actual, false);
     let hover = response
         .hover_pos()
         .filter(|p| chart.contains(*p))
@@ -200,13 +450,14 @@ pub(super) fn plot(
             ],
             Stroke::new(1.0, c.warning),
         );
-        if let Some(point) = points
+        if let Some(point) = curve
+            .actual
             .iter()
-            .min_by(|a, b| (a.time_s - time).abs().total_cmp(&(b.time_s - time).abs()))
-            && (point.time_s - time).abs() <= 0.5
-            && let Some(value) = point.values[channel]
+            .flatten()
+            .min_by(|a, b| (a[0] - time).abs().total_cmp(&(b[0] - time).abs()))
+            && (point[0] - time).abs() <= 0.5
         {
-            let text = format!("t {time:.2} s / {value:.3}");
+            let text = format!("t {time:.2} s / {:.3}", point[1]);
             painter.text(
                 Pos2::new(chart.center().x, rect.top() + 9.0),
                 Align2::CENTER_TOP,
@@ -215,11 +466,8 @@ pub(super) fn plot(
                 c.ink,
             );
         }
-        if hover.is_some() {
-            ui.ctx().request_repaint();
-        }
     }
-    if points.is_empty() {
+    if !scene.has_samples {
         painter.text(
             chart.center(),
             Align2::CENTER_CENTER,
@@ -234,6 +482,119 @@ pub(super) fn plot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn four_signal_scene_preserves_real_references_without_fabricating_vq_reference() {
+        let snapshot = Snapshot {
+            position_rad: Some(1.0),
+            position_reference_rad: Some(1.1),
+            speed_rad_s: Some(2.0),
+            speed_reference_rad_s: Some(2.1),
+            iq_a: Some(3.0),
+            iq_reference_a: Some(3.1),
+            vq_v: Some(-4.0),
+            ..Default::default()
+        };
+        let samples = VecDeque::from([Sample::from_snapshot(1.0, 1, &snapshot)]);
+        let scene = prepare(&samples, 30.0, true);
+        for (channel, actual, reference) in [(0, 1.0, 1.1), (1, 2.0, 2.1), (2, 3.0, 3.1)] {
+            assert_eq!(scene.curves[channel].actual[0][0][1], actual);
+            assert_eq!(scene.curves[channel].reference[0][0][1], reference);
+        }
+        assert_eq!(scene.curves[3].actual[0][0][1], -4.0);
+        assert!(scene.curves[3].reference.is_empty());
+        let scene = prepare(&samples, 30.0, false);
+        assert!(scene.curves.iter().all(|curve| curve.reference.is_empty()));
+    }
+    #[test]
+    fn direct_snapshot_stream_does_not_require_ui_event_processing() {
+        let mut worker = Worker::new(egui::Context::default());
+        let now = Instant::now();
+        worker.observe(("A".into(), now - Duration::from_secs(1), 1));
+        worker.sink().publish(Box::new(Snapshot {
+            uid: "A".into(),
+            feedback_at: Some(now),
+            position_rad: Some(2.0),
+            ..Default::default()
+        }));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !worker.scene(30.0, true).has_samples && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let scene = worker.scene(30.0, true);
+        assert_eq!(scene.latest_sample_time, Some(1.0));
+        assert_eq!(scene.curves[0].actual[0][0][1], 2.0);
+    }
+
+    #[test]
+    fn direct_stream_rejects_other_uid_and_duplicate_feedback() {
+        let now = Instant::now();
+        let mut recording = Recording {
+            uid: "A".into(),
+            start: now - Duration::from_secs(1),
+            segment: 1,
+            last_at: None,
+        };
+        let mut snapshot = Snapshot {
+            uid: "B".into(),
+            feedback_at: Some(now),
+            ..Default::default()
+        };
+        assert!(recording.sample(&snapshot).is_none());
+        snapshot.uid = "A".into();
+        assert!(recording.sample(&snapshot).is_some());
+        assert!(recording.sample(&snapshot).is_none());
+    }
+    #[test]
+    fn preparation_preserves_extrema_and_missing_data_boundaries() {
+        let mut samples = VecDeque::new();
+        for index in 0..10000 {
+            let value = if index == 3050 { 100.0 } else { 1.0 };
+            samples.push_back(Sample {
+                time_s: index as f64 / 1000.0,
+                segment: if index < 6000 { 1 } else { 2 },
+                values: [
+                    if index == 4000 { None } else { Some(value) },
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            });
+        }
+        let scene = prepare(&samples, 30.0, true);
+        assert_eq!(scene.curves[0].actual.len(), 3);
+        let points: Vec<_> = scene.curves[0].actual.iter().flatten().collect();
+        assert!(points.iter().any(|p| p[1] == 100.0));
+        assert!(points.len() < samples.len());
+        assert!(scene.curves[1].actual.is_empty());
+        assert!(scene.curves[0].reference.is_empty());
+    }
+
+    #[test]
+    fn worker_prepares_an_independent_snapshot_and_resets_history() {
+        let mut worker = Worker::new(egui::Context::default());
+        worker.push(Sample {
+            time_s: 1.0,
+            segment: 1,
+            values: [Some(2.0), None, None, None, None, None, None, None],
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !worker.scene(30.0, true).has_samples && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let previous = worker.scene(30.0, true);
+        assert!(previous.has_samples);
+        worker.reset(vec![]);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while worker.scene(30.0, true).has_samples && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!worker.scene(30.0, true).has_samples);
+        assert!(previous.has_samples);
+    }
     #[test]
     fn ranges_reject_nonfinite_and_pad_constant_signals() {
         assert_eq!(bounds([f64::NAN, f64::INFINITY].into_iter()), (-1.0, 1.0));

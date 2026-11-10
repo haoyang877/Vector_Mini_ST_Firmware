@@ -1,9 +1,14 @@
 //! YG_MC_HOST Rust 入口；离线 inspect 不启动 GUI，也不打开 CAN 设备。
 
 mod can;
+mod calibration;
 mod capture;
+mod control;
 mod device;
+mod diagnostics;
+mod discovery;
 mod maintenance;
+mod motor_configuration;
 mod package;
 mod target;
 mod ui;
@@ -38,6 +43,19 @@ fn main() -> Result<()> {
         );
         return Ok(());
     }
+    let bench = if args.len() == 5 && args[1] == "--bench-observe" && args[3] == "--uid" {
+        let uid = args[4].to_ascii_uppercase();
+        anyhow::ensure!(
+            uid.len() == 24 && uid.bytes().all(|b| b.is_ascii_hexdigit()),
+            "实机测试需要明确的 24 位 UID"
+        );
+        let output = std::path::PathBuf::from(&args[2]);
+        std::fs::create_dir_all(&output)?;
+        args.truncate(1);
+        Some(ui::BenchRequest { uid, output })
+    } else {
+        None
+    };
     let preview = if args.len() == 3 && args[1] == "--preview" {
         let path = Path::new(&args[2]).to_path_buf();
         if let Some(parent) = path.parent() {
@@ -62,9 +80,9 @@ fn main() -> Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "YG_MC_HOST",
+        concat!("YG_MC_HOST v", env!("CARGO_PKG_VERSION")),
         options,
-        Box::new(move |cc| Ok(Box::new(ui::HostApp::new(cc, target, preview)))),
+        Box::new(move |cc| Ok(Box::new(ui::HostApp::new(cc, target, preview, bench)))),
     )
     .map_err(|error| anyhow::anyhow!("Rust 工作台启动失败: {error}"))?;
     Ok(())

@@ -2,7 +2,7 @@
 
 同一个 APP 使用 schema14 节点地址和 AXS2 配置修订 2。活动角色、型号、观测器和限额在启动装载时确定，电流零偏仍在本次上电重新采集。新装配必须使用本机生成的标定。
 
-本页是五轴产品配置的维护入口。PITCH 和 YAW 使用 40:1 装配。更换减速器后需重新联合标定，并在工装零点设置输出轴零位。
+本页是五轴产品配置的维护入口。PITCH（YQ-5740）和 YAW（YQ-5708 预设）使用 40:1 装配。两者共用已登记的电机轴电气参数；schema14 记录保存电气参数、节点和角色。实物铭牌及标定归属由工装操作人员核实。更换减速器后需重新联合标定，并在工装零点设置输出轴零位。
 
 ## 电机 ID 与轴角色
 
@@ -13,12 +13,12 @@
 | `0x03` | 3 | 底盘左轮 | `MOTOR_JOINT_WHEEL_LEFT`（5） | HT8115-4 | 1 |
 | `0x04` | 4 | 底盘右轮 | `MOTOR_JOINT_WHEEL_RIGHT`（4） | HT8115-4 | 1 |
 | `0x05` | 5 | ROLL | `MOTOR_JOINT_ROLL`（1） | HT8115-4 | 1 |
-| `0x06` | 6 | PITCH | `MOTOR_JOINT_PITCH`（2） | YQ5708 | 40 |
-| `0x07` | 7 | YAW | `MOTOR_JOINT_YAW`（3） | YQ5708 | 40 |
+| `0x06` | 6 | PITCH | `MOTOR_JOINT_PITCH`（2） | YQ-5740 | 40 |
+| `0x07` | 7 | YAW | `MOTOR_JOINT_YAW`（3） | YQ-5708 | 40 |
 
 整车分配中，`0x01` 属于 MT6897 上层平台，`0x02` 属于 RV1126B 底盘平台，`0x08` 属于 BMS，`0x09` 属于回充控制器，`0xFF` 为广播地址。单台电机配参只接受上表五个节点。
 
-例如给 PITCH 配参时选择 `--node 0x06`。工装写入节点 6 和角色 2，上电后固件据此选择 PITCH 的 YQ5708 预设，并核对型号字段及 CRC。向这台板下发单播命令时，CAN 扩展帧的目标节点填写 `0x06`。[CAN 地址与线路协议](motor_can_node_ids.md)
+例如给 PITCH 配参时使用 `--node 0x06 --model YQ-5740`。工装将填写的铭牌型号与节点预设核对，错配时退出。换接电机前先停机断电，按电机个体和轴角色保存本次记录。换接后读回本板记录，核对节点、型号、减速比及标定归属，再开始运动测试。工装写入节点 6 和角色 2，上电后固件据此选择 PITCH 的 YQ-5740 装配预设，并核对电气参数及 CRC。向这台板下发单播命令时，CAN 扩展帧的目标节点填写 `0x06`。[CAN 地址与线路协议](motor_can_node_ids.md)
 
 ## 五轴参数对照
 
@@ -26,7 +26,7 @@
 
 | 参数（单位） | 0x03 左轮 | 0x04 右轮 | 0x05 ROLL | 0x06 PITCH | 0x07 YAW |
 |---|---:|---:|---:|---:|---:|
-| 型号 | HT8115-4 | HT8115-4 | HT8115-4 | YQ5708 | YQ5708 |
+| 型号 | HT8115-4 | HT8115-4 | HT8115-4 | YQ-5740 | YQ-5708 |
 | 装配 | 直驱 | 直驱 | 直驱 + 阻尼轴 | 40:1 + 阻尼轴 | 40:1 + 阻尼轴 |
 | 减速比（电机轴/输出轴） | 1 | 1 | 1 | 40 | 40 |
 | 极对数（对） | 21 | 21 | 21 | 14 | 14 |
@@ -104,18 +104,18 @@ PITCH 和 YAW 配有独立的正交双线性霍尔。当前分支已包含 Hall 
 
 ```powershell
 New-Item -ItemType Directory -Force outputs/first-fit | Out-Null
-.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x03 --output-shaft --speed 20 --output outputs/first-fit/03-left.bin
-.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x04 --output-shaft --speed 20 --output outputs/first-fit/04-right.bin
-.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x05 --output-shaft --speed 3.14159265 --output outputs/first-fit/05-roll.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x03 --model HT8115-4 --output-shaft --speed 20 --output outputs/first-fit/03-left.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x04 --model HT8115-4 --output-shaft --speed 20 --output outputs/first-fit/04-right.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x05 --model HT8115-4 --output-shaft --speed 3.14159265 --output outputs/first-fit/05-roll.bin
 ```
 
 PITCH 和 YAW 各自填写经核实的七个热参数。顺序为持续电流 A、峰值电流 A、热时间常数 s、降额进入比、降额退出比、跳闸比、清除比。输入用空格分隔，小数使用小数点。缺少实测或已核实的热参数时，该轴留待补齐。
 
 ```powershell
 $pitchHeat = (Read-Host 'PITCH 七个热参数').Trim() -split '\s+'
-.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x06 --output-shaft --speed 2.0943951 --thermal @pitchHeat --output outputs/first-fit/06-pitch.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x06 --model YQ-5740 --output-shaft --speed 2.0943951 --thermal @pitchHeat --output outputs/first-fit/06-pitch.bin
 $yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
-.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x07 --output-shaft --speed 2.0943951 --thermal @yawHeat --output outputs/first-fit/07-yaw.bin
+.venv/Scripts/python.exe tools/run.py make_axis_record --node 0x07 --model YQ-5708 --output-shaft --speed 2.0943951 --thermal @yawHeat --output outputs/first-fit/07-yaw.bin
 ```
 
 每条命令退出码应为 0，生成文件应为 2288 字节。工装用生产代码生成并回读 schema14 基础记录，遇到同名输出会拒绝覆盖。上述命令用于先核对身份，生成的型号确认位为 0。已核实本机型号和参数、准备进入标定时，在对应生成命令中加 `--confirm-model`，输出到新文件名并选用该文件。两种文件都不含本机标定，首次标定前编码器有效标志应为 0。[记录生成器](../../tools/build/make_axis_record.py)
@@ -136,9 +136,9 @@ $yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
 
 ### 3. 重启后核对节点和实际加载的参数
 
-用与所烧 APP 匹配的 AXF 符号连接 Keil，待初始化完成后在 Watch 展开 `s_motor_configuration`。先看 `configuration_source == MOTOR_CONFIGURATION_STORED`（1）、`application.axis_profile_valid == true`、`preset != NULL`。再看 `device.node_id`、`preset->node_id` 和 `application.axis_profile.identity.numeric.joint_type`。前两者应等于本板 CAN 节点，后者应等于下表角色。未确认文件应读到 `configuration_confirmed == false`，确认文件应为 true。[启动装载](../../firmware/app/motor_axis.c)
+用与所烧 APP 匹配的 AXF 符号连接 Keil，待初始化完成后在 Watch 展开 `g_app.axis.configuration`。先看 `configuration_source == MOTOR_CONFIGURATION_STORED`（1）、`application.axis_profile_valid == true`、`preset != NULL`。再看 `device.node_id`、`preset->node_id` 和 `application.axis_profile.identity.numeric.joint_type`。前两者应等于本板 CAN 节点，后者应等于下表角色。未确认文件应读到 `configuration_confirmed == false`，确认文件应为 true。[启动装载](../../firmware/app/motor_axis.c)
 
-| 写入文件 | 预期节点 / 角色 | `model.motor_pole_pairs` / `preset->electrical->gear_ratio` | `application.speed_kp / speed_ki` | `application.speed_limit_rad_s` 电机轴 rad/s | `preset->calibration_speed_rad_s` 电机轴 rad/s |
+| 写入文件 | 预期节点 / 角色 | `model.motor_pole_pairs` / `preset->gear_ratio` | `application.speed_kp / speed_ki` | `application.speed_limit_rad_s` 电机轴 rad/s | `preset->calibration_speed_rad_s` 电机轴 rad/s |
 |---|---|---:|---:|---:|---:|
 | 03-left.bin | 0x03 / 5 左轮 | 21 / 1 | 0.05 / 0.5 | 20 | 15 |
 | 04-right.bin | 0x04 / 4 右轮 | 21 / 1 | 0.05 / 0.5 | 20 | 15 |
@@ -146,9 +146,9 @@ $yawHeat = (Read-Host 'YAW 七个热参数').Trim() -split '\s+'
 | 06-pitch.bin | 0x06 / 2 PITCH | 14 / 40 | 0.048 / 0.5 | ≈83.7758 | 24 |
 | 07-yaw.bin | 0x07 / 3 YAW | 14 / 40 | 0.048 / 0.5 | ≈83.7758 | 30 |
 
-同时核对 `s_rotor_encoder.speed_pll_hz` 为 600，`model.calibration_current_a` 分别为 3/3/3/1.6/1.6 A。示例新记录的 `application.current_limit_a` 应为 7 A 与所配热峰值中的较小者。用 `application.axis_profile.minimum_position_rad` 和 `maximum_position_rad` 对照上文“记录内等效电机轴 rad”列，车轮两项应均为 0。
+同时核对 `g_app.axis.rotor_encoder.speed_pll_hz` 为 600，`model.calibration_current_a` 分别为 3/3/3/1.6/1.6 A。示例新记录的 `application.current_limit_a` 应为 7 A 与所配热峰值中的较小者。用 `application.axis_profile.minimum_position_rad` 和 `maximum_position_rad` 对照上文“记录内等效电机轴 rad”列，车轮两项应均为 0。
 
-CAN 核对使用主站 `0x02`，逐一向 `0x03..0x07` 单播无载荷的 Type 108（GET_MOTOR_STATE）。成功回复的源节点和 45 字节载荷的第 42 字节（从 0 计）都应为目标板的 ID。该查询验证通信地址，电机型号、标定 PI 和行程用 Watch 确认。当前 APP 的 Type 120/121/122 参数读写和保存返回不支持。[状态查询及反馈布局](../protocols/README.md#feedback)
+CAN 核对使用主站 `0x02`，逐一向 `0x03..0x07` 单播无载荷的 Type 108（GET_MOTOR_STATE）。成功回复的源节点和 45 字节载荷的第 42 字节（从 0 计）都应为目标板的 ID。该查询验证通信地址，电机型号、标定 PI 和行程用 Watch 确认。Type 120/121/122 提供标量参数读写和保存，Type 190 可核对活动轴型号和节点。[状态查询及反馈布局](../protocols/README.md#feedback)
 
 若 Watch 显示 `device.node_id == 255` 或 `preset == NULL`，先核对镜像布局、写入起址、原始 bin 和读回结果，再查记录 CRC、节点与角色配对及型号字段。若收到合法回复但角色与实物不符，记录可能属于另一块板，按安装位置重新选文件。ID 与参数核对完成后，再在各轴适用的工装上执行逐台标定。联合标定正常完成后，固件在关相状态下自动保存结果。
 

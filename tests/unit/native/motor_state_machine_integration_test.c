@@ -35,6 +35,12 @@ static unsigned critical_depth, critical_calls, fault_on_enter;
 static unsigned calibration_cancel_count, config_validation_calls;
 static bool calibration_resources_released;
 static bool complete_calibration_on_power_read;
+static uint32_t s_now_ms;
+
+uint32_t BspSystem_TimeMs(void)
+{
+    return s_now_ms;
+}
 
 void EncoderCalibration_Cancel(EncoderCalibrationSession *instance)
 {
@@ -212,6 +218,7 @@ static void tick(void)
 
 static void reset(void)
 {
+    s_now_ms = 0U;
     memset(&configuration, 0, sizeof(configuration));
     memset(&motor, 0, sizeof(motor));
     memset(&foc, 0, sizeof(foc));
@@ -561,8 +568,8 @@ static void test_linearization_waits_for_publication(void)
 /* 阶段切换只排队；实际启相仍拒绝 STOP、故障和无效 LUT。 */
 static void test_joint_zero_rechecks_power(void)
 {
-    static const MotorElectricalPreset electrical = {.gear_ratio = 8.0f};
-    static const MotorAxisPreset pitch = {.joint = MOTOR_JOINT_PITCH, .electrical = &electrical};
+    static const MotorAxisPreset pitch = {
+        .joint = MOTOR_JOINT_PITCH, .gear_ratio = YQ_JOINT_GEAR_RATIO, .has_linear_hall = true};
     for (unsigned condition = 0; condition < 4; ++condition)
     {
         reset();
@@ -906,13 +913,91 @@ static void test_calibration_ticket_cancel_and_failure(void)
 
 void test_state_transition_matrix(void);
 
-uint32_t BspSystem_TimeMs(void)
+static void test_host_position_session(void)
 {
-    return 0U;
+    reset();
+    AppProtocol_Init(&adapter, &endpoint, &machine);
+    endpoint.device.capabilities.features |= PROTOCOL_FEATURE_HOST_POSITION_SESSION;
+    MotorAxisProfile *axis = &configuration.application.axis_profile;
+    axis->magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
+    axis->version = MOTOR_AXIS_PROFILE_NUMERIC_VERSION;
+    axis->identity.numeric.config_revision = MOTOR_PRODUCT_AXIS_REVISION;
+    axis->identity.numeric.joint_type = MOTOR_JOINT_PITCH;
+    axis->minimum_position_rad = -1.0f;
+    axis->maximum_position_rad = 1.0f;
+    encoder.mechanical_position_rad = 8.0f;
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_POSITION) ==
+           MOTOR_CONTROL_DENIED);
+    uint8_t start[] = {3U, 1U, 0U, 0U};
+    ProtocolExchange exchange = {.request = {.message_type = PROTOCOL_START,
+                                             .source_node = PROTOCOL_MASTER_ID,
+                                             .destination_node = 1U,
+                                             .payload = start,
+                                             .payload_length = sizeof(start)}};
+    assert(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_ACCEPTED);
+    assert(motor.host_position_unlimited && motor.position_target_rad == 8.0f);
+    tick();
+    assert(machine.state == MOTOR_STATE_RUNNING);
+    MotorTarget target = {.mode = MOTOR_CONTROL_POSITION, .position_rad = -20.0f};
+    assert(MotorStateMachine_SetTarget(&machine, &target) == MOTOR_CONTROL_ACCEPTED);
+    s_now_ms = 400U;
+    ProtocolExchange query = {.request = {.message_type = PROTOCOL_GET_MOTOR_STATE,
+                                          .source_node = PROTOCOL_MASTER_ID,
+                                          .destination_node = 1U}};
+    assert(handle_motor_status_query(&endpoint, &query) == YG_PROTOCOL_OK);
+    ProtocolCommand renew = {.renewal_counter = 1U};
+    ProtocolReply renewed = {0};
+    endpoint.motor.renew(endpoint.motor.context, &renew, &renewed);
+    assert(renewed.status == PROTOCOL_OK);
+    s_now_ms = 899U;
+    tick();
+    assert(machine.state == MOTOR_STATE_RUNNING && motor.host_position_unlimited);
+    query.request.source_node = 9U;
+    assert(handle_motor_status_query(&endpoint, &query) == YG_PROTOCOL_OK);
+    s_now_ms = 900U;
+    tick();
+    assert(phases_disabled && machine.state == MOTOR_STATE_FAULT);
+    assert(!motor.host_position_unlimited && motor.fault_code == MOTOR_FAULT_CAN_DISCONNECTED);
+
+    reset();
+    s_now_ms = UINT32_MAX - 100U;
+    assert(MotorStateMachine_RequestHostPosition(&machine) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    s_now_ms = 50U;
+    tick();
+    assert(machine.state == MOTOR_STATE_RUNNING && motor.host_position_unlimited);
+    MotorStateMachine_RequestStop(&machine);
+    assert(!motor.host_position_unlimited);
+    tick();
+    assert(MotorStateMachine_IsStopped(&machine));
+    axis->magic = MOTOR_AXIS_PROFILE_NUMERIC_MAGIC;
+    axis->version = MOTOR_AXIS_PROFILE_NUMERIC_VERSION;
+    axis->identity.numeric.config_revision = MOTOR_PRODUCT_AXIS_REVISION;
+    axis->identity.numeric.joint_type = MOTOR_JOINT_PITCH;
+    axis->minimum_position_rad = -1.0f;
+    axis->maximum_position_rad = 1.0f;
+    encoder.mechanical_position_rad = 8.0f;
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_POSITION) ==
+           MOTOR_CONTROL_DENIED);
+    encoder.mechanical_position_rad = 0.5f;
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_POSITION) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(!motor.host_position_unlimited);
+    tick();
+    MotorStateMachine_RequestStop(&machine);
+    tick();
+    assert(MotorStateMachine_RequestHostPosition(&machine) == MOTOR_CONTROL_ACCEPTED);
+    tick();
+    MotorStateMachine_FinishFastTick(
+        &machine, (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_OVERCURRENT}, machine.epoch);
+    tick();
+    assert(!motor.host_position_unlimited && phases_disabled);
 }
 
 int main(void)
 {
+    test_host_position_session();
     test_state_transition_matrix();
     AppProtocol_Init(&adapter, &endpoint, &machine);
     config_validation_calls = 0U;

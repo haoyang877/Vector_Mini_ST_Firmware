@@ -1,7 +1,6 @@
 //! 工作区组合；尚未接入的业务只显示支持范围与禁用原因，不制造设备值或完成结果。
 
 use super::*;
-use crate::device::MAX_SPEED_RAD_S;
 
 // 两处视图消费同一目录；在线参数服务接入前不建立可写的假草稿。
 const PARAMETERS: [(&str, &str, &str, &str); 7] = [
@@ -30,100 +29,345 @@ fn reading(value: Option<f64>, unit: &str, fresh: bool) -> String {
 impl HostApp {
     pub(super) fn connection(&mut self, ui: &mut egui::Ui) {
         if self.maintenance_panel.busy() {
-            ui.label("SWD作业正在进行，完成后才能连接CAN或切换设备。");
+            ui.label("J-Link / SWD 作业正在进行；完成后才能连接 CAN 或切换设备。");
             return;
         }
-        let available = ui.available_rect_before_wrap();
-        let width = available.width().min(860.0);
-        let area = egui::Rect::from_min_size(
-            egui::pos2(available.center().x - width / 2.0, available.top() + 12.0),
-            Vec2::new(width, (available.height() - 12.0).max(100.0)),
-        );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(area),|ui| {
+        let c = Palette::from_ctx(ui.ctx());
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("连接设备");
-            ui.add_enabled_ui(!self.connected, |ui| {
-                let mut selected = self.target.name.clone();
-                egui::ComboBox::from_label("板卡目标")
-                    .selected_text(&selected)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut selected, "vector_mini_st_g431".into(), "G431");
-                        ui.selectable_value(&mut selected, "yg_esc_v1_at32f456".into(), "AT32F456");
-                    });
-                if selected != self.target.name {
-                    match Target::named(&selected) {
-                        Ok(target) => {
-                            self.target = target;
-                            self.package = None;
-                            self.bound_uid.clear();
-                            self.acknowledged = false;
-                        }
-                        Err(error) => self.note(error.to_string()),
-                    }
-                }
-            });
-            ui.label("配置接口 → 指定节点 → 识别身份与能力 → 进入工作区");
-            ui.add_space(12.0);
-            Self::panel(ui, "CAN FD / 通道 0 / 1M–5M", |ui| {
-                ui.add_enabled_ui(!self.connected, |ui| {
-                    ui.label("厂家 SDK DLL");
-                    ui.horizontal(|ui| {
-                        let width = (ui.available_width()-86.0).max(160.0);
-                        ui.add_sized([width,30.0],egui::TextEdit::singleline(&mut self.dll).hint_text("选择 ControlCANFD.dll"));
-                        if ui.button("浏览").clicked()
-                            && let Some(path) = rfd::FileDialog::new().add_filter("DLL", &["dll"]).pick_file() {
-                            self.dll = path.display().to_string();
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("CAN 设备索引");
-                        ui.add(egui::DragValue::new(&mut self.device_index).range(0..=15));
-                        ui.label("目标节点");
-                        ui.add(egui::DragValue::new(&mut self.node).range(1..=254));
-                    });
-                    egui::CollapsingHeader::new("高级：控制序号").show(ui, |ui| {
-                        ui.horizontal(|ui| { ui.label("起点"); ui.add(egui::DragValue::new(&mut self.manual_sequence).range(0..=65535)); });
-                        ui.label("0 恢复本机按 UID 保存的记录。首次接入或其他主机操作过时，须按真实历史填写非零起点。");
+            widgets::page_header(ui, "设备连接", "扫描适配器与节点，选择设备后建立连接。", "CAN FD");
+            widgets::workflow(ui, &["扫描设备", "选择节点", "连接并识别"],
+                if self.connected { 2 } else if !self.scan_devices.is_empty() { 1 } else { 0 });
+            if self.hard_stop {
+                ui.colored_label(c.danger, "硬停后需现场确认输出已关闭和接线状态。");
+                ui.checkbox(&mut self.intervention_ack, "已完成现场检查，允许重新连接");
+                ui.add_space(8.0);
+            }
+            Self::panel(ui, "发现设备", |ui| {
+                let scanning = self.scan_rx.is_some();
+                let before = self.bitrates;
+                ui.add_enabled_ui(!self.connected && !scanning, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("仲裁段");
+                        egui::ComboBox::from_id_salt("can_arbitration_rate")
+                            .selected_text(crate::can::bitrate_label(self.bitrates.arbitration))
+                            .width(106.0).show_ui(ui, |ui| {
+                                for rate in crate::can::ARBITRATION_RATES {
+                                    ui.selectable_value(&mut self.bitrates.arbitration, rate, crate::can::bitrate_label(rate));
+                                }
+                            });
+                        ui.label("数据段");
+                        egui::ComboBox::from_id_salt("can_data_rate")
+                            .selected_text(crate::can::bitrate_label(self.bitrates.data))
+                            .width(106.0).show_ui(ui, |ui| {
+                                for rate in crate::can::DATA_RATES {
+                                    if rate >= self.bitrates.arbitration {
+                                        ui.selectable_value(&mut self.bitrates.data, rate, crate::can::bitrate_label(rate));
+                                    }
+                                }
+                            });
                     });
                 });
-                ui.add_space(10.0);
-                if self.hard_stop {
-                    ui.colored_label(Palette::from_ctx(ui.ctx()).danger,"硬停后需现场确认输出已关闭和接线状态。");
-                    ui.checkbox(&mut self.intervention_ack,"已完成现场检查，允许重新连接");
+                if self.bitrates != before {
+                    self.bitrates.data = self.bitrates.data.max(self.bitrates.arbitration);
+                    self.scan_devices.clear(); self.scan_adapters.clear(); self.scan_selected = None;
+                    self.manual_connect = false; self.acknowledged = false;
+                    self.scan_status = "波特率已改变，请重新扫描并选择设备。".into();
                 }
-                ui.horizontal(|ui| {
-                    let enabled = !self.fixture_mode && !self.connected && !self.dll.is_empty()
-                        && (!self.hard_stop || self.intervention_ack);
-                    let connect = ui.add_enabled(enabled,egui::Button::new("连接并识别"));
+                widgets::hint(ui, "配置适配器波特率，须与板端一致；板端当前默认 1 Mbit/s / 5 Mbit/s。");
+                ui.add_space(8.0);
+                let scan_allowed = !self.fixture_mode && !self.connected && !scanning
+                    && !self.dll.trim().is_empty() && (!self.hard_stop || self.intervention_ack);
+                ui.horizontal_wrapped(|ui| {
+                    let button = egui::Button::new(RichText::new("扫描设备").strong())
+                        .min_size(Vec2::new(112.0, 34.0));
+                    if ui.add_enabled(scan_allowed, button).clicked() { self.start_scan(); }
+                    if scanning && ui.button("取消扫描").clicked() {
+                        self.scan_cancel.store(true, Ordering::Relaxed);
+                        self.scan_status = "正在取消扫描…".into();
+                    }
+                    ui.label(RichText::new(format!("CAN FD · 通道 0 · {}", self.bitrates.label())).small().color(c.muted));
+                });
+                ui.add_space(8.0);
+                let scan_status = if self.fixture_mode { "离线预览：扫描与连接不可用。" }
+                    else if self.dll.trim().is_empty() { "未找到厂家 SDK，请在高级设置中选择 ControlCANFD.dll。" }
+                    else { self.scan_status.as_str() };
+                ui.label(RichText::new(scan_status).small().color(c.muted));
+                ui.add_space(14.0);
+                ui.label(RichText::new(format!("设备列表  ·  {}", self.scan_devices.len())).strong());
+                ui.add_space(6.0);
+                if self.scan_devices.is_empty() {
+                    Frame::new().fill(c.background).corner_radius(4.0).inner_margin(16.0).show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.label(RichText::new(if scanning { "正在查找设备…" } else { "暂无设备 · 扫描后在这里选择" }).color(c.muted));
+                    });
+                } else {
+                    for (index, device) in self.scan_devices.clone().into_iter().enumerate() {
+                        let board = match device.target_name.as_deref() {
+                            Some("yg_esc_v1_at32f456") => "AT32F456",
+                            Some("vector_mini_st_g431") => "STM32G431",
+                            _ => "不兼容目标",
+                        };
+                        let label = format!("{}   ·   节点 {}   ·   {}\nUID {}    |    适配器 {}", board, device.node,
+                            if device.role == 2 { "Loader" } else { "APP" }, device.uid, device.adapter_index);
+                        let button = egui::Button::new(RichText::new(label).size(14.0))
+                            .selected(self.scan_selected == Some(index))
+                            .min_size(Vec2::new(ui.available_width(), 54.0));
+                        if ui.add_enabled(!self.connected && !scanning && device.target_name.is_some(), button).on_hover_text(&device.adapter).clicked()
+                            && let Some(name) = &device.target_name {
+                                match Target::named(name) {
+                                    Ok(target) => {
+                                        self.target = target;
+                                        self.device_index = device.adapter_index;
+                                        self.node = device.node;
+                                        self.scan_selected = Some(index);
+                                        self.manual_connect = false;
+                                        self.package = None;
+                                        self.bound_uid.clear();
+                                        self.acknowledged = false;
+                                    }
+                                    Err(error) => self.note(error.to_string()),
+                                }
+                        }
+                    }
+                }
+                if !self.scan_adapters.is_empty() && self.scan_devices.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(format!("可用适配器：{}", self.scan_adapters.iter()
+                        .map(|(index, name)| format!("{index} · {name}")).collect::<Vec<_>>().join("；"))).small().color(c.muted));
+                }
+                ui.add_space(14.0);
+                let selected = self.scan_selected.is_some() || self.manual_connect;
+                let enabled = !self.fixture_mode && !self.connected && !scanning && selected
+                    && !self.dll.trim().is_empty() && (!self.hard_stop || self.intervention_ack);
+                ui.horizontal_wrapped(|ui| {
+                    let mut button = egui::Button::new(RichText::new("连接所选设备").strong())
+                        .min_size(Vec2::new(150.0, 36.0));
+                    if enabled { button = button.fill(c.accent).stroke(egui::Stroke::NONE); }
+                    let connect = ui.add_enabled(enabled, button);
                     self.control("connect", &connect);
                     if connect.clicked() { self.connect(); }
-                    if ui.add_enabled(self.connected && !self.upgrading,egui::Button::new("断开连接")).clicked() {
+                    if self.connected && ui.add_enabled(!self.upgrading, egui::Button::new("断开")).clicked() {
                         self.send(Command::Disconnect);
                     }
-                    if ui.button(if self.connected {"返回工作台"} else {"离线查看工作台"}).clicked() { self.page = Page::Workbench; }
+                    if self.connected && ui.button("进入运行调试 →").clicked() { self.page = Page::Workbench; }
                 });
-                ui.label(RichText::new("连接只读取身份与状态，不自动启动电机或开始记录。").small());
+                if self.connected {
+                    ui.label(RichText::new(format!("已连接 · 节点 {} · UID {}", self.node,
+                        if self.bound_uid.is_empty() { "正在识别" } else { &self.bound_uid })).small().color(c.accent));
+                } else {
+                    ui.label(RichText::new("扫描仅查询身份；连接不会启动电机。").small().color(c.muted));
+                }
+                ui.add_space(10.0);
+                egui::CollapsingHeader::new("高级设置 / 手动连接").show(ui, |ui| {
+                    ui.add_enabled_ui(!self.connected && !scanning, |ui| {
+                        let before = (self.device_index, self.node, self.target.name.clone(), self.dll.clone());
+                        ui.checkbox(&mut self.manual_connect, "手动指定目标和节点");
+                        if self.manual_connect {
+                            self.scan_selected = None;
+                            ui.horizontal(|ui| {
+                                ui.label("板卡");
+                                let mut selected = self.target.name.clone();
+                                let display = if selected == "yg_esc_v1_at32f456" { "AT32F456" } else { "STM32G431" };
+                                egui::ComboBox::from_id_salt("connection_target").selected_text(display).show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut selected, "vector_mini_st_g431".into(), "STM32G431");
+                                    ui.selectable_value(&mut selected, "yg_esc_v1_at32f456".into(), "AT32F456");
+                                });
+                                if selected != self.target.name {
+                                    match Target::named(&selected) {
+                                        Ok(target) => { self.target = target; self.package = None; self.bound_uid.clear(); self.acknowledged = false; }
+                                        Err(error) => self.note(error.to_string()),
+                                    }
+                                }
+                                ui.label("适配器索引");
+                                ui.add(egui::DragValue::new(&mut self.device_index).range(0..=15));
+                                ui.label("节点");
+                                ui.add(egui::DragValue::new(&mut self.node).range(1..=254));
+                            });
+                        }
+                        ui.label(RichText::new("厂家 SDK DLL").small().color(c.muted));
+                        ui.horizontal(|ui| {
+                            let width = (ui.available_width() - 80.0).max(100.0);
+                            ui.add_sized([width, 30.0], egui::TextEdit::singleline(&mut self.dll).hint_text("ControlCANFD.dll 路径"));
+                            if ui.button("浏览").clicked() && let Some(path) = rfd::FileDialog::new().add_filter("DLL", &["dll"]).pick_file() {
+                                self.dll = path.display().to_string();
+                            }
+                        });
+                        if before != (self.device_index, self.node, self.target.name.clone(), self.dll.clone()) {
+                            self.scan_selected = None;
+                            if before.3 != self.dll { self.scan_devices.clear(); self.scan_adapters.clear(); }
+                        }
+                        egui::CollapsingHeader::new("控制序号").show(ui, |ui| {
+                            ui.horizontal(|ui| { ui.label("起点"); ui.add(egui::DragValue::new(&mut self.manual_sequence).range(0..=65535)); });
+                            ui.label("0 使用本机按 UID 保存的记录；其他主机操作过时，须按真实历史填写非零起点，不要猜测。");
+                        });
+                    });
+                    ui.label(RichText::new("支持 USBCANFD-200U、通道 0；节点范围 1–254。RS-485 尚未接入。").small().color(c.muted));
+                });
             });
-            ui.add_space(12.0);
-            Self::panel(ui,"接口支持",|ui| {
-                ui.label("CAN FD 指定节点连接：可用，待实机验收。");
-                ui.label("自动发现 / 多设备选择：未接入。RS-485：暂无后端。");
-                ui.label("APP 识别成功进入首页；Loader 独立驻留/救援连接尚待完善。");
-                ui.label(format!("本地目标：{} / layout {} / schema {} / Loader {}",self.target.name,self.target.layout,self.target.schema,version(self.target.loader_version)));
-            });
-        });
         });
     }
 
     pub(super) fn home(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("设备与运行准备");
-            ui.add_space(8.0);
+            widgets::page_header(
+                ui,
+                "开始",
+                "选择要完成的操作，或查看当前功能支持情况。",
+                "工作入口",
+            );
+            ui.columns(3, |columns| {
+                for (column, (title, description, action, page)) in columns.iter_mut().zip([
+                    (
+                        "1  连接设备",
+                        "扫描 CAN 适配器和节点，选择设备。",
+                        "打开设备连接",
+                        Page::Connection,
+                    ),
+                    (
+                        "2  运行调试",
+                        "观察曲线、选择控制模式、执行 STOP。",
+                        "打开运行调试",
+                        Page::Workbench,
+                    ),
+                    (
+                        "3  固件升级",
+                        "检查固件包，选择下载方式。",
+                        "打开固件升级",
+                        Page::Maintenance,
+                    ),
+                ]) {
+                    Self::panel(column, title, |ui| {
+                        ui.set_min_height(64.0);
+                        widgets::hint(ui, description);
+                        ui.add_space(8.0);
+                        if ui
+                            .add_sized([ui.available_width(), 32.0], egui::Button::new(action))
+                            .clicked()
+                        {
+                            self.page = page;
+                        }
+                    });
+                }
+            });
+            ui.add_space(14.0);
+            Self::panel(ui, "当前设备", |ui| {
+                if self.connected && self.snapshot.identity_fresh() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(format!("节点 {}", self.node));
+                        ui.label(format!("UID {}", self.bound_uid));
+                        widgets::hint(
+                            ui,
+                            &format!(
+                                "APP {}  /  Loader {}",
+                                version(self.snapshot.app_version),
+                                version(self.snapshot.loader_version)
+                            ),
+                        );
+                    });
+                    widgets::hint(
+                        ui,
+                        if self.snapshot.feedback_fresh() {
+                            if self.snapshot.faults == 0 {
+                                "已识别 · 详细读数和状态可在下方展开"
+                            } else {
+                                "设备存在故障，请先查看详细状态"
+                            }
+                        } else {
+                            "身份已识别，正在等待新鲜状态反馈"
+                        },
+                    );
+                } else {
+                    widgets::hint(ui, "尚未识别设备。请先扫描并选择设备，再进行控制或升级。");
+                }
+            });
+            ui.add_space(14.0);
+            ui.columns(2, |columns| {
+                Self::panel(&mut columns[0], "已有功能入口", |ui| {
+                    for (name, detail) in [
+                        ("设备发现与连接", "识别适配器、节点与 UID"),
+                        ("四模式调试与曲线", "Vq / Iq / 速度 / 位置 / CSV / STOP"),
+                        ("指定电机型号", "CAN 保存配套参数，重启后生效；需配套固件"),
+                        ("APP 升级", "CAN 流程已接入，实机升级待验收"),
+                        ("Loader + APP 安装", "通过 J-Link，支持备份与离线参数查看"),
+                    ] {
+                        ui.strong(name);
+                        widgets::hint(ui, detail);
+                        ui.add_space(4.0);
+                    }
+                });
+                Self::panel(&mut columns[1], "尚未接入执行", |ui| {
+                    for (name, detail) in [
+                        ("在线标量读写", "型号配置之外的读写仍未接入"),
+                        ("标定任务", "目前只能查看任务支持范围"),
+                        ("辨识任务", "目前没有可执行任务"),
+                        ("仅升级 Loader", "独立下载入口尚未接入"),
+                    ] {
+                        ui.strong(name);
+                        widgets::hint(ui, detail);
+                        ui.add_space(4.0);
+                    }
+                });
+            });
+            ui.add_space(12.0);
+            egui::CollapsingHeader::new("设备详细信息与实时读数")
+                .show(ui, |ui| self.device_details(ui));
+        });
+    }
+
+    fn device_details(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
             let identity = self.connected && self.snapshot.identity_fresh();
             let feedback = self.connected && self.snapshot.feedback_fresh();
             if !identity {
-                ui.label("当前身份未知或过期；保留的历史值不能作为操作依据。");
+                widgets::hint(ui, "当前身份未知或过期，设备值以新鲜回读为准。");
+                ui.add_space(8.0);
             }
+            Self::panel(ui, "实时状态", |ui| {
+                let metrics = [
+                    ("位置", reading(self.snapshot.position_rad, "rad", feedback)),
+                    (
+                        "速度",
+                        reading(self.snapshot.speed_rad_s, "rad/s", feedback),
+                    ),
+                    ("Iq", reading(self.snapshot.iq_a, "A", feedback)),
+                    (
+                        "MCU 温度",
+                        reading(self.snapshot.temperature_c, "°C", feedback),
+                    ),
+                    ("母线电压", reading(self.snapshot.bus_v, "V", feedback)),
+                    ("母线电流", reading(self.snapshot.bus_a, "A", feedback)),
+                    (
+                        "状态 / 模式",
+                        if feedback {
+                            format!("{} / {}", self.snapshot.motor_state, self.snapshot.mode)
+                        } else {
+                            "未知".into()
+                        },
+                    ),
+                    (
+                        "故障",
+                        if feedback {
+                            format!("0x{:08X}", self.snapshot.faults)
+                        } else {
+                            "未知".into()
+                        },
+                    ),
+                ];
+                for row in metrics.chunks(4) {
+                    ui.columns(4, |columns| {
+                        for (column, (label, value)) in columns.iter_mut().zip(row) {
+                            column.label(
+                                RichText::new(*label)
+                                    .small()
+                                    .color(Palette::from_ctx(column.ctx()).muted),
+                            );
+                            column.label(RichText::new(value).size(15.0).strong());
+                        }
+                    });
+                    ui.add_space(10.0);
+                }
+            });
+            ui.add_space(12.0);
             ui.columns(2, |columns| {
                 Self::panel(&mut columns[0], "设备身份", |ui| {
                     egui::Grid::new("identity")
@@ -147,13 +391,37 @@ impl HostApp {
                                     &self.snapshot.sn
                                 },
                             );
-                            field(ui, "节点", self.node.to_string());
+                            field(
+                                ui,
+                                "节点",
+                                if self.connected {
+                                    self.node.to_string()
+                                } else {
+                                    "未知".into()
+                                },
+                            );
                             field(ui, "电机 ID", "未提供（与节点号分开）");
                             field(
                                 ui,
-                                "电机类型",
+                                "生产身份型号编号",
                                 if identity {
                                     format!("协议枚举 {}", self.snapshot.motor_type)
+                                } else {
+                                    "未知".into()
+                                },
+                            );
+                            field(
+                                ui,
+                                "实际电机型号",
+                                if identity {
+                                    self.snapshot
+                                        .active_configuration
+                                        .as_ref()
+                                        .map(|info| {
+                                            crate::motor_configuration::model_name(info.model)
+                                                .to_owned()
+                                        })
+                                        .unwrap_or_else(|| "固件未提供配置查询".into())
                                 } else {
                                     "未知".into()
                                 },
@@ -217,63 +485,51 @@ impl HostApp {
                                 },
                             );
                             field(ui, "参数集版本", "未读取（与 schema 分开）");
-                            field(
-                                ui,
-                                "SPEED 能力",
-                                if self.snapshot.speed_supported() && identity {
-                                    "设备已声明"
-                                } else {
-                                    "未声明 / 过期"
-                                },
-                            );
+                            for mode in ControlMode::ALL {
+                                field(
+                                    ui,
+                                    &format!("{}能力", mode.name()),
+                                    if self.snapshot.mode_supported(mode) && identity {
+                                        "设备已声明"
+                                    } else {
+                                        "未声明 / 过期"
+                                    },
+                                );
+                            }
                         });
                 });
             });
             ui.add_space(12.0);
-            Self::panel(ui, "实时状态", |ui| {
-                egui::Grid::new("feedback")
-                    .num_columns(4)
-                    .spacing([20.0, 10.0])
-                    .show(ui, |ui| {
-                        ui.label("位置");
-                        ui.label(reading(self.snapshot.position_rad, "rad", feedback));
-                        ui.label("速度");
-                        ui.label(reading(self.snapshot.speed_rad_s, "rad/s", feedback));
-                        ui.end_row();
-                        ui.label("Iq");
-                        ui.label(reading(self.snapshot.iq_a, "A", feedback));
-                        ui.label("MCU 温度");
-                        ui.label(reading(self.snapshot.temperature_c, "°C", feedback));
-                        ui.end_row();
-                        ui.label("母线电压");
-                        ui.label(reading(self.snapshot.bus_v, "V", feedback));
-                        ui.label("母线电流");
-                        ui.label(reading(self.snapshot.bus_a, "A", feedback));
-                        ui.end_row();
-                        ui.label("状态 / 模式");
-                        ui.label(if feedback {
-                            format!("{} / {}", self.snapshot.motor_state, self.snapshot.mode)
-                        } else {
-                            "未知".into()
-                        });
-                        ui.label("故障");
-                        ui.label(if feedback {
-                            format!("0x{:08X}", self.snapshot.faults)
-                        } else {
-                            "未知".into()
-                        });
-                        ui.end_row();
-                    });
-            });
-            ui.add_space(12.0);
-            Self::panel(ui, "标定与辨识摘要", |ui| {
-                ui.label("尚未接入设备任务与结果读取；没有可确认的最近结果、应用或持久化状态。");
+            egui::CollapsingHeader::new("标定与辨识支持范围").show(ui, |ui| {
+                widgets::hint(ui, "任务执行及结果读取尚未接入；请到对应页面查看支持状态。");
             });
         });
     }
 
     pub(super) fn workbench(&mut self, ui: &mut egui::Ui) {
         let c = Palette::from_ctx(ui.ctx());
+        widgets::page_header(
+            ui,
+            "运行调试",
+            "左侧观察趋势，右侧选择模式、使能并下发目标。",
+            if self.capture.observing {
+                "观察中"
+            } else {
+                "待观察"
+            },
+        );
+        egui::Panel::right("workbench_controls")
+            .resizable(false)
+            .exact_size(320.0)
+            .frame(Frame::new().inner_margin(egui::Margin {
+                left: 10,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            }))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| self.workbench_control_panel(ui));
+            });
         ui.horizontal_wrapped(|ui| {
             let can_observe = !self.fixture_mode
                 && self.connected
@@ -288,7 +544,13 @@ impl HostApp {
                 .clicked()
             {
                 match self.capture.start(&self.bound_uid) {
-                    Ok(()) => self.note("开始观察 CAN108 趋势（主机接收时间）"),
+                    Ok(()) => {
+                        if let Some(worker) = &self.curve_worker {
+                            worker.observe(self.capture.recording_context());
+                        }
+                        self.send(Command::Observe(true));
+                        self.note("开始观察 CAN108 趋势，目标 60 Hz（主机接收时间）");
+                    }
                     Err(error) => self.note(error.to_string()),
                 }
             }
@@ -299,7 +561,8 @@ impl HostApp {
                 )
                 .clicked()
             {
-                self.capture.pause();
+                self.pause_capture();
+                self.send(Command::Observe(false));
             }
             if ui
                 .add_enabled(
@@ -309,6 +572,9 @@ impl HostApp {
                 .clicked()
             {
                 self.capture = Capture::default();
+                if let Some(worker) = &self.curve_worker {
+                    worker.reset(vec![]);
+                }
                 self.cursor_s = None;
             }
             if ui
@@ -331,21 +597,6 @@ impl HostApp {
                     }
                 });
             ui.checkbox(&mut self.show_reference, "参考量");
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    RichText::new(if self.capture.preview {
-                        "示例记录 · 非设备数据"
-                    } else {
-                        "CAN108 · 低速轮询趋势"
-                    })
-                    .small()
-                    .color(if self.capture.preview {
-                        c.warning
-                    } else {
-                        c.muted
-                    }),
-                );
-            });
         });
         ui.add_space(6.0);
         let fresh = self.connected && self.snapshot.feedback_fresh();
@@ -392,165 +643,51 @@ impl HostApp {
                 });
             });
         ui.add_space(6.0);
-        ui.label(
-            RichText::new(if self.capture.uid.is_empty() {
-                "尚无观察记录".into()
-            } else {
-                format!(
-                    "记录  {}    ·    {} 个样本    ·    {}",
-                    self.capture.uid,
-                    self.capture.samples.len(),
-                    self.capture
-                        .observed_hz()
-                        .map(|hz| format!("本段接收约 {hz:.2} Hz"))
-                        .unwrap_or("频率待统计".into())
-                )
-            })
-            .small()
-            .color(Palette::from_ctx(ui.ctx()).muted),
-        );
-        let record_matches = self.capture.uid.is_empty() || self.capture.uid == self.bound_uid;
-        egui::Panel::right("workbench_controls")
-            .resizable(false)
-            .exact_size(302.0)
-            .frame(Frame::new().inner_margin(egui::Margin {
-                left: 10,
-                right: 0,
-                top: 0,
-                bottom: 0,
-            }))
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    Self::panel(ui, "运动控制", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("SPEED").color(c.accent).strong());
-                            ui.label(RichText::new("位置 / Iq 未开放").small().color(c.muted));
-                        });
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            ui.label("目标速度");
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.label(RichText::new("rad/s").small().color(c.muted));
-                            });
-                        });
-                        ui.add_sized(
-                            [ui.available_width(), 36.0],
-                            egui::DragValue::new(&mut self.speed_rad_s)
-                                .range(0.0..=MAX_SPEED_RAD_S)
-                                .speed(0.1)
-                                .fixed_decimals(3),
-                        );
-                        ui.label(
-                            RichText::new("0–31.416 rad/s  ·  0–300 rpm")
-                                .small()
-                                .color(c.muted),
-                        );
-                        ui.add_space(4.0);
-                        ui.checkbox(&mut self.acknowledged, "已核对 UID 与架空台架条件");
-                        ui.label(
-                            RichText::new("33 V / 母线 3 A / 相 6 A；Iq 不代替相电流监视。")
-                                .small()
-                                .color(c.muted),
-                        );
-                        let live = record_matches
-                            && self.connected
-                            && !self.fixture_mode
-                            && !self.hard_stop
-                            && !self.upgrading
-                            && self.acknowledged;
-                        ui.horizontal(|ui| {
-                            let start = ui.add_enabled(
-                                live && self.snapshot.safe_idle(&self.target, &self.bound_uid)
-                                    && self.snapshot.speed_supported(),
-                                egui::Button::new("零速启动").min_size(Vec2::new(120.0, 30.0)),
-                            );
-                            self.control("speed_start", &start);
-                            if start.clicked() {
-                                self.send(Command::Start {
-                                    acknowledged: self.acknowledged,
-                                });
-                            }
-                            let set = ui.add_enabled(
-                                live && self.snapshot.can_set_speed(&self.target, &self.bound_uid),
-                                egui::Button::new("设置目标").min_size(Vec2::new(120.0, 30.0)),
-                            );
-                            self.control("speed_set", &set);
-                            if set.clicked() {
-                                self.send(Command::SetSpeed {
-                                    speed_rad_s: self.speed_rad_s,
-                                    acknowledged: self.acknowledged,
-                                });
-                            }
-                        });
-                        let reason = if self.fixture_mode {
-                            "预览不发送设备命令"
-                        } else if self.upgrading {
-                            "升级期间禁用运动"
-                        } else if !self.connected {
-                            "未连接；请先连接并识别设备"
-                        } else if self.hard_stop {
-                            "硬停；须现场确认输出"
-                        } else if !record_matches {
-                            "记录 UID 与当前设备不同；先导出并清空旧记录"
-                        } else if !self.snapshot.compatible(&self.target, &self.bound_uid) {
-                            "身份过期或目标不兼容"
-                        } else if !self.snapshot.speed_supported() {
-                            "设备未声明 SPEED 能力"
-                        } else if !fresh {
-                            "反馈过期"
-                        } else if !self.acknowledged {
-                            "等待台架确认"
-                        } else {
-                            "按钮随 IDLE/RUN、故障与限值更新"
-                        };
-                        ui.label(RichText::new(reason).small().color(c.muted));
-                    });
-                    ui.add_space(8.0);
-                    Self::panel(ui, "常用参数", |ui| {
-                        ui.spacing_mut().interact_size.y = 16.0;
-                        for index in [2, 4, 6] {
-                            let (name, _, unit, _) = PARAMETERS[index];
-                            ui.horizontal(|ui| {
-                                ui.label(name);
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.label(RichText::new(format!("— {unit}")).color(c.muted));
-                                });
-                            });
-                        }
-                        ui.label(
-                            RichText::new("设备参数读写未接入，当前只显示目录。")
-                                .small()
-                                .color(c.warning),
-                        );
-                        if ui
-                            .add_sized(
-                                [ui.available_width(), 28.0],
-                                egui::Button::new("打开参数配置  →").frame(false),
-                            )
-                            .clicked()
-                        {
-                            self.page = Page::Parameters;
-                        }
-                    });
-                    ui.add_space(6.0);
-                    ui.label(
-                        RichText::new("全局 STOP 位于窗口右上角。通信确认仍需现场核对物理输出。")
-                            .small()
-                            .color(c.muted),
-                    );
-                });
-            });
-        let height = ((ui.available_height() - 12.0) / 3.0).max(90.0);
-        for channel in 0..3 {
-            let (hover, rect) = scope::plot(
-                ui,
-                &self.capture,
-                channel,
-                self.window_s,
-                height,
-                self.cursor_s,
-                self.show_reference,
+        ui.horizontal_wrapped(|ui| {
+            let rate = |value: Option<f64>| {
+                value
+                    .map(|hz| format!("{hz:.1} Hz"))
+                    .unwrap_or_else(|| "—".into())
+            };
+            widgets::hint(ui, "曲线目标 60 Hz");
+            ui.separator();
+            ui.label(
+                RichText::new(if self.capture.observing {
+                    format!("实际更新 {}", rate(self.capture.refresh_hz()))
+                } else {
+                    "尚未开始观察".into()
+                })
+                .small()
+                .color(c.accent),
+            )
+            .on_hover_text(format!(
+                "只统计采用新数据快照的次数。设备反馈接收：{}",
+                rate(self.capture.observed_hz())
+            ));
+            ui.separator();
+            widgets::hint(ui, &format!("{} 个样本", self.capture.samples.len()));
+            if self.capture.preview {
+                widgets::hint(ui, "示例数据 · 非设备回读");
+            }
+        });
+        if self.capture.observing
+            && self.capture.samples.len() >= 60
+            && self.capture.observed_hz().is_some_and(|hz| hz < 54.0)
+        {
+            ui.colored_label(
+                c.warning,
+                "数据接收低于目标频率，请检查设备响应和总线负载。",
             );
+        }
+        let scene = self
+            .curve_worker
+            .as_mut()
+            .expect("曲线线程未初始化")
+            .scene(self.window_s, self.show_reference);
+        self.capture.record_curve_update(scene.latest_sample_time);
+        let height = ((ui.available_height() - 12.0) / 3.0).max(90.0);
+        for (row, channel) in self.control_mode.channels().into_iter().enumerate() {
+            let (hover, rect) = scope::plot(ui, &scene, channel, height, self.cursor_s);
             if self.fixture_mode {
                 self.control_evidence
                     .push(serde_json::json!({"name":format!("plot_{channel}"),
@@ -559,219 +696,265 @@ impl HostApp {
             if let Some(time) = hover {
                 self.cursor_s = Some(time);
             }
-            if channel < 2 {
+            if row < 2 {
                 ui.add_space(4.0);
             }
         }
     }
 
     pub(super) fn parameters(&mut self, ui: &mut egui::Ui) {
-        ui.heading("参数配置");
-        ui.label("未接入设备参数读写。下表为协议目录节选，完整目录待接入；不是设备参数值。");
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            for (name, label) in [
-                ("parameter_read", "读取设备"),
-                ("parameter_write", "应用并读回"),
-                ("parameter_save", "掉电保存"),
-            ] {
-                let response = ui
-                    .add_enabled(false, egui::Button::new(label))
-                    .on_disabled_hover_text("120/121/122 后端尚未接入主机");
-                self.control(name, &response);
-            }
-        });
-        ui.separator();
-        egui::ScrollArea::both().show(ui, |ui| {
-            egui::Grid::new("parameter_catalog")
-                .striped(true)
-                .min_col_width(125.0)
-                .spacing([18.0, 12.0])
-                .show(ui, |ui| {
-                    for heading in ["参数", "ID", "单位", "设备值", "状态"] {
-                        ui.strong(heading);
-                    }
-                    ui.end_row();
-                    for (name, id, unit, state) in PARAMETERS {
-                        ui.label(name);
-                        ui.monospace(id);
-                        ui.label(unit);
-                        ui.label("未读取");
-                        ui.label(state);
-                        ui.end_row();
-                    }
-                });
-            ui.add_space(14.0);
-            ui.label("操作流程：读取 → 检查修改 → 版本校验与写入 → 读回 → 掉电保存。");
-            ui.label("设备活动值、草稿和已保存版本分别确认；写入与保存功能尚未接入。");
-        });
-    }
-
-    pub(super) fn calibration(&mut self, ui: &mut egui::Ui) {
-        const TASKS: [(&str, &str, &str); 4] = [
-            (
-                "角度传感器 LUT",
-                "kind 1",
-                "固件有任务协议，主机执行/进度/结果尚未接入",
-            ),
-            (
-                "电气零位",
-                "kind 2",
-                "固件有任务协议，主机尚未接入；不同于机械位置置零",
-            ),
-            ("机械零位", "kind 6", "固件有任务协议，主机尚未接入"),
-            ("齿槽转矩标定", "kind 3", "当前固件已撤回，不可执行"),
-        ];
-        ui.heading("标定");
-        ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            for (index, (name, _, _)) in TASKS.iter().enumerate() {
-                ui.selectable_value(&mut self.task_index, index, *name);
-            }
-        });
-        ui.add_space(12.0);
-        let (name, kind, support) = TASKS[self.task_index];
-        Self::panel(ui, name, |ui| {
-            ui.label(support);
-            ui.label(RichText::new(kind).small());
-            ui.add_space(10.0);
-            egui::Grid::new("task_facts")
-                .spacing([20.0, 10.0])
-                .show(ui, |ui| {
-                    field(ui, "执行状态", "未发起");
-                    field(ui, "当前阶段", "无设备任务");
-                    field(ui, "结果质量", "未评估");
-                    field(ui, "应用 / 保存", "未知，没有设备结果");
-                });
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            widgets::page_header(
+                ui,
+                "参数管理",
+                "通过 CAN 指定电机型号与配套参数；通用标量读写仍未接入。",
+                "型号配置",
+            );
+            self.motor_configuration_panel(ui);
             ui.add_space(12.0);
-            let start = ui
-                .add_enabled(false, egui::Button::new("开始任务"))
-                .on_disabled_hover_text(support);
-            self.control("calibration_start", &start);
-            ui.add_enabled(false, egui::Button::new("请求取消"));
-            ui.label("接入后显示设备真实阶段与结果状态；取消须等待设备确认。");
+            Self::panel(ui, "参数目录", |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (name, label) in [
+                        ("parameter_read", "读取设备"),
+                        ("parameter_write", "应用并读回"),
+                        ("parameter_save", "掉电保存"),
+                    ] {
+                        let response = ui
+                            .add_enabled(false, egui::Button::new(label))
+                            .on_disabled_hover_text("设备参数读写服务尚未接入");
+                        self.control(name, &response);
+                    }
+                });
+                widgets::hint(ui, "下表为协议目录节选，设备值尚未读取。");
+                ui.add_space(8.0);
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    egui::Grid::new("parameter_catalog")
+                        .striped(true)
+                        .min_col_width(((ui.available_width() - 80.0) / 5.0).max(90.0))
+                        .spacing([20.0, 14.0])
+                        .show(ui, |ui| {
+                            for heading in ["参数", "ID", "单位", "设备值", "支持状态"] {
+                                ui.strong(heading);
+                            }
+                            ui.end_row();
+                            for (name, id, unit, state) in PARAMETERS {
+                                ui.label(name);
+                                ui.monospace(id);
+                                ui.label(unit);
+                                ui.label("—");
+                                widgets::hint(ui, state);
+                                ui.end_row();
+                            }
+                        });
+                });
+            });
+            ui.add_space(14.0);
+            egui::CollapsingHeader::new("写入与保存流程").show(ui, |ui| {
+                widgets::hint(ui, "读取 → 修改 → 版本校验与写入 → 读回 → 掉电保存。");
+                widgets::hint(ui, "设备活动值、修改草稿与已保存版本需要分别确认。");
+            });
         });
     }
 
     pub(super) fn identification(&mut self, ui: &mut egui::Ui) {
-        ui.heading("辨识");
-        ui.label("以下功能尚不可执行，不会发送候选或历史命令。");
-        ui.add_space(12.0);
-        Self::panel(ui, "任务能力", |ui| {
-            egui::Grid::new("identification_catalog")
-                .striped(true)
-                .spacing([24.0, 16.0])
-                .show(ui, |ui| {
-                    ui.strong("任务");
-                    ui.strong("结果含义 / 单位");
-                    ui.strong("状态");
-                    ui.end_row();
-                    for (name, unit, state) in [
-                        ("电阻辨识", "相 / 相间电阻 · Ω", "当前固件已撤回"),
-                        ("电感辨识", "Ld / Lq / 等效值 · H", "暂无可用任务契约"),
-                        ("转动惯量辨识", "明确参照轴 · kg·m²", "暂无可用任务契约"),
-                        (
-                            "摩擦力辨识",
-                            "摩擦转矩 N·m / 黏性系数 N·m·s/rad",
-                            "当前固件已撤回",
-                        ),
-                    ] {
-                        ui.label(name);
-                        ui.label(unit);
-                        ui.label(state);
-                        ui.end_row();
-                    }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            widgets::page_header(
+                ui,
+                "辨识任务",
+                "当前没有可执行任务，以下仅显示固件支持范围。",
+                "暂不可执行",
+            );
+            Self::panel(ui, "辨识任务", |ui| {
+                widgets::hint(ui, "当前没有可执行的辨识任务，结果以设备回读为准。");
+                ui.add_space(8.0);
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    egui::Grid::new("identification_catalog")
+                        .striped(true)
+                        .min_col_width(((ui.available_width() - 48.0) / 3.0).max(140.0))
+                        .spacing([24.0, 18.0])
+                        .show(ui, |ui| {
+                            for title in ["任务", "结果与单位", "支持状态"] {
+                                ui.strong(title);
+                            }
+                            ui.end_row();
+                            for (name, unit, state) in [
+                                ("电阻辨识", "相 / 相间电阻 · Ω", "当前固件已撤回"),
+                                ("电感辨识", "Ld / Lq · H", "暂无可用任务契约"),
+                                ("转动惯量辨识", "参照轴惯量 · kg·m²", "暂无可用任务契约"),
+                                (
+                                    "摩擦力辨识",
+                                    "转矩 · N·m / 黏性系数 · N·m·s/rad",
+                                    "当前固件已撤回",
+                                ),
+                            ] {
+                                ui.label(name);
+                                ui.label(unit);
+                                widgets::hint(ui, state);
+                                ui.end_row();
+                            }
+                        });
                 });
-            ui.separator();
-            ui.label("任务执行、质量、结果应用、掉电保存和 PC 导出分别确认。");
+            });
+            ui.add_space(14.0);
+            widgets::hint(
+                ui,
+                "接入后将分别显示任务执行、结果质量、应用与掉电保存状态。",
+            );
         });
     }
 
     pub(super) fn records(&mut self, ui: &mut egui::Ui) {
-        ui.heading("记录与诊断");
-        ui.add_space(8.0);
-        Self::panel(ui, "当前趋势记录", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!(
-                    "UID：{}",
-                    if self.capture.uid.is_empty() {
-                        "未绑定"
-                    } else {
-                        &self.capture.uid
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            widgets::page_header(
+                ui,
+                "数据与日志",
+                "导出已采集的数据，查看本次连接与操作日志。",
+                if self.capture.observing {
+                    "正在记录"
+                } else {
+                    "历史记录"
+                },
+            );
+            Self::panel(ui, "趋势记录", |ui| {
+                ui.columns(3, |columns| {
+                    widgets::hint(&mut columns[0], "样本数");
+                    columns[0].strong(self.capture.samples.len().to_string());
+                    widgets::hint(&mut columns[1], "接收频率");
+                    columns[1].strong(
+                        self.capture
+                            .observed_hz()
+                            .map(|hz| format!("{hz:.1} Hz"))
+                            .unwrap_or_else(|| "—".into()),
+                    );
+                    widgets::hint(&mut columns[2], "数据中断 / 容量淘汰");
+                    columns[2].strong(format!("{} / {}", self.capture.gaps, self.capture.evicted));
+                });
+                ui.add_space(8.0);
+                widgets::hint(
+                    ui,
+                    &format!(
+                        "UID  {}",
+                        if self.capture.uid.is_empty() {
+                            "未绑定"
+                        } else {
+                            &self.capture.uid
+                        }
+                    ),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(
+                            !self.capture.samples.is_empty(),
+                            egui::Button::new("导出 CSV"),
+                        )
+                        .clicked()
+                    {
+                        self.export_capture();
                     }
-                ));
-                ui.label(format!(
-                    "{} 个样本 / 间隔中断 {} / 容量淘汰 {}",
-                    self.capture.samples.len(),
-                    self.capture.gaps,
-                    self.capture.evicted
-                ));
-                ui.label(
-                    self.capture
-                        .observed_hz()
-                        .map(|hz| format!("本段接收约 {hz:.2} Hz"))
-                        .unwrap_or("频率待统计".into()),
+                    if ui.button("查看曲线").clicked() {
+                        self.page = Page::Workbench;
+                    }
+                    ui.add_enabled(false, egui::Button::new("回放 · 未接入"));
+                });
+                widgets::hint(
+                    ui,
+                    if self.capture.preview {
+                        "来源：离线示例"
+                    } else {
+                        "来源：CAN108 · 主机接收时间"
+                    },
                 );
             });
-            ui.label(if self.capture.preview {
-                "来源：离线示例；不代表设备数据"
-            } else {
-                "来源：CAN108；时间为主机单调接收时间，不是设备同步采样时间"
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(
-                        !self.capture.samples.is_empty(),
-                        egui::Button::new("导出 CSV"),
-                    )
-                    .clicked()
-                {
-                    self.export_capture();
-                }
-                if ui.button("返回调试工作台").clicked() {
-                    self.page = Page::Workbench;
-                }
-                ui.add_enabled(false, egui::Button::new("记录回放 · 未接入"));
-            });
-        });
-        ui.add_space(12.0);
-        Self::panel(ui, "运行记录", |ui| {
-            egui::ScrollArea::vertical()
-                .max_height((ui.available_height() - 20.0).max(120.0))
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for (index, message) in self.log.iter().enumerate() {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.monospace(format!("{:03}", index + 1));
-                            ui.label(message);
+            ui.add_space(14.0);
+            Self::panel(ui, "运行日志", |ui| {
+                if let Some(log) = &self.diagnostics {
+                    ui.label(RichText::new(log.location()).small());
+                    if ui
+                        .add_enabled(log.available(), egui::Button::new("导出故障日志"))
+                        .clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .add_filter("故障日志", &["jsonl"])
+                            .set_file_name("YG_MC_HOST-faults.jsonl")
+                            .save_file()
+                    {
+                        let result = log.export(path);
+                        self.note(match result {
+                            Ok(()) => "故障日志已导出".into(),
+                            Err(error) => format!("日志导出失败：{error:#}"),
                         });
                     }
-                });
+                } else {
+                    widgets::hint(ui, "离线预览不记录设备故障日志。");
+                }
+                egui::ScrollArea::vertical()
+                    .max_height((ui.available_height() - 20.0).max(160.0))
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for (index, message) in self.log.iter().enumerate() {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(
+                                    RichText::new(format!("{:03}", index + 1))
+                                        .monospace()
+                                        .color(Palette::from_ctx(ui.ctx()).muted),
+                                );
+                                ui.label(message);
+                            });
+                        }
+                    });
+            });
         });
     }
 
     pub(super) fn maintenance(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("设备维护");
-                ui.add_enabled_ui(!self.upgrading, |ui| {
-                    ui.selectable_value(&mut self.upgrade_mode, UpgradeMode::App, "APP / CAN");
-                    ui.selectable_value(
-                        &mut self.upgrade_mode,
-                        UpgradeMode::Combined,
-                        "Loader + APP / SWD",
+            widgets::page_header(
+                ui,
+                "固件升级",
+                "先选择升级对象与通信方式，再检查文件和执行条件。",
+                "固件与备份",
+            );
+            ui.add_enabled_ui(!self.upgrading, |ui| {
+                ui.columns(3, |columns| {
+                    let app = columns[0].add(
+                        egui::Button::new(RichText::new("升级 APP").strong())
+                            .selected(self.upgrade_mode == UpgradeMode::App)
+                            .min_size(Vec2::new(columns[0].available_width(), 46.0)),
                     );
+                    widgets::hint(&mut columns[0], "CAN · 保留 Loader 与设备参数");
+                    if app.clicked() {
+                        self.upgrade_mode = UpgradeMode::App;
+                    }
+                    let bundle = columns[1].add(
+                        egui::Button::new(RichText::new("安装 Loader + APP").strong())
+                            .selected(self.upgrade_mode == UpgradeMode::Combined)
+                            .min_size(Vec2::new(columns[1].available_width(), 46.0)),
+                    );
+                    widgets::hint(&mut columns[1], "J-Link / SWD · 初装或恢复整机固件");
+                    if bundle.clicked() {
+                        self.upgrade_mode = UpgradeMode::Combined;
+                    }
+                    columns[2]
+                        .add_enabled(
+                            false,
+                            egui::Button::new("仅升级 Loader")
+                                .min_size(Vec2::new(columns[2].available_width(), 46.0)),
+                        )
+                        .on_disabled_hover_text("独立 Loader 下载入口尚未接入");
+                    widgets::hint(&mut columns[2], "未接入 · 当前不可执行");
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             if self.upgrade_mode != UpgradeMode::App {
                 self.maintenance_panel.show(
                     ui,
                     &self.target,
-                    !self.connected && !self.upgrading && !self.fixture_mode,
+                    !self.connected
+                        && !self.upgrading
+                        && !self.fixture_mode
+                        && self.scan_rx.is_none(),
                 );
             } else {
-                Self::panel(ui, "1 选择完整 APP 包", |ui| {
+                Self::panel(ui, "01  固件包", |ui| {
                     ui.add_enabled_ui(!self.upgrading, |ui| {
                         ui.horizontal(|ui| {
                             let response = ui.add(
@@ -802,71 +985,100 @@ impl HostApp {
                             package.image.len(),
                             package.crc32
                         ));
+                    } else if self.package_dir.is_empty() {
+                        ui.label("请选择 APP 包目录并执行离线检查。");
                     } else {
-                        ui.label("包未通过检查；仅写 APP 槽，保留参数与身份页。");
+                        ui.label("请执行离线检查；仅写 APP 槽，保留参数与身份页。");
                     }
                 });
                 ui.add_space(8.0);
                 let checks = [
                     (
-                        "同一 UID / 产品 / schema / ABI",
+                        "设备身份与目标匹配",
                         self.connected && self.snapshot.compatible(&self.target, &self.bound_uid),
                     ),
                     (
-                        "配套 Loader",
+                        "Loader 版本匹配",
                         self.snapshot.identity_fresh()
                             && self.snapshot.loader_version == self.target.loader_version,
                     ),
                     (
-                        "STOP 最终 0/0、IDLE 与近零速",
+                        "停机与近零速已确认",
                         self.snapshot.stop_confirmed
                             && self.snapshot.safe_idle(&self.target, &self.bound_uid),
                     ),
-                    ("完整包校验", self.package.is_some()),
+                    ("固件包检查通过", self.package.is_some()),
                 ];
-                Self::panel(ui, "2 执行前检查", |ui| {
-                    for (label, pass) in checks {
-                        ui.label(format!("{}  {label}", if pass { "通过" } else { "等待" }));
-                    }
-                    ui.checkbox(
-                        &mut self.acknowledged,
-                        "已核对 UID 与架空台架，33 V / 母线 3 A / 相 6 A",
-                    );
-                    ui.label("可先使用右上角 STOP 获得通信停机确认；物理输出须现场核对。");
-                });
-                ui.add_space(8.0);
-                Self::panel(ui, "3 下载、激活与持久确认", |ui| {
-                    ui.add(
-                        egui::ProgressBar::new(self.progress)
-                            .corner_radius(2.0)
-                            .desired_width(ui.available_width())
-                            .show_percentage(),
-                    );
-                    let enabled = !self.fixture_mode
-                        && self.connected
-                        && !self.hard_stop
-                        && !self.upgrading
-                        && self.acknowledged
-                        && checks.iter().all(|(_, pass)| *pass);
-                    let response = ui.add_enabled(enabled, egui::Button::new("开始 APP 升级"));
-                    self.control("app_upgrade", &response);
-                    if response.clicked() {
-                        self.progress = 0.0;
-                        self.upgrading = true;
-                        self.capture.pause();
-                        self.send(Command::Upgrade {
-                            directory: PathBuf::from(&self.package_dir),
-                            acknowledged: self.acknowledged,
-                        });
-                        self.note(
-                            "APP 升级已请求；等待实际版本、CRC、同 UID 及持久确认，不恢复运动",
+                ui.columns(2, |columns| {
+                    Self::panel(&mut columns[0], "02  执行前检查", |ui| {
+                        for (label, pass) in checks {
+                            let color = if pass {
+                                Palette::from_ctx(ui.ctx()).accent
+                            } else {
+                                Palette::from_ctx(ui.ctx()).muted
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(if pass { "●" } else { "○" }).color(color));
+                                ui.label(label);
+                            });
+                        }
+                        ui.add_space(5.0);
+                        ui.checkbox(&mut self.acknowledged, "已核对 UID 与架空台架");
+                        ui.label(
+                            RichText::new(
+                                "33 V / 母线 3 A / 相 6 A。STOP 后仍需现场核对物理输出。",
+                            )
+                            .small()
+                            .color(Palette::from_ctx(ui.ctx()).muted),
                         );
-                    }
-                    ui.label("升级独占通信通道；切换页面不会中断，完成后保持停机。");
+                    });
+                    Self::panel(&mut columns[1], "03  下载与确认", |ui| {
+                        ui.label(
+                            RichText::new("升级进度")
+                                .small()
+                                .color(Palette::from_ctx(ui.ctx()).muted),
+                        );
+                        ui.add(
+                            egui::ProgressBar::new(self.progress)
+                                .corner_radius(3.0)
+                                .desired_width(ui.available_width())
+                                .show_percentage(),
+                        );
+                        ui.add_space(9.0);
+                        let enabled = !self.fixture_mode
+                            && self.connected
+                            && !self.hard_stop
+                            && !self.upgrading
+                            && self.acknowledged
+                            && checks.iter().all(|(_, pass)| *pass);
+                        let response = ui.add_enabled(
+                            enabled,
+                            egui::Button::new("开始升级 APP（CAN）")
+                                .min_size(Vec2::new(180.0, 34.0)),
+                        );
+                        self.control("app_upgrade", &response);
+                        if response.clicked() {
+                            self.progress = 0.0;
+                            self.upgrading = true;
+                            self.pause_capture();
+                            self.send(Command::Upgrade {
+                                directory: PathBuf::from(&self.package_dir),
+                                acknowledged: self.acknowledged,
+                            });
+                            self.note(
+                                "APP 升级已请求；等待实际版本、CRC、同 UID 及持久确认，不恢复运动",
+                            );
+                        }
+                        ui.label(
+                            RichText::new("升级期间独占通信通道，完成后保持停机。")
+                                .small()
+                                .color(Palette::from_ctx(ui.ctx()).muted),
+                        );
+                    });
                 });
             }
             ui.add_space(10.0);
-            Self::panel(ui, "参数与设备资料", |ui| {
+            egui::CollapsingHeader::new("参数、备份与设备资料").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button("在线参数区").clicked() {
                         self.page = Page::Parameters;

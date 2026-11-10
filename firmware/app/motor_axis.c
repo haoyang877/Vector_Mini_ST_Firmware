@@ -44,6 +44,7 @@ void MotorAxis_Init(MotorAxis *axis)
     if (axis->hardware->read_record(&axis->record, sizeof(axis->record)) == BSP_OK)
     {
         Param_Download(&axis->record.motor, sizeof(axis->record.motor), &axis->configuration);
+        axis->parameters.stored_record_crc = axis->record.motor.record_crc32;
     }
     else
     {
@@ -57,9 +58,8 @@ void MotorAxis_Init(MotorAxis *axis)
         Param_RestoreLinearHall(&axis->record.motor, &axis->linear_hall);
     }
 #endif
-    float ratio = axis->configuration.preset != NULL
-                      ? axis->configuration.preset->electrical->gear_ratio
-                      : 1.0f;
+    float ratio =
+        axis->configuration.preset != NULL ? axis->configuration.preset->gear_ratio : 1.0f;
     OutputEncoder_Init(&axis->output_encoder, ratio);
     /* 直驱旧记录可直接沿用已有电机机械零位；减速轴须重新标定对应关系。 */
     if (ratio == 1.0f &&
@@ -493,6 +493,10 @@ ParameterStatus MotorAxis_SaveParameters(MotorAxis *axis, uint32_t expected_revi
                      ? PARAMETER_OK
                      : PARAMETER_PERSIST_FAILED;
         axis->parameters.save_status = result;
+        if (result == PARAMETER_OK)
+        {
+            axis->parameters.stored_record_crc = axis->record.motor.record_crc32;
+        }
         axis->parameters.saved_revision = result == PARAMETER_OK ? axis->parameters.revision : 0U;
     }
     BspSystem_ExitCritical(mask);

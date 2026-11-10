@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "motor_axis.h"
 #include "app_protocol.h"
+#include "app_motor_configuration.h"
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
 #include "app_loader.h"
 #endif
@@ -14,6 +15,7 @@ typedef struct
 {
     MotorAxis axis;
     AppProtocol protocol;
+    AppMotorConfiguration motor_configuration;
     ProtocolEndpoint endpoint;
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
     AppLoader loader;

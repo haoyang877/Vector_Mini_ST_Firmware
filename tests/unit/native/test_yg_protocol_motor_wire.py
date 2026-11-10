@@ -38,7 +38,7 @@ def main() -> None:
         '#include "yg_protocol.h"\n#include <string.h>\n'
         "bool test_application_capabilities(void) {\n"
         + capabilities.group(0)
-        + "\nconst uint8_t expected[16] = {0x00,0xfd,1,0,0x4e,0x06,0x40,0,"
+        + "\nconst uint8_t expected[16] = {0x00,0xfd,7,0,0x4e,0x06,0x40,0,"
         "0x2e,0,0,0,0xf4,1,0xf4,1};\nProtocolResponse response = {0};\n"
         "return encode_device_caps(&capabilities, &response) == YG_PROTOCOL_OK &&"
         " response.length == sizeof(expected) &&"
@@ -77,6 +77,16 @@ def main() -> None:
     subprocess.run(command, check=True)
     result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
     print(result.stdout, end="")
+    host_vectors = json.loads(
+        (
+            ROOT / "tests/fixtures/protocol/yg_protocol_host_position_session_v1_vectors.json"
+        ).read_text(encoding="utf-8")
+    )
+    if (
+        f"HOST_POSITION_START {host_vectors['host_start_payload_hex']}"
+        not in result.stdout.splitlines()
+    ):
+        raise RuntimeError("上位机位置会话START载荷与黄金向量不符")
     vectors = json.loads(
         (ROOT / "tests/fixtures/protocol/yg_protocol_motor_state_v1_7_vectors.json").read_text(
             encoding="utf-8"

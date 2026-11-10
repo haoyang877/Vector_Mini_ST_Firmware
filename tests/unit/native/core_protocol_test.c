@@ -65,6 +65,17 @@ MotorControlResult MotorStateMachine_RequestStart(MotorStateMachine *instance,
     ++starts;
     return start_result;
 }
+MotorControlResult MotorStateMachine_RequestHostPosition(MotorStateMachine *instance)
+{
+    (void)instance;
+    return MOTOR_CONTROL_DENIED;
+}
+
+void MotorStateMachine_KeepHostPositionAlive(MotorStateMachine *instance)
+{
+    (void)instance;
+}
+
 MotorControlResult MotorStateMachine_RequestFaultClear(MotorStateMachine *instance)
 {
     (void)instance;

@@ -10,6 +10,7 @@ MODULE_PREFIXES = {
     "app": "App",
     "app_loader": "AppLoader",
     "app_protocol": "AppProtocol",
+    "app_motor_configuration": "AppMotorConfiguration",
     "motor_axis": "MotorAxis",
     "motor_state_machine": "MotorStateMachine",
     "motor_calibration": "MotorCalibration",

@@ -10,7 +10,7 @@
 
 默认输入统一在 `firmware/config`；活动 `MotorConfiguration` 由 MotorAxis 持有。
 启动时 MotorAxis 从 BSP Flash 读取记录并交给 Param_Download；其他版本或无效记录回退默认值。
-schema14 固定为 2288 字节，字段布局和保留槽不因源码整理变动。
+schema14 基础记录和输出轴扩展共同组成 `MotorAxisRecord`。
 
 当前 APP 接入启动装载和配置校验；Keil调试命令已删除，在线修订号由每轴独立维护，保存同步返回实际结果。
 MotorAxis保留停机保存实现，复用启动记录暂存区导出完整记录，实际写入与回读由BSP完成；
@@ -23,22 +23,22 @@ BspFlash_Write 负责固定区域的硬件写入，本目录不直接擦写 Flas
 <a id="storage"></a>
 ## 存储与兼容
 
-当前 APP 只装载 schema14、2288 B 记录，参数 ABI 为 0x000E08F0。
+当前整轴记录为 4372 B：schema14 基础记录 `InterfaceParam` 占 2288 B，OEN3 输出轴扩展占 2084 B。基础参数 ABI 为 `0x000E08F0`；启动时先校验基础记录，再按扩展 magic、CRC 及绑定条件恢复输出轴数据。[布局与校验](parameter_record.c)
 节点是记录偏移 0 的 node_id，只接受 1～254 的有限精确整数；AT32F456 使用产品节点与 AXS2 修订 2 角色双向核对；其他板沿用独立地址。
 节点与运行速度包络独立；AXS 只能进一步收窄应用限值，不能增加权限。
 
-记录前 2240 B 为基本配置、编码器标定和轴配置，最后 48 B 为热保护/速度前馈扩展。
+基础记录前 2240 B 为基本配置、编码器标定和轴配置，最后 48 B 为热保护/速度前馈扩展。
 配置确认位于偏移 2136，CRC 位于 2140，schema 位于 2160，识别字位于 2164；
-记录字段小端，CRC 覆盖整条记录并跳过 CRC 字段自身。encoder_calib_flag 允许 0x01/0x02/0x04，未知位拒绝。
+记录字段小端，基础 CRC 覆盖这 2288 B 并跳过 CRC 字段自身。encoder_calib_flag 允许 0x01/0x02/0x04，未知位拒绝。
 启动不转换或回写旧记录；schema12/13、截断、CRC 错误或不合法内容均回退为未确认默认配置。
 
 保存仍是单份记录，掉电可能使 CRC 失效；身份页不参与普通参数擦写，固件升级不写参数/身份区。
-当前记录按两个 2 KiB 页擦除，参数分区本身没有缩小，旧版第三页残留不作为当前记录读取。
+4372 B 整轴写入覆盖三个 2 KiB 擦除页。
 历史迁移工具只生成离线文件，不表示当前 APP 支持旧版本或在线保存。
 实际字段和合法性以 parameter_record.c/h 为准，固定字节见
 [存储夹具](../../tests/fixtures/protocol/parameter_schema14_vectors.json)。
 
-PITCH、YAW 完成编码器角度标定后，前台关相保存同一条 2288 B 记录。Hall v1 使用旧摩擦模型退役的 20 B：偏移 2188、2192、2196、2200 分别为 sin 偏置、cos 偏置、sin 幅值、cos 幅值（小端 float32，单位 count）。偏移 2204 的小端 uint32 为 `0x48410100 | 状态`，低字节 bit7 表示最近一次标定成功，bit0..6 为 Hall 标定故障位；这些字节受整条记录 CRC 保护。见[黄金字节](../../tests/fixtures/protocol/hall_calibration_v1.json)。
+带线性 Hall 的轴在关相保存时将 Hall 系数写入基础记录。Hall v1 使用旧摩擦模型退役的 20 B：偏移 2188、2192、2196、2200 分别为 sin 偏置、cos 偏置、sin 幅值、cos 幅值（小端 float32，单位 count）。偏移 2204 的小端 uint32 为 `0x48410100 | 状态`，低字节 bit7 表示最近一次标定成功，bit0..6 为 Hall 标定故障位；这些字节受基础记录 CRC 保护。见[黄金字节](../../tests/fixtures/protocol/hall_calibration_v1.json)。
 
 启动先校验本机节点和基本记录，再恢复 Hall 系数及结果。旧槽的 0/1 不代表 Hall 标定；无标记或系数不合理时使用固件初值。成功后再次标定失败的记录保存上次系数和本次故障位。回滚到原先忽略摩擦槽的 schema14 APP 可读取其余配置；旧 APP 再次保存会清除 Hall 标记。
 

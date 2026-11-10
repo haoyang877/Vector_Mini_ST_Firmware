@@ -46,6 +46,12 @@ extern "C"
     uint32_t BspSystem_TimeMs(void);
 
     /**
+     * @brief 执行芯片软件复位，重新装载已保存配置。
+     * @note 仅前台在确认实际关相、禁止启动且回复发送完成后调用；生产实现不返回。
+     */
+    void BspSystem_Reset(void);
+
+    /**
      * @brief 保存并屏蔽可屏蔽中断。
      * @return 必须原样传给ExitCritical的原中断屏蔽状态。
      * @note 允许嵌套，同一上下文严格后进先出配对；不屏蔽NMI/HardFault。

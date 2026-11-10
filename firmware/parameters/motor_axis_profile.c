@@ -21,6 +21,7 @@
 
 /* 五个产品节点共用两种电气模型。角速度和行程均以电机轴表示。
  * YQ 电流 PI 来自 AT32 台架；HT 按额定 R/L 与 1.2 kHz 带宽派生。 */
+static const MotorWindingThermalConfig s_ht_thermal = HT8115_HEAT_INITIALIZER;
 static const MotorElectricalPreset s_ht = {
     HT8115_POLE_PAIRS,
     HT8115_PHASE_RESISTANCE_OHM,
@@ -30,7 +31,7 @@ static const MotorElectricalPreset s_ht = {
     HT8115_PHASE_RESISTANCE_OHM *CURRENT_LOOP_BANDWIDTH_RAD_S,
     800000.0f,
     ENCODER_SPEED_PLL_HZ,
-    1.0f};
+    &s_ht_thermal};
 static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            YQ5708_PHASE_RESISTANCE_OHM,
                                            YQ5708_INDUCTANCE_H,
@@ -39,13 +40,13 @@ static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            AT32_YQ5708_CURRENT_KI,
                                            800000.0f,
                                            ENCODER_SPEED_PLL_HZ,
-                                           YQ5708_GEAR_RATIO};
+                                           NULL};
 
 /* ROLL/PITCH/YAW 各装 2 N·m 阻尼轴；标定起点按脱开负载的工装设置。 */
 #define PRODUCT_RUN_CURRENT_LIMIT_A 7.0f
 /* 输出轴最高 120°/s，恒加速 1 s 达到上限；控制与存储使用电机轴单位。 */
 #define YQ_OUTPUT_SPEED_RAD_S (CONFIG_TWO_PI / 3.0f)
-#define YQ_MOTOR_SPEED_RAD_S (YQ_OUTPUT_SPEED_RAD_S * YQ5708_GEAR_RATIO)
+#define YQ_MOTOR_SPEED_RAD_S (YQ_OUTPUT_SPEED_RAD_S * YQ_JOINT_GEAR_RATIO)
 #define YQ_MOTOR_ACCEL_RAD_S2 (YQ_MOTOR_SPEED_RAD_S / 1.0f)
 
 static const SensorlessStartupConfig s_wheel_start =
@@ -61,6 +62,7 @@ static const SensorlessStartupConfig s_yq_start =
 static const MotorAxisPreset s_presets[] = {
     {0x03,
      MOTOR_JOINT_WHEEL_LEFT,
+     HT8115_MODEL_NAME,
      &s_ht,
      &s_wheel_start,
      HT8115_CALIB_SPEED_RAD_S,
@@ -68,9 +70,12 @@ static const MotorAxisPreset s_presets[] = {
      20.0f,
      {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
      0.0f,
-     0.0f},
+     0.0f,
+     .gear_ratio = 1.0f,
+     .has_linear_hall = false},
     {0x04,
      MOTOR_JOINT_WHEEL_RIGHT,
+     HT8115_MODEL_NAME,
      &s_ht,
      &s_wheel_start,
      HT8115_CALIB_SPEED_RAD_S,
@@ -78,9 +83,12 @@ static const MotorAxisPreset s_presets[] = {
      20.0f,
      {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
      0.0f,
-     0.0f},
+     0.0f,
+     .gear_ratio = 1.0f,
+     .has_linear_hall = false},
     {0x05,
      MOTOR_JOINT_ROLL,
+     HT8115_MODEL_NAME,
      &s_ht,
      &s_roll_start,
      HT8115_CALIB_SPEED_RAD_S,
@@ -88,9 +96,12 @@ static const MotorAxisPreset s_presets[] = {
      3.14159265f,
      {8.0f, 2.0f, 0.5f, 1.0f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,
-     CONFIG_TWO_PI * (150.0f / 360.0f)},
+     CONFIG_TWO_PI * (150.0f / 360.0f),
+     .gear_ratio = 1.0f,
+     .has_linear_hall = false},
     {0x06,
      MOTOR_JOINT_PITCH,
+     YQ5740_MODEL_NAME,
      &s_yq,
      &s_pitch_start,
      PITCH_CALIB_SPEED_RAD_S,
@@ -104,9 +115,12 @@ static const MotorAxisPreset s_presets[] = {
       YQ_MOTOR_ACCEL_RAD_S2,
       PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,
-     CONFIG_TWO_PI / 12.0f},
+     CONFIG_TWO_PI / 12.0f,
+     .gear_ratio = YQ_JOINT_GEAR_RATIO,
+     .has_linear_hall = true},
     {0x07,
      MOTOR_JOINT_YAW,
+     YQ5708_MODEL_NAME,
      &s_yq,
      &s_yq_start,
      YQ5708_CALIB_SPEED_RAD_S,
@@ -120,7 +134,9 @@ static const MotorAxisPreset s_presets[] = {
       YQ_MOTOR_ACCEL_RAD_S2,
       PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,
-     CONFIG_TWO_PI / 2.0f},
+     CONFIG_TWO_PI / 2.0f,
+     .gear_ratio = YQ_JOINT_GEAR_RATIO,
+     .has_linear_hall = true},
 };
 
 static const MotorAxisPreset *product_joint(uint32_t joint)
@@ -219,7 +235,7 @@ static bool load_profile(const MotorAxisProfile *stored, MotorAxisProfile *outpu
             {
                 return stored->minimum_position_rad == 0.0f && stored->maximum_position_rad == 0.0f;
             }
-            const float limit = p->output_travel_limit_rad * p->electrical->gear_ratio;
+            const float limit = p->output_travel_limit_rad * p->gear_ratio;
             if (!isfinite(stored->minimum_position_rad) || !isfinite(stored->maximum_position_rad))
             {
                 return false;

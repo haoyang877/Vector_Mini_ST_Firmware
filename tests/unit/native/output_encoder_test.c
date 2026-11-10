@@ -132,6 +132,16 @@ static void geared_drive(float ratio, int direction, float phase)
     OutputEncoder_SetZero(&encoder);
     assert(encoder.position_rad == 0);
     roundtrip(&encoder);
+    if (ratio == 40.0f)
+    {
+        /* 连续几组 Hall 原码相同，窗内外的样本仍给出严格单调的分数码均值。 */
+        for (unsigned i = 500U; i < 508U; ++i)
+        {
+            cal.samples[i].sin_counts = cal.samples[503].sin_counts;
+            cal.samples[i].cos_counts = cal.samples[503].cos_counts;
+        }
+        assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
+    }
     /* 错误减速比及没有覆盖整圈的采样不能保存成功状态。 */
     OutputEncoder wrong;
     OutputEncoder_Init(&wrong, ratio + 1);

@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <string.h>
 
+void BspSystem_Reset(void)
+{
+    assert(false && "instance test must not reset without an explicit configuration request");
+}
 static AppContext apps[2];
 static uint32_t now_ms;
 static bool load_saved, write_fails;

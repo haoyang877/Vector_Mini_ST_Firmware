@@ -43,6 +43,11 @@ uint32_t BspSystem_TimeMs(void)
     foreground_stage = 4U;
     return model_now_ms;
 }
+void AppMotorConfiguration_Process(AppMotorConfiguration *service, uint32_t now_ms)
+{
+    (void)now_ms;
+    assert(!service->restart_requested);
+}
 void Protocol_Process(ProtocolEndpoint *instance, uint32_t now_ms)
 {
     (void)instance;

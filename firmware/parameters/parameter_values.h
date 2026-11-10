@@ -72,6 +72,7 @@ typedef struct
 typedef struct
 {
     uint32_t revision, saved_revision;
+    uint32_t stored_record_crc; /* 最近装载或成功保存的基础记录 CRC，独立于读请求暂存区。 */
     ParameterStatus save_status;
 } ParameterPersistence;
 

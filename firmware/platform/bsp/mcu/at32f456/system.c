@@ -9,6 +9,11 @@
 #include "bsp_pwm.h"
 #include "bsp_can.h"
 
+void BspSystem_Reset(void)
+{
+    NVIC_SystemReset();
+}
+
 /* 外设初始化按默认成功处理，切换时钟前等待硬件就绪。 */
 static void wait_clock_flag(uint32_t flag)
 {

@@ -317,7 +317,9 @@ int main(void) {
  assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
  s_motor_configuration.configuration_confirmed=true;
  LinearHall_Init(&s_linear_hall);
- OutputEncoder_Init(&s_output_encoder, 8.0f);
+ const float ratio = s_motor_configuration.preset->gear_ratio;
+ assert(ratio == 40.0f);
+ OutputEncoder_Init(&s_output_encoder, ratio);
  LinearHall_CalibrationBegin(&calibration.hall_sweep);
  LinearHall_CalibrationSample(&calibration.hall_sweep,200,600);
  LinearHall_CalibrationSample(&calibration.hall_sweep,3400,3600);
@@ -339,8 +341,8 @@ int main(void) {
  memset(s_motor_configuration.device.encoder.linearization_lut_q15,0,sizeof s_motor_configuration.device.encoder.linearization_lut_q15);
  calibration.output_calibration.count=OUTPUT_ENCODER_CAL_SAMPLES;
  for(unsigned i=0;i<OUTPUT_ENCODER_CAL_SAMPLES;++i) {
-  int32_t counts=(int32_t)(i*8.0f*65536.0f*1.01f/255.0f);
-  float h=(float)counts*(6.283185307f/(65536.0f*8.0f));
+  int32_t counts=(int32_t)(i*ratio*65536.0f*1.01f/(OUTPUT_ENCODER_CAL_SAMPLES-1U));
+  float h=(float)counts*(6.283185307f/(65536.0f*ratio));
   calibration.output_calibration.samples[i]=(OutputEncoderCalibSample){counts,
    (uint16_t)(1800-1600*sinf(h)),(uint16_t)(2100+1500*cosf(h))};
  }
@@ -355,6 +357,10 @@ int main(void) {
  LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
  assert(hall.calibration_success && hall.calibration_faults==0 && hall.sin_amp==1600 && hall.cos_amp==1500);
  assert(hall.sin_off_counts==1800 && hall.cos_off_counts==2100);
+ OutputEncoder reboot;
+ OutputEncoder_Init(&reboot,loaded.preset->gear_ratio);
+ assert(Param_RestoreOutputEncoder(&stored_axis,&reboot,&hall));
+ assert(reboot.params.status==OUTPUT_ENCODER_CAL_OK && hall.lut_status==LINEAR_HALL_LUT_OK);
  kind=MOTOR_CALIBRATION_ELECTRICAL_ZERO; machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  MotorCalibration_ProcessPublication(&calibration);

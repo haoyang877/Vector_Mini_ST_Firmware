@@ -175,6 +175,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
                 "app.c",
                 "app_loader.c",
                 "app_protocol.c",
+                "app_motor_configuration.c",
                 "motor_state_machine.c",
                 "motor_axis.c",
                 "motor_calibration.c",

@@ -7,30 +7,41 @@
 
 int main(int argc, char **argv)
 {
-    if (argc != 8 && argc != 15)
+    if (argc != 9 && argc != 16)
     {
         return 2;
     }
     uint8_t node = (uint8_t)strtoul(argv[1], NULL, 10);
     MotorWindingThermalConfig heat = {0};
-    if (argc == 15)
+    if (argc == 16)
     {
-        heat = (MotorWindingThermalConfig){strtof(argv[8], NULL),
-                                           strtof(argv[9], NULL),
+        heat = (MotorWindingThermalConfig){strtof(argv[9], NULL),
                                            strtof(argv[10], NULL),
                                            strtof(argv[11], NULL),
                                            strtof(argv[12], NULL),
                                            strtof(argv[13], NULL),
-                                           strtof(argv[14], NULL)};
+                                           strtof(argv[14], NULL),
+                                           strtof(argv[15], NULL)};
     }
     MotorConfiguration configuration = {0};
     const MotorAxisPreset *p = MotorAxisProfile_ForNode(node);
     if (p == NULL)
     {
+        fprintf(stderr, "no motor preset for node 0x%02X\n", (unsigned)node);
         return 2;
     }
-    float ratio = argv[7][0] == '1' ? p->electrical->gear_ratio : 1.0f;
-    float maximum_travel = p->output_travel_limit_rad * p->electrical->gear_ratio;
+    if (argv[8][0] != '\0' && strcmp(argv[8], p->model_name) != 0)
+    {
+        fprintf(stderr,
+                "node 0x%02X (%s) requires %s, received %s\n",
+                (unsigned)node,
+                MotorJointType_Name(p->joint),
+                p->model_name,
+                argv[8]);
+        return 2;
+    }
+    float ratio = argv[7][0] == '1' ? p->gear_ratio : 1.0f;
+    float maximum_travel = p->output_travel_limit_rad * p->gear_ratio;
     float minimum = strcmp(argv[2], "default") == 0
                         ? (maximum_travel == 0.0f ? 0.0f : -maximum_travel)
                         : strtof(argv[2], NULL) * ratio;
@@ -40,17 +51,20 @@ int main(int argc, char **argv)
                           minimum,
                           maximum,
                           strtof(argv[4], NULL) * ratio,
-                          argc == 15 ? &heat : NULL,
+                          argc == 16 ? &heat : NULL,
                           &configuration))
     {
-        fputs("invalid role, travel, speed or winding thermal configuration\n", stderr);
+        fputs(argc == 9 && p->electrical->default_thermal == NULL
+                  ? "this motor requires seven verified --thermal values\n"
+                  : "invalid travel, speed or winding thermal configuration\n",
+              stderr);
         return 2;
     }
     configuration.configuration_confirmed = argv[5][0] == '1';
     InterfaceParam record;
     Param_Upload(&record, &configuration);
     Param_Download(&record, sizeof(record), &configuration);
-    if (configuration.preset == NULL || configuration.device.node_id != node ||
+    if (configuration.preset != p || configuration.device.node_id != node ||
         configuration.configuration_confirmed != (argv[5][0] == '1'))
     {
         fputs("record failed firmware readback\n", stderr);
@@ -62,5 +76,15 @@ int main(int argc, char **argv)
         return 1;
     }
     bool written = fwrite(&record, sizeof(record), 1, out) == 1;
-    return fclose(out) == 0 && written ? 0 : 1;
+    if (fclose(out) != 0 || !written)
+    {
+        return 1;
+    }
+    printf("node 0x%02X  %s  %s  %.0f:1  motor speed limit %.6g rad/s\n",
+           (unsigned)node,
+           MotorJointType_Name(p->joint),
+           p->model_name,
+           (double)p->gear_ratio,
+           (double)configuration.application.speed_limit_rad_s);
+    return 0;
 }

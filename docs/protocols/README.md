@@ -116,6 +116,7 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 | 120 / 121 / 122 | READ / WRITE / SAVE_PARAM | 4 / 12 / 4 | 成功20 B，错误4 B |
 | 123 / 125 | READ_SAVED / RESTORE_CONTROL_DEFAULTS | 4 / 4 | 成功20 B，错误4 B |
 | 126 | OUTPUT_FEEDBACK v1 | 0 | 成功32 B，错误4 B |
+| 190 / 191 / 192 / 193 | READ / PREPARE / COMMIT / ACTIVATE_MOTOR_CONFIGURATION | 4 / 40 / 16 / 16 | bit17能力门控；完整UID提交和显式重启 |
 | 124 | MOTION_FEEDBACK | 不接收 | 设备发送 45 B |
 | 160 | START_JOB | 4 | 12 B；仅 kind=1、2、6 |
 | 161 / 162 | GET_JOB_STATUS / CANCEL_JOB | 4 | 12 B；票据查询及取消 |
@@ -131,6 +132,19 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 先 117 启动，确认运行状态后再用 116 更新目标；切换模式前先 STOP。
 启动不携带目标，detail=0x0105 表示当前不允许启动。收到 1 只表示受理。
 STOP/失能只有在所有者确认输出关闭后才返回 0；返回 1 时继续查 108。
+
+### 上位机不限位位置会话 v1（APP1.6.2）
+
+GET_CAPS bit18（0x40000）声明仅本次上位机位置会话解除行程检查。
+Type117仍为4字节：`mode, start_flags, 0, 0`；`03 01 00 00`请求不限位位置会话，
+`03 00 00 00`保留普通位置控制。flags=1仅接受mode=3，未知标志/非零保留位/能力未声明返回4；
+来源仍须为主机节点2，其他来源返回7。旧固件拒绝新标志，主机不能静默退回有限位模式。
+只有启动门禁通过才发布易失权限；启动保持当前位置，Type116格式和目标序号规则不变。
+权限覆盖位置启动、绝对目标、外环输入与OTG参考，不改变速度、电流、温度、电压和有效反馈要求。
+主机来源的合法空载荷Type108仅刷新位置会话反馈时间；运动租约另需新目标或Type118在500ms内续期；其他来源、非法请求不续期。超时锁存CAN断连故障并关相，
+STOP、故障、复位清除权限；普通后续会话采用原轴策略。扫描与身份查询本身不解除任何限制。
+轴记录、参数ABI、CRC和既有零标志报文保持兼容。
+黄金输入见[位置会话向量](../../tests/fixtures/protocol/yg_protocol_host_position_session_v1_vectors.json)。
 
 116 基本载荷为 20 B，开环模式 9/10 为 32 B：
 
@@ -197,13 +211,49 @@ SN 是独立生产身份，不等于 MCU UID。缺少设备描述时，1/2 返�
 
 GET_CAPS 为 16 B：`features:u32, supported_modes:u16, max_full_frame:u16, max_block_data:u16,
 write_alignment:u16, default_watchdog_ms:u16, max_watchdog_ms:u16`。
-当前 APP 为 `0x1FD00, 0x064E, 64, 46, 0, 500, 500`；supported_modes 的 bit n 对应线路模式 n。
+当前 APP 为 `0x7FD00, 0x064E, 64, 46, 0, 500, 500`；supported_modes 的 bit n 对应线路模式 n。
 
 GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, epoch_valid:u16, boot_epoch:u64`。
 当前 APP 为 result=6、role=1、其余 0。升级身份使用 UID、镜像信息和主机 nonce，不使用无效 boot_epoch。
 
 <a id="parameters"></a>
 ## 参数和标定
+
+### 指定电机型号配置 v1
+
+合并版 APP v1.6.2 通过 GET_CAPS features bit17 声明 190–193。旧本地配参客户端使用的 123、125、126 与远程参数和反馈服务重号，配套上位机须同步更新。
+新命令不替代 120/121/122，不修改 schema14/AXS2 或生产身份 motor_type；旧固件未声明时禁止写入。
+
+| 命令 | 请求 | 成功回复 | 副作用 |
+|---|---|---|---|
+| 190 READ_MOTOR_CONFIGURATION | 4 B：page:u8（0 活动、1 本次已保存），其余零 | 44 B 配置 | 只读；缺失保存页返回不支持 |
+| 191 PREPARE_MOTOR_CONFIGURATION | 40 B 配置候选 | 12 B，偏移4为准备票据 | 只准备 RAM 候选，不擦写 Flash，不更改活动配置 |
+| 192 COMMIT_MOTOR_CONFIGURATION | 16 B：完整 UID[12]、准备票据:u32 | 12 B，偏移4为保存修订 | 复核完整 UID、当前修订和停机后保存、回读校验，锁定本次启动 |
+| 193 ACTIVATE_MOTOR_CONFIGURATION | 16 B：完整 UID[12]、保存修订:u32 | 4 B：1/0 表示受理 | 等待队列及硬件发送完成、实际关相后软件复位；新配置在启动装载 |
+
+40 B 候选：version=1/model/node/flags=1 各u8，expected_revision:u32，speed_limit:i32(mrad/s)，
+随后7个i32：持续/峰值mA、时间常数ms、进入/退出/跳闸/清除比（百万分比）。
+model 1=HT8115-4、2=YQ-5708、3=YQ-5740，分别只允许节点3/4/5、7、6。
+HT 热参数可全零使用生产预设，YQ 必须明确提供有效值；行程采用所选轴的产品范围。
+
+44 B 配置回复：result/detail:u16，version=1/model/node/flags各u8，revision:u32，
+speed_limit:i32(mrad/s)，上述7个i32热参数。
+flags bit0 配置确认、bit1 LUT有效、bit2电零位有效、bit3本次已保存待重启、bit4保存失败且锁定、
+bit5内存候选已准备（191回复）。活动页始终报告当前活动配置，保存页仅在 Flash 成功回读后提供。
+12 B 成功回复：result/detail:u16，ticket_or_revision:u32，version/model/node/flags各u8；
+191返回准备票据和bit5，192返回保存修订和bit3。错误回复4 B。读取热参数超出i32缩放范围返回失败。
+
+191/192/193只接受主站2。准备票据在同次运行内递增，不回绕；相同候选重发不分配新票据，
+新候选准备失败也先撤销旧票据，避免旧提交请求保存半更新候选。
+192/193必须匹配完整 UID；票据不代替设备身份。修订是最近参数记录CRC32，用于冲突检测，不是认证。
+提交时再次检查预期修订，拒绝准备后发生的其他参数/标定更新。同一提交重发不重复擦写。
+保存只在无故障、IDLE、模式NONE、实际关相、新鲜测量和近零速时执行，先锁定启动与标定。
+旧编码器、Hall和输出轴标定整体失效；写入/回读失败保持启动锁定，不自动回滚或恢复输出。
+Flash仍为单份记录，掉电可能需恢复参数。保存和活动配置分开，节点变更只在重启生效。
+
+主机保存前以只读查询检查新节点未被占用；激活后先核对新节点的完整UID，再读活动配置，
+验证型号、节点、保存修订及标定无效状态。受理不代表生效，超时不能证明操作未执行。
+黄金载荷见[型号配置v1向量](../../tests/fixtures/protocol/yg_protocol_motor_configuration_v1_vectors.json)。
 
 参数请求保持原有长度和字段布局：
 

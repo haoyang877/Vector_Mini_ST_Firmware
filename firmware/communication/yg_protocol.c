@@ -55,6 +55,8 @@ static yg_protocol_result_t handle_job_command(ProtocolEndpoint *endpoint,
                                                ProtocolExchange *exchange);
 static yg_protocol_result_t handle_parameter_command(ProtocolEndpoint *endpoint,
                                                      ProtocolExchange *exchange);
+static yg_protocol_result_t handle_configuration_command(ProtocolEndpoint *endpoint,
+                                                         ProtocolExchange *exchange);
 
 /* CAN 接收与前台入口 */
 
@@ -437,6 +439,11 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
     case PROTOCOL_WRITE_PARAMETER:
     case PROTOCOL_SAVE_PARAMETER:
         return handle_parameter_command(endpoint, exchange);
+    case PROTOCOL_READ_MOTOR_CONFIGURATION:
+    case PROTOCOL_PREPARE_MOTOR_CONFIGURATION:
+    case PROTOCOL_COMMIT_MOTOR_CONFIGURATION:
+    case PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION:
+        return handle_configuration_command(endpoint, exchange);
     case PROTOCOL_START_JOB:
     case PROTOCOL_GET_JOB_STATUS:
     case PROTOCOL_CANCEL_JOB:
@@ -447,6 +454,104 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
 }
 
 /* 设备查询 */
+
+static yg_protocol_result_t handle_configuration_command(ProtocolEndpoint *endpoint,
+                                                         ProtocolExchange *exchange)
+{
+    const yg_protocol_message_t *message = &exchange->request;
+    ProtocolResponse *response = &exchange->reply;
+    bool write = message->message_type == PROTOCOL_PREPARE_MOTOR_CONFIGURATION;
+    bool activate = message->message_type == PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION;
+    bool commit = message->message_type == PROTOCOL_COMMIT_MOTOR_CONFIGURATION;
+    if ((write || activate || commit) && message->source_node != PROTOCOL_MASTER_ID)
+    {
+        Protocol_WriteResult(response, PROTOCOL_RESULT_FORBIDDEN, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (message->payload_length != (write ? 40U : (activate || commit) ? 16U : 4U))
+    {
+        Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_LENGTH, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    const uint8_t *data = message->payload;
+    ProtocolMotorConfigurationRequest request = {.operation = write      ? 1U
+                                                              : commit   ? 2U
+                                                              : activate ? 3U
+                                                                         : 0U};
+    if (write)
+    {
+        request.version = data[0];
+        request.model = data[1];
+        request.node = data[2];
+        request.flags = data[3];
+        request.revision = YgProtocol_ReadU32Le(data + 4U);
+        request.speed_mrad_s = (int32_t)YgProtocol_ReadU32Le(data + 8U);
+        for (unsigned i = 0; i < 7U; ++i)
+        {
+            request.thermal[i] = (int32_t)YgProtocol_ReadU32Le(data + 12U + i * 4U);
+        }
+        if (request.version != 1U || request.model < 1U || request.model > 3U ||
+            request.flags != 1U)
+        {
+            Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_FIELD, 0U);
+            return YG_PROTOCOL_OK;
+        }
+    }
+    else if (activate || commit)
+    {
+        memcpy(request.uid, data, 12U);
+        request.revision = YgProtocol_ReadU32Le(data + 12U);
+    }
+    else
+    {
+        request.page = data[0];
+        if (data[0] > 1U || data[1] != 0U || data[2] != 0U || data[3] != 0U)
+        {
+            Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_FIELD, 0U);
+            return YG_PROTOCOL_OK;
+        }
+    }
+    ProtocolCommandArgs args = {0};
+    args.configuration.revision = request.revision;
+    args.configuration.operation = request.operation;
+    args.configuration.model = request.model;
+    args.configuration.node = request.node;
+    Protocol_RecordCommand(endpoint, message, args);
+    ProtocolMotorConfigurationReply reply = {.status = PROTOCOL_UNSUPPORTED};
+    if (endpoint->configuration.handler != NULL)
+    {
+        endpoint->configuration.handler(endpoint->configuration.context, &request, &reply);
+    }
+    Protocol_WriteResult(response, Protocol_StatusToCode(reply.status), reply.detail);
+    if (reply.status != PROTOCOL_OK)
+    {
+        return YG_PROTOCOL_OK;
+    }
+    if (write || commit)
+    {
+        response->length = 12U;
+        YgProtocol_WriteU32Le(response->data + 4U, reply.revision);
+        response->data[8] = reply.version;
+        response->data[9] = reply.model;
+        response->data[10] = reply.node;
+        response->data[11] = reply.flags;
+    }
+    else if (!activate)
+    {
+        response->length = 44U;
+        response->data[4] = reply.version;
+        response->data[5] = reply.model;
+        response->data[6] = reply.node;
+        response->data[7] = reply.flags;
+        YgProtocol_WriteU32Le(response->data + 8U, reply.revision);
+        YgProtocol_WriteU32Le(response->data + 12U, (uint32_t)reply.speed_mrad_s);
+        for (unsigned i = 0; i < 7U; ++i)
+        {
+            YgProtocol_WriteU32Le(response->data + 16U + i * 4U, (uint32_t)reply.thermal[i]);
+        }
+    }
+    return YG_PROTOCOL_OK;
+}
 
 bool Protocol_SetInfo(ProtocolEndpoint *endpoint,
                       const ProtocolInfo *info,
@@ -747,7 +852,11 @@ static yg_protocol_result_t handle_start_command(ProtocolEndpoint *endpoint,
         Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_LENGTH, 0U);
         return YG_PROTOCOL_OK;
     }
-    if (payload[1] != 0U || payload[2] != 0U || payload[3] != 0U)
+    if ((payload[1] != 0U &&
+         (payload[1] != PROTOCOL_START_HOST_POSITION_UNLIMITED || payload[0] != 3U ||
+          (endpoint->device.capabilities.features & PROTOCOL_FEATURE_HOST_POSITION_SESSION) ==
+              0U)) ||
+        payload[2] != 0U || payload[3] != 0U)
     {
         Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_FIELD, 0U);
         return YG_PROTOCOL_OK;
@@ -758,8 +867,10 @@ static yg_protocol_result_t handle_start_command(ProtocolEndpoint *endpoint,
         Protocol_WriteResult(response, PROTOCOL_RESULT_UNSUPPORTED, 0U);
         return YG_PROTOCOL_OK;
     }
-    const ProtocolCommand command = {
-        .source_node = request->source_node, .sequence = request->sequence, .mode = mode};
+    const ProtocolCommand command = {.source_node = request->source_node,
+                                     .sequence = request->sequence,
+                                     .mode = mode,
+                                     .start_flags = payload[1]};
     Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){.motor = command});
     ProtocolReply reply = {.status = PROTOCOL_FAILED};
     if (endpoint->motor.start != NULL)
@@ -907,6 +1018,11 @@ static yg_protocol_result_t handle_motor_status_query(ProtocolEndpoint *endpoint
     ProtocolCode code = PROTOCOL_RESULT_BAD_LENGTH;
     if (request->payload_length == 0U)
     {
+        if (request->source_node == PROTOCOL_MASTER_ID &&
+            endpoint->motor.host_position_keepalive != NULL)
+        {
+            endpoint->motor.host_position_keepalive(endpoint->motor.context);
+        }
         Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){0});
         code = PROTOCOL_RESULT_OK;
     }

@@ -1,4 +1,4 @@
-//! ControlCANFD 的唯一动态 SDK 边界；仅用户显式连接时打开指定设备 / 通道 0。
+//! ControlCANFD 的唯一动态 SDK 边界；显式扫描或连接时按所选波特率打开通道 0。
 
 use anyhow::{Context, Result, bail, ensure};
 use libloading::Library;
@@ -6,6 +6,52 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::ptr::NonNull;
 use std::time::{Duration, Instant};
+
+pub const ARBITRATION_RATES: [u32; 4] = [125_000, 250_000, 500_000, 1_000_000];
+pub const DATA_RATES: [u32; 6] = [
+    500_000, 1_000_000, 2_000_000, 4_000_000, 5_000_000, 8_000_000,
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bitrates {
+    pub arbitration: u32,
+    pub data: u32,
+}
+impl Default for Bitrates {
+    fn default() -> Self {
+        Self {
+            arbitration: 1_000_000,
+            data: 5_000_000,
+        }
+    }
+}
+impl Bitrates {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            ARBITRATION_RATES.contains(&self.arbitration),
+            "仲裁段波特率不在支持列表内"
+        );
+        ensure!(
+            DATA_RATES.contains(&self.data) && self.data >= self.arbitration,
+            "数据段波特率须在支持列表内且不低于仲裁段"
+        );
+        Ok(())
+    }
+    pub fn label(self) -> String {
+        format!(
+            "{} / {}",
+            bitrate_label(self.arbitration),
+            bitrate_label(self.data)
+        )
+    }
+}
+pub fn bitrate_label(rate: u32) -> String {
+    if rate >= 1_000_000 {
+        format!("{} Mbit/s", rate / 1_000_000)
+    } else {
+        format!("{} kbit/s", rate / 1000)
+    }
+}
 
 #[repr(C)]
 #[derive(Default)]
@@ -58,6 +104,17 @@ type Init = unsafe extern "system" fn(*mut c_void, u32, *const ChannelConfig) ->
 type Start = unsafe extern "system" fn(*mut c_void) -> u32;
 type Tx = unsafe extern "system" fn(*mut c_void, *const TxFd, u32) -> i32;
 type Rx = unsafe extern "system" fn(*mut c_void, *mut RxFd, u32, i32) -> i32;
+type DeviceInfo = unsafe extern "system" fn(*mut c_void, *mut SdkDeviceInfo) -> u32;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SdkDeviceInfo {
+    versions: [u16; 5],
+    channels: u8,
+    serial: [u8; 21],
+    hardware: [u8; 40],
+    reserved: [u16; 4],
+}
 
 struct Api {
     _library: Library,
@@ -71,6 +128,7 @@ struct Api {
     reset: Start,
     transmit: Tx,
     receive: Rx,
+    info: DeviceInfo,
 }
 
 impl Api {
@@ -92,6 +150,7 @@ impl Api {
             reset: unsafe { get(&library, b"ZCAN_ResetCAN\0")? },
             transmit: unsafe { get(&library, b"ZCAN_TransmitFD\0")? },
             receive: unsafe { get(&library, b"ZCAN_ReceiveFD\0")? },
+            info: unsafe { get(&library, b"ZCAN_GetDeviceInf\0")? },
             _library: library,
         })
     }
@@ -110,8 +169,29 @@ pub struct ControlCanFd {
 }
 
 impl ControlCanFd {
-    pub fn open(path: &Path, device_index: u32) -> Result<Self> {
+    pub fn check_sdk(path: &Path) -> Result<()> {
+        Api::load(path).map(|_| ())
+    }
+
+    pub fn adapter_name(&self) -> String {
+        let mut info: SdkDeviceInfo = unsafe { std::mem::zeroed() };
+        if unsafe { (self.api.info)(self.device.as_ptr(), &mut info) } != 1 {
+            return "USBCANFD-200U（信息不可用）".into();
+        }
+        let string = |bytes: &[u8]| {
+            let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+            String::from_utf8_lossy(&bytes[..end]).trim().to_owned()
+        };
+        let serial = string(&info.serial);
+        if serial.is_empty() {
+            "USBCANFD-200U".into()
+        } else {
+            format!("USBCANFD-200U · {serial}")
+        }
+    }
+    pub fn open(path: &Path, device_index: u32, bitrates: Bitrates) -> Result<Self> {
         ensure!(device_index <= 15, "CAN 设备索引必须为 0..15");
+        bitrates.validate()?;
         let api = Api::load(path)?;
         let device = NonNull::new(unsafe { (api.open)(41, device_index, 0) })
             .context("CAN 设备打开失败；检查驱动和端口独占")?;
@@ -122,8 +202,8 @@ impl ControlCanFd {
             pending: Vec::new(),
         };
         for (set, value, name) in [
-            (port.api.set_abit, 1_000_000, "仲裁速率"),
-            (port.api.set_dbit, 5_000_000, "数据速率"),
+            (port.api.set_abit, bitrates.arbitration, "仲裁速率"),
+            (port.api.set_dbit, bitrates.data, "数据速率"),
             (port.api.set_standard, 0, "ISO CAN FD"),
         ] {
             ensure!(
@@ -177,12 +257,18 @@ impl Transport for ControlCanFd {
             let count =
                 unsafe { (self.api.receive)(self.channel()?.as_ptr(), batch.as_mut_ptr(), 32, 0) };
             if !(0..=32).contains(&count) {
-                bail!("CAN FD 接收失败");
+                bail!("CAN FD 接收失败：SDK count={count}");
             }
             for item in batch.into_iter().take(count as usize) {
                 let frame = item.frame;
                 if frame.flags & (1 << 29) != 0 || frame.brs_esi & 2 != 0 {
-                    bail!("CAN 总线错误或 error-passive；停止升级");
+                    bail!(
+                        "CAN 总线错误或 error-passive：flags={:08X}, fd_flags={:02X}, length={}, data={}；停止事务",
+                        frame.flags,
+                        frame.brs_esi,
+                        frame.length,
+                        hex::encode(&frame.data[..usize::from(frame.length).min(64)])
+                    );
                 }
                 if frame.length > 64 {
                     bail!("SDK 返回非法帧长度");
@@ -224,12 +310,44 @@ mod tests {
         assert_eq!(std::mem::size_of::<CanFdFrame>(), 72);
         assert_eq!(std::mem::size_of::<TxFd>(), 76);
         assert_eq!(std::mem::size_of::<RxFd>(), 80);
+        assert_eq!(std::mem::size_of::<SdkDeviceInfo>(), 80);
     }
     #[test]
     fn invalid_device_index_is_rejected_before_loading_sdk() {
-        let error = ControlCanFd::open(Path::new("no-sdk.dll"), 16)
+        let error = ControlCanFd::open(Path::new("no-sdk.dll"), 16, Bitrates::default())
             .err()
             .unwrap();
         assert!(error.to_string().contains("索引"));
+    }
+    #[test]
+    fn invalid_rates_are_rejected_before_loading_sdk() {
+        assert!(Bitrates::default().validate().is_ok());
+        for rates in [
+            Bitrates {
+                arbitration: 123,
+                data: 5_000_000,
+            },
+            Bitrates {
+                arbitration: 1_000_000,
+                data: 500_000,
+            },
+            Bitrates {
+                arbitration: 500_000,
+                data: 123,
+            },
+        ] {
+            let error = ControlCanFd::open(Path::new("no-sdk.dll"), 0, rates)
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("波特率"));
+        }
+        for arbitration in ARBITRATION_RATES {
+            for data in DATA_RATES {
+                assert_eq!(
+                    Bitrates { arbitration, data }.validate().is_ok(),
+                    data >= arbitration
+                );
+            }
+        }
     }
 }

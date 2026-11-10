@@ -311,28 +311,22 @@ bool Param_CreateAxis(uint8_t node_id,
     {
         return false;
     }
-    /* HT 采用型号已有热输入；YQ 必须显式提供已核对的热输入。 */
-    MotorWindingThermalConfig heat = HT8115_HEAT_INITIALIZER;
-    if (thermal != NULL)
+    if (thermal == NULL)
     {
-        heat = *thermal;
+        thermal = p->electrical->default_thermal;
     }
-    else if (p->electrical->gear_ratio != 1.0f)
-    {
-        return false;
-    }
-    if (!MotorWindingThermal_Valid(&heat))
+    if (!MotorWindingThermal_Valid(thermal))
     {
         return false;
     }
     bind_preset(configuration, p);
-    configuration->model.thermal = heat;
+    configuration->model.thermal = *thermal;
     configuration->model.calibration_current_a = p->calibration_limit_a;
     configuration->device.node_id = node_id;
     MotorApplicationConfig *app = &configuration->application;
     app->axis_profile = axis;
     app->axis_profile_valid = true;
-    app->current_limit_a = fminf(p->control.maximum_current_a, heat.peak_a);
+    app->current_limit_a = fminf(p->control.maximum_current_a, thermal->peak_a);
     app->speed_ceiling_rad_s = app->speed_limit_rad_s = speed_rad_s;
     app->speed_feedforward.current_limit_a =
         fminf(app->current_limit_a, app->speed_feedforward.current_limit_a);

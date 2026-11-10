@@ -11,6 +11,103 @@
 #include "yg_protocol.h"
 
 static unsigned contract_motor_calls;
+static unsigned contract_configuration_calls;
+static void configuration_handler(void *context,
+                                  const ProtocolMotorConfigurationRequest *request,
+                                  ProtocolMotorConfigurationReply *reply)
+{
+    (void)context;
+    ++contract_configuration_calls;
+    if (request->operation == 1U)
+    {
+        assert(request->version == 1U && request->model == 3U && request->node == 6U &&
+               request->flags == 1U);
+        assert(request->revision == 0x12345678U && request->speed_mrad_s == 1000 &&
+               request->thermal[0] == 3000);
+    }
+    *reply = (ProtocolMotorConfigurationReply){
+        .status = PROTOCOL_OK,
+        .version = 1U,
+        .model = 3U,
+        .node = 6U,
+        .flags = 9U,
+        .revision = 0x12345678U,
+        .speed_mrad_s = 1000,
+        .thermal = {3000, 7000, 65000, 800000, 700000, 1000000, 500000}};
+    if (request->operation == 1U)
+    {
+        reply->revision = 1U;
+        reply->flags = 33U;
+    }
+    if (request->operation == 2U)
+    {
+        for (unsigned i = 0; i < 12U; ++i)
+        {
+            assert(request->uid[i] == 0x11U);
+        }
+        assert(request->revision == 1U);
+    }
+}
+
+static void configuration_service_boundaries(void)
+{
+    assert(test_reset_protocol(3U));
+    uint8_t payload[40] = {1U, 3U, 6U, 1U};
+    YgProtocol_WriteU32Le(payload + 4U, 0x12345678U);
+    YgProtocol_WriteU32Le(payload + 8U, 1000U);
+    const int32_t thermal[] = {3000, 7000, 65000, 800000, 700000, 1000000, 500000};
+    for (unsigned i = 0; i < 7U; ++i)
+    {
+        YgProtocol_WriteU32Le(payload + 12U + i * 4U, (uint32_t)thermal[i]);
+    }
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .source_node = 2U,
+                                             .destination_node = 3U,
+                                             .message_type = PROTOCOL_PREPARE_MOTOR_CONFIGURATION,
+                                             .payload = payload,
+                                             .payload_length = 40U}};
+    contract_configuration_calls = 0U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 2U);
+    endpoint.configuration = (ProtocolMotorConfiguration){NULL, configuration_handler};
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 7U);
+    exchange.request.source_node = 2U;
+    exchange.request.payload_length = 39U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 3U);
+    exchange.request.payload_length = 40U;
+    payload[3] = 0U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 4U);
+    assert(contract_configuration_calls == 0U);
+    payload[3] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 12U);
+    assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) == 1U && exchange.reply.data[10] == 6U);
+    exchange.request.message_type = PROTOCOL_READ_MOTOR_CONFIGURATION;
+    exchange.request.payload_length = 4U;
+    memset(payload, 0, 4U);
+    payload[0] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 44U);
+    assert(exchange.reply.data[5] == 3U && exchange.reply.data[6] == 6U &&
+           YgProtocol_ReadU32Le(exchange.reply.data + 16U) == 3000U);
+    const uint8_t golden_read[] = {0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x03U, 0x06U, 0x09U, 0x78U,
+                                   0x56U, 0x34U, 0x12U, 0xe8U, 0x03U, 0x00U, 0x00U, 0xb8U, 0x0bU,
+                                   0x00U, 0x00U, 0x58U, 0x1bU, 0x00U, 0x00U, 0xe8U, 0xfdU, 0x00U,
+                                   0x00U, 0x00U, 0x35U, 0x0cU, 0x00U, 0x60U, 0xaeU, 0x0aU, 0x00U,
+                                   0x40U, 0x42U, 0x0fU, 0x00U, 0x20U, 0xa1U, 0x07U, 0x00U};
+    assert(memcmp(exchange.reply.data, golden_read, sizeof(golden_read)) == 0);
+    payload[1] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 4U);
+    exchange.request.message_type = PROTOCOL_COMMIT_MOTOR_CONFIGURATION;
+    exchange.request.payload_length = 16U;
+    memset(payload, 0x11, 12U);
+    YgProtocol_WriteU32Le(payload + 12U, 1U);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 12U &&
+           exchange.reply.data[11] == 9U);
+    exchange.request.message_type = PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION;
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 7U);
+    assert(contract_configuration_calls == 3U);
+}
 static void motor_handler(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
     (void)context;
@@ -412,6 +509,7 @@ void yg_protocol_contract_test(void)
 {
     parameter_and_output_contract();
     service_boundaries();
+    configuration_service_boundaries();
     numeric_boundaries();
     full_feedback_snapshot();
     full_feedback_vector();

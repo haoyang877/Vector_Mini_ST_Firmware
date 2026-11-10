@@ -1,7 +1,8 @@
 # 硬件资料与曲线
 
 - [板卡资源与适配电机配置](board_resource_registry_v1.md)：新旧板资源、适配电机型号及参数的统一对照。
-- [原理图](SCH_Vector_Mini_ST_2026-07-22.pdf)：核对实际板卡修订。
+- [AT32F456 驱动板原理图（R40，2026-09-18）](SCH_R40_260522_2026-09-18.pdf)，第 2 页为功率桥与电流采样，第 5 页为主控及引脚连接。
+- [Vector Mini ST 原理图（2026-07-22）](SCH_Vector_Mini_ST_2026-07-22.pdf)。
 - [AT32F456 硬件与YQ-5708电机配置](at32f456_configuration_v1.md)：新板引脚、固定CAN速率及电机参数依据。
 - [原始用户手册](<Vector_User Manual.pdf>)：USB/VOFA等章节属于旧功能，当前接口查协议/指南。
 - [HT8115-4性能曲线](ht8115-4_performance_curves.md)

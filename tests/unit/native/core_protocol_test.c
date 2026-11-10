@@ -216,6 +216,11 @@ static void test_target_mode_mapping(void)
     assert(reply.status == PROTOCOL_DENIED && target_calls == calls_before + 2U);
 }
 
+uint32_t BspSystem_TimeMs(void)
+{
+    return 0U;
+}
+
 int main(void)
 {
     AppProtocol_Init(&adapter, &endpoint, &machine);

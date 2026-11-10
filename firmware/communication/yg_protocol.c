@@ -368,6 +368,31 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
         return handle_state_command(endpoint, exchange);
     case PROTOCOL_CONTROL:
         return handle_target_command(endpoint, exchange);
+    case PROTOCOL_RENEW_MOTION:
+    {
+        const yg_protocol_message_t *request = &exchange->request;
+        ProtocolReply reply = {.status = PROTOCOL_UNSUPPORTED};
+        if (request->source_node != PROTOCOL_MASTER_ID)
+        {
+            Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_FORBIDDEN, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        if (request->payload == NULL || request->payload_length != 4U)
+        {
+            Protocol_WriteResult(&exchange->reply, PROTOCOL_RESULT_BAD_LENGTH, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        ProtocolCommand command = {.source_node = request->source_node,
+                                   .sequence = request->sequence,
+                                   .renewal_counter = YgProtocol_ReadU32Le(request->payload)};
+        Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){.motor = command});
+        if (endpoint->motor.renew != NULL)
+        {
+            endpoint->motor.renew(endpoint->motor.context, &command, &reply);
+        }
+        Protocol_WriteResult(&exchange->reply, Protocol_StatusToCode(reply.status), reply.detail);
+        return YG_PROTOCOL_OK;
+    }
     case PROTOCOL_START:
         return handle_start_command(endpoint, exchange);
     case PROTOCOL_READ_PARAMETER:

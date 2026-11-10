@@ -10,6 +10,7 @@
 #include "motor_fault.h"
 #include "motor_sensing.h"
 #include "parameter_values.h"
+#include "yg_protocol_common.h"
 
 /* AT32F456 的链接脚本将这个纯函数单独放入快环 SRAM。 */
 __attribute__((noinline)) MotorState MotorStateMachine_NextState(MotorState state,
@@ -658,6 +659,7 @@ void MotorStateMachine_RequestStop(MotorStateMachine *machine)
 
 static void disable_phases_and_end_session(MotorStateMachine *machine)
 {
+    machine->motion_lease_active = false;
     bool calibration_was_active = machine->calibration_type != MOTOR_CALIBRATION_NONE;
     machine->phase_enable_epoch = 0U;
     machine->start_pending = false;
@@ -914,6 +916,13 @@ static void stop_on_unsafe_conditions(MotorStateMachine *machine, bool configura
 
 void MotorStateMachine_SupervisorTick(MotorStateMachine *machine)
 {
+    if (machine->motion_lease_active &&
+        (uint32_t)(BspSystem_TimeMs() - machine->motion_renewed_ms) >= PROTOCOL_MOTION_LEASE_MS)
+    {
+        machine->motion_lease_active = false;
+        MotorFault_Report(machine->drive.motor, MOTOR_FAULT_CAN_DISCONNECTED);
+        MotorStateMachine_RequestStop(machine);
+    }
     uint32_t sample_ticks = machine->fast_sample_ticks;
     machine->fast_samples_fresh = sample_ticks != machine->observed_fast_sample_ticks;
     machine->observed_fast_sample_ticks = sample_ticks;

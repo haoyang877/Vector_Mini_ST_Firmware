@@ -10,6 +10,7 @@
 #include <string.h>
 
 static AppContext apps[2];
+static uint32_t now_ms;
 static unsigned depth;
 static bool nested;
 static bool calibrating;
@@ -195,7 +196,7 @@ void BspSystem_MemoryBarrier(void)
 }
 uint32_t BspSystem_TimeMs(void)
 {
-    return 0U;
+    return now_ms;
 }
 BspResult BspSystem_ReadUid(uint8_t uid[BSP_SYSTEM_UID_BYTES])
 {
@@ -353,6 +354,56 @@ static void stop_between_snapshot_and_commit(void)
     assert(queue_count(&apps[0].endpoint.rx_queue) == 1 &&
            queue_count(&apps[1].endpoint.rx_queue) == 0);
 }
+static void motion_permission_expires(void)
+{
+    MotorStateMachine *machine = &apps[0].axis.state_machine;
+    ProtocolMotor *motor = &apps[0].endpoint.motor;
+    const MotorControlMode modes[] = {MOTOR_CONTROL_CURRENT,
+                                      MOTOR_CONTROL_SPEED,
+                                      MOTOR_CONTROL_POSITION,
+                                      MOTOR_CONTROL_VQ,
+                                      MOTOR_CONTROL_OPEN_VOLTAGE,
+                                      MOTOR_CONTROL_OPEN_CURRENT};
+    for (unsigned i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i)
+    {
+        machine->state = MOTOR_STATE_RUNNING;
+        machine->drive.motor->control_mode = modes[i];
+        machine->drive.motor->fault_code = MOTOR_FAULT_NONE;
+        machine->motion_lease_active = true;
+        machine->motion_renewed_ms = now_ms = UINT32_MAX - 200U;
+        machine->stop_pending = false;
+        devices[0].disabled = false;
+        apps[0].protocol.renewal_counter = 0U;
+        ProtocolCommand request = {.renewal_counter = 1U};
+        ProtocolReply reply;
+        now_ms += 10U;
+        motor->renew(motor->context, &request, &reply);
+        assert(reply.status == PROTOCOL_OK && machine->motion_renewed_ms == now_ms);
+        now_ms += 100U;
+        const uint8_t wire_modes[] = {1U, 2U, 3U, 6U, 9U, 10U};
+        ProtocolCommand old_target = {.mode = wire_modes[i], .sequence = 17U};
+        apps[0].protocol.last_target = old_target;
+        apps[0].protocol.last_target_epoch = machine->epoch;
+        uint32_t last_renewed = machine->motion_renewed_ms;
+        motor->target(motor->context, &old_target, &reply);
+        assert(reply.status == PROTOCOL_OK && machine->motion_renewed_ms == last_renewed);
+        ProtocolFeedback feedback = {0};
+        (void)motor->read_feedback(motor->context, &feedback);
+        assert(machine->motion_renewed_ms == last_renewed);
+        motor->renew(motor->context, &request, &reply);
+        assert(reply.status == PROTOCOL_DENIED && machine->motion_renewed_ms != now_ms);
+        now_ms += 400U;
+        request.renewal_counter = 2U;
+        motor->renew(motor->context, &request, &reply);
+        assert(reply.status == PROTOCOL_DENIED);
+        MotorStateMachine_SupervisorTick(machine);
+        assert(!machine->motion_lease_active && devices[0].disabled);
+        assert(machine->drive.motor->control_mode == MOTOR_CONTROL_NONE);
+        motor->renew(motor->context, &request, &reply);
+        assert(reply.status == PROTOCOL_DENIED && devices[0].disabled);
+        assert(!apps[1].axis.state_machine.motion_lease_active);
+    }
+}
 int main(void)
 {
     run(false);
@@ -361,6 +412,7 @@ int main(void)
     run(true);
     assert(memcmp(reference, devices, sizeof(devices)) == 0);
     stop_between_snapshot_and_commit();
+    motion_permission_expires();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");
     return 0;

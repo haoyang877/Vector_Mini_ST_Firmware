@@ -101,7 +101,8 @@ bool Protocol_SetInfo(ProtocolEndpoint *instance,
     event(22, caps->supported_modes);
     event(23, caps->max_full_frame);
     event(24, caps->max_block_data);
-    assert(caps->features == 0x1d00U && caps->supported_modes == 0x64eU);
+    assert(caps->features == 0x3d00U && caps->supported_modes == 0x64eU);
+    assert(caps->default_watchdog_ms == 500U && caps->max_watchdog_ms == 500U);
     return failure_stage != 4;
 }
 bool Protocol_SetInfoPage(ProtocolEndpoint *instance, uint16_t page, const uint8_t *payload)

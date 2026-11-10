@@ -84,6 +84,7 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
                configuration->application.current_limit_a > 0.0f;
     case MOTOR_FAULT_CONTROL_OVERRUN:
     case MOTOR_FAULT_SELF_TEST_TIMEOUT:
+    case MOTOR_FAULT_CAN_DISCONNECTED:
         return samples_fresh;
     case MOTOR_FAULT_PHASE_RESISTANCE:
     case MOTOR_FAULT_PHASE_INDUCTANCE:

@@ -54,6 +54,12 @@ static void request_motor_start(void *context, const ProtocolCommand *request, P
     }
     reply->status =
         encode_control_result(MotorStateMachine_RequestStart(adapter->state_machine, mode));
+    if (reply->status == PROTOCOL_ACCEPTED)
+    {
+        adapter->state_machine->motion_renewed_ms = BspSystem_TimeMs();
+        BspSystem_MemoryBarrier();
+        adapter->state_machine->motion_lease_active = true;
+    }
     if (reply->status == PROTOCOL_DENIED)
     {
         reply->detail = 0x0105U;
@@ -103,6 +109,13 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
             return;
         }
     }
+    if (adapter->state_machine->motion_lease_active &&
+        (uint32_t)(BspSystem_TimeMs() - adapter->state_machine->motion_renewed_ms) >=
+            PROTOCOL_MOTION_LEASE_MS)
+    {
+        reply->status = PROTOCOL_DENIED;
+        return;
+    }
     MotorTarget target = {.mode = (uint16_t)mode,
                           .position_rad = request->position_mrad * 0.001f,
                           .speed_rad_s = request->speed_mrad_s * 0.001f,
@@ -117,9 +130,29 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
     reply->status = result == MOTOR_CONTROL_ACCEPTED ? PROTOCOL_OK : encode_control_result(result);
     if (result == MOTOR_CONTROL_ACCEPTED)
     {
+        adapter->state_machine->motion_renewed_ms = BspSystem_TimeMs();
         adapter->last_target = *request;
         adapter->last_target_epoch = epoch;
     }
+}
+
+static void
+renew_motion_permission(void *context, const ProtocolCommand *request, ProtocolReply *reply)
+{
+    AppProtocol *adapter = context;
+    MotorStateMachine *machine = adapter->state_machine;
+    *reply = (ProtocolReply){.status = PROTOCOL_DENIED};
+    uint32_t delta = request->renewal_counter - adapter->renewal_counter;
+    if (request->renewal_counter == 0U || delta == 0U || delta > INT32_MAX ||
+        !machine->motion_lease_active || machine->stop_pending ||
+        machine->drive.motor->fault_code != MOTOR_FAULT_NONE ||
+        (uint32_t)(BspSystem_TimeMs() - machine->motion_renewed_ms) >= PROTOCOL_MOTION_LEASE_MS)
+    {
+        return;
+    }
+    machine->motion_renewed_ms = BspSystem_TimeMs();
+    adapter->renewal_counter = request->renewal_counter;
+    reply->status = PROTOCOL_OK;
 }
 
 static void request_motor_stop(void *context, const ProtocolCommand *request, ProtocolReply *reply)
@@ -324,6 +357,7 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorSta
 {
     adapter->state_machine = machine;
     endpoint->motor = (ProtocolMotor){.context = adapter,
+                                      .renew = renew_motion_permission,
                                       .start = request_motor_start,
                                       .target = set_motor_target,
                                       .stop = request_motor_stop,

@@ -159,4 +159,9 @@ static inline bool YgProtocol_IsAckUnicastRequest(const yg_protocol_message_t *m
             message->flags == (YG_PROTOCOL_FLAGS_ACK_REQUEST | YG_PROTOCOL_FLAGS_RETRY));
 }
 
+/* APP 通信租约 v1；查询、重复目标和迟到续租均不延长运动许可。 */
+#define PROTOCOL_RENEW_MOTION 118U
+#define PROTOCOL_MOTION_LEASE_MS 500U
+#define PROTOCOL_FEATURE_MOTION_LEASE (1UL << 13U)
+
 #endif

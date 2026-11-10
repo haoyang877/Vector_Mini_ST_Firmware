@@ -846,6 +846,11 @@ static void test_wheel_position_targets(void)
 
 void test_state_transition_matrix(void);
 
+uint32_t BspSystem_TimeMs(void)
+{
+    return 0U;
+}
+
 int main(void)
 {
     test_state_transition_matrix();

@@ -139,7 +139,9 @@ struct MotorStateMachine
     uint32_t observed_fast_sample_ticks;
     volatile bool stop_pending;
     volatile MotorCalibrationHandoff calibration_handoff;
-    bool start_pending; /* 普通启动已受理，尚未确认三相输出开启。 */
+    volatile uint32_t motion_renewed_ms; /* 前台唯一写者，监督读取。 */
+    volatile bool motion_lease_active;   /* 仅协议启动启用，结束会话撤销。 */
+    bool start_pending;                  /* 普通启动已受理，尚未确认三相输出开启。 */
     bool fault_locked, fast_samples_fresh, starts_locked;
 };
 

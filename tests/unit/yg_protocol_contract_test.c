@@ -32,6 +32,14 @@ static void job_handler(void *context, const ProtocolJobRequest *request, Protoc
     reply->status = PROTOCOL_BUSY;
 }
 
+static void renew_handler(void *context, const ProtocolCommand *request, ProtocolReply *reply)
+{
+    (void)context;
+    assert(request->renewal_counter == 256U);
+    ++contract_motor_calls;
+    reply->status = PROTOCOL_OK;
+}
+
 static void service_boundaries(void)
 {
     assert(test_reset_protocol(3U));
@@ -59,6 +67,21 @@ static void service_boundaries(void)
     exchange.request.payload_length = 4U;
     assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 8U);
+    exchange.request.message_type = PROTOCOL_RENEW_MOTION;
+    endpoint.motor.renew = renew_handler;
+    const uint8_t renewal_golden[] = {0U, 1U, 0U, 0U};
+    memcpy(payload, renewal_golden, sizeof(renewal_golden));
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 4U && YgProtocol_ReadU32Le(exchange.reply.data) == 0U);
+    assert(contract_motor_calls == 2U);
+    exchange.request.payload_length = 3U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH && contract_motor_calls == 2U);
+    exchange.request.payload_length = 4U;
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN && contract_motor_calls == 2U);
+    exchange.request.source_node = PROTOCOL_MASTER_ID;
     endpoint.jobs = (ProtocolJobs){NULL, job_handler};
     exchange.request.message_type = PROTOCOL_GET_JOB_STATUS;
     YgProtocol_WriteU32Le(payload, 42U);

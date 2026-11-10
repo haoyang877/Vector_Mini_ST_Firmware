@@ -172,6 +172,7 @@ typedef struct
     uint8_t source_node;
     uint16_t sequence;
     uint8_t mode;
+    uint32_t renewal_counter;
     int32_t position_mrad;
     int32_t speed_mrad_s;
     int32_t iq_mA;
@@ -191,10 +192,11 @@ typedef void (*ProtocolMotorHandler)(void *context,
                                      const ProtocolCommand *request,
                                      ProtocolReply *reply);
 
-/** @brief 四个电机操作均由 APP 静态提供；不支持的操作直接返回 UNSUPPORTED。 */
+/** @brief 电机操作均由 APP 静态提供；不支持的操作直接返回 UNSUPPORTED。 */
 typedef struct
 {
     void *context;
+    ProtocolMotorHandler renew;
     ProtocolMotorHandler start;
     ProtocolMotorHandler target;
     ProtocolMotorHandler stop;

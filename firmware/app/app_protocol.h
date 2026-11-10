@@ -10,6 +10,7 @@ typedef struct
     MotorStateMachine *state_machine;
     ProtocolCommand last_target;
     uint32_t last_target_epoch, calibration_request_number;
+    uint32_t renewal_counter;
 } AppProtocol;
 
 /**

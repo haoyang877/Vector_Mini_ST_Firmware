@@ -112,6 +112,7 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 | 110 | STOP | 0 | 4 B；受理与实际关相完成区分 |
 | 116 | SET_CONTROL | 20 / 32 | 4 B 结果及一帧 124 反馈 |
 | 117 | START_CONTROL | 4 | 4 B；按指定模式请求启动 |
+| 118 | RENEW_MOTION | 4 | 4 B result/detail，通信租约 v1 |
 | 120 / 121 / 122 | READ / WRITE / SAVE_PARAM | 4 / 12 / 4 | 4 B；参数功能未接入 |
 | 124 | MOTION_FEEDBACK | 不接收 | 设备发送 45 B |
 | 160 | START_JOB | 4 | 12 B；仅 kind=1、2、6 |
@@ -194,7 +195,7 @@ SN 是独立生产身份，不等于 MCU UID。缺少设备描述时，1/2 返�
 
 GET_CAPS 为 16 B：`features:u32, supported_modes:u16, max_full_frame:u16, max_block_data:u16,
 write_alignment:u16, default_watchdog_ms:u16, max_watchdog_ms:u16`。
-当前 APP 为 `0x1D00, 0x064E, 64, 46, 0, 0, 0`；supported_modes 的 bit n 对应线路模式 n。
+当前 APP 为 `0x3D00, 0x064E, 64, 46, 0, 500, 500`；supported_modes 的 bit n 对应线路模式 n。
 
 GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, epoch_valid:u16, boot_epoch:u64`。
 当前 APP 为 result=6、role=1、其余 0。升级身份使用 UID、镜像信息和主机 nonce，不使用无效 boot_epoch。
@@ -282,3 +283,30 @@ CRC、业务和 Flash 不在接收中断执行。
 
 字节回归数据在 [tests/fixtures/protocol](../../tests/fixtures/protocol/)，旧格式仅用于历史/拒绝测试。
 运行 `python tools/run.py verify --profile pr` 检查；离线验证不连接硬件，也不代替实机验收。
+
+## 通信运动租约 v1
+
+2026-11-10新增Type118，CAPS.features位13声明支持。default_watchdog_ms和
+max_watchdog_ms均为500，当前版本固定500 ms，不接受禁用。该值是离线开发默认，
+正式运行需台架验证停机和调度。系统/试运行硬件看门狗保持独立职责。
+
+Type117成功受理普通运动后建立租约，覆盖模式1/2/3/6/9/10和待启相阶段。
+首次受理的新Type116目标续租；重复目标仅返回原结果，不延长期限。
+只读查询、畸形或无权报文、过期目标和迟到续租均不续租。
+监督上下文按毫秒时钟检查，不依赖CAN前台继续接收。
+到期锁存CAN失联故障，使用现有STOP/故障路径关相。反馈fault_code位6可查询。
+恢复通信后先107显式清错，再117新启动；GET和118均不启动运动。
+标定和升级事务保持各自生命周期，不由此租约续活。
+
+Type118只接受主站2的ACK单播，payload为4字节u32小端renewal_counter。
+首次非零，之后按u32半范围严格前进，重复、零和回退拒绝，不更新时钟。
+该计数在普通STOP/清错/再次启动间保留，本次上电内有效，复位后失效。
+主控进程重启须保留每节点的计数高水位；当前版本不提供高水位读回或接管操作，
+丢失高水位时应停止并报错，不能从1盲发或假设设备已复位。
+它用于续租去重，不能充当真实启动代际或高频控制会话。
+主控须持续递增同一节点的计数，超时后停止发送，显式重新启动后才恢复续租。
+回复4字节result:u16/detail:u16，成功00000000，拒绝05000000。
+未支持的旧设备不得依靠Type118维持运动许可。
+黄金payload向量见tests/fixtures/protocol/motion_lease_v1.json。
+
+后续120/121/122、161/162和独立输出角仍按既有支持状态解释。

@@ -167,6 +167,11 @@ static void check_feedback_dispatch(void)
     assert(!queue_pop(&endpoint.tx_queue, &frame));
 }
 
+uint32_t BspSystem_TimeMs(void)
+{
+    return 0U;
+}
+
 int main(void)
 {
     AppProtocol_Init(&adapter, &endpoint, &machine);

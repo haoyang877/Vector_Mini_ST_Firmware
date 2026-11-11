@@ -56,11 +56,20 @@ class _RXFD(C.Structure):
 class ControlCanFd:
     """仅在显式上下文内打开指定设备的通道0，ISO CAN FD 1M/5M。"""
 
-    def __init__(self, dll_path: Path, device_index: int = 0) -> None:
+    def __init__(
+        self,
+        dll_path: Path,
+        device_index: int = 0,
+        *,
+        nominal_bps: int = 1000000,
+        data_bps: int = 5000000,
+    ) -> None:
         if type(device_index) is not int or not 0 <= device_index <= 0xFFFFFFFF:
             raise ValueError("USB-CAN设备索引必须是非负u32整数")
         self.dll_path = dll_path.resolve()
         self.device_index = device_index
+        self.nominal_bps = nominal_bps
+        self.data_bps = data_bps
         self.device = None
         self.channel = None
         self.pending: list[tuple[int, bytes]] = []
@@ -85,8 +94,8 @@ class ControlCanFd:
             raise OSError("CAN适配器打开失败，检查设备独占与驱动")
         try:
             for name, value in (
-                ("ZCAN_SetAbitBaud", 1000000),
-                ("ZCAN_SetDbitBaud", 5000000),
+                ("ZCAN_SetAbitBaud", self.nominal_bps),
+                ("ZCAN_SetDbitBaud", self.data_bps),
                 ("ZCAN_SetCANFDStandard", 0),
             ):
                 if getattr(self.dll, name)(self.device, 0, value) != 1:

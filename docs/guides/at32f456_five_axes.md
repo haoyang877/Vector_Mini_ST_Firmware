@@ -186,3 +186,19 @@ CAN 核对使用主站 `0x02`，逐一向 `0x03..0x07` 单播无载荷的 Type 1
 2026-11-06 的 Excel 对应参数提交 `c50c3da3`，文件保存在 `outputs/01a1a9f6-8ef8-7d00-99b3-f032a6c7ff53/AT32F456_五轴电机参数对照_运动配置修订.xlsx`。后续维护以本页随 Git 跟踪的 ID 映射和参数表为准。
 
 Excel SHA-256：`7ab51536abea9857bb2be9aa1dbdc264884a39488e81b8dea5eed75b9b2bb4a1`。
+
+## 五轴 USB-CAN 只读压测
+
+在 Windows 台架上保持节点 3 至 7 静止并共线通电，将环境变量 `CONTROLCANFD_DLL`
+设为厂商 64 位 `ControlCANFD.dll` 的完整路径，释放适配器通道 0 后，在仓库根目录运行：
+
+```powershell
+uv run python tools/bench/five_axis_can_stability.py --dll "$env:CONTROLCANFD_DLL"
+```
+
+[压测脚本](../../tools/bench/five_axis_can_stability.py) 默认加载[实测批次](../../tools/bench/five_axis_can_stability.json)，
+核对五台的 UID、APP 0.6.2、Loader 2.2.0。也可用 `--batch` 指定同格式的烧录记录。
+脚本以 500 kbit/s 仲裁、2 Mbit/s 数据速率查询设备信息、能力、设备状态和电机状态。
+每台轮询和五台连续发送各 35,000 次，首答期限 50 ms，应用层重试为零。
+原始帧和验收结论保存在启动时打印的 `outputs/can-stability-*/` 目录中，分别为
+`frames.csv` 和 `summary.json`。退出码 0 表示通过。

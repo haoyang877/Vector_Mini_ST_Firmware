@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [重构分支集成与单节点 12 档 CAN 升级](2026-11-12-refactor-bitrate-integration.md) — 节点 7 完成逐档下载和持久确认，现场整片已恢复，双板调试包已复核。
+
 - [AT32F456 单板波特率与桌面工具](2026-11-12-can-bitrate-single-board.md) — APP v0.7.2、Loader v2.3.2 在节点 6 完成 1M/5M 实测并恢复原固件，CAN-Link-Test 更新为 v1.6.1。
 
 - [五轴 AT32F456 CAN 波特率配置 v1](2026-11-12-at32-can-bitrate-v1.md) — APP v0.7.1 与 Loader v2.3.1 默认 1M/5M，12 档寄存器和五轴备份通过离线回放。现场保留现有固件。

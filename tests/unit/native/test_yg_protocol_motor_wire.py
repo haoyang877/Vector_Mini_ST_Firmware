@@ -77,6 +77,9 @@ def main() -> None:
     subprocess.run(command, check=True)
     result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
     print(result.stdout, end="")
+    hardware = json.loads((ROOT / "tests/fixtures/protocol/hardware_check_v2.json").read_text())
+    if f"HARDWARE_REPORT {hardware['report_payload']}" not in result.stdout.splitlines():
+        raise RuntimeError("Type127 生产编码与 v2 黄金报告不符")
     host_vectors = json.loads(
         (
             ROOT / "tests/fixtures/protocol/yg_protocol_host_position_session_v1_vectors.json"

@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [AT32F456 硬件功能检测](2026-11-12-at32-hardware-check.md) — 通信、静态阈值、双向角度和 21 B 报告已实现，验证范围为离线和工程构建。
+
 - [重构分支集成与单节点 12 档 CAN 升级](2026-11-12-refactor-bitrate-integration.md) — 节点 7 完成逐档下载和持久确认，现场整片已恢复，双板调试包已复核。
 
 - [AT32F456 单板波特率与桌面工具](2026-11-12-can-bitrate-single-board.md) — APP v0.7.2、Loader v2.3.2 在节点 6 完成 1M/5M 实测并恢复原固件，CAN-Link-Test 更新为 v1.6.1。

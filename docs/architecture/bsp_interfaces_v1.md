@@ -112,6 +112,7 @@ uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution);
 Begin发起本拍读取，ReadAngle等待传输完成；BSP_ENCODER_16BIT为每圈65536计数，
 BSP_ENCODER_21BIT为每圈2097152计数，均用uint32_t返回。现有控制环固定选择16位。
 MT6835返回高16位或完整21位；TLE5012B原15位左移补零；不施加方向、零位或LUT。
+AT32F456 APP 另提供 `BspEncoder_ReadCompletedFrame()`。ADC 中断在本拍 ReadAngle 完成之后、下一笔 Begin 之前调用。返回同一 DMA 帧的 21 位角（bit31～11）、3 位状态（bit10～8）和 CRC8（bit7～0）。读取沿用现有 SPI 事务，检查器在前台验证 CRC 与状态。
 工程只编译本板MCU的encoder_spi.c，由其直接实现统一接口；不再保留事务/诊断/配置缓存。
 硬件读写和启停归MCU，BSP没有额外Encoder转发实现。
 两板均无CRC、状态和超时检查。位宽选择的离线验证和工程构建见

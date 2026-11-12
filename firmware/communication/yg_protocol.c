@@ -344,6 +344,54 @@ void Protocol_RecordCommand(ProtocolEndpoint *endpoint,
     };
 }
 
+static yg_protocol_result_t handle_hardware_check(ProtocolEndpoint *endpoint,
+                                                  ProtocolExchange *exchange)
+{
+    const yg_protocol_message_t *request = &exchange->request;
+    if (endpoint->hardware_check.handle == NULL)
+    {
+        return YG_PROTOCOL_ROUTE_NOT_FOUND;
+    }
+    ProtocolResponse *reply = &exchange->reply;
+    ProtocolHardwareReport report;
+    const uint8_t *data = request->payload;
+    ProtocolCode code;
+    if (request->source_node != PROTOCOL_MASTER_ID)
+    {
+        code = PROTOCOL_RESULT_FORBIDDEN;
+    }
+    else if (request->payload_length != 0U && request->payload_length != 8U)
+    {
+        code = PROTOCOL_RESULT_BAD_LENGTH;
+    }
+    else if (request->payload_length == 8U &&
+             (data[0] != PROTOCOL_HARDWARE_CHECK_VERSION || data[1] != 1U ||
+              (data[2] != 1U && data[2] != 2U) || data[3] != 0U))
+    {
+        code = PROTOCOL_RESULT_BAD_FIELD;
+    }
+    else
+    {
+        bool start = request->payload_length == 8U;
+        code = endpoint->hardware_check.handle(endpoint->hardware_check.context,
+                                               start ? data[2] : 0U,
+                                               request->sequence,
+                                               start ? YgProtocol_ReadU32Le(data + 4U) : 0U,
+                                               &report);
+    }
+    Protocol_WriteResult(reply, code, 0U);
+    if (code == PROTOCOL_RESULT_OK || code == PROTOCOL_RESULT_ACCEPTED)
+    {
+        reply->data[4] = PROTOCOL_HARDWARE_CHECK_VERSION;
+        reply->data[5] = report.stage;
+        YgProtocol_WriteU32Le(reply->data + 6U, report.run_id);
+        memcpy(reply->data + 10U, report.items, sizeof(report.items));
+        reply->data[20] = report.directions;
+        reply->length = 21U;
+    }
+    return YG_PROTOCOL_OK;
+}
+
 static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolExchange *exchange)
 {
     const yg_protocol_message_t *request = &exchange->request;
@@ -359,6 +407,8 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
         return handle_caps_query(endpoint, exchange);
     case PROTOCOL_GET_DEVICE_STATUS:
         return handle_device_status_query(endpoint, exchange);
+    case PROTOCOL_HARDWARE_CHECK:
+        return handle_hardware_check(endpoint, exchange);
     case PROTOCOL_BOOT_ENTER:
     case PROTOCOL_BOOT_CONFIRM:
         return ProtocolBoot_HandleCommand(endpoint, exchange);
@@ -876,6 +926,11 @@ static yg_protocol_result_t handle_start_command(ProtocolEndpoint *endpoint,
     if (endpoint->motor.start != NULL)
     {
         endpoint->motor.start(endpoint->motor.context, &command, &reply);
+        if (endpoint->hardware_check.started != NULL && reply.status == PROTOCOL_ACCEPTED)
+        {
+            endpoint->hardware_check.started(
+                endpoint->hardware_check.context, mode, request->sequence);
+        }
     }
     else
     {

@@ -11,7 +11,7 @@ import time
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
@@ -23,6 +23,7 @@ from five_axis_can_stability import (
     run_queries,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
+from hardware_check import Drive, direction_results, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
@@ -161,6 +162,21 @@ def acquire(settings: dict, out: Path, events, stop) -> None:
             (out / "summary.json").write_text(
                 json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
             )
+        elif settings["profile"] == "hardware_check":
+            with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **settings["bus"]) as bus:
+                report = run_check(
+                    bus,
+                    settings["node"],
+                    drive=Drive(*settings["drive"]) if settings["drive"] else None,
+                    ambient=settings["ambient"],
+                    previous=settings["last_lease"],
+                    previous_target=settings["last_target"],
+                    stopped=stop.is_set,
+                    progress=lambda msg: events.put(("stage", msg)),
+                )
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         elif settings["profile"] == "manual":
             report = send_manual(dll, out, settings, stop)
             (out / "summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -184,7 +200,11 @@ def acquire(settings: dict, out: Path, events, stop) -> None:
             )
             report = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     except Exception as exc:
-        report = {"profile": settings["profile"], "fatal": str(exc), "pass": False}
+        report = (
+            empty_report(settings["node"], settings["ambient"], str(exc))
+            if settings["profile"] == "hardware_check"
+            else {"profile": settings["profile"], "fatal": str(exc), "pass": False}
+        )
         (out / "summary.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -239,6 +259,40 @@ class CanTestWindow:
         self.tabs.add(self.swd_tab, text="J-Link 烧录")
         upgrade_tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(upgrade_tab, text="CAN 升级与参数")
+        check_tab = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(check_tab, text="硬件功能检测")
+        check_row = ttk.Frame(check_tab)
+        check_row.pack(anchor="w")
+        self.check_node = combo(check_row, "轴节点", tuple(str(n) for n in range(3, 8)), "3", 3)
+        self.check_mode = combo(
+            check_row, "检测方式", ("关相静态", "静态和双向驱动"), "关相静态", 14
+        )
+        self.check_fields = {}
+        for row in (
+            (
+                ("ambient", "实测室温 °C（可空）"),
+                ("current", "驱动限流 A"),
+                ("frequency", "电频 Hz"),
+            ),
+            (
+                ("leg", "单程 ms"),
+                ("travel", "两侧可用行程 °"),
+                ("lease", "上次续租计数"),
+                ("target", "上次目标序号"),
+            ),
+        ):
+            box = ttk.Frame(check_tab)
+            box.pack(anchor="w", pady=3)
+            for key, label in row:
+                ttk.Label(box, text=label).pack(side="left")
+                entry = ttk.Entry(box, width=7)
+                entry.pack(side="left", padx=(3, 9))
+                self.check_fields[key] = entry
+                self.controls.append((entry, "normal"))
+        ttk.Label(
+            check_tab,
+            text="双向驱动前确认从起点两侧可用的输出轴行程。首次驱动填写已知计数，确认刚上电可填 0。",
+        ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         self.builtin_package = (
             self.resource / "can-app"
@@ -488,7 +542,7 @@ class CanTestWindow:
             entry.configure(state="normal" if not busy and mode == "fixed" else "disabled")
         for index in range(len(self.tabs.tabs())):
             self.tabs.tab(index, state="disabled" if busy and index != current else "normal")
-        action = ("开始测试", "发送一帧", "识别电机", "开始 CAN 升级")[current]
+        action = ("开始测试", "发送一帧", "识别电机", "开始 CAN 升级", "开始硬件功能检测")[current]
         for node, check in self.upgrade_checks.items():
             check.configure(
                 state="normal" if node in self.upgrade_targets and not busy else "disabled"
@@ -555,6 +609,7 @@ class CanTestWindow:
             "manual",
             "jlink_flash" if self.identity else "jlink_identify",
             "can_bitrate" if bitrate_action else "can_scan" if scan else "can_upgrade",
+            "hardware_check",
         )[self.tabs.index("current")]
         swd = mode.startswith("jlink_")
         settings = {
@@ -579,6 +634,24 @@ class CanTestWindow:
                     else None,
                     "bus": settings["bus"],
                 }
+            elif mode == "hardware_check":
+                fields = {key: entry.get().strip() for key, entry in self.check_fields.items()}
+                drive = None
+                if self.check_mode.get() == "静态和双向驱动":
+                    drive = (
+                        float(fields["current"]),
+                        float(fields["frequency"]),
+                        int(fields["leg"]),
+                        float(fields["travel"]),
+                    )
+                    Drive(*drive)
+                settings.update(
+                    node=int(self.check_node.get()),
+                    drive=drive,
+                    ambient=float(fields["ambient"]) if fields["ambient"] else None,
+                    last_lease=int(fields["lease"]) if fields["lease"] else None,
+                    last_target=int(fields["target"]) if fields["target"] else None,
+                )
             elif mode == "can_scan":
                 self.upgrade_info.set("正在扫描当前通道…")
             elif mode in ("can_upgrade", "can_bitrate"):
@@ -734,6 +807,36 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "hardware_check":
+            if "fatal" in r:
+                self.state.set("通信异常")
+                self.show(r["fatal"])
+                return
+            if r.get("stop_confirmed") and r["stage"] == 4 and not self.close_pending:
+                refs = []
+                for label, index in (("电机轴", 8), ("输出轴", 9)):
+                    text = None
+                    if r["board_items"][index] != 3:
+                        text = simpledialog.askstring(
+                            "实际旋向",
+                            f"{label}去程和回程，各填一个字符：+ 正、- 负、0 静止、? 未观察",
+                            parent=self.root,
+                        )
+                    lookup = {"?": 0, "+": 1, "-": 2, "0": 3}
+                    refs.append(
+                        tuple(lookup[c] for c in text)
+                        if text and len(text) == 2 and all(c in lookup for c in text)
+                        else (0, 0)
+                    )
+                direction_results(r, *refs)
+                (self.report_dir / "summary.json").write_text(
+                    json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            self.state.set("硬件功能检测 · 通信" + r["communication"])
+            self.show(summarize(r))
+            self.bar["value"] = 100 if r["stage"] in (4, 5) else 0
+            self.progress.set(f"{self.bar['value']:.0f}%")
+            return
         if r["profile"] == "can_bitrate":
             lines = []
             for item in r.get("results", []):

@@ -1,4 +1,5 @@
 #include "app.h"
+#include "hardware_check.h"
 #include "application_config.h"
 #include "motor_axis.h"
 #include "bsp.h"
@@ -58,6 +59,10 @@ void MCU_ADC_IRQ_HANDLER(void)
     {
         MotorAxis_SampleFast(&g_app.axis);
         MotorAxis_ControlFast(&g_app.axis);
+        if (g_hardware_check_capture)
+        {
+            HardwareCheck_CaptureFast(&g_app.axis);
+        }
 
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
         static unsigned outer_ticks;
@@ -96,6 +101,7 @@ int main(void)
     {
         startup_failed();
     }
+    g_app.endpoint.hardware_check = HardwareCheck_Bind(&g_app.axis);
     App_Init(&g_app);
     RTT_Init();
     BspSystem_StartCycleCounter();
@@ -123,5 +129,6 @@ int main(void)
         }
 #endif
         App_Process(&g_app);
+        HardwareCheck_Process(&g_app.axis);
     }
 }

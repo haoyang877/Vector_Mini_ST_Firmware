@@ -24,8 +24,8 @@ BootHw_ImageCrc32也不能替代：CRC为0不构成“不支持”的可靠哨�
 bool BootHw_IsAvailable(void);
 ```
 
-STM32 Loader APP返回初始化时缓存的真实结果；STM32独立APP和AT32当前实现返回false。
-应用bind_boot_entry用该查询替代第二次BootHw_Init。Bsp_Init仍只调用一次BootHw_Init。
+原提案按当时的 STM32 配套工程提出。当前两板 LoaderApp 均实现可用性检查，两板独立 APP 返回 false。
+现行 APP 由 `AppLoader_Init` 调用 `BootHw_IsAvailable`，硬件初始化由 BSP 负责。
 不改变Loader产品、邮箱/镜像/参数ABI、确认条件、继承看门狗或试运行时限。
 
 ## 备选方案及取舍

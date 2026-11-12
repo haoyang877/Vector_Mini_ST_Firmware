@@ -59,6 +59,7 @@ void BspApp_OnCanReceive(void);
 
 ```c
 uint32_t BspSystem_TimeMs(void);
+void BspSystem_Reset(void); /* 停机配置的显式复位：关相、禁止启动、回复发送完成后调用。 */
 uint32_t BspSystem_EnterCritical(void);
 void BspSystem_ExitCritical(uint32_t saved_state);
 uint32_t BspSystem_EnterControlCritical(void);
@@ -150,7 +151,7 @@ BspResult BspFlash_Write(const void *data, size_t length);
 详细契约：[boot_hw.h](../../firmware/platform/bsp/include/boot_hw.h)。
 
 ```c
-bool BootHw_EnterLoader(uint8_t node);
+bool BootHw_EnterLoader(uint8_t node, uint32_t started_ms, uint32_t timeout_ms);
 void BootHw_Watchdog(bool healthy);
 bool BootHw_Confirm(uint32_t version, uint32_t crc32);
 bool BootHw_IsConfirmed(void);
@@ -168,7 +169,7 @@ bool BootHw_IsAvailable(void);
 | 编码器 | MT6835、SPI2四线，APP沿用DMA | TLE5012B、SPI2三线换向 |
 | PWM | TMR1，保留原六路使能、死区、映射 | TIM1，直接读写比较值和六路/主输出位 |
 | CAN | CAN1单PTB，单帧在途 | FDCAN1硬件FIFO，单帧在途 |
-| Loader 试运行保护 | 当前普通 APP 无应用看门狗 | G431 LoaderApp 维护继承的硬件看门狗 |
+| Loader 试运行保护 | 配套 LoaderApp 维护继承的硬件看门狗 | 配套 LoaderApp 维护继承的硬件看门狗 |
 
 功能用`BSP_SUPPORTED_*`描述实板能力，用`BSP_ENABLED_*`选择本目标功能，用应用的
 `BSP_REQUIRED_*`阻止缺少保护所需功能。禁用功能保留同一公开函数，明确返回NOT_SUPPORTED；
@@ -179,7 +180,7 @@ STM32生成初始化须与板配置一致，换接线要同步生成配置；不
 
 三相采样四次累加、算术顺序、母线电压保护、编码器65536计数和协议/参数ABI保持。
 编码器不再提供原始诊断字、错误枚举或坏帧计数。
-AT32母线电流仍为PWM同步采样；INIT校正与三相共用2048个快拍，正常快拍读取物理量并滤波，ADC不提供快序号。
+AT32母线电流仍为PWM同步采样；关相 IDLE 零偏校正与三相共用2048个快拍，正常快拍读取物理量并滤波，ADC不提供快序号。
 两板都不提供ADC快帧或有效位；未设置零偏的物理电流为NAN，原码直接用于校零。
 AT32内部温度/VREF没有实测校准时只发布原码，不把典型值诊断当作保护资格。
 

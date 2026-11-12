@@ -22,8 +22,9 @@ python tests/run.py --cc <zig-executable> --reference-source <baseline-position-
 测试日志默认写入 `outputs/tests/`，可以用 `--out` 指定。
 统一测试入口不会烧录、连接探针或操作电机。
 
-RTT 测试覆盖统一的 4 通道帧：固件编码由 `run_position_servo_tests` 的夹具执行，
-帧布局、JScope 描述符与两个波形工程的一致性由 `test_rtt_control_telemetry.py` 校验；
-通用 `pro_lks.lksscope` 保留用户自定义单位，只校验通道数量。
+双板状态机与标定入口见 [test_run_state.py](unit/native/test_run_state.py)，四种 APP 镜像配置见 [test_app_orchestration.py](unit/native/test_app_orchestration.py)。Loader 会话与镜像提交见 [loader_upgrade_test.c](unit/loader_upgrade_test.c)，两板运行时及端口模型见 [G431](unit/native/test_loader_runtime.py) 和 [AT32](unit/native/test_at32_loader.py)。
+
+当前 AT32 APP 的 RTT 通道 1 每帧包含八个 int16 槽，后三个槽是 Hall 单圈角与 sin/cos 原码。波形定义见 [app_rtt.c](../firmware/app/composition/app_rtt.c)。独立台架工程有各自的遥测格式。
+
 历史 `3980f92` 等价性比较也有既存失败，统一入口仅在明确提供
 `--reference-source` 时进行本次变更的状态等价比较。

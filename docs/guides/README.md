@@ -2,6 +2,7 @@
 
 | 主题 | 指南 |
 | --- | --- |
+| 独立 KF600、整数均值和参数 | [测速算法](speed_estimator_module.md) |
 | 验证环境、doctor、verify | [项目工具](project_harness.md) |
 | 文档新增、同步、合并和归档 | [文档维护](documentation.md) |
 | 命名、版本、产物和正式发布 | [发布标准](firmware_release_standard.md) |
@@ -24,3 +25,5 @@
 
 旧Mode3轨迹/摩擦、齿槽、RTT、HIL和USB操作说明均在[历史指南](../archive/guides/README.md)。
 它们保留旧工况与测量，不作为当前操作入口。指南本身不构成硬件操作授权。
+
+独立算法：[连续负载观测与摩擦前馈的调用及参数](speed_load_observer_module.md)。

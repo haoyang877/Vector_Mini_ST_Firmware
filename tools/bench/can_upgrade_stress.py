@@ -33,10 +33,10 @@ def read_node_uids(bus, node):
     return uids
 
 
-def scan_upgrade_motors(bus, stopped, stage):
+def scan_upgrade_motors(bus, stopped, stage, nodes=(3, 4, 5, 6, 7)):
     """读取本批五轴的实时身份，APP 另读状态和支持的活动型号配置。"""
     motors, issues = [], []
-    for node in range(3, 8):
+    for node in nodes:
         if stopped():
             break
         stage(f"扫描节点 {node}")

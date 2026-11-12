@@ -6,6 +6,7 @@ import json
 import multiprocessing as mp
 import os
 import queue
+import struct
 import sys
 import time
 import tkinter as tk
@@ -23,10 +24,12 @@ from five_axis_can_stability import (
     run_queries,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
+from motor_calibration_can import CALIBRATIONS, STATUS, CalibrationCancelled, idle, run_job
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
+from upgrade_client import UpgradeClient
 
-TITLE = "CAN FD 通信测试 v1.6.3"
+TITLE = "CAN FD 通信测试 v1.7.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -123,17 +126,88 @@ def desktop_uids(resource, log_root):
     return uids
 
 
-def acquire(settings: dict, out: Path, events, stop) -> None:
+def calibrate_selected(bus, settings, events, stop, zero_ready):
+    """逐项核对实机身份，保存设备确认与失败位置。"""
+    node, uid = settings["node"], bytes.fromhex(settings["uid"])
+    kinds = settings["kinds"]
+    if not kinds or kinds != [k for k in CALIBRATIONS if k in kinds]:
+        raise ValueError("标定项目无效")
+    client = UpgradeClient(bus, node, uid)
+    client.sequence = int(time.monotonic() * 1000) & 0xFFFF
+    results = []
+    report = dict(settings, results=results, status="已停止")
+    for kind in kinds:
+        if stop.is_set():
+            break
+        row = {"kind": kind, "name": CALIBRATIONS[kind], "status": "进行中"}
+        results.append(row)
+        identity_verified = False
+
+        def log(text, label=row["name"]):
+            events.put(("stage", f"节点 {node} · {label} · {text}"))
+
+        try:
+            if kind == 6:
+                events.put(("align_zero", node))
+                while not zero_ready.wait(0.1):
+                    if stop.is_set():
+                        raise CalibrationCancelled("已停止，未设置机械零位")
+            if stop.is_set():
+                raise CalibrationCancelled("已停止")
+            if read_node_uids(bus, node) != {uid}:
+                raise ValueError("节点无响应、UID 变化或地址冲突，请重新扫描")
+            identity_verified = True
+            caps = client.request(2, bytes(12))
+            if len(caps) != 16 or not int.from_bytes(caps[:4], "little") & (1 << 15):
+                raise ValueError("当前固件未声明标定票据能力")
+            log("开始")
+            row["ticket"] = run_job(client, kind, stopped=stop.is_set, log=log)
+            idle(client)
+            row["status"] = "已通过"
+        except CalibrationCancelled as exc:
+            row.update(status="已取消", reason=str(exc))
+        except Exception as exc:
+            reason = str(exc) or type(exc).__name__
+            if exc.__context__:
+                reason = f"{exc.__context__}；{reason}"
+            row.update(status="标定异常", reason=reason)
+            report["status"] = "标定异常"
+            if identity_verified:
+                try:
+                    state = STATUS.unpack(client.request(108))
+                    if state[0] == 0 and state[-3] == node:
+                        row.update(state=state[-2], faults=state[2])
+                        row["reason"] += f"；状态 {state[-2]}，故障码 0x{state[2]:08X}"
+                except (OSError, RuntimeError, ValueError, struct.error):
+                    row["reason"] += "；未读到设备故障码"
+        log(row["status"] + (" · " + row["reason"] if "reason" in row else ""))
+        if row["status"] != "已通过":
+            break
+    else:
+        report["status"] = "全部通过"
+    return report
+
+
+def acquire(settings: dict, out: Path, events, stop, zero_ready=None) -> None:
     """子进程入口。适配器和日志释放之后才通知界面结束。"""
     try:
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         dll = controlcan_dll_path(resource)
-        if settings["profile"] == "can_scan":
+        if settings["profile"] in ("can_scan", "calibration_scan"):
             with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **settings["bus"]) as bus:
                 motors, issues = scan_upgrade_motors(
-                    bus, stop.is_set, lambda name: events.put(("stage", name))
+                    bus,
+                    stop.is_set,
+                    lambda name: events.put(("stage", name)),
+                    nodes=range(3, 9 if settings["profile"] == "calibration_scan" else 8),
                 )
             report = dict(settings, motors=motors, issues=issues, cancelled=stop.is_set())
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        elif settings["profile"] == "calibration":
+            with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **settings["bus"]) as bus:
+                report = calibrate_selected(bus, settings, events, stop, zero_ready)
             (out / "summary.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -184,7 +258,11 @@ def acquire(settings: dict, out: Path, events, stop) -> None:
             )
             report = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     except Exception as exc:
-        report = {"profile": settings["profile"], "fatal": str(exc), "pass": False}
+        report = (
+            dict(settings, fatal=str(exc), **{"pass": False})
+            if settings["profile"] == "calibration"
+            else {"profile": settings["profile"], "fatal": str(exc), "pass": False}
+        )
         (out / "summary.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -239,6 +317,34 @@ class CanTestWindow:
         self.tabs.add(self.swd_tab, text="J-Link 烧录")
         upgrade_tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(upgrade_tab, text="CAN 升级与参数")
+        cal_tab = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(cal_tab, text="标定测试")
+        row = ttk.Frame(cal_tab)
+        row.pack(anchor="w", pady=4)
+        cal_scan = ttk.Button(row, text="扫描在线电机", command=lambda: self.start(scan=True))
+        cal_scan.pack(side="left", padx=(0, 8))
+        self.controls.append((cal_scan, "normal"))
+        self.cal_motors = {}
+        self.cal_target = ttk.Combobox(row, state="readonly", width=55)
+        self.cal_target.pack(side="left")
+        self.cal_target.bind("<<ComboboxSelected>>", lambda _: self.update_controls())
+        self.controls.append((self.cal_target, "readonly"))
+        self.cal_kinds = {}
+        for kind, label in CALIBRATIONS.items():
+            var = self.cal_kinds[kind] = tk.BooleanVar()
+            check = ttk.Checkbutton(cal_tab, text=label, variable=var, command=self.update_controls)
+            check.pack(anchor="w")
+            self.controls.append((check, "normal"))
+        ttk.Label(cal_tab, text="LUT 需要轴能连续旋转。机械零位将在对准工装参考点后写入。").pack(
+            anchor="w", pady=5
+        )
+        self.zero_button = ttk.Button(
+            cal_tab, text="已对准工装零点，执行机械置零", command=self.confirm_zero
+        )
+        self.zero_button.pack(anchor="w")
+        self.cal_error = ttk.Label(cal_tab, foreground="#ad1f23", wraplength=740)
+        self.cal_error.pack(anchor="w", pady=3)
+        self.zero_button.configure(state="disabled")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         self.builtin_package = (
             self.resource / "can-app"
@@ -446,7 +552,25 @@ class CanTestWindow:
             self.upgrade_package = Path(path).parent
             self.upgrade_package_name.set(self.upgrade_package.name)
 
+    def confirm_zero(self):
+        self.zero_button.configure(state="disabled")
+        self.zero_ready.set()
+
+    def set_calibration_targets(self, motors):
+        previous = self.cal_target.get()
+        self.cal_motors = {
+            f"{AXES[m['node']]} · 节点 {m['node']} · {m['uid']}": m
+            for m in motors
+            if m["role"] == 1
+        }
+        self.cal_target.configure(values=tuple(self.cal_motors))
+        selected = previous if previous in self.cal_motors else ""
+        if len(self.cal_motors) == 1:
+            selected = next(iter(self.cal_motors))
+        self.cal_target.set(selected)
+
     def clear_upgrade_scan(self):
+        self.set_calibration_targets([])
         self.upgrade_targets.clear()
         for node in self.upgrade_selected:
             self.upgrade_selected[node].set(False)
@@ -488,7 +612,7 @@ class CanTestWindow:
             entry.configure(state="normal" if not busy and mode == "fixed" else "disabled")
         for index in range(len(self.tabs.tabs())):
             self.tabs.tab(index, state="disabled" if busy and index != current else "normal")
-        action = ("开始测试", "发送一帧", "识别电机", "开始 CAN 升级")[current]
+        action = ("开始测试", "发送一帧", "识别电机", "开始 CAN 升级", "执行所选标定")[current]
         for node, check in self.upgrade_checks.items():
             check.configure(
                 state="normal" if node in self.upgrade_targets and not busy else "disabled"
@@ -518,6 +642,13 @@ class CanTestWindow:
             text=action,
             state="disabled"
             if busy
+            or (
+                current == 4
+                and (
+                    self.cal_target.get() not in self.cal_motors
+                    or not any(v.get() for v in self.cal_kinds.values())
+                )
+            )
             or (current == 3 and not selected)
             or (
                 swd
@@ -555,6 +686,7 @@ class CanTestWindow:
             "manual",
             "jlink_flash" if self.identity else "jlink_identify",
             "can_bitrate" if bitrate_action else "can_scan" if scan else "can_upgrade",
+            "calibration_scan" if scan else "calibration",
         )[self.tabs.index("current")]
         swd = mode.startswith("jlink_")
         settings = {
@@ -579,6 +711,14 @@ class CanTestWindow:
                     else None,
                     "bus": settings["bus"],
                 }
+            elif mode == "calibration":
+                target = self.cal_motors.get(self.cal_target.get())
+                kinds = [k for k, var in self.cal_kinds.items() if var.get()]
+                if not target or not kinds:
+                    raise ValueError("请选择在线电机并勾选标定项目")
+                settings.update(node=target["node"], uid=target["uid"], kinds=kinds)
+            elif mode == "calibration_scan":
+                self.set_calibration_targets([])
             elif mode == "can_scan":
                 self.upgrade_info.set("正在扫描当前通道…")
             elif mode in ("can_upgrade", "can_bitrate"):
@@ -630,14 +770,20 @@ class CanTestWindow:
             context = mp.get_context("spawn")
             self.events = context.Queue()
             self.stop_signal = context.Event()
+            args = (settings, directory, self.events, self.stop_signal)
+            if mode == "calibration":
+                self.zero_ready = context.Event()
+                args += (self.zero_ready,)
             job = context.Process(
                 target=run_upgrade_test if mode == "can_upgrade" else run_jlink if swd else acquire,
-                args=(settings, directory, self.events, self.stop_signal),
+                args=args,
             )
             job.start()
         except (ValueError, OSError, RuntimeError) as exc:
             messagebox.showerror("无法启动", str(exc), parent=self.root)
             return
+        if mode == "calibration":
+            self.cal_error.configure(text="")
         self.swd_busy = swd
         self.scanning = mode == "can_scan"
         if mode == "can_upgrade":
@@ -657,6 +803,7 @@ class CanTestWindow:
 
     def stop(self) -> None:
         if self.process and not self.swd_busy:
+            self.zero_button.configure(state="disabled")
             self.stop_signal.set()
             self.stop_button.configure(state="disabled")
             self.state.set(
@@ -682,7 +829,11 @@ class CanTestWindow:
                 tag, msg = self.events.get_nowait()
             except queue.Empty:
                 break
-            if tag == "stage":
+            if tag == "align_zero":
+                self.state.set(f"节点 {msg} · 请将轴对准工装机械零点")
+                if not self.stop_signal.is_set():
+                    self.zero_button.configure(state="normal")
+            elif tag == "stage":
                 self.state.set(msg.split(" s  ", 1)[-1])
                 self.output.configure(state="normal")
                 self.output.insert("end", "\n" + msg)
@@ -709,6 +860,7 @@ class CanTestWindow:
         if not finished:
             self.root.after(80, self.poll)
             return
+        self.zero_button.configure(state="disabled")
         self.process.join()
         self.process.close()
         self.events.close()
@@ -726,7 +878,11 @@ class CanTestWindow:
                                 text="● 待复核", foreground="#995900"
                             )
                             self.upgrade_results[node].configure(text="任务中断")
-            self.state.set("工作进程异常退出")
+            self.state.set(
+                "标定异常 · 工作进程中断，请核对电机状态"
+                if self.tabs.index("current") == 4
+                else "工作进程异常退出"
+            )
             self.show(f"请检查记录目录 {self.report_dir}")
         if self.close_pending:
             self.root.destroy()
@@ -734,6 +890,49 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "calibration_scan":
+            self.set_calibration_targets(
+                [] if r.get("cancelled") or r.get("fatal") else r["motors"]
+            )
+            self.state.set(
+                r.get("fatal")
+                or (
+                    "已停止扫描"
+                    if r.get("cancelled")
+                    else f"发现 {len(self.cal_motors)} 台在线 APP"
+                )
+            )
+            self.show("\n".join([self.state.get(), *self.cal_motors, *r.get("issues", [])]))
+            return
+        if r["profile"] == "calibration":
+            status = r.get("status", "标定异常")
+            self.state.set(status)
+            results = {v["kind"]: v for v in r.get("results", [])}
+            lines = [status, f"节点 {r.get('node', '—')} · UID {r.get('uid', '—')}"]
+            for kind in r.get("kinds", []):
+                item = results.get(kind, {})
+                lines.append(
+                    f"{CALIBRATIONS[kind]} · {item.get('status', '未执行')}　{item.get('reason', '')}"
+                )
+            if r.get("fatal"):
+                lines.append(r["fatal"])
+            if status == "标定异常":
+                failure = next((v for v in results.values() if v["status"] == status), {})
+                self.cal_error.configure(
+                    text=f"标定异常 · 节点 {r.get('node', '—')} · {failure.get('name', '')}　{failure.get('reason') or r.get('fatal', '')}"
+                )
+            self.output.configure(state="normal")
+            self.output.insert("end", "\n" + "\n".join(lines))
+            self.output.see("end")
+            self.output.configure(state="disabled")
+            pct = (
+                100
+                * sum(i["status"] == "已通过" for i in results.values())
+                / max(1, len(r.get("kinds", [])))
+            )
+            self.bar["value"] = pct
+            self.progress.set(f"{pct:.0f}%")
+            return
         if r["profile"] == "can_bitrate":
             lines = []
             for item in r.get("results", []):
@@ -759,6 +958,7 @@ class CanTestWindow:
                 if self.upgrade_selected[n].get()
             }
             self.clear_upgrade_scan()
+            self.set_calibration_targets(motors)
             self.upgrade_targets = {m["node"]: m for m in motors}
             if not r.get("cancelled") and not r.get("fatal"):
                 for n in self.upgrade_lights:

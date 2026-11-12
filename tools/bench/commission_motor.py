@@ -18,6 +18,9 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import install_axis_board as board
 from _calibration_curves import export_curves
+from motor_calibration_can import JOB as JOB
+from motor_calibration_can import STATUS as STATUS
+from motor_calibration_can import idle, run_job
 from ports.controlcanfd import ControlCanFd
 from upgrade_client import UpgradeClient
 
@@ -25,8 +28,6 @@ VERSION = "1.4.0"
 PARAMETER_VERSION = "1.2.0"
 TOOL_NAME = f"YG-Motor-Commission-v{VERSION}"
 GENERATOR_NAME = f"axis-record-v{PARAMETER_VERSION}.exe"
-STATUS = struct.Struct("<HHI4iH8h3B")
-JOB = struct.Struct("<HHIHBB")
 GEARED = (6, 7, 8)
 
 
@@ -77,69 +78,6 @@ def new_record(kit, axis, speed, thermal):
     ):
         raise ValueError("新配参记录回读不符")
     return raw
-
-
-def idle(client):
-    fields = STATUS.unpack(client.request(108))
-    if fields[0] or fields[-3:] != (client.node, 5, 0) or fields[2]:
-        raise RuntimeError(f"需要 IDLE、零故障，当前状态 {fields[-2]}，故障 0x{fields[2]:08x}")
-
-
-def start_ticket(client, kind):
-    payload = struct.pack("<HH", kind, 0)
-    # 固件以最近启动序号的前半圈判断新旧。仅在明确拒绝或命中已结束的旧票据时换序号。
-    for _ in range(3):
-        result, detail, ticket, actual, phase, effects = JOB.unpack(client.request(160, payload))
-        if result == 1 and actual == kind and ticket and phase == 1:
-            return ticket
-        if (
-            result == 0
-            and actual == kind
-            and ticket
-            and phase == 1
-            and client.trace[-1]["attempt"] > 1
-        ):
-            return ticket
-        if result > 1 and detail == 5:
-            client.sequence = (client.sequence + 0x7FFF) & 0xFFFF
-        elif not ((result > 1 and detail == 4) or (result == 0 and phase in (2, 4, 5))):
-            break
-    raise RuntimeError(f"设备未接受新标定，状态 {result}，明细 0x{detail:04x}")
-
-
-def run_job(client, kind):
-    """跟踪本次票据直到固件确认保存。启动应答丢失或中断时同样请求停机。"""
-    idle(client)
-    try:
-        ticket = start_ticket(client, kind)
-        print(f"标定票据 {ticket}，{'编码器 LUT' if kind == 1 else '电气零位'}", flush=True)
-        deadline = time.monotonic() + 100
-        while time.monotonic() < deadline:
-            time.sleep(0.2)
-            status, detail, current, actual, phase, effects = JOB.unpack(
-                client.request(161, struct.pack("<I", ticket))
-            )
-            if status or current != ticket or actual != kind:
-                raise RuntimeError(f"标定票据不符，状态 {status}，明细 0x{detail:04x}")
-            if phase == 2 and effects == 2:
-                return ticket
-            if phase != 1:
-                raise RuntimeError(
-                    f"标定未成功保存，阶段 {phase}，保存 {effects}，明细 0x{detail:04x}"
-                )
-        raise TimeoutError("标定超过 100 秒")
-    finally:
-        result, detail = struct.unpack("<HH", client.request(110))
-        if result not in (0, 1):
-            raise RuntimeError(f"停机被拒，状态 {result}，明细 {detail}")
-        deadline = time.monotonic() + 1
-        while True:
-            f = STATUS.unpack(client.request(108))
-            if f[0] == 0 and f[-3] == client.node and f[-2] in (5, 8) and f[-1] == 0:
-                break
-            if time.monotonic() > deadline:
-                raise RuntimeError("停机未确认，请检查工装")
-            time.sleep(0.03)
 
 
 def saved_parameters(data, axis):

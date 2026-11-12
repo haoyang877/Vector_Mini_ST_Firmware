@@ -48,7 +48,7 @@ try {
         Move-Item -LiteralPath $temp -Destination (Join-Path $records.FullName "$node.bin") -Force
     }
     uv run --extra maintenance --with pyinstaller==6.22.3 python -m PyInstaller --noconfirm --onefile --windowed `
-        --name CAN-Link-Test-v1.6.3 --distpath "$output/dist" --workpath "$output/build" `
+        --name CAN-Link-Test-v1.7.0 --distpath "$output/dist" --workpath "$output/build" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
         --add-binary "${sdk};." --add-data "$root/tools/bench/five_axis_can_stability.json;." `
         --add-data "$root/shared/targets/yg_esc_v1_at32f456.json;." `
@@ -57,7 +57,7 @@ try {
         --add-data "$canDir/image.bin;can-app" --add-data "$canDir/manifest.bin;can-app" --add-data "$canDir/package.json;can-app" `
         tools/bench/canfd_desktop.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败 ($LASTEXITCODE)" }
-    Get-FileHash -LiteralPath "$output/dist/CAN-Link-Test-v1.6.3.exe" -Algorithm SHA256
+    Get-FileHash -LiteralPath "$output/dist/CAN-Link-Test-v1.7.0.exe" -Algorithm SHA256
 } finally {
     Pop-Location
 }

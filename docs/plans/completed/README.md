@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [CAN FD 上位机标定](2026-11-13-canfd-calibration.md) — v1.7.0 支持三项可选标定、机械零点定位与故障显示，七项打包回归和 YAW 实机联合标定通过。
+
 - [远端重构合并与单节点 1M/5M 验证](2026-11-12-remote-refactor-can-validation.md) — APP v1.7.0、Loader v2.3.3 在节点 7 完成 CAN 升级，1,000 次状态查询全部通过，现场已恢复。
 
 - [重构分支集成与单节点 12 档 CAN 升级](2026-11-12-refactor-bitrate-integration.md) — 节点 7 完成逐档下载和持久确认，现场整片已恢复，双板调试包已复核。

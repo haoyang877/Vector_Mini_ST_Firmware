@@ -1,12 +1,28 @@
-# 通信协议
+# APP 与 Loader 通信协议设计
 
-线路约定基线为 2026-11-04 的 `the-system-refactor`。2026-11-09 按 APP 重构分支复核了 108、116/124、STOP 及设备绑定。本文件是唯一现行协议说明。
+按 2026-11-10 的 `the-system-refactor` 工作树核对（分支提交 `a87bc5ce`）。G431 与 AT32F456 共用本页的 CAN FD 帧格式；命令由运行中的镜像注册。
+
+| 接收镜像（两板相同） | 受理的业务 | 完成的判据 |
+| --- | --- | --- |
+| 独立 APP | 1/2/3 查询，101 失能，107/108/110/116/117 电机业务，160 标定；116 关联设备发出的 124 | 启动看 108 的 RUNNING 与模式，停机看数字关相及后续状态，标定由关相发布和写入结果收尾 |
+| LoaderApp | 同一套电机业务，另绑定 56 停机交接和 57 镜像确认 | 56 的 READY 回复物理发送完成后才可复位；57 成功后读取身份页确认启动标记 |
+| Loader | 1 查询身份，50–55 下载、校验、激活及中止 | 54 成功回包后还需激活、复位试运行及新 APP 的 57 确认 |
+
 依据 [yg_protocol.h](../../firmware/communication/yg_protocol.h)、[yg_protocol.c](../../firmware/communication/yg_protocol.c)、[APP 适配](../../firmware/app/app_protocol.c)及[Loader](../../loader/runtime/main.c)。
-除镜像清单外，所有多字节整数均为小端；表中偏移从各自 payload 的第 0 字节算起。
+命令和应答字段中的多字节整数采用小端序。升级包内的 manifest 和镜像描述符采用大端序。表中偏移从各自 payload 的第 0 字节算起。
+
+## 如何判读一次请求
+
+| 判定点 | 固件检查 | 诊断时看什么 |
+| --- | --- | --- |
+| 帧能否进入分发 | CAN ID、源/目的、长度、填充、CRC、请求标志 | 坏帧可能被直接丢弃。单帧有效载荷与总线物理长度分别核对。[CAN 帧格式](#can-frame) |
+| 当前镜像能否处理 | 镜像角色、已注册服务、来源权限、字段及状态准入 | 合法请求也可能返回不支持、拒绝或忙。先通过 GET_INFO 确定角色，再查对应的[APP 命令](#commands)或[Loader 命令](#upgrade)。 |
+| 能否重发 | 116 检查目标序号、值和轴代际；51 检查 nonce、session、offset 及已写数据 | 重发必须沿用原事务的数据。54 回复已在途时重发有已知票据问题，见[Loader 设计](../architecture/loader/loader_product_v3.md)。 |
+| 动作是否完成 | 117 受理后由 ADC 确认启相；56 和 54 依赖对应回复的物理发送完成；57 写入确认标记 | 对启动查 108，对升级查同 UID 的 GET_INFO。运动状态、传输 ACK 和 Flash 标记各有独立的产生时机。[状态机设计](../architecture/motor_state_machine_v1.md) |
 
 ## 代码入口
 
-通信实现分为两个同级文件：
+APP 通信端点与业务绑定分布如下。
 
 - [yg_protocol.c](../../firmware/communication/yg_protocol.c)：CAN 收帧、解码、设备查询、电机与标定业务；
   主线为 `Protocol_RxInterrupt → Protocol_Process → 命令处理 → Protocol_QueueMessage`。
@@ -22,7 +38,7 @@
 六个业务编码函数统一接收 `ProtocolResponse`，填写其中的 `data` 和 `length`。
 线路字段仍按约定的小端字节顺序逐项编码。
 
-Keil Watch 展开 `g_protocol_command` 可看 APP 最近一次解析的有效请求。上电时
+Keil Watch 展开 `g_app.endpoint.command` 可看 APP 最近一次解析的有效请求。上电时
 `type=0`。公共字段为 `type`、`sequence`、`source_node`、`destination_node`、`flags`。
 参数按命令号展开对应的 `args` 成员：
 
@@ -41,7 +57,7 @@ Keil Watch 展开 `g_protocol_command` 可看 APP 最近一次解析的有效请
 以 117 启动命令为例：`Protocol_Process → handle_can_request → handle_command →
 handle_start_command → request_motor_start → MotorStateMachine_RequestStart`。
 `handle_start_command` 检查主机来源、4 字节长度和三个保留字节，直接从 `payload[0]` 读取模式。
-它将模式、来源和序号填入 `ProtocolCommand`，调用静态绑定到 `start_motor` 的 `Protocol_Motor.start`。
+它将模式、来源和序号填入 `ProtocolCommand`，调用本端点的 `endpoint->motor.start`，由 `AppProtocol_Init` 绑定到 `request_motor_start`。
 业务返回后，它把结果码与细节写入 `exchange.reply`。`handle_can_request` 组好回复，
 交给 `Protocol_QueueMessage` 编码入队，由 `ProtocolBoot_SendNext` 提交给 CAN 硬件。
 接收中断只入队，CAN 格式、长度和 CRC 在前台解包时检查；通用请求条件在 `handle_command` 检查一次。
@@ -163,6 +179,35 @@ STOP、故障、复位清除权限；普通后续会话采用原轴策略。扫�
 主站递增 u16 sequence。相同序号、相同目标仅在同一工作代际内视为重复；同序号不同目标、旧序号均拒绝。
 回绕按有符号 16 位差比较。没有 32 槽历史或运行租约；超时不能证明上一条命令没有执行。
 
+### 抓包示例：启动电流模式并提交 250 mA
+
+下例为离线编码样例。主站 2 对节点 3 单播，优先级 3。请求 ID 为 `0x0CEF0302`，回复 ID 为 `0x0CEF0203`。假设轴在 IDLE 且已满足启动资格。请求 117 的序号取 122，116 的序号取 123。每行含一帧完整 CAN 数据，含尾部 DLC 填充。
+
+```text
+117 请求  5A A5 01 20 02 03 75 00 7A 00 04 00 00 00 00 3C 01 00 00 00 A4 09 00 00
+117 回复  5A A5 01 10 03 02 75 00 7A 00 04 00 00 00 00 5F 01 00 00 00 A6 64 00 00
+116 请求  5A A5 01 20 02 03 74 00 7B 00 14 00 00 00 00 B5 01 00 00 00 00 00 00 00 00 00 00 00 FA 00 00 00 00 00 00 00 EF 71 00 00 00 00 00 00 00 00 00 00
+116 回复  5A A5 01 10 03 02 74 00 7B 00 04 00 00 00 00 F3 00 00 00 00 FB 8C 00 00
+```
+
+1. 117 的载荷 `01 00 00 00` 选择电流模式。回复载荷恰好也是这四个字节，但回复按两个 u16 解码，含义是 result=1、detail=0，即已受理。此时先用 108 确认 state=6、mode=1，再发示例中的 116。
+2. 116 的载荷长度是 20 B。载荷偏移 12 的 `FA 00 00 00` 解为有符号整数 250，单位 0.001 A，即 Iq 目标 +0.250 A。帧长为 16+20+2=38 B，CAN FD 实际发 48 B。CRC16 在 10 个填充零之前。
+3. 116 回复为 0/0，表示目标已更新。随后设备发出 124，用载荷中的 `correlated_seq=123` 关联该目标。要判断实际电流是否达到目标，还要检查反馈的有效位和 `actual_iq`。载荷黄金样例与生产编码器见[电流目标与反馈向量](../../tests/fixtures/protocol/yg_protocol_motor_live_v1_9_vectors.json)、[帧编解码](../../shared/protocol/yg_protocol_frame_codec.c)。
+
+### 重发同一条 116 时如何判定
+
+端点只保存最近一次**已接受**目标的值、序号和轴代际。设该序号为 S，当前请求序号为 R，先计算 `delta = (uint16_t)(R - S)`。通讯重试标志不能替代这项检查。
+
+| 条件 | 应答与副作用 |
+| --- | --- |
+| delta=0，目标字段相同，仍在同一代际 | 返回 OK，保留原目标，无第二次赋值。 |
+| delta=0，任一目标值或模式改变 | 返回非法参数；主站若要改变目标，须用新序号。 |
+| delta=0，字段相同，但轴已停止并结束原代际 | 返回 DENIED，旧指令不能重新启动输出。 |
+| delta 为 1–32767 | 作为新目标，继续检查当前运行态、模式和限值；只有通过后才替换最近已接受记录。 |
+| delta 为 32768–65535 | 判为旧序号，返回 DENIED。例：S=65535、R=1 的差值是 2，属于向前推进。 |
+
+START、STOP、标定票据和 Loader 分片各有各自的处理规则。116 的判定来自[目标适配函数](../../firmware/app/app_protocol.c)。
+
 <a id="feedback"></a>
 ## 电机反馈（108 / 124）
 
@@ -186,6 +231,8 @@ STOP、故障、复位清除权限；普通后续会话采用原轴策略。扫�
 valid_bits 的 bit0～11 按上述 12 个测量字段顺序排列。无效值为该类型最小值
 （i16=-32768，i32=-2147483648），对应位清零；NaN、无穷、超范围也按无效处理。
 有效数值半值向远离零方向取整。当前没有电机温度来源，MCU 温度不是绕组温度。
+
+举例，仓库的 `live_current_feedback` 向量是节点 1 的独立反馈样本。其 `correlated_seq=123`、`state=6`、`mode=1`；`valid_bits=0x0DFA`。按上述偏移解码得到实际位置 −1.250 rad、实际速度 +2.500 rad/s、母线电压 30.50 V、参考 Iq −0.250 A、实际 Iq −0.249 A。参考位置的原始值为 INT32_MIN 且 bit0 清零，表示此帧没有有效参考位置。此向量与上文节点 3 的正电流请求分属两个示例。[反馈向量](../../tests/fixtures/protocol/yg_protocol_motor_live_v1_9_vectors.json)
 
 state：3 自检、4 标定、5 空闲、6 运行、8 故障；mode 使用线路模式编号。
 当前故障位：0 过流、1 过压、2 欠压、4 MCU 过温、5 编码器、6 CAN 断连、
@@ -233,7 +280,7 @@ GET_DEVICE_STATUS 为 16 B：`result:u16, detail:u16, role:u8, boot_state:u8, ep
 
 40 B 候选：version=1/model/node/flags=1 各u8，expected_revision:u32，speed_limit:i32(mrad/s)，
 随后7个i32：持续/峰值mA、时间常数ms、进入/退出/跳闸/清除比（百万分比）。
-model 1=HT8115-4、2=YQ-5708、3=YQ-5740，分别只允许节点3/4/5、7、6。
+model 1=HT8115-4、2=YQ-5708、3=YQ-5740，分别只允许节点3/4/5、7、6/8。节点 8 为 Lift，AXS2 产品角色编号为 6。
 HT 热参数可全零使用生产预设，YQ 必须明确提供有效值；行程采用所选轴的产品范围。
 
 44 B 配置回复：result/detail:u16，version=1/model/node/flags各u8，revision:u32，
@@ -277,7 +324,7 @@ detail：1不支持类别、2过期票据、3状态不允许、4冲突重试、5
 
 先向配套 APP 发 56，载荷为主机生成的非零随机 `nonce:u64`。
 1/1 表示等待停机，1/0 表示 READY；APP 只有在 READY 实际发送完成后才交接。
-该回复排队/发送期限为 100 ms，失败不跳转。主机随后重新发现同 UID 的 Loader。
+56 的停机交接窗口从登记起为 1000 ms，READY 回复的排队/发送期限为 100 ms。发送失败或复核超时结束本次交接。主机随后重新发现同 UID 的 Loader。
 普通 APP 不开放 56/57；未开放命令无响应。
 
 Loader 接受 1 和 50～55；升级要求主站 2 单播。nonce 是升级事务标识，session 由 Loader 分配。
@@ -296,7 +343,7 @@ WRITE 的 length 为 8～128 B，offset/length 均 8 B 对齐，连续写入并�
 
 50～55 回复 40 B：0/2 result/detail:u16；4 nonce:u64；12 session:u32；16 phase:u8；17 flags:u8；
 18 max_block_bytes:u16；20 next_offset:u32；24 image_bytes:u32；28 image_token:u32；32 image_version:u32；36 image_role:u32。
-phase：0 IDLE、1 READY、2 ERASING、3 RECEIVING、4 VERIFYING、5 VERIFIED、6 COMMITTED、7 ERROR。
+线路 phase 定义为 0 IDLE、1 READY、2 ERASING、3 RECEIVING、4 VERIFYING、5 VERIFIED、6 COMMITTED、7 ERROR。当前 Loader 激活后复位，`phase_code` 没有产生 6 的分支，完成判据是同 UID 新 APP 的确认状态。
 flags：bit0 待激活、bit1 仅完整性校验、bit2 主机 nonce，其余 0。
 detail：1 字段、2 nonce、3 session、4 阶段、5 身份、6 范围/顺序、7 Flash、8 数据冲突、
 9 镜像校验、10 认证策略不支持、11 输出/链路、12 超时、13 内部错误。
@@ -305,6 +352,23 @@ detail：1 字段、2 nonce、3 session、4 阶段、5 身份、6 范围/顺序�
 仅尾片设置 ACK_REQUEST。地址、CMD、版本及非分片标志保持一致。
 完全重复的上一片被忽略，不延长超时；片间限 500 ms，首片起总限 2000 ms。
 分片序号不能替代 nonce/session/offset。
+
+### 一次 BEGIN 如何跨越三个物理帧
+
+BEGIN 的 104 B 逻辑载荷由 8 B nonce 与 96 B manifest 组成。按 46、46、12 B 切成三片。第一片携带 nonce 和 manifest 的前 38 B，第二片携带随后 46 B，尾片携带最后 12 B。三片的物理长度分别为 64、64、32 B，每片独立计算头 CRC8 和 CRC16，分片序号依次为 0、1、2。成功重组后 Loader 才能校验完整清单、建立写会话并安排擦除。有效首片可先使 Loader 驻留，以免接收中途跳入 APP。
+
+例如 nonce `0x0123456789ABCDEF` 在线路上传为 `EF CD AB 89 67 45 23 01`，其后 manifest 的大端 magic 为 `49 4D 33 31`。这两个相邻字段使用不同字节序。升级黄金向量给出了这组字节，其历史 layout 用于验证编码；实际升级须匹配设备的 MCU、layout、ABI 等目标值。[升级载荷向量](../../tests/fixtures/protocol/yg_protocol_upgrade_wire_v3_vectors.json) · [分片接收器](../../shared/protocol/yg_protocol_fragment.c)
+
+### 下载过程中发生超时或重发
+
+| 时刻 | 设备如何处理 | 可用的核对方式 |
+| --- | --- | --- |
+| 活动事务中重复 BEGIN | 来源、nonce 和 manifest 全部相同则返回该会话状态；其他 BEGIN 返回忙 | 比较回复中的 session、token、image_bytes 和阶段。 |
+| WRITE 回复丢失 | 保持同一绑定、偏移和字节重发。旧偏移处逐 8 B 比较实际 Flash，内容一致才可复用；下一写入不能跳过 `next_offset` | 用绑定的 53 读取 `next_offset`，结合 WRITE 结果码判断是否前进。 |
+| 分片中断 | 片间与总时限独立于 5 s 下载租约。片序或元数据不匹配不能组装出有效请求 | 观察物理片序、CRC 和 ACK_REQUEST，重组完成后再查事务状态。 |
+| 54 回复在途 | 票据须匹配具体回复帧的物理完成事件。AT32 首次回复仍占槽时重发 54，第二次提交失败可撤销原票据 | 激活后的完成证据是同 UID 新 APP 的版本、CRC 和确认状态；已有边界见[Loader 设计](../architecture/loader/loader_product_v3.md)。 |
+
+APP 的 56 查同一交接请求时要保持来源、nonce 和 sequence 一致。首次 56 锁定新启动并请求 STOP，PENDING 期间不颁发 ACK 票据。READY 的发送完成才触发 APP 的复位路径。该事务与复位后由 Loader 分配的下载 session 分别管理。[APP 交接](../../firmware/app/app_loader.c) · [Loader 事务](../../loader/core/upgrade.c)
 
 manifest 为 **96 B 大端容器**：0 magic=0x494D3331；4 profile=0x53593549；8 layout；12 MCU；16 product；
 20 hardware；24 version；28 token；32 image_bytes；36 role=1；40 parameter_ABI；
@@ -315,13 +379,13 @@ manifest 为 **96 B 大端容器**：0 magic=0x494D3331；4 profile=0x53593549�
 
 流程：**BEGIN → STATUS 等可写 → WRITE → FINISH → STATUS 等 VERIFIED → ACTIVATE**。
 ACTIVATE 回复实际发送后才提交激活；新 APP 启动后，发 57：`version:u32, image_crc32:u32`。
-57 要求镜像匹配、连续健康至少 1 s、输出关闭和保存空闲，成功回复 0/0。
+57 在前台处理。LoaderApp 要求连续 11 个至少 100 ms 的健康检查间隔、当前健康且通信就绪、实际关相、无已登记的 56 事务，并由 BootHw 核对版本、CRC 和试运行标记。成功回复 0/0。
 再读同 UID 的 GET_INFO，确认版本、CRC、role=1、boot_state=1，才算升级完成。
 
-当前 G431 Loader 是单槽升级，无旧 APP 自动回滚、跨复位续传或签名认证。
+两板 Loader 均采用单 APP 槽和 CRC32 完整性校验。下载中断后须重新提交完整镜像。
 试运行 5 s 未确认会停止喂看门狗，重启留在 Loader。
 GET_INFO 不延长默认启动窗口；空 STATUS 用于驻留发现，事务 STATUS 可续 5 s 事务租约。
-分区/兼容条件看 GET_INFO 第 2 页与 `shared/targets`，不同 layout/ABI 不能混刷。
+配套镜像的 layout、ABI 及分区值来自 `shared/targets`。当前 G431 独立 APP 的第 2 页也使用配套布局，尽管该工程实际从 `0x08000000` 链接。识别独立镜像时还要核对第 0 页 boot_api 和实际工程。启动决策与激活票据边界见[Loader 状态机](../architecture/loader/loader_product_v3.md)。
 
 <a id="implementation"></a>
 ## 实现和验证
@@ -335,6 +399,7 @@ RX/TX 各 8 帧；一次 ISR 最多取 3 帧，一次前台最多处理/发送�
 CRC、业务和 Flash 不在接收中断执行。
 
 字节回归数据在 [tests/fixtures/protocol](../../tests/fixtures/protocol/)，旧格式仅用于历史/拒绝测试。
+端点测试应分别观察物理收帧、业务动作次数、回复和反馈，而不只比较返回码。改变线路字段时核对四类场景：CRC 或填充错误时无业务副作用；合法帧但字段错误时收到该命令规定的错误；成功 116 同时有回复与可关联的 124；TX 拥塞或旧目标重发时不会执行第二次业务写入。分片重复、超时与回绕由独立的 Loader 分片用例覆盖。[端点回归](../../tests/unit/native/test_yg_protocol_link.py) · [分片回归](../../tests/unit/native/test_yg_protocol_fragment.py)
 运行 `python tools/run.py verify --profile pr` 检查；离线验证不连接硬件，也不代替实机验收。
 
 ## 通信运动租约 v1

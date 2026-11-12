@@ -19,7 +19,7 @@
 #define AXIS_JOINT_V1_PITCH_MIN_RAD (-0.3f)
 #define AXIS_JOINT_V1_PITCH_MAX_RAD (0.9f)
 
-/* 五个产品节点共用两种电气模型。角速度和行程均以电机轴表示。
+/* 六个产品节点共用两种电气模型。角速度和行程均以电机轴表示。
  * YQ 电流 PI 来自 AT32 台架；HT 按额定 R/L 与 1.2 kHz 带宽派生。 */
 static const MotorWindingThermalConfig s_ht_thermal = HT8115_HEAT_INITIALIZER;
 static const MotorElectricalPreset s_ht = {
@@ -75,6 +75,27 @@ static const SensorlessStartupConfig s_yq_start =
                          YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
                          0.048f,
                          0.5f);
+#define YQ5740_AXIS(node, role)                                                                    \
+    {(node),                                                                                       \
+     (role),                                                                                       \
+     YQ5740_MODEL_NAME,                                                                            \
+     &s_yq,                                                                                        \
+     &s_pitch_start,                                                                               \
+     PITCH_CALIB_SPEED_RAD_S,                                                                      \
+     1.6f,                                                                                         \
+     30.0f * YQ_JOINT_GEAR_RATIO,                                                                  \
+     {2.0f,                                                                                        \
+      0.0f,                                                                                        \
+      0.048f,                                                                                      \
+      0.5f,                                                                                        \
+      YQ_MOTOR_ACCEL_RAD_S2,                                                                       \
+      YQ_MOTOR_ACCEL_RAD_S2,                                                                       \
+      PRODUCT_RUN_CURRENT_LIMIT_A},                                                                \
+     2.0f,                                                                                         \
+     CONFIG_TWO_PI / 12.0f,                                                                        \
+     .gear_ratio = YQ_JOINT_GEAR_RATIO,                                                            \
+     .has_linear_hall = true}
+
 static const MotorAxisPreset s_presets[] = {
     {0x03,
      MOTOR_JOINT_WHEEL_LEFT,
@@ -115,25 +136,7 @@ static const MotorAxisPreset s_presets[] = {
      CONFIG_TWO_PI * (150.0f / 360.0f),
      .gear_ratio = 1.0f,
      .has_linear_hall = false},
-    {0x06,
-     MOTOR_JOINT_PITCH,
-     YQ5740_MODEL_NAME,
-     &s_yq,
-     &s_pitch_start,
-     PITCH_CALIB_SPEED_RAD_S,
-     1.6f,
-     30.0f * YQ_JOINT_GEAR_RATIO,
-     {2.0f,
-      0.0f,
-      0.048f,
-      0.5f,
-      YQ_MOTOR_ACCEL_RAD_S2,
-      YQ_MOTOR_ACCEL_RAD_S2,
-      PRODUCT_RUN_CURRENT_LIMIT_A},
-     2.0f,
-     CONFIG_TWO_PI / 12.0f,
-     .gear_ratio = YQ_JOINT_GEAR_RATIO,
-     .has_linear_hall = true},
+    YQ5740_AXIS(0x06, MOTOR_JOINT_PITCH),
     {0x07,
      MOTOR_JOINT_YAW,
      YQ5708_MODEL_NAME,
@@ -153,6 +156,7 @@ static const MotorAxisPreset s_presets[] = {
      CONFIG_TWO_PI / 2.0f,
      .gear_ratio = YQ_JOINT_GEAR_RATIO,
      .has_linear_hall = true},
+    YQ5740_AXIS(0x08, MOTOR_JOINT_LIFT),
 };
 
 static const MotorAxisPreset *product_joint(uint32_t joint)
@@ -193,6 +197,8 @@ const char *MotorJointType_Name(uint32_t joint_type)
         return "roll";
     case MOTOR_JOINT_PITCH:
         return "pitch";
+    case MOTOR_JOINT_LIFT:
+        return "Lift";
     case MOTOR_JOINT_YAW:
         return "yaw";
     case MOTOR_JOINT_WHEEL_RIGHT:

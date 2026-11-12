@@ -47,6 +47,12 @@
       "role": 3,
       "axis_crc": "0x3d22316b",
       "record_crc": "0xecad4cd8"
+    },
+    {
+      "node": 8,
+      "role": 6,
+      "axis_crc": "0x16a8e174",
+      "record_crc": "0xc9b0b1e6"
     }
   ]
 }

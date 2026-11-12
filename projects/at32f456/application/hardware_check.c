@@ -85,6 +85,11 @@ typedef struct
     int first_sign;
     unsigned leg, settled_samples;
     uint32_t leg_samples[2];
+    AngleTrack warmup;
+    float warmup_frequency_hz;
+    unsigned stable_windows;
+    bool rotation_ready;
+    uint32_t warmup_begin_cycles;
 } HardwareCheckState;
 
 /* 前台独占统计和报告，Watch 可直接读取本轮 s_check。ADC 单写 write，前台单写 read。 */
@@ -242,14 +247,16 @@ static void accumulate(NoiseWindow *window, int32_t centered_q4)
     window->squares += centered_q4 * centered_q4;
 }
 
-static bool noise_passes(NoiseWindow *window, bool check_bias)
+static bool noise_passes(NoiseWindow *window, int32_t rms_limit_counts, bool check_bias)
 {
     int64_t n = STATIC_SAMPLES;
     int64_t sum = window->sum;
     int64_t variance = n * window->squares - sum * sum;
     window->mean_counts = 2048.0f + (float)sum / (4.0f * (float)n);
     window->rms_counts = sqrtf((float)variance) / (4.0f * (float)n);
-    return variance < (40 * n) * (40 * n) && (!check_bias || (sum > -1200 * n && sum < 1200 * n));
+    int64_t rms_limit_q4 = 4 * n * rms_limit_counts;
+    return variance < rms_limit_q4 * rms_limit_q4 &&
+           (!check_bias || (sum > -1200 * n && sum < 1200 * n));
 }
 
 static float hall_turns(const HardwareSample *sample)
@@ -373,7 +380,7 @@ static void finish_static(MotorAxis *axis)
     uint8_t *items = s_check.report.items;
     for (unsigned i = 0U; i < 4U; ++i)
     {
-        items[i] = noise_passes(&s_check.noise[i], true) ? PASS : FAIL;
+        items[i] = noise_passes(&s_check.noise[i], i == IBUS ? 50 : 10, true) ? PASS : FAIL;
     }
     if (items[VBUS] != FAIL)
     {
@@ -387,8 +394,8 @@ static void finish_static(MotorAxis *axis)
     s_check.jitter_turns[0] = (float)(span + 2) / ROTOR_COUNTS;
     if (s_check.hall_installed)
     {
-        bool sin_ok = noise_passes(&s_check.noise[4], false);
-        bool cos_ok = noise_passes(&s_check.noise[5], false);
+        bool sin_ok = noise_passes(&s_check.noise[4], 10, false);
+        bool cos_ok = noise_passes(&s_check.noise[5], 10, false);
         items[HALL_STATIC] = sin_ok && cos_ok ? PASS : FAIL;
         /* ADC 量化及本点实测峰峰角共同构成动态裕量。 */
         s_check.jitter_turns[1] =
@@ -475,6 +482,33 @@ static void finish_drive(MotorAxis *axis)
     end_check(axis, DONE);
 }
 
+/* 预转至少 500ms，且连续两个 50ms 窗口的机械速度幅值均在目标的 ±20% 内，
+ * 才开始本段轨迹验证。
+ * 安装方向由后续独立旋向判定处理；未稳定只等待，不累计动态通过证据。 */
+static bool rotation_settled(float rotor, uint32_t cycles, float frequency_hz, unsigned pole_pairs)
+{
+    AngleTrack *warmup = &s_check.warmup;
+    (void)track_angle(warmup, rotor, cycles, 0.0f, 1.0f);
+    uint32_t elapsed = cycles - warmup->first_cycles;
+    if (elapsed < AT32_CORE_HZ / 20U)
+    {
+        return false;
+    }
+    float expected =
+        fabsf(frequency_hz) * (float)elapsed / ((float)AT32_CORE_HZ * (float)pole_pairs);
+    if (fabsf(fabsf(warmup->travel_turns) - expected) <= 0.2f * expected)
+    {
+        ++s_check.stable_windows;
+    }
+    else
+    {
+        s_check.stable_windows = 0U;
+    }
+    memset(warmup, 0, sizeof(*warmup));
+    return s_check.stable_windows >= 2U &&
+           cycles - s_check.warmup_begin_cycles >= AT32_CORE_HZ / 2U;
+}
+
 static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
 {
     uint8_t *items = s_check.report.items;
@@ -501,6 +535,11 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
             }
         }
     }
+    if (items[ROTOR_DRIVE] == FAIL || items[HALL_DRIVE] == FAIL)
+    {
+        end_check(axis, ABORTED);
+        return;
+    }
     int sign = (sample->frequency_hz > 0.0f) - (sample->frequency_hz < 0.0f);
     bool hall_tick = s_check.samples++ % (FOC_FREQ / 1000U) == 0U;
     float rotor = (float)(sample->frame >> 11U) / ROTOR_COUNTS;
@@ -509,7 +548,63 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
         rotor = -rotor;
     }
     float hall = hall_tick && s_check.hall_calibrated ? hall_turns(sample) : NAN;
-    /* 跨越启动、零频保持和反转的相邻角也必须连续。零频允许上一段的减速余量。 */
+    if (sign == 0)
+    {
+        s_check.warmup_frequency_hz = 0.0f;
+        if (s_check.first_sign == 0)
+        {
+            return;
+        }
+    }
+    else
+    {
+        if (s_check.first_sign == 0)
+        {
+            s_check.first_sign = sign;
+        }
+        if (sign != s_check.first_sign && s_check.leg == 0U)
+        {
+            if (s_check.settled_samples < FOC_FREQ / 25U)
+            {
+                end_check(axis, ABORTED);
+                return;
+            }
+            s_check.leg = 1U;
+        }
+        if (s_check.leg == 1U && sign == s_check.first_sign)
+        {
+            end_check(axis, ABORTED);
+            return;
+        }
+        if (sign == s_check.first_sign && s_check.settled_samples != 0U)
+        {
+            memset(s_check.settle, 0, sizeof(s_check.settle));
+            s_check.settled_samples = 0U;
+        }
+        if (sample->frequency_hz != s_check.warmup_frequency_hz)
+        {
+            s_check.warmup_frequency_hz = sample->frequency_hz;
+            memset(&s_check.warmup, 0, sizeof(s_check.warmup));
+            memset(s_check.path, 0, sizeof(s_check.path));
+            memset(s_check.legs[s_check.leg], 0, sizeof(s_check.legs[s_check.leg]));
+            s_check.leg_samples[s_check.leg] = 0U;
+            s_check.stable_windows = 0U;
+            s_check.rotation_ready = false;
+            s_check.warmup_begin_cycles = sample->cycles;
+        }
+        if (!s_check.rotation_ready)
+        {
+            s_check.rotation_ready = rotation_settled(rotor,
+                                                      sample->cycles,
+                                                      sample->frequency_hz,
+                                                      axis->configuration.model.motor_pole_pairs);
+            if (!s_check.rotation_ready)
+            {
+                return;
+            }
+        }
+    }
+    /* 稳定后才累计连续性与旋向；零频保持仍按原减速余量检查。 */
     float speed = fminf(axis->configuration.application.speed_limit_rad_s / TWO_PI_F,
                         2.0f * fabsf(sample->frequency_hz) /
                             (float)axis->configuration.model.motor_pole_pairs);
@@ -518,12 +613,13 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
     {
         s_check.last_speed_turns_s = speed;
     }
-    if (!track_angle(
+    if (s_check.rotation_ready &&
+        !track_angle(
             &s_check.path[0], rotor, sample->cycles, transition_speed, s_check.jitter_turns[0]))
     {
         items[ROTOR_DRIVE] = FAIL;
     }
-    if (hall_tick && s_check.hall_calibrated &&
+    if (s_check.rotation_ready && hall_tick && s_check.hall_calibrated &&
         !track_angle(&s_check.path[1],
                      hall,
                      sample->cycles,
@@ -556,29 +652,6 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
     }
     else
     {
-        if (s_check.first_sign == 0)
-        {
-            s_check.first_sign = sign;
-        }
-        if (sign != s_check.first_sign && s_check.leg == 0U)
-        {
-            if (s_check.settled_samples < FOC_FREQ / 25U)
-            {
-                end_check(axis, ABORTED);
-                return;
-            }
-            s_check.leg = 1U;
-        }
-        if (s_check.leg == 1U && sign == s_check.first_sign)
-        {
-            end_check(axis, ABORTED);
-            return;
-        }
-        if (sign == s_check.first_sign && s_check.settled_samples != 0U)
-        {
-            memset(s_check.settle, 0, sizeof(s_check.settle));
-            s_check.settled_samples = 0U;
-        }
         ++s_check.leg_samples[s_check.leg];
         AngleTrack *tracks = s_check.legs[s_check.leg];
         for (unsigned sensor = 0U; sensor < 2U; ++sensor)

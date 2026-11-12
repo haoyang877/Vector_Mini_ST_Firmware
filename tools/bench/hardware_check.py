@@ -393,8 +393,8 @@ def run_check(
             raise Rejected("该 APP 未提供硬件功能检测")
         if ambient is not None and (not math.isfinite(ambient) or not 0 <= ambient <= 60):
             raise Rejected("实测环境温度不在 0～60 °C，工况不满足")
-        if drive and (identity[20] != 1 or not features & (1 << 13) or not modes & (1 << 10)):
-            raise Rejected("驱动需要有效装配身份、模式 10 和运动租约")
+        if drive and (not features & (1 << 13) or not modes & (1 << 10)):
+            raise Rejected("驱动需要模式 10 和运动租约")
         previous_run = link.board()["run_id"]
         if stopped():
             raise Rejected("操作员停止")
@@ -472,7 +472,7 @@ def main():
     )
     parser.add_argument("--ambient-c", type=float, help="独立温度计实测室温")
     parser.add_argument("--drive", action="store_true", help="显式请求双向限流驱动")
-    parser.add_argument("--current-a", type=float)
+    parser.add_argument("--current-a", type=float, default=3.0, help="模式 10 拖动相电流，默认 3 A")
     parser.add_argument("--frequency-hz", type=float)
     parser.add_argument("--leg-ms", type=int)
     parser.add_argument("--travel-deg", type=float, help="距当前位置两侧可用的输出轴行程")

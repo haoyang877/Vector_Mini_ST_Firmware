@@ -286,6 +286,8 @@ class CanTestWindow:
             for key, label in row:
                 ttk.Label(box, text=label).pack(side="left")
                 entry = ttk.Entry(box, width=7)
+                if key == "current":
+                    entry.insert(0, "3")
                 entry.pack(side="left", padx=(3, 9))
                 self.check_fields[key] = entry
                 self.controls.append((entry, "normal"))

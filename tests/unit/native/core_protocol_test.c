@@ -207,6 +207,22 @@ static void test_target_mode_mapping(void)
         assert(endpoint.motor.read_feedback(endpoint.motor.context, &feedback));
         assert(feedback.control_mode == modes[i].wire);
     }
+    /* 整安培边界不可因 0.001f 的乘法误差变成略超限的目标。 */
+    static const int32_t s_current_ma[] = {-7000, -3000, 3000, 7000};
+    static const float s_current_a[] = {-7.0f, -3.0f, 3.0f, 7.0f};
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        ProtocolCommand request = {
+            .mode = 10U, .sequence = (uint16_t)(7U + 2U * i), .id_mA = s_current_ma[i]};
+        endpoint.motor.target(endpoint.motor.context, &request, &reply);
+        assert(reply.status == PROTOCOL_OK && last_target.id_a == s_current_a[i]);
+        ++request.sequence;
+        request.mode = 1U;
+        request.id_mA = 0;
+        request.iq_mA = s_current_ma[i];
+        endpoint.motor.target(endpoint.motor.context, &request, &reply);
+        assert(reply.status == PROTOCOL_OK && last_target.iq_a == s_current_a[i]);
+    }
     unsigned calls_before = target_calls;
     ProtocolCommand request = {.mode = 0U, .sequence = 7U};
     endpoint.motor.target(endpoint.motor.context, &request, &reply);

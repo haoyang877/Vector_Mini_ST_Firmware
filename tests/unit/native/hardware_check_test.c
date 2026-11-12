@@ -152,7 +152,7 @@ static void static_cases(void)
             s_adc[BSP_ADC_PHASE_CURRENT_A] = 2048.0f + sign * (k & 1U ? 10.0f : 9.75f);
             s_adc[BSP_ADC_PHASE_CURRENT_B] = k & 2U ? 1748.0f : 1748.25f;
             s_adc[BSP_ADC_PHASE_CURRENT_C] = k & 2U ? 2348.0f : 2347.75f;
-            s_adc[BSP_ADC_BUS_CURRENT] = 2048 + sign * (k & 4U ? 10 : 9);
+            s_adc[BSP_ADC_BUS_CURRENT] = 2048 + sign * (k & 4U ? 50 : 49);
             s_axis.hall_samples[0].sin_counts = (uint16_t)(2048 + sign * (k & 2U ? 10 : 9));
             s_axis.hall_samples[0].cos_counts = (uint16_t)(3600 + sign * (k & 4U ? 10 : 9));
             s_frame = frame(i % 2 ? -1 : (k & 1U ? 58 : 57), 0);
@@ -166,6 +166,33 @@ static void static_cases(void)
         assert(r.items[2] == (k & 2U ? 2 : 1) && r.items[3] == (k & 4U ? 2 : 1));
         assert(r.items[4] == 1 && r.items[5] == 1 && r.items[6] == (k & 1U ? 2 : 1));
         assert(r.items[7] == (k & 6U ? 2 : 1) && r.items[8] == 0 && r.items[9] == 0);
+    }
+    /* 母线独立限值：原 10 cnt 界点和实测 25 cnt 通过，50 cnt 界点及以上失败。 */
+    static const int s_bus_rms[] = {9, 10, 25, 49, 50, 51};
+    for (unsigned k = 0; k < sizeof(s_bus_rms) / sizeof(s_bus_rms[0]); ++k)
+    {
+        begin(1U, 1);
+        for (unsigned i = 0; i < 2000U; ++i)
+        {
+            s_adc[BSP_ADC_BUS_CURRENT] = (float)(2048 + (i % 2U ? 1 : -1) * s_bus_rms[k]);
+            tick(true);
+        }
+        ProtocolHardwareReport r = report();
+        assert(r.stage == 4U && r.items[3] == (s_bus_rms[k] < 50 ? 1U : 2U));
+        assert(r.items[0] == 1U && r.items[1] == 1U && r.items[2] == 1U && r.items[7] == 1U);
+    }
+    /* 放宽 RMS 不改变母线偏置的严格 300 cnt 边界。 */
+    static const int s_bus_means[] = {1748, 1749, 2347, 2348};
+    for (unsigned k = 0; k < sizeof(s_bus_means) / sizeof(s_bus_means[0]); ++k)
+    {
+        begin(1U, 1);
+        for (unsigned i = 0; i < 2000U; ++i)
+        {
+            s_adc[BSP_ADC_BUS_CURRENT] = (float)(s_bus_means[k] + (i % 2U ? 49 : -49));
+            tick(true);
+        }
+        ProtocolHardwareReport r = report();
+        assert(r.stage == 4U && r.items[3] == (k == 1U || k == 2U ? 1U : 2U));
     }
     for (unsigned k = 0; k < 9; ++k)
     {
@@ -231,7 +258,7 @@ static void motion_sample(int32_t rotor, int32_t actual, int override)
 
 static void motion_cases(void)
 {
-    for (unsigned k = 0; k < 14; ++k)
+    for (unsigned k = 0; k < 16; ++k)
     {
         begin(2U, k == 4 ? 0 : 1);
         s_axis.output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
@@ -264,17 +291,18 @@ static void motion_cases(void)
         for (unsigned leg = 0; leg < 2 && g_hardware_check_capture; ++leg)
         {
             s_axis.motor.open_loop_frequency_hz = leg ? -3 : 3;
-            for (unsigned j = 0; j < 4000 && g_hardware_check_capture; ++j)
+            for (unsigned j = 0; j < 18000 && g_hardware_check_capture; ++j)
             {
-                if (k != 12 || j < 100U || j > 3550U)
+                if (k != 12 || j < 12000U || j > 17550U)
                 {
-                    angle += leg ? -24 : 24;
+                    int step = k == 15 && (j / 1000U) % 2U ? 60 : 24;
+                    angle += leg ? -step : step;
                 }
                 if (k != 2)
                 {
                     rotor = angle;
                 }
-                if (k == 3 && j == 987)
+                if ((k == 3 && j == 12000U) || (k == 14 && j == 20U))
                 {
                     rotor += 10000;
                 }
@@ -316,6 +344,12 @@ static void motion_cases(void)
         s_axis.state_machine.stop_pending = false;
         tick(true);
         ProtocolHardwareReport r = report();
+        if (k == 2 || k == 15)
+        {
+            /* 编码器静止或速度持续不稳，不能绕过稳定等待取得动态通过。 */
+            assert(r.stage == 5 && r.items[8] == 0U && r.items[9] == 0U);
+            continue;
+        }
         assert(r.stage == 4 && s_stops == 0U);
         assert(r.items[8] == (k == 2 ? 0 : 1) && r.items[9] == (k == 4 ? 3 : (k == 11 ? 2 : 1)));
         assert((r.directions & 15) == (k == 1 ? 6 : (k == 2 ? 15 : 9)));

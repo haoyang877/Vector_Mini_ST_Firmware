@@ -49,6 +49,8 @@ class Port:
             reply[:12] = self.uid
             if page:
                 reply[20:23] = bytes((1, node, 2 if self.fault == "loader" else 1))
+                if self.fault == "unprovisioned":
+                    reply[20] = 0
             if self.fault == "busy":
                 reply = b"\x06\0\0\0"
         elif kind == 2:
@@ -231,6 +233,12 @@ class HardwareHostTest(unittest.TestCase):
         r["board_items"][8:] = [2, 3]
         hw.direction_results(r)
         self.assertEqual(list(r["items"].values())[-2:], ["异常", "未装"])
+
+    def test_motion_without_production_identity(self):
+        r, bus = self.check("unprovisioned", True)
+        self.assertEqual((r["communication"], r["stage"], r["stop_confirmed"]), ("正常", 4, True))
+        self.assertIn(117, [kind for kind, _, _ in bus.sent])
+        self.assertGreater(bus.previous_lease, 3)
 
     def test_stop_paths(self):
         for fault in ("startloss", "linkloss", "travel", "stoploss", "pendingstop", "denied"):

@@ -23,7 +23,7 @@ from five_axis_can_stability import (
     run_queries,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
-from hardware_check import Drive, direction_results, empty_report, run_check, summarize
+from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 

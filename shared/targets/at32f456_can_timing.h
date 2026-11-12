@@ -23,9 +23,11 @@ static inline At32CanTiming At32Can_BitTiming(uint8_t profile)
     uint32_t tq_clock_khz = 180000U / divider;
     uint32_t nominal_tq = tq_clock_khz / nominal_kbps;
     uint32_t data_tq = tq_clock_khz / data_kbps;
-    /* 采样点取最接近 75% 的 TQ；恰好半个 TQ 时选较晚的采样点。 */
-    uint8_t nominal_seg2 = (uint8_t)((nominal_tq + 1U) / 4U);
-    uint8_t data_seg2 = (uint8_t)((data_tq + 1U) / 4U);
+    /* 500K 仲裁切至 3M 以上时对齐适配器的 80% 采样点，其余档沿用 75%。 */
+    uint32_t tail_divisor = nominal_kbps == 500U && data_kbps >= 3000U ? 5U : 4U;
+    uint32_t rounding = (tail_divisor - 1U) / 2U;
+    uint8_t nominal_seg2 = (uint8_t)((nominal_tq + rounding) / tail_divisor);
+    uint8_t data_seg2 = (uint8_t)((data_tq + rounding) / tail_divisor);
     uint8_t data_seg1 = (uint8_t)(data_tq - data_seg2);
     return (At32CanTiming){(uint16_t)(nominal_tq - nominal_seg2),
                            nominal_seg2,

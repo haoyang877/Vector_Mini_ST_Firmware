@@ -243,10 +243,10 @@ class CanTestWindow:
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v0.7.2/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v0.7.3/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 0.7.2")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 0.7.3")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -318,7 +318,7 @@ class CanTestWindow:
         self.controls.append((compatibility, "normal"))
         ttk.Label(count_row, text="升级期间请暂停其他主站轮询。").pack(side="left")
         ttk.Label(
-            self.swd_tab, text="AT32F456 · Loader 2.3.2 + APP 0.7.2 · 默认 CAN FD 1M/5M"
+            self.swd_tab, text="AT32F456 · Loader 2.3.3 + APP 0.7.3 · 默认 CAN FD 1M/5M"
         ).pack(anchor="w")
         embedded = (
             Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "firmware" / "five-axis.hex"

@@ -1,5 +1,5 @@
 param([Parameter(Mandatory = $true)][string]$Dll, [string]$FirmwareHex,
-      [string]$CanPackage = "outputs/AT32F456-FULL-v0.7.2/app-package",
+      [string]$CanPackage = "outputs/AT32F456-FULL-v0.7.3/app-package",
       [string[]]$PitchThermal = @('3','3','3600','0.8','0.7','1','0.5'),
       [string[]]$YawThermal = @('3','3','3600','0.8','0.7','1','0.5'))
 $ErrorActionPreference = "Stop"

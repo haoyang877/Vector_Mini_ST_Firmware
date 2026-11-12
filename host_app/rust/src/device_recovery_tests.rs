@@ -128,6 +128,7 @@ fn fixture(script: Vec<Reply>) -> Fixture {
             lease_supported: false,
             last_renewal: None,
             renewal_block: None,
+            pending_start: None,
         },
         events,
         sent,
@@ -504,20 +505,341 @@ fn host_position_requires_new_firmware_and_explicit_session_start() {
     );
 }
 
-
 #[test]
 fn motion_renewal_only_for_owned_session_and_counter_survives_reconnect() {
     let mut f = fixture(vec![Reply::Data(vec![0; 4])]);
+    fs::write(
+        renewal_path(&f.session.sequence_file, &f.session.bound_uid).unwrap(),
+        "1",
+    )
+    .unwrap();
     running(&mut f);
     f.session.renew_owned_motion().unwrap();
     assert!(f.sent.lock().unwrap().is_empty());
     f.session.last_renewal = Some(Instant::now() - Duration::from_millis(150));
     f.session.renew_owned_motion().unwrap();
     assert_eq!(*f.sent.lock().unwrap(), [118]);
-    assert_eq!(f.session.renewal_block.as_mut().unwrap().next(), Some(2));
-    let mut next = reserve_renewals(&f.session.sequence_file, &f.session.bound_uid).unwrap();
-    assert_eq!(next.next(), Some(257));
+    assert_eq!(f.session.renewal_block.as_mut().unwrap().next(), Some(3));
+    let mut next = reserve_renewals(&f.session.sequence_file, &f.session.bound_uid, None).unwrap();
+    assert_eq!(next.next(), Some(258));
     f.session.snapshot.motor_state = 5;
     f.session.renew_owned_motion().unwrap();
     assert!(f.session.last_renewal.is_none());
+}
+
+#[test]
+fn missing_corrupt_or_rolled_back_renewal_history_never_starts_or_resets_counter() {
+    for data in [None, Some("broken"), Some("0")] {
+        let mut f = fixture(vec![]);
+        f.session.lease_supported = true;
+        let path = renewal_path(&f.session.sequence_file, &f.session.bound_uid).unwrap();
+        if let Some(data) = data {
+            fs::write(&path, data).unwrap();
+        }
+        f.session
+            .dispatch(Command::Start {
+                mode: ControlMode::Speed,
+            })
+            .unwrap();
+        assert!(f.sent.lock().unwrap().is_empty());
+        assert!(!f.session.snapshot.motion_may_run);
+        assert!(f.session.snapshot.motion_lease_error.is_some());
+        assert!(
+            !f.session
+                .snapshot
+                .can_start_mode(&f.session.target, "A", ControlMode::Speed)
+        );
+        assert!(f.events.try_iter().any(|e| matches!(e, Event::Rejected(_))));
+        assert_eq!(fs::read_to_string(&path).ok().as_deref(), data);
+    }
+    let f = fixture(vec![]);
+    let path = renewal_path(&f.session.sequence_file, "A").unwrap();
+    fs::write(&path, "1280").unwrap();
+    assert!(reserve_renewals(&f.session.sequence_file, "A", Some(1536)).is_err());
+    assert_eq!(fs::read_to_string(path).unwrap(), "1280");
+}
+
+#[test]
+fn existing_counter_1280_is_durably_reserved_before_start_and_reconnect_skips_block() {
+    let mut f = fixture(vec![Reply::Data(vec![1, 0, 0, 0])]);
+    f.session.lease_supported = true;
+    let path = renewal_path(&f.session.sequence_file, &f.session.bound_uid).unwrap();
+    fs::write(&path, "1280").unwrap();
+    f.session
+        .dispatch(Command::Start {
+            mode: ControlMode::Speed,
+        })
+        .unwrap();
+    assert_eq!(*f.sent.lock().unwrap(), [117]);
+    assert_eq!(*f.session.renewal_block.as_ref().unwrap().start(), 1281);
+    assert_eq!(fs::read_to_string(&path).unwrap(), "1536");
+    let records = logs(&f);
+    let reserved = records
+        .iter()
+        .position(|r| r["event"] == "motion_lease_reserved")
+        .unwrap();
+    let start = records
+        .iter()
+        .position(|r| r["event"] == "command_requested")
+        .unwrap();
+    assert!(reserved < start);
+    assert_eq!(
+        records[reserved]["details"]["transaction"]["first_counter"],
+        1281
+    );
+    let next = reserve_renewals(&f.session.sequence_file, &f.session.bound_uid, None).unwrap();
+    assert_eq!(*next.start(), 1537);
+}
+
+#[test]
+fn renewal_denial_keeps_counter_result_and_confirmed_stop_without_replaying_start() {
+    let mut f = fixture(vec![
+        Reply::Data(vec![1, 0, 0, 0]),
+        Reply::Data(vec![5, 0, 0, 0]),
+        Reply::Data(vec![0; 4]),
+        Reply::Data(stopped_feedback()),
+    ]);
+    f.session.lease_supported = true;
+    fs::write(renewal_path(&f.session.sequence_file, "A").unwrap(), "1280").unwrap();
+    f.session
+        .dispatch(Command::Start {
+            mode: ControlMode::Speed,
+        })
+        .unwrap();
+    running(&mut f);
+    f.session.last_renewal = Some(Instant::now() - Duration::from_millis(150));
+    let error = f.session.renew_owned_motion().unwrap_err();
+    assert!(error.to_string().contains("1281"));
+    assert!(error.to_string().contains("5/0"));
+    f.session.fail_after_stop(error);
+    assert_eq!(*f.sent.lock().unwrap(), [117, 118, 110, 108]);
+    assert!(f.session.snapshot.stop_confirmed && !f.session.snapshot.motion_may_run);
+    let record = logs(&f)
+        .into_iter()
+        .find(|r| r["event"] == "motion_lease_rejected")
+        .unwrap();
+    assert_eq!(record["details"]["transaction"]["counter"], 1281);
+    assert_eq!(record["details"]["transaction"]["result"], 5);
+}
+
+fn stopped_feedback() -> Vec<u8> {
+    let mut data = idle_payload();
+    data[20..24].copy_from_slice(&0i32.to_le_bytes());
+    data
+}
+
+fn identity_replies(features: u32) -> Vec<Reply> {
+    let target = Target::bundled().unwrap();
+    let mut page0 = vec![0; 32];
+    page0[..12].fill(1);
+    page0[12..16].copy_from_slice(&target.product.to_le_bytes());
+    page0[16..18].copy_from_slice(&(target.hardware as u16).to_le_bytes());
+    page0[20..24].copy_from_slice(&0x10602u32.to_le_bytes());
+    let mut page1 = vec![0; 32];
+    page1[21] = 1;
+    page1[22] = 1;
+    let mut page2 = vec![0; 32];
+    page2[8..12].copy_from_slice(&target.abi.to_le_bytes());
+    page2[12..16].copy_from_slice(&target.schema.to_le_bytes());
+    let mut caps = vec![0; 16];
+    caps[..4].copy_from_slice(&features.to_le_bytes());
+    caps[4..6].copy_from_slice(&0x4eu16.to_le_bytes());
+    caps[6] = 64;
+    vec![
+        Reply::Data(page0),
+        Reply::Data(page1),
+        Reply::Data(page2),
+        Reply::Data(caps),
+    ]
+}
+
+fn job_reply(kind: CalibrationKind, phase: u8, effects: u8) -> Vec<u8> {
+    vec![0, 0, 0, 0, 42, 0, 0, 0, kind as u8, 0, phase, effects]
+}
+
+fn calibration_fixture(kind: CalibrationKind, tail: Vec<Reply>) -> Fixture {
+    let mut script = identity_replies(0x1d00 | calibration::FEATURE);
+    script.push(Reply::Data(stopped_feedback()));
+    script.push(Reply::Data(job_reply(kind, 1, 1)));
+    script.extend(tail);
+    let mut f = fixture(script);
+    f.session.bound_uid = "01".repeat(12);
+    f.session.expected_uid = f.session.bound_uid.clone();
+    f.session.snapshot.uid = f.session.bound_uid.clone();
+    f
+}
+
+fn terminal_replies(kind: CalibrationKind, phase: u8, effects: u8) -> Vec<Reply> {
+    let mut replies = vec![
+        Reply::Data(job_reply(kind, phase, effects)),
+        Reply::Data(vec![0; 4]),
+        Reply::Data(stopped_feedback()),
+    ];
+    replies.extend(identity_replies(0x1d00 | calibration::FEATURE));
+    replies
+}
+
+#[test]
+fn pending_start_keeps_owned_lease_until_running_and_has_a_deadline() {
+    let mut f = fixture(vec![Reply::Data(vec![0; 4])]);
+    fs::write(
+        renewal_path(&f.session.sequence_file, &f.session.bound_uid).unwrap(),
+        "1",
+    )
+    .unwrap();
+    running(&mut f);
+    f.session.snapshot.motor_state = 5;
+    f.session.pending_start = Some((ControlMode::Speed, Instant::now()));
+    f.session.last_renewal = Some(Instant::now() - Duration::from_millis(150));
+    f.session.renew_owned_motion().unwrap();
+    assert_eq!(*f.sent.lock().unwrap(), [118]);
+    assert!(f.session.last_renewal.is_some());
+
+    let mut pending = stopped_feedback();
+    pending[44] = 2;
+    let bits = u16le(&pending, 24).unwrap() & !(1 << 7);
+    pending[24..26].copy_from_slice(&bits.to_le_bytes());
+    pending[32..34].copy_from_slice(&i16::MIN.to_le_bytes());
+    let mut transitions = fixture(vec![
+        Reply::Data(pending.clone()),
+        Reply::Data(super::tests::valid_feedback()),
+    ]);
+    running(&mut transitions);
+    transitions.session.pending_start = Some((ControlMode::Speed, Instant::now()));
+    transitions.session.poll_feedback().unwrap();
+    assert!(transitions.session.pending_start.is_some());
+    assert_eq!(*transitions.sent.lock().unwrap(), [108]);
+    transitions.session.poll_feedback().unwrap();
+    assert!(transitions.session.pending_start.is_none());
+
+    let mut timed_out = fixture(vec![Reply::Data(pending)]);
+    running(&mut timed_out);
+    timed_out.session.pending_start = Some((
+        ControlMode::Speed,
+        Instant::now() - Duration::from_millis(510),
+    ));
+    assert!(
+        timed_out
+            .session
+            .poll_feedback()
+            .unwrap_err()
+            .to_string()
+            .contains("500ms")
+    );
+}
+
+#[test]
+fn fault_stop_retains_faulted_session_and_clear_does_not_enable_motion() {
+    let mut fault = stopped_feedback();
+    fault[4..8].copy_from_slice(&1u32.to_le_bytes());
+    fault[43] = 8;
+    let mut f = fixture(vec![
+        Reply::Data(fault.clone()),
+        Reply::Data(vec![0; 4]),
+        Reply::Data(fault),
+        Reply::Data(vec![0; 4]),
+        Reply::Data(stopped_feedback()),
+    ]);
+    running(&mut f);
+    f.session.poll_feedback().unwrap();
+    assert_eq!(f.session.snapshot.faults, 1);
+    assert_eq!(f.session.snapshot.enable_state(), Some(false));
+    f.session.dispatch(Command::ClearFault).unwrap();
+    assert_eq!(f.session.snapshot.faults, 0);
+    assert!(!f.session.snapshot.motion_may_run);
+    assert_eq!(*f.sent.lock().unwrap(), [108, 110, 108, 107, 108]);
+    assert!(
+        logs(&f)
+            .iter()
+            .any(|row| row["event"] == "device_fault_changed")
+    );
+}
+
+#[test]
+fn fault_clear_rejection_keeps_real_fault_and_connection() {
+    let mut f = fixture(vec![Reply::Data(vec![5, 0, 0, 0])]);
+    f.session.snapshot.faults = 1;
+    f.session.snapshot.motor_state = 8;
+    f.session.dispatch(Command::ClearFault).unwrap();
+    assert_eq!(f.session.snapshot.faults, 1);
+    assert!(
+        f.events
+            .try_iter()
+            .any(|event| matches!(event, Event::Rejected(_)))
+    );
+    assert_eq!(*f.sent.lock().unwrap(), [107]);
+}
+
+#[test]
+fn all_three_calibrations_reach_confirmed_saved_terminal_state() {
+    for kind in CalibrationKind::ALL {
+        let mut data = stopped_feedback();
+        data[43] = 4;
+        let bits = u16le(&data, 24).unwrap() & !(1 << 7);
+        data[24..26].copy_from_slice(&bits.to_le_bytes());
+        data[32..34].copy_from_slice(&i16::MIN.to_le_bytes());
+        let mut tail = vec![Reply::Data(data)];
+        tail.extend(terminal_replies(kind, 2, 2));
+        let mut f = calibration_fixture(kind, tail);
+        f.session.dispatch(Command::StartCalibration(kind)).unwrap();
+        f.session.poll_feedback().unwrap();
+        assert!(f.session.snapshot.calibration.as_ref().unwrap().active());
+        f.session.snapshot.calibration.as_mut().unwrap().updated =
+            Instant::now() - Duration::from_millis(201);
+        f.session.poll_calibration().unwrap();
+        let job = f.session.snapshot.calibration.as_ref().unwrap();
+        assert_eq!((job.phase, job.effects), (2, 2));
+        assert!(f.session.snapshot.stop_confirmed && !f.session.snapshot.motion_may_run);
+        let sent = f.sent.lock().unwrap();
+        assert_eq!(sent.iter().filter(|&&k| k == 160).count(), 1);
+        assert!(sent.contains(&161) && !sent.contains(&117));
+    }
+}
+
+#[test]
+fn cancellation_waits_for_terminal_result_and_preserves_saved_effects() {
+    for effects in [1, 2] {
+        let kind = CalibrationKind::Lut;
+        let mut tail = vec![Reply::Data(job_reply(kind, 3, effects))];
+        tail.extend(terminal_replies(kind, 4, effects));
+        let mut f = calibration_fixture(kind, tail);
+        f.session.dispatch(Command::StartCalibration(kind)).unwrap();
+        f.session.dispatch(Command::CancelCalibration).unwrap();
+        assert_eq!(f.session.snapshot.calibration.as_ref().unwrap().phase, 3);
+        f.session.snapshot.calibration.as_mut().unwrap().updated =
+            Instant::now() - Duration::from_millis(201);
+        f.session.poll_calibration().unwrap();
+        let job = f.session.snapshot.calibration.as_ref().unwrap();
+        assert_eq!((job.phase, job.effects), (4, effects));
+        assert!(f.session.snapshot.stop_confirmed);
+        assert_eq!(
+            f.sent.lock().unwrap().iter().filter(|&&k| k == 162).count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn position_targets_require_this_hosts_explicit_unlimited_start() {
+    let mut f = fixture(vec![]);
+    running(&mut f);
+    f.session.snapshot.mode = 3;
+    f.session.snapshot.position_rad = Some(20.0);
+    f.session.snapshot.features |= crate::control::HOST_POSITION_SESSION_FEATURE;
+    assert!(
+        !f.session
+            .snapshot
+            .can_set_target(&f.session.target, "A", ControlMode::Position)
+    );
+    f.session.snapshot.host_position_session = true;
+    assert!(
+        f.session
+            .snapshot
+            .can_set_target(&f.session.target, "A", ControlMode::Position)
+    );
+    let mut fault = stopped_feedback();
+    fault[4..8].copy_from_slice(&1u32.to_le_bytes());
+    fault[43] = 8;
+    apply_feedback(&mut f.session.snapshot, &fault, 1).unwrap();
+    assert!(!f.session.snapshot.host_position_session);
 }

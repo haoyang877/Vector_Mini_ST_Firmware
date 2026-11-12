@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [旋转趋势、命令方向与 CAN FD 上位机复测](2026-11-13-hardware-check-angle-trend.md) — APP v1.8.1 和 GUI v1.7.1 完成九项正常，电机命令/编码器方向通过；剩余独立霍尔趋势、CAN首答可靠性异常保留。
+
 - [母线电流 RMS 50 cnt 与完整复测](2026-11-13-bus-current-rms-50.md) — 合并到重构分支，离线 release 档与八项静态通过；转角/电流对照仍未通过动态，保留 debug 交付及剩余验收记录。
 
 - [远端重构合并与单节点 1M/5M 验证](2026-11-12-remote-refactor-can-validation.md) — APP v1.7.0、Loader v2.3.3 在节点 7 完成 CAN 升级，1,000 次状态查询全部通过，现场已恢复。

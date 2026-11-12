@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools/bench"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import hardware_check as hw
 from upgrade_client import crc8, crc16, decode_reply, encode_frames
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def response(node, kind, seq, data):
@@ -121,6 +122,8 @@ class Port:
         elif kind == 110:
             if self.fault == "stoploss":
                 return
+            if self.fault == "pendingstop":
+                reply = b"\x01\0\x01\0"
             self.running = False
             self.stage = 4 if self.outward == 2 else 5
         else:
@@ -230,7 +233,7 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual(list(r["items"].values())[-2:], ["异常", "未装"])
 
     def test_stop_paths(self):
-        for fault in ("startloss", "linkloss", "travel", "stoploss", "denied"):
+        for fault in ("startloss", "linkloss", "travel", "stoploss", "pendingstop", "denied"):
             with self.subTest(fault=fault):
                 r, bus = self.check(fault, True)
                 self.assertTrue(r["note"])
@@ -239,7 +242,9 @@ class HardwareHostTest(unittest.TestCase):
                     self.assertNotIn(110, [k for k, _, _ in bus.sent])
                 else:
                     self.assertIn(110, [k for k, _, _ in bus.sent])
-                    self.assertEqual(r["stop_confirmed"], fault != "stoploss")
+                    self.assertEqual(r["stop_confirmed"], fault not in ("stoploss", "pendingstop"))
+                if fault == "pendingstop":
+                    self.assertEqual(r["communication"], "正常")
                 if fault in ("linkloss", "startloss", "stoploss"):
                     self.assertEqual(r["communication"], "异常")
 

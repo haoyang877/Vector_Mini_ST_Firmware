@@ -48,7 +48,7 @@ typedef struct
     uint32_t cycles, frame, epoch;
     float voltage_v, frequency_hz;
     uint16_t current_q4[4], hall[2];
-    bool powered, open_current, fault, stopping;
+    bool powered, open_current, fault, stopping, stopped;
 } HardwareSample;
 
 typedef struct
@@ -73,7 +73,7 @@ typedef struct
     ProtocolHardwareReport report;
     uint32_t previous_run, base_epoch, driven_epoch, stage_ms, last_cycles, samples, revision;
     uint16_t start_sequence;
-    uint8_t mode;
+    uint8_t mode, ntc_window;
     bool hall_installed, hall_calibrated, seen_frame, have_cycles;
     int32_t last_rotor, rotor_travel, rotor_min, rotor_max;
     NoiseWindow noise[6];
@@ -113,6 +113,8 @@ void HardwareCheck_CaptureFast(const MotorAxis *axis)
     sample->frequency_hz = axis->motor.open_loop_frequency_hz;
     sample->fault = axis->motor.fault_code != MOTOR_FAULT_NONE;
     sample->stopping = axis->state_machine.stop_pending;
+    sample->stopped = !sample->powered && sample->epoch != s_check.base_epoch &&
+                      MotorStateMachine_IsStopped(&axis->state_machine);
     if (s_check.hall_installed)
     {
         uint8_t slot = axis->hall_published_slot;
@@ -177,6 +179,7 @@ static ProtocolCode handle_request(void *context,
     s_check.revision = axis->parameters.revision;
     s_check.stage_ms = BspSystem_TimeMs();
     s_check.report.stage = STATIC;
+    s_check.ntc_window = PASS;
     s_check.min_v = INFINITY;
     s_check.max_v = -INFINITY;
     s_check.hall_min[0] = s_check.hall_min[1] = UINT16_MAX;
@@ -392,11 +395,7 @@ static void finish_static(MotorAxis *axis)
             s_check.hall_rest.max_turns - s_check.hall_rest.min_turns +
             2.0f / (TWO_PI_F * fmaxf(1.0f, fminf(s_check.hall.sin_amp, s_check.hall.cos_amp)));
     }
-    uint8_t ntc = temperature_result(axis);
-    if (items[NTC] == PASS)
-    {
-        items[NTC] = ntc;
-    }
+    items[NTC] = s_check.ntc_window;
     if (s_check.mode == 1U || items[NTC] != PASS)
     {
         end_check(axis, items[NTC] == UNTESTED || s_check.mode == 2U ? ABORTED : DONE);
@@ -673,7 +672,7 @@ static void consume_sample(MotorAxis *axis, const HardwareSample *sample)
         }
         if (s_check.report.stage == DRIVING && !sample->powered && !sample->fault &&
             s_check.leg_samples[0] >= FOC_FREQ / 20U && s_check.leg_samples[1] >= FOC_FREQ / 20U &&
-            MotorStateMachine_IsStopped(&axis->state_machine))
+            sample->stopped && sample->epoch == s_check.driven_epoch + 1U)
         {
             finish_drive(axis);
         }
@@ -712,10 +711,14 @@ void HardwareCheck_Process(MotorAxis *axis)
         return;
     }
     uint8_t ntc = temperature_result(axis);
-    if (ntc != PASS || s_check.samples == 0U)
+    if (ntc != PASS)
     {
-        /* 无效、过期优先于未知环境，保留整窗已知异常。 */
-        if (s_check.report.items[NTC] != FAIL)
+        /* 只在整窗完成后发布正常。无效或过期读数可立即证实故障。 */
+        if (s_check.ntc_window != FAIL)
+        {
+            s_check.ntc_window = ntc;
+        }
+        if (stage != STATIC || ntc == FAIL)
         {
             s_check.report.items[NTC] = ntc;
         }

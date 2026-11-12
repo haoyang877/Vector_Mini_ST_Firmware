@@ -298,18 +298,20 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
 
 def confirm_stop(link, report):
     report["stop_confirmed"] = False
+    answered = False
     for _ in range(3):
         try:
             if link.command(110) == 0:
                 report["stop_confirmed"] = True
                 return
-            state = link.status()
-            if state[43] in (5, 8) and state[44] == 0:
-                report["stop_confirmed"] = True
-                return
-        except (TimeoutError, OSError, Rejected, ValueError):
+            answered = True
+        except Rejected:
+            answered = True
+        except (TimeoutError, OSError, ValueError):
             pass
         time.sleep(0.015)
+    if answered:
+        raise Rejected("STOP 已应答，实际关相未确认")
     raise TimeoutError("STOP 后未确认关相")
 
 

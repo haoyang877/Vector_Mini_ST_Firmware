@@ -18,7 +18,7 @@ try {
         (Get-FileHash -LiteralPath (Join-Path $canDir 'manifest.bin')).Hash -ne $batch.can_manifest_sha256) {
         throw "CAN 镜像或清单与本批 J-Link 固件不配套"
     }
-    uv run python host_app/upgrade_client.py inspect --target yg_esc_v1_at32f456 --package $canDir
+    uv run --no-sync python host_app/upgrade_client.py inspect --target yg_esc_v1_at32f456 --package $canDir
     if ($LASTEXITCODE -ne 0) { throw "CAN 升级包校验失败" }
     if (-not $FirmwareHex) {
         $match = Get-ChildItem -Path "outputs/AT32F456-FULL-*/*.hex" -File |
@@ -43,11 +43,11 @@ try {
         if ($node -in 6,8) { $thermal = @('--thermal') + $PitchThermal }
         if ($node -eq 7) { $thermal = @('--thermal') + $YawThermal }
         $temp = Join-Path $records.FullName ("$node-" + [Guid]::NewGuid().ToString('N') + '.tmp')
-        uv run --extra dev python tools/build/make_axis_record.py --node $node --model $model --speed $speed --output-shaft --confirm-model @thermal --output $temp
+        uv run --no-sync --extra dev python tools/build/make_axis_record.py --node $node --model $model --speed $speed --output-shaft --confirm-model @thermal --output $temp
         if ($LASTEXITCODE -ne 0) { throw "节点 $node 参数生成失败" }
         Move-Item -LiteralPath $temp -Destination (Join-Path $records.FullName "$node.bin") -Force
     }
-    uv run --extra maintenance --with pyinstaller==6.22.3 python -m PyInstaller --noconfirm --onefile --windowed `
+    uv run --no-sync --extra maintenance --with pyinstaller==6.16.0 python -m PyInstaller --noconfirm --onefile --windowed `
         --name CAN-Link-Test-v1.7.0 --distpath "$output/dist" --workpath "$output/build" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
         --add-binary "${sdk};." --add-data "$root/tools/bench/five_axis_can_stability.json;." `

@@ -302,9 +302,9 @@ static void motion_cases(void)
                 if (k != 12 || j < 12000U || j > 17550U)
                 {
                     int step = k == 15 && (j / 1000U) % 2U ? 60 : 24;
-                    if (k == 17 && j >= 13000U && j < 16500U)
+                    if (k == 17 && j >= 10000U)
                     {
-                        step = -step;
+                        step = j / 2000U % 2U ? -24 : 24;
                     }
                     angle += leg && k != 18 ? -step : step;
                 }

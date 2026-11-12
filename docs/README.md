@@ -1,8 +1,15 @@
 # 文档入口
 
-通信只保留一份[现行协议说明](protocols/README.md)，已按 2026-11-03 的
-`the-system-refactor` 代码核对。报文、命令、反馈、标定和升级均在该页；
-回归向量位于 `tests/fixtures/protocol/`，不作为设备支持清单。
+## APP 与 Loader 固件设计
+
+- [架构设计](architecture/software_architecture.md)说明两种镜像如何协作，以及前台、中断和业务模块如何分工。
+- [状态机设计](architecture/motor_state_machine_v1.md)给出电机运行与标定的转移条件，以及 Loader 下载、激活和确认的状态。
+- [通信协议设计](protocols/README.md)定义 CAN FD 帧、各镜像的命令、应答和重发语义。
+- [参数管理设计](architecture/parameter_ownership_v1.md)说明参数的来源、校验、活动对象、保存和重启恢复。
+
+具体板型和 Keil 工程见[镜像选择表](../README.md#选择板卡与固件工程)。
+
+## 主题索引
 
 | 主题 | 入口与用途 |
 | --- | --- |

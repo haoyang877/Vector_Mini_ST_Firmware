@@ -2,31 +2,24 @@
 
 <img src="./docs/assets/project/logo.png" width="600"/>
 
-## 代码目录
+## 选择板卡与固件工程
 
-```text
-firmware/                         电机 APP
-  app/                            启动组装、公共请求接口、主状态机与任务调度
-  motor/                          FOC、位置控制、编码器标定与保护
-  parameters/                     配置默认值、标量读写和参数记录转换
-  communication/                  CAN 接入与协议
-  platform/                       硬件接口、STM32G4 BSP/端口/CubeMX
-loader/                           独立 G431 Loader、升级事务与 CAN FD 端口
-host_app/                         Rust GUI候选、Qt6核心工具与独立CAN客户端
-shared/                           APP/Loader 共用协议、镜像及交接契约
-tools/                           build、bench、analysis
-tests/                           unit、integration
-docs/                            architecture、protocols、guides、hardware、reports
-outputs/                         构建、测试与分析产物（忽略提交）
-```
+Vector Mini 是面向永磁同步电机的单轴 FOC 驱动固件。独立 APP 从 Flash 起始地址直接启动。LoaderApp 是由 Loader 校验并跳转启动的电机 APP。Loader 自身是独立的启动与升级镜像。表中的基址取工程链接布局。
 
-双板统一管理入口为 [YG-ESC.uvmpw](YG-ESC.uvmpw)，在一个 Keil 窗口中管理旧板 APP、
-新板关相 APP 和新板限时调试 APP，默认选中新板关相版。
-切换方法见 [Keil 工作区使用说明](docs/guides/keil_workspace.md)。
+| 板型 | 镜像 | Keil 工程 | 链接基址 | 升级命令 |
+| --- | --- | --- | --- | --- |
+| STM32G431 | 独立 APP | [ESC-APP-STM32G431](projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx) | `0x08000000` | 56/57 未绑定 |
+| STM32G431 | LoaderApp | [ESC-APP-STM32G431-LoaderApp](projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx) | `0x08004000` | 56 停机交接、57 镜像确认 |
+| STM32G431 | Loader | [YG2026_ESC_LOADER](loader/targets/vector_mini_st_g431/YG2026_ESC_LOADER.uvprojx) | `0x08000000` | 接收升级命令 50–55 |
+| AT32F456 | 独立 APP | [ESC-APP-AT32F456-Standalone](projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx) | `0x08000000` | 56/57 未绑定 |
+| AT32F456 | LoaderApp | [ESC-APP-AT32F456](projects/at32f456/application/ESC-APP-AT32F456.uvprojx) | `0x08004000` | 56 停机交接、57 镜像确认 |
+| AT32F456 | Loader | [ESC-LOADER-AT32F456](loader/targets/yg_esc_v1_at32f456/ESC-LOADER-AT32F456.uvprojx) | `0x08000000` | 接收升级命令 50–55 |
 
-旧板独立主工程为
-[`ESC-APP-STM32G431.uvprojx`](projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx)，
-目标和输出名统一为 `ESC-APP-STM32G431`；构建产物输出到 `outputs/build/keil/ESC-APP-STM32G431/`。
+配套 APP 使用带连字符的工作区，默认选中 AT32F456 LoaderApp。独立 APP 使用带下划线的工作区。Loader 工程从表中单独打开。[配套工作区 YG-ESC](YG-ESC.uvmpw) · [独立工作区 YG_ESC](YG_ESC.uvmpw) · [Keil 使用说明](docs/guides/keil_workspace.md)
+
+## 阅读固件代码
+
+固件设计按四个主题维护：[架构设计](docs/architecture/software_architecture.md)、[状态机设计](docs/architecture/motor_state_machine_v1.md)、[通信协议设计](docs/protocols/README.md)、[参数管理设计](docs/architecture/parameter_ownership_v1.md)。查找源码、Keil 工程及离线测试时使用[文件导航](docs/architecture/code_structure.md)。
 
 人工调试的观测对象、变量清单、单位和枚举值见
 [Keil Watch 只读观测指南](docs/guides/watch_motor_commands.md)。
@@ -53,36 +46,15 @@ python tests/run.py
 代码风格和可读性规则见 [STYLE.md](STYLE.md)。新 C 模块和 Python 命令应从持续接受
 CI 检查的 [templates](templates/README.md) 示例开始，再按模块职责进行重命名和裁剪。
 
-详细目录与验证结果见 [代码框架与目录规范](docs/architecture/code_structure.md)，
-Loader 与后续 PC 边界见 [Loader](loader/README.md)、[上位机](host_app/README.md)、
-[共享契约](shared/README.md)。
+## 电机控制与配置
 
-## 功能介绍
+两板共用有感电机控制、编码器标定和 CAN FD 启停、目标及反馈接口。速度和位置模式通过外环产生电流参考。在线参数命令 120–122 当前返回不支持；角度标定完成后的参数持久化由 APP 前台执行。[控制执行](docs/architecture/motor_execution_core_v3.md) · [标定流程](docs/guides/calibration_process.md) · [参数记录](firmware/parameters/README.md#storage)
 
-​        Vector 驱动器是一款中小型尺寸，基于矢量控制的永磁同步电机驱动，适用于轮毂电机，关节电机等。24V母线电压下，实测最高支持约400W的持续功率输入（需散热片）。内部算法可实现基础的电流、速度、位置闭环，以及编码器LUT和零位标定。目前仅支持有感运行，板载了一块TLE5012B绝对式编码器，当前端口使用SPI2板载TLE5012B；其他型号或外部通道须有实际端口接入。当前应用通过 FDCAN 接收控制命令和回传状态；USART1 外设已随容量优化退役，不再初始化。MCU USB CDC 命令、遥测和协议栈已移除，PC 端 USB-CAN 分析仪仍可使用。FDCAN数据段最高波特率5Mbps，可通过外部主控向总线发送报文以实现一对多控制。驱动器具有母线过压和欠压，相线过流，过温等保护，最大程度地保障驱动能够稳定运行。
-
-## 软件已有功能
-
-轴配置：[AXS1/AXS2身份、范围与持久化](docs/guides/motor_axis_profiles.md)。
-
-速度包络由应用配置及轴记录决定，不再按节点派生，见[节点与应用策略](firmware/parameters/README.md#storage)。
-
-* 基础有感FOC算法 电流 速度 位置 可控
-* 单轴限 jerk 的 S 曲线位置规划，位置与速度参考接入串级电流控制
-* 磁编码器偏心补偿
-* FDCAN基本启停、目标、反馈、参数读写与Loader交接
-* 绝对式 SPI 编码器：板载 TLE5012B（传感器通道已解耦，其他型号按 driver 接入）
-* 过压、欠压、过流、过温保护
-* 编码器断连识别
-
-当前功能、支持范围与产品边界见[软件架构](docs/architecture/software_architecture.md)，
-已公布的主机控制能力仅为SPEED，其他候选模式须按实际能力与验收范围判断。
-旧 Mode3 轨迹、摩擦/相电阻辨识、齿槽标定/补偿、运行租约、持久启动计数和自动RTT已退役。
-历史报告与归档镜像保留，但不能作为当前功能或实机通过证据。
+STM32G431 原板使用板载 SPI 编码器。AT32F456 根据有效轴记录的节点和 AXS2 身份装配关节或轮轴，型号、减速比和限值见[五轴配置](docs/guides/at32f456_five_axes.md)。各板外设接线与原理图见[硬件资料](docs/hardware/README.md)。
 
 ## 注意事项
 
-> MCU的PB8引脚为BOOT0引脚，在设计时由于引脚紧张复用成FDCAN1_RX，让程序正常启动需要使用STM32CubeProgrammer将BOOT0软件下拉。
+> STM32G431 原板的 PB8 引脚为BOOT0引脚，在设计时由于引脚紧张复用成FDCAN1_RX，让程序正常启动需要使用STM32CubeProgrammer将BOOT0软件下拉。
 
 > 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/guides/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
 

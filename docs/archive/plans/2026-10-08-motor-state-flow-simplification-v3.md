@@ -4,7 +4,7 @@
 
 日期：2026-10-08。状态：源码与离线验证完成，待集成审阅；完整 PR 仍有基线文档链接失败。
 承接[第一批与基线 v2](2026-10-08-motor-state-flow-simplification-v2.md)，
-以及[全出口设计](../../architecture/motor_state_flow_simplification_v1.md)。
+以及[全出口设计](../architecture/motor_state_flow_simplification_v1.md)。
 
 ## 目标与批准的行为差异
 

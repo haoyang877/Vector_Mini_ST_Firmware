@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [APP 与 Loader 固件架构审查](app_loader_architecture_review_20261110.md)梳理双板的协议、状态机与文件职责，记录激活票据的两项故障注入结果。
+
 - [PITCH 1024 点 Hall LUT 与滤波验收](2026-11-06-hall-lut-1024-filter-v1.md)：独立数据峰值0.356°，延迟/时序及参数复位恢复通过，发布门禁限制见报告。
 
 - [PITCH 新板 Hall LUT 标定与精度检查](2026-11-06-hall-lut-new-board-v1.md)：标定、保存及软件复位恢复通过，0.5° 峰值门槛未通过，未提交。

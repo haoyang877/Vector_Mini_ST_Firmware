@@ -3,7 +3,7 @@
 # 整机启动、控制、维护与状态机调用流程
 
 更新日期：2026-10-09。按核心 APP v1.3.0 描述实际调用，配合[八状态主说明](../../architecture/motor_state_machine_v1.md)
-和[全部状态跳转](../../architecture/motor_state_flow_simplification_v1.md)阅读。
+和[全部状态跳转](motor_state_flow_simplification_v1.md)阅读。
 旧 v7 组合标定、六类业务视图、运行租约及在线模式切换已退役。
 
 ## 启动和通常执行路径

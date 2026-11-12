@@ -2,6 +2,10 @@
 
 - [主控适配驱动服务 v1](2026-11-10-controller-firmware-adaptation-v1.md) — 参数、标定票据、NTC、输出角与坐标CRC离线完成；6目标构建通过，全仓文档门禁及实机验收待完成。
 
+- [四份固件设计文档详化](2026-11-10-firmware-design-contracts.md) — 模块交接、并发状态轨迹、CAN 原始报文与参数生效路径。
+
+- [双板 APP 与 Loader 现行文档整理](2026-11-10-app-loader-docs.md) — 工程选择、协议角色、状态机、标定存储与历史归档。
+
 - [APP 实例化合并与 PITCH 实机验收](2026-11-09-app-instance-integration.md) — 双板构建、CAN 升级及闭环实测通过；联合角度标定 4 次通过 3 次。
 
 - [合并状态机接口并删减重复检查](2026-11-09-state-machine-api.md) — 合并目标、外环和反馈实现，双板状态及目标对照通过。
@@ -99,7 +103,6 @@
 - [BSP整理后AT32烧录与关相验收](2026-10-27-bsp-cleanup-at32-flash-v1.md)：独立读回、运行、CAN及参数保留通过；未启相、未转动。
 
 - [AT32 BSP职责收敛](2026-10-26-at32-bsp-responsibility-cleanup-v1.md)：统一命名、删除实现期测试代码，平铺11文件，九工程与完整回归通过；未烧录。
-
 
 - [BSP私有接口收敛后的AT32关相实测](2026-10-26-bsp-private-at32-hil-v1.md)：修复时序问题，九工程、完整release、J-Link读回及CAN实测通过；未转动。
 

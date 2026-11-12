@@ -11,7 +11,7 @@
 - schema12 复用退役槽保存确认与整条 CRC，长度 4304 B；旧版本不迁移、不自动回写。
 - 未配置设备使用有效节点 1；默认速度保持 0.5 rev/s，避免新节点套用更大的轮子默认硬上限。
 
-[详细设计](../../architecture/motor_readiness_v1.md)、
+[详细设计](../../archive/architecture/motor_readiness_v1.md)、
 [存储契约](../../../firmware/parameters/README.md#storage)、
 [执行与回退](../../plans/completed/2026-09-29-self-test-readiness-v1.md)。
 

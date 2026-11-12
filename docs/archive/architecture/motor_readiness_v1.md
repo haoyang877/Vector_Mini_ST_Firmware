@@ -1,6 +1,8 @@
 # 基础自检与模式就绪 v1
 
-日期：2026-09-29；2026-10-09 按核心八状态与当前上电零点路径更新。配合[主状态机](motor_state_machine_v1.md)和[全部跳转](motor_state_flow_simplification_v1.md)使用。
+归档于 2026-11-10。本文保留旧阶段的设计与行为；当前实现见[电机状态机](../../architecture/motor_state_machine_v1.md)和[文件职责](../../architecture/code_structure.md)。
+
+日期：2026-09-29；2026-10-09 按核心八状态与当前上电零点路径更新。配合[主状态机](../../architecture/motor_state_machine_v1.md)和[全部跳转](motor_state_flow_simplification_v1.md)使用。
 
 ## 主状态与准备资格
 
@@ -63,7 +65,7 @@ CLEAR 在 FAULT 内核对基础健康和源恢复，成功直接 IDLE。
 ## 配置确认与启动受限原因
 
 新增 120/121 参数 ID；线路结果、序号、revision 和停机独占遵循
-[参数线路 v1](../protocols/README.md#parameters)。108/124 的 45 B payload 不变，
+[参数线路 v1](../../protocols/README.md#parameters)。108/124 的 45 B payload 不变，
 IDLE 仍映射为既有线上状态 5；PC 用新序号查询资格，重试原身份重放原快照。
 
 | ID | 类型/权限 | 含义 |
@@ -90,8 +92,8 @@ IDLE 仍映射为既有线上状态 5；PC 用新序号查询资格，重试原�
 ENABLE 在同一临界区重新核对，监督拍及运行守卫继续复核。确认、标定、保存都不自动 ENABLE。
 SAVE 可以持久化未确认/部分标定记录，重载后保持同样限制；DEFAULTS 清除确认和标定资格。
 
-配置确认持久化与整条CRC见[schema14契约](../../firmware/parameters/README.md#storage)，旧版本不受支持。
-黄金字节见[参数线路向量](../../tests/fixtures/protocol/yg_protocol_parameter_wire_v1_vectors.json)。
+配置确认持久化与整条CRC见[schema14契约](../../../firmware/parameters/README.md#storage)，旧版本不受支持。
+黄金字节见[参数线路向量](../../../tests/fixtures/protocol/yg_protocol_parameter_wire_v1_vectors.json)。
 
 未配置设备使用节点 1，与 Loader 救援节点一致；完整电机状态的节点合法范围为 1～254。
 默认速度保持原0.5 rev/s；当前不再按节点派生轮子硬上限。批量配置仍需使用各板既有
@@ -107,6 +109,6 @@ Param 服务应用默认/装载/确认，状态存于 APP 私有电机对象；�
 健康窗口中断、时钟回绕、总期限、关断失败 FATAL、CRC 黄金与掉电重载。
 这属于离线验证；未烧录、未修改设备参数、未控制电机。
 
-2026-10-08：BOOT 与基础自检已合并 INIT；INIT STOP 不重启期限／窗口，其余健康与启动资格保持。线上映射见[状态反馈 v1.1](../protocols/README.md#feedback)。
+2026-10-08：BOOT 与基础自检已合并 INIT；INIT STOP 不重启期限／窗口，其余健康与启动资格保持。线上映射见[状态反馈 v1.1](../../protocols/README.md#feedback)。
 
-2026-10-08 出口收敛：INIT／IDLE STOP 保持状态与代际；停止与 CLEAR 成功只回 IDLE。详见[恢复契约 v1.2](../protocols/README.md#feedback)。
+2026-10-08 出口收敛：INIT／IDLE STOP 保持状态与代际；停止与 CLEAR 成功只回 IDLE。详见[恢复契约 v1.2](../../protocols/README.md#feedback)。

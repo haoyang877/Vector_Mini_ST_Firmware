@@ -119,10 +119,6 @@
       <TargetDriverDllRegistry>
         <SetRegEntry>
           <Number>0</Number>
-          <Key>DLGUARM</Key>
-        </SetRegEntry>
-        <SetRegEntry>
-          <Number>0</Number>
           <Key>ARMRTXEVENTFLAGS</Key>
           <Name>-L70 -Z18 -C0 -M0 -T1</Name>
         </SetRegEntry>
@@ -274,8 +270,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\motor_state_machine.c</PathWithFileName>
-      <FilenameWithoutPath>motor_state_machine.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\motor_calibration.c</PathWithFileName>
+      <FilenameWithoutPath>motor_calibration.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -286,8 +282,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>..\..\..\firmware\app\motor_calibration.c</PathWithFileName>
-      <FilenameWithoutPath>motor_calibration.c</FilenameWithoutPath>
+      <PathWithFileName>..\..\..\firmware\app\motor_state_machine.c</PathWithFileName>
+      <FilenameWithoutPath>motor_state_machine.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -300,6 +296,18 @@
       <bDave2>0</bDave2>
       <PathWithFileName>..\..\..\firmware\app\app_protocol.c</PathWithFileName>
       <FilenameWithoutPath>app_protocol.c</FilenameWithoutPath>
+      <RteFlg>0</RteFlg>
+      <bShared>0</bShared>
+    </File>
+    <File>
+      <GroupNumber>1</GroupNumber>
+      <FileNumber>7</FileNumber>
+      <FileType>1</FileType>
+      <tvExp>0</tvExp>
+      <tvExpOptDlg>0</tvExpOptDlg>
+      <bDave2>0</bDave2>
+      <PathWithFileName>..\..\..\firmware\app\app_motor_configuration.c</PathWithFileName>
+      <FilenameWithoutPath>app_motor_configuration.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

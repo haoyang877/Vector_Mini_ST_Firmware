@@ -1,7 +1,7 @@
 # YG2026-ESC-LOADER
 
 当前开发候选为 G431 与 YG_ESC_V1.0 / AT32F456CCU7 的独立 Loader，共用升级核心。
-通信仍为 CAN FD 1M/5M、公司Type1与50..55、单槽CRC32升级，
+通信使用 CAN FD（G431 固定 500K/2M，AT32F456 默认 1M/5M）、公司Type1与50..55、单槽CRC32升级，
 含持久激活门槛与一次试运行确认。配套APP支持56停机交接及57健康确认。
 Loader v2.2.0 / APP v1.6.0 为开发候选；本轮不执行硬件下载。
 功能、128 KiB 布局及维护步骤见[双板指南](../docs/guides/dual_board_loader.md)。

@@ -321,6 +321,7 @@ mod tests {
     }
     #[test]
     fn invalid_rates_are_rejected_before_loading_sdk() {
+        assert!(Bitrates::default().validate().is_ok());
         assert_eq!(Bitrates::default().arbitration, 1_000_000);
         assert_eq!(Bitrates::default().data, 5_000_000);
         for rates in [

@@ -1,11 +1,67 @@
 """验证当前CAN硬件收发契约；历史自动bus-off恢复已退役。"""
 
 from _bsp_test_support import ROOT, arguments, production, resources, run_c
+from run_position_servo_tests import function_source
 
 
 def main() -> None:
     """两板执行实际报文编解码、忙/完成状态和单帧槽行为。"""
     args = arguments(__doc__)
+    # 执行真正的CubeMX入口，防止USER覆盖、生成输入与Loader采用不同速率。
+    generated = (ROOT / "firmware/platform/bsp/mcu/stm32g4/generated/Core/Src/fdcan.c").read_text(
+        encoding="utf-8"
+    )
+    ioc = (ROOT / "projects/stm32g4/cubemx/Vector_Mini_ST.ioc").read_text(encoding="utf-8")
+    assert "FDCAN1.DataPrescaler=5" in ioc.splitlines()
+    assert "FDCAN1.NominalPrescaler=20" in ioc.splitlines()
+    init_test = r"""
+#include <assert.h>
+#include <stdint.h>
+#include "board.h"
+#define FDCAN1 1
+#define FDCAN_CLOCK_DIV1 1
+#define FDCAN_FRAME_FD_BRS 1
+#define FDCAN_MODE_NORMAL 0
+#define ENABLE 1
+#define DISABLE 0
+#define FDCAN_TX_QUEUE_OPERATION 0
+#define HAL_OK 0
+typedef struct
+{
+    unsigned ClockDivider,FrameFormat,Mode,AutoRetransmission,TransmitPause,ProtocolException;
+    unsigned NominalPrescaler,NominalSyncJumpWidth,NominalTimeSeg1,NominalTimeSeg2;
+    unsigned DataPrescaler,DataSyncJumpWidth,DataTimeSeg1,DataTimeSeg2;
+    unsigned StdFiltersNbr,ExtFiltersNbr,TxFifoQueueMode;
+} Init;
+typedef struct { unsigned Instance; Init Init; } Handle;
+static Handle hfdcan1;
+static unsigned calls;
+static Init applied;
+static int HAL_FDCAN_Init(Handle *handle)
+{
+    applied=handle->Init;
+    ++calls;
+    return HAL_OK;
+}
+static void Error_Handler(void) { assert(0); }
+"""
+    init_test += function_source(generated, "MX_FDCAN1_Init")
+    # 验证USER覆盖后实际提交给HAL的最终配置，不要求旧生成初值已被重生成。
+    init_test += "\nint main(void) { MX_FDCAN1_Init(); assert(calls==2U);\n"
+    init_test += r"""
+    const Init *value=&applied;
+    assert(170000000U/(value->NominalPrescaler*(1U+value->NominalTimeSeg1+value->NominalTimeSeg2))==500000U);
+    assert(170000000U/(value->DataPrescaler*(1U+value->DataTimeSeg1+value->DataTimeSeg2))==2000000U);
+    assert(value->FrameFormat==FDCAN_FRAME_FD_BRS);
+    assert(value->DataPrescaler==YG_CAN_DATA_PRESCALER && value->NominalPrescaler==YG_CAN_PRESCALER);
+    assert(value->DataTimeSeg1==YG_CAN_SEG1 && value->DataTimeSeg2==YG_CAN_SEG2);
+    return 0;
+}
+"""
+    run_c(
+        args, "g431_app_loader_timing", init_test, 1, ["-I", ROOT / "loader/boards/vector_mini_st"]
+    )
+
     for board in (1, 2):
         source = r"""
 #include <assert.h>

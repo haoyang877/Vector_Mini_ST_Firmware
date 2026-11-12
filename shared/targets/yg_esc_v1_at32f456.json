@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "target": "yg_esc_v1_at32f456",
+  "default_can_bps": [1000000, 5000000],
   "device": "AT32F456CCU7",
   "name": "ESC-LOADER-AT32F456",
   "constants": {

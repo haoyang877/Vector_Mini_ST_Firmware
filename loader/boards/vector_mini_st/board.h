@@ -1,9 +1,9 @@
 #ifndef LOADER_VECTOR_MINI_BOARD_H
 #define LOADER_VECTOR_MINI_BOARD_H
 #include <stdbool.h>
-/* 板级170MHz CAN内核，仲裁1M、数据5M；引脚和时序不进入通用升级模块。 */
-#define YG_CAN_PRESCALER 10U
-#define YG_CAN_DATA_PRESCALER 2U
+/* 板级170MHz CAN内核，仲裁500K、数据2M；引脚和时序不进入通用升级模块。 */
+#define YG_CAN_PRESCALER 20U
+#define YG_CAN_DATA_PRESCALER 5U
 #define YG_CAN_SEG1 12U
 #define YG_CAN_SEG2 4U
 #define YG_CAN_SJW 1U

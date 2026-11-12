@@ -109,7 +109,7 @@
 #define BSP_ENCODER_MOSI_PIN 15U
 #define BSP_ENCODER_GPIO_AF 5U
 
-/* FDCAN1（CubeMX fdcan.c）：PB8 RX/PB9 TX，AF9；PCLK1时钟，1M/5M。
+/* FDCAN1（CubeMX fdcan.c）：PB8 RX/PB9 TX，AF9；PCLK1时钟，500K/2M。
  * PB8兼BOOT0，沿用板卡软件启动配置。FIFO0接收、3槽TX FIFO；消息RAM由HAL分配。 */
 #define MCU_CAN FDCAN1
 #define MCU_CAN_HANDLE hfdcan1

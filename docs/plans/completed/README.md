@@ -1,5 +1,15 @@
 # 已完成计划记录
 
+- [ROLL、Lift 的 CAN FD 数据段](2026-11-11-roll-lift-can-rate.md) — 已撤回的 1M/2M 试验记录。
+
+- [Lift 节点 0x08](2026-11-11-lift-node.md) — 实板烧录及 1,000 笔 CAN 状态查询通过。
+
+- [五轴标定输出轴限速](2026-11-11-calibration-speed.md) — 工装 v1.3.0，五轴标定限速 40 rad/s，PITCH 运行限速 30 rad/s。
+
+- [电机工装与固件 v1.2.0 联合交付](2026-11-11-motor-commission.md) — Windows 独立包、五轴参数及标定流程。
+
+- [五轴空板升级测试工装](2026-11-11-bare-board-install.md) — 同包逐板配置，五轴记录和当前右轮只读核验通过。
+
 - [主控适配驱动服务 v1](2026-11-10-controller-firmware-adaptation-v1.md) — 参数、标定票据、NTC、输出角与坐标CRC离线完成；6目标构建通过，全仓文档门禁及实机验收待完成。
 
 - [四份固件设计文档详化](2026-11-10-firmware-design-contracts.md) — 模块交接、并发状态轨迹、CAN 原始报文与参数生效路径。

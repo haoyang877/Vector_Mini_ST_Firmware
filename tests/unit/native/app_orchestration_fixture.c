@@ -3,12 +3,13 @@
 #include "boot_hw.h"
 #include "bsp_system.h"
 #include "bsp_pwm.h"
+#include "board_config.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
 static uint32_t trace = 2166136261U, now_ms, failure_stage;
-static unsigned time_reads, disables, enters, confirms, depth;
+static unsigned time_reads, disables, enters, confirms, depth, bitrate_writes;
 static bool stopped, lock_allowed = true, healthy = true, link_ready = true;
 static uint32_t progress = 1U;
 static AppContext app;
@@ -55,7 +56,14 @@ void MotorAxis_Init(MotorAxis *instance)
 {
     instance->hardware = &hardware;
     instance->configuration.device.node_id = 7U;
+    instance->configuration.device.can_bitrate_profile = 0U; /* 带标记的 500K/2M。 */
     event(1, 0);
+}
+bool BspCan_ConfigureBitrate(uint8_t profile)
+{
+    assert(profile == 0U && app.endpoint.node_id == 7U);
+    ++bitrate_writes;
+    return true;
 }
 bool Protocol_Init(ProtocolEndpoint *instance, uint8_t node)
 {
@@ -259,8 +267,10 @@ static void check_startup(void)
     for (failure_stage = 0; failure_stage <= 5; ++failure_stage)
     {
         unsigned before = disables;
+        bitrate_writes = 0;
         app = (AppContext){0};
         App_Init(&app);
+        assert(bitrate_writes == (unsigned)(BSP_BOARD == BSP_BOARD_AT32F456 && failure_stage != 1));
         bool init_ok = failure_stage == 0 || failure_stage == 2 || failure_stage == 5 ||
                        (!YG_APP_LOADER_IMAGE && failure_stage == 6);
         assert(app.communication_ready == init_ok);

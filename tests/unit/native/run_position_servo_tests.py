@@ -81,6 +81,8 @@ def board_orchestration_fixture(source: str | None = None) -> str:
 #include <stdio.h>
 #include <stdbool.h>
 #include "bsp_system.h"
+#include "board_config.h"
+#include "can_bitrate.h"
 static unsigned order[24],count;
 #include "app.h"
 static AppContext app;
@@ -92,6 +94,7 @@ void MotorAxis_Init(MotorAxis *axis) { axis->hardware=&hardware;axis->configurat
 void AppProtocol_Init(AppProtocol *protocol, ProtocolEndpoint *endpoint, MotorStateMachine *machine) { assert(protocol==&app.protocol && endpoint==&app.endpoint && machine==&app.axis.state_machine); }
 void AppMotorConfiguration_Init(AppMotorConfiguration *service, MotorAxis *axis, ProtocolEndpoint *endpoint) { assert(service==&app.motor_configuration && axis==&app.axis && endpoint==&app.endpoint); }
 bool Protocol_Init(ProtocolEndpoint *endpoint, uint8_t node) { assert(endpoint==&app.endpoint && node==7);log_step(2);return ready; }
+bool BspCan_ConfigureBitrate(uint8_t profile) { assert(profile == 0U);return ready; }
 static bool configure_protocol_device_info(AppContext *context) { assert(context==&app);log_step(4);return ready; }
 bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }
 void BspPwm_Disable(void) { log_step(8); }

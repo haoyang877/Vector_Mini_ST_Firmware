@@ -60,15 +60,12 @@ impl HostApp {
                             .selected_text(crate::can::bitrate_label(self.bitrates.data))
                             .width(106.0).show_ui(ui, |ui| {
                                 for rate in crate::can::DATA_RATES {
-                                    if rate >= self.bitrates.arbitration {
-                                        ui.selectable_value(&mut self.bitrates.data, rate, crate::can::bitrate_label(rate));
-                                    }
+                                    ui.selectable_value(&mut self.bitrates.data, rate, crate::can::bitrate_label(rate));
                                 }
                             });
                     });
                 });
                 if self.bitrates != before {
-                    self.bitrates.data = self.bitrates.data.max(self.bitrates.arbitration);
                     self.scan_devices.clear(); self.scan_adapters.clear(); self.scan_selected = None;
                     self.manual_connect = false; self.acknowledged = false;
                     self.scan_status = "波特率已改变，请重新扫描并选择设备。".into();

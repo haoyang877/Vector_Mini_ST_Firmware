@@ -17,8 +17,8 @@
 | 板卡名称 | **AT32F456** | MCU 私有代码沿用 AT32 前缀 |
 | MCU | AT32F456CCU7 | SDK 工程目标，实物版本以当前板卡为准 |
 | 外部晶振 | 8 MHz | SDK 当前内核/PCLK 配置为 192 MHz，不视为新目标必须保留的时钟配置 |
-| CAN FD 仲裁段 | **1 Mbit/s，禁止改变** | 沿用旧板及现有主机 |
-| CAN FD 数据段 | **5 Mbit/s，禁止改变** | 不沿用输入 SDK 的 4 Mbit/s，不改主机或旧板迁就新板 |
+| CAN FD 仲裁段 | 默认 **1 Mbit/s** | 参数 `0x71` 可选 500 kbit/s 或 1 Mbit/s |
+| CAN FD 数据段 | 默认 **5 Mbit/s** | 参数 `0x71` 可选 500 kbit/s 或 1、2、3、4、5 Mbit/s，APP 与 Loader 使用同一持久值 |
 | 当前调试电源 | **29V，电源限流1A** | 2026-10-23用户从0.7A调整为1A；当前相电流停机3A，允许后续最多约5A但尚未启用 |
 | 母线电压采样 | **PA3 / ADC2 通道3** | 当前软件在 ADC2 抢占序列末位单次采样，见[驱动时序](../architecture/at32f456_pwm_adc_driver.md) |
 | 母线电流采样 | **PA4 / ADC2 通道4** | 不与电压采样交换 |
@@ -35,12 +35,8 @@
 
 输入 SDK 的 `wk_can.c` 使用 PCLK 和整数分频/整数段长，厂商公式为
 `bitrate = can_clock / (divider * (segment1 + segment2))`。
-192MHz PCLK 配合当前144+48和36+12配置，分别得到1Mbit/s和4Mbit/s。
-192MHz/5MHz=38.4，不能只改整数位时间段就得到精确5Mbit/s。
-
-适配时需重新核定 AT32 的 CAN 时钟源、PLL/PCLK及位时序，必要时调整平台内部时钟树，
-同时保持20kHz快环和2kHz监督等对外时序契约。不得使用近似5M或退回4M作为通过条件。
-准确时钟方案、采样点与收发时序将在平台实现阶段验证；本页不将候选分频标为已实现。
+输入 SDK 的 192 MHz PCLK 配 144+48 和 36+12 TQ，分别得到 1 Mbit/s 和 4 Mbit/s。
+板级实现使用 180 MHz CAN 时钟。默认 1M/5M 时预分频为 1，仲裁段 135+45 TQ，数据段 27+9 TQ，两段采样点均为 75%，发送延迟补偿偏移为 28 TQ。APP 和 Loader 共用[位时序定义](../../shared/targets/at32f456_can_timing.h)。其余档位及寄存器期望值见[协议黄金向量](../../tests/fixtures/protocol/at32f456_can_bitrate_v1.json)。
 
 ### 电机温度输入更新
 

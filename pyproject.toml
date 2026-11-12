@@ -7,9 +7,11 @@ dependencies = []
 
 [project.optional-dependencies]
 maintenance = [
+  "intelhex==2.3.0",
   "pylink-square==2.0.2",
 ]
 test = [
+  "intelhex==2.3.0",
   "numpy==2.5.3",
 ]
 analysis = [
@@ -17,6 +19,7 @@ analysis = [
   "numpy==2.5.3",
 ]
 dev = [
+  "intelhex==2.3.0",
   "clang-format==20.1.8",
   "matplotlib==3.11.2",
   "numpy==2.5.3",

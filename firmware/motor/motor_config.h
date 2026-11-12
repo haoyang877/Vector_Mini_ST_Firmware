@@ -106,6 +106,7 @@ typedef struct
 {
     float phase_a_offset_counts, phase_b_offset_counts, phase_c_offset_counts;
     uint8_t node_id;
+    uint8_t can_bitrate_profile; /* AT32 设备参数，保存后在下次启动时采用。 */
     EncoderCalibration encoder;
 } MotorDeviceConfig;
 

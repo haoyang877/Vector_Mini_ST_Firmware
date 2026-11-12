@@ -85,11 +85,10 @@
 #define AT32_CORE_HZ   ((uint32_t)AT32_CORE_CLOCK_DERIVED_HZ)
 #define AT32_TIMER_HZ  AT32_CORE_HZ
 #define AT32_CAN_HZ    AT32_CORE_HZ
-/* CAN 固定 1 Mbps / 5 Mbps、75% 采样点；分频为 1。 */
-#define AT32_CAN_NOMINAL_SEG2  ((uint32_t)(AT32_CORE_CLOCK_DERIVED_HZ / 4000000ULL))
-#define AT32_CAN_NOMINAL_SEG1  (AT32_CAN_NOMINAL_SEG2 * 3U)
-#define AT32_CAN_DATA_SEG2     ((uint32_t)(AT32_CORE_CLOCK_DERIVED_HZ / 20000000ULL))
-#define AT32_CAN_DATA_SEG1     (AT32_CAN_DATA_SEG2 * 3U)
+/* APP 与 Loader 的 12 种 CAN 位时序基于 180 MHz 内核时钟。 */
+#if AT32_CORE_CLOCK_DERIVED_HZ != 180000000ULL
+#error Recalculate AT32F456 CAN bit timing for this clock
+#endif
 
 
 /* 物理Flash为256KiB，运行分区位于前128KiB，参数和身份共16KiB。

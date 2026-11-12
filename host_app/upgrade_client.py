@@ -213,6 +213,10 @@ class UpgradeClient:
         node: int,
         uid: bytes,
         progress: Callable[[int, int], None] | None = None,
+        on_stage: Callable[[str], None] | None = None,
+        *,
+        single_frame_writes: bool = False,
+        write_block_limit: int = 128,
     ) -> None:
         if not 0 <= node < 255 or len(uid) != 12:
             raise ValueError("升级须指定0..254节点与12B实际UID")
@@ -221,6 +225,12 @@ class UpgradeClient:
         self.trace: list[dict] = []
         self.binding = b""
         self.progress = progress
+        if not 8 <= write_block_limit <= 128 or write_block_limit % 8:
+            raise ValueError("写入块上限须为 8 至 128 字节且 8 字节对齐")
+        self.write_block_limit = (
+            min(24, write_block_limit) if single_frame_writes else write_block_limit
+        )
+        self.on_stage = on_stage or (lambda _: None)
         self.request_timings: list[dict] = []
 
     def request(
@@ -237,13 +247,18 @@ class UpgradeClient:
             sequence = self.sequence
         frames = encode_frames(self.node, kind, payload, sequence)
         reply_sequence = len(frames) - 1 if len(frames) > 1 else sequence
+        fragmented_write = kind == 51 and len(frames) > 1
+        write_offset = struct.unpack_from("<I", payload, 12)[0] if fragmented_write else 0
         started = time.perf_counter()
         send_s = 0.0
         attempts = 0
         for attempt in range(4):
             attempts += 1
             send_started = time.perf_counter()
-            for identifier, data in frames:
+            for index, (identifier, data) in enumerate(frames):
+                if fragmented_write and index:
+                    # AT32 Loader 前台轮询接收。给它取走上一片的时间，避免接收 FIFO 溢出。
+                    time.sleep(0.0003)
                 self.transport.send(identifier, data)
             send_s += time.perf_counter() - send_started
             deadline = time.monotonic() + timeout_s
@@ -254,6 +269,16 @@ class UpgradeClient:
                 try:
                     response = decode_reply(*frame, self.node, kind, reply_sequence)
                 except ValueError:
+                    continue
+                # 相同片数的 WRITE 共用尾片序号，前一块重发的成功 ACK 可能延迟抵达。
+                if (
+                    fragmented_write
+                    and len(response) == 40
+                    and response[:4] == bytes(4)
+                    and response[4:16] == payload[:12]
+                    and response[16] == 3
+                    and struct.unpack_from("<I", response, 20)[0] <= write_offset
+                ):
                     continue
                 self.trace.append({"type": kind, "attempt": attempt, "reply": response.hex()})
                 self._record_timing(kind, started, send_s, attempts, len(frames), True)
@@ -357,6 +382,7 @@ class UpgradeClient:
     def run(self, package: UpgradePackage) -> dict:
         """核对设备后全擦下载，激活后核对新APP并显式确认；成功不发送电机使能。"""
         self.package = package
+        self.on_stage("核对设备 UID 和升级布局")
         # 先用无副作用STATUS固定Loader驻留，避免三页查询跨越50ms窗口后角色发生变化。
         # APP未开放53时只等待短窗口，然后走56停机交接。
         try:
@@ -367,6 +393,7 @@ class UpgradeClient:
         self.check_target(page0, page1, target)
         nonce = secrets.randbits(64) or 1
         if page1[22] == 1:
+            self.on_stage("等待 APP 停机并交接 Loader")
             # 56相同seq与nonce轮询唯一停机事务，READY精确TX完成由APP自己复核。
             self.sequence = (self.sequence + 1) & 0xFFFF
             enter_sequence = self.sequence
@@ -393,6 +420,7 @@ class UpgradeClient:
             self.check_target(page0, page1, target)
             if page1[22] != 2:
                 raise RuntimeError("交接后未识别到Loader")
+        self.on_stage("提交升级清单，等待 APP 槽擦除")
         response = self.request(50, struct.pack("<Q", nonce) + package.manifest)
         if len(response) != 40 or struct.unpack_from("<H", response)[0] not in (0, 1):
             raise RuntimeError("Loader拒绝BEGIN，未进入下载")
@@ -400,12 +428,14 @@ class UpgradeClient:
         block = struct.unpack_from("<H", response, 18)[0]
         if actual_nonce != nonce or session == 0 or not 8 <= block <= 128 or block % 8:
             raise ValueError("BEGIN回复绑定或写入能力非法")
+        block = min(block, self.write_block_limit)
         self.binding = struct.pack("<QI", nonce, session)
         deadline = time.monotonic() + 5.0
         while self.status()[0] != 3:
             if time.monotonic() >= deadline:
                 raise TimeoutError("整槽擦除未完成")
             time.sleep(0.01)
+        self.on_stage("下载 APP")
         for offset in range(0, len(package.image), block):
             data = package.image[offset : offset + block]
             phase, written = self.status(51, struct.pack("<IH", offset, len(data)) + data)
@@ -413,6 +443,7 @@ class UpgradeClient:
                 raise ValueError("写入回复偏移异常，不继续下载")
             if self.progress is not None:
                 self.progress(written, len(package.image))
+        self.on_stage("校验完整镜像 CRC")
         self.status(52)
         deadline = time.monotonic() + 5.0
         while self.status()[0] != 5:
@@ -420,15 +451,21 @@ class UpgradeClient:
                 raise TimeoutError("完整CRC校验未完成")
             time.sleep(0.01)
         try:
+            self.on_stage("激活镜像并重启")
             self.status(54)
         except TimeoutError:
             # 激活回复可能已发出但主机未收到；只能以相同UID的新APP版本/CRC和确认判成功。
             pass
         self.binding = b""
-        time.sleep(0.1)
+        self.on_stage("核对 APP 版本、CRC 和试运行确认")
+        # 给刚复位的单节点总线留出 Loader 验证及 APP CAN 初始化时间。
+        time.sleep(0.7)
         deadline = time.monotonic() + 4.0
         while time.monotonic() < deadline:
-            page0, page1, target = self.identify()
+            try:
+                page0, page1, target = self.identify()
+            except TimeoutError:
+                continue
             self.check_target(page0, page1, target)
             if (
                 page1[22] != 1
@@ -438,8 +475,13 @@ class UpgradeClient:
                 raise RuntimeError("激活后未读到目标APP；留Loader救援，不宣称成功")
             reply = self.request(57, struct.pack("<II", package.version, package.crc32))
             if len(reply) == 4 and reply == bytes(4):
-                _, confirmed, _ = self.identify()
-                if confirmed[22:24] == bytes((1, 1)):
+                final_page, confirmed, final_target = self.identify()
+                self.check_target(final_page, confirmed, final_target)
+                if (
+                    confirmed[22:24] == bytes((1, 1))
+                    and struct.unpack_from("<I", final_page, 20)[0] == package.version
+                    and struct.unpack_from("<I", confirmed, 24)[0] == package.crc32
+                ):
                     return {
                         "success": True,
                         "uid": self.uid.hex(),
@@ -472,6 +514,10 @@ def main() -> int:
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--sdk", type=Path)
     parser.add_argument("--device-index", type=int, default=0, help="USB-CAN设备索引；使用通道0")
+    parser.add_argument(
+        "--nominal-bps", type=int, default=500_000, help="CAN FD 仲裁段速率 (bit/s)"
+    )
+    parser.add_argument("--data-bps", type=int, default=2_000_000, help="CAN FD 数据段速率 (bit/s)")
     parser.add_argument("--node", type=int)
     parser.add_argument("--uid")
     parser.add_argument("--output", type=Path)
@@ -505,6 +551,8 @@ def main() -> int:
         or args.output is None
     ):
         parser.error("upgrade必须提供SDK、节点、UID、outputs证据目录及独占台架条件")
+    if not 0 < args.nominal_bps <= args.data_bps <= 0xFFFFFFFF:
+        parser.error("CAN 速率须为正 u32，数据段速率须大于或等于仲裁段速率")
     output = args.output.resolve()
     if not output.is_relative_to((ROOT / "outputs").resolve()):
         parser.error("证据目录必须在当前工作树outputs下")
@@ -530,7 +578,12 @@ def main() -> int:
                 print(f"\r下载 {percent}%", end="\n" if written == total else "", flush=True)
                 last_percent = percent
 
-        with ControlCanFd(args.sdk, device_index=args.device_index) as transport:
+        with ControlCanFd(
+            args.sdk,
+            device_index=args.device_index,
+            nominal_bps=args.nominal_bps,
+            data_bps=args.data_bps,
+        ) as transport:
             client = UpgradeClient(transport, args.node, uid, progress)
             if args.rescue_window:
                 client.hold_rescue_window()

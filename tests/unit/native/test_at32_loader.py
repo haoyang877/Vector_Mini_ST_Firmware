@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+from _bsp_test_support import bitrate_cases
 from harness.common import zig_path
 from project_paths import ROOT
 from run_position_servo_tests import function_source
@@ -36,6 +37,8 @@ def main():
         "loader/ports/include",
         "loader/boards/yg_esc_v1",
         "shared/image",
+        "shared/targets",
+        "shared/protocol",
         "shared/boot",
         "loader/targets/yg_esc_v1_at32f456",
         "firmware/platform/sdk/at32f45x/cmsis/core",
@@ -50,7 +53,8 @@ def main():
         str(executable),
     ]
     subprocess.run(command, check=True)
-    subprocess.run([str(executable)], check=True)
+    for case in bitrate_cases(executable):
+        subprocess.run(case, check=True)
     # 直接注入生产确认代码，覆盖半写、输出联锁及继承看门狗期限。
     boot = (ROOT / "firmware/platform/bsp/mcu/at32f456/boot_loader.c").read_text(encoding="utf-8")
     flags = (ROOT / "firmware/platform/sdk/at32f45x/drivers/inc/at32f45x_flash.h").read_text(

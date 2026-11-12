@@ -380,6 +380,14 @@
       "unit": "coordinate_crc32_v1",
       "access": 1,
       "read_state": "stopped"
+    },
+    {
+      "id": 113,
+      "value_type": 2,
+      "scale": 1,
+      "unit": "packed_kbit/s",
+      "access": 3,
+      "range_rule": "at32f456_nominal_500_1000_data_500_1000_2000_3000_4000_5000"
     }
   ]
 }

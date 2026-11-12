@@ -1,5 +1,6 @@
 /* AT32 CAN1轮询端口；只使用一个PTB槽，完整票据绑定一次真实发送终态。 */
 #include "can_port.h"
+#include "at32f456_can_timing.h"
 #include "platform.h"
 #include "board.h"
 #include "at32f45x.h"
@@ -11,9 +12,9 @@ static bool s_initialized, s_running, s_occupied, s_failed;
 static uint64_t s_ticket;
 static uint32_t s_started_ms;
 
-bool LoaderCan_Init(uint8_t node)
+bool LoaderCan_Init(uint8_t node, uint8_t profile)
 {
-    if (s_initialized || node == UINT8_MAX)
+    if (s_initialized || node == UINT8_MAX || profile >= CAN_BITRATE_PROFILE_COUNT)
     {
         return false;
     }
@@ -22,16 +23,15 @@ bool LoaderCan_Init(uint8_t node)
     LoaderBoard_CanInit();
     can_reset(CAN1);
     can_software_reset(CAN1, TRUE);
+    At32CanTiming bits = At32Can_BitTiming(profile);
     can_bittime_type timing;
     can_bittime_default_para_init(&timing);
-    timing.bittime_div = 1U;
-    timing.ac_bts1_size = 135U;
-    timing.ac_bts2_size = 45U;
-    timing.ac_rsaw_size = 45U;
-    timing.fd_bts1_size = 27U;
-    timing.fd_bts2_size = 9U;
-    timing.fd_rsaw_size = 9U;
-    timing.fd_ssp_offset = 28U;
+    timing.bittime_div = bits.divider;
+    timing.ac_bts1_size = bits.nominal_seg1;
+    timing.ac_bts2_size = timing.ac_rsaw_size = bits.nominal_seg2;
+    timing.fd_bts1_size = bits.data_seg1;
+    timing.fd_bts2_size = timing.fd_rsaw_size = bits.data_seg2;
+    timing.fd_ssp_offset = bits.ssp_offset;
     can_bittime_set(CAN1, &timing);
     can_fd_iso_mode_enable(CAN1, TRUE);
     can_mode_set(CAN1, CAN_MODE_COMMUNICATE);
@@ -43,7 +43,9 @@ bool LoaderCan_Init(uint8_t node)
     filter.mask_para.id_type = FALSE;
     filter.code_para.frame_type = CAN_FRAME_DATA;
     filter.mask_para.frame_type = FALSE;
-    filter.mask_para.id = 0x1FFFFFFFU;
+    /* 只接收本机和广播，避免启动校验期间其他轴的突发流量填满 RX FIFO。 */
+    filter.mask_para.id = 0x1FFF00FFU;
+    filter.code_para.id = (uint32_t)node << 8U;
     filter.mask_para.data_length = 0xFU;
     filter.mask_para.fd_format = TRUE;
     filter.mask_para.fd_rate_switch = TRUE;
@@ -54,6 +56,9 @@ bool LoaderCan_Init(uint8_t node)
     }
     can_filter_set(CAN1, CAN_FILTER_NUM_0, &filter);
     can_filter_enable(CAN1, CAN_FILTER_NUM_0, TRUE);
+    filter.code_para.id = (uint32_t)UINT8_MAX << 8U;
+    can_filter_set(CAN1, CAN_FILTER_NUM_1, &filter);
+    can_filter_enable(CAN1, CAN_FILTER_NUM_1, TRUE);
     can_interrupt_enable(CAN1, CAN_ALL_INT, FALSE);
     can_flag_clear(CAN1, CAN_TPIF_FLAG | CAN_AIF_FLAG | CAN_ROIF_FLAG);
     CAN1->lbtcfg = (CAN1->lbtcfg & ~0x77000000U) | ((uint32_t)CAN_RE_TRANS_TIMES_1 << 28U) |

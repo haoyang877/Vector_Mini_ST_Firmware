@@ -11,6 +11,8 @@
 #include "yg_protocol_common.h"
 
 #include "application_config.h"
+#include "board_config.h"
+#include "can_bitrate.h"
 #if defined(YG_APP_LOADER_IMAGE) && YG_APP_LOADER_IMAGE
 #include "loader_target.h"
 #elif defined(APP_TARGET_AT32_F456) && APP_TARGET_AT32_F456
@@ -133,6 +135,14 @@ void App_Init(AppContext *app)
     app->endpoint.parameters = (ProtocolParameters){&app->axis, handle_parameter_request};
     app->communication_ready =
         Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
+#if BSP_BOARD == BSP_BOARD_AT32F456
+    if (app->communication_ready &&
+        app->axis.configuration.device.can_bitrate_profile != CAN_BITRATE_DEFAULT_PROFILE)
+    {
+        app->communication_ready =
+            BspCan_ConfigureBitrate(app->axis.configuration.device.can_bitrate_profile);
+    }
+#endif
     if (app->communication_ready)
     {
         app->communication_ready = configure_protocol_device_info(app);

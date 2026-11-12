@@ -253,8 +253,7 @@ int main(void)
     assert(FOC_FREQ == 20000U && SUPERVISOR_FREQ == 2000U && SPEED_LOOP_FREQ == 4000U &&
            POSITION_LOOP_FREQ == SPEED_LOOP_FREQ && CASCADE_POSITION_LOOP_FREQ == SPEED_LOOP_FREQ);
     assert(fake_tmr1.c2dt == 2250U && fake_tmr1.c3dt == 2250U && fake_tmr1.c4dt == 2250U);
-    assert(AT32_CAN_HZ / (AT32_CAN_NOMINAL_SEG1 + AT32_CAN_NOMINAL_SEG2) == 1000000U);
-    assert(AT32_CAN_HZ / (AT32_CAN_DATA_SEG1 + AT32_CAN_DATA_SEG2) == 5000000U);
+    assert(AT32_CAN_HZ == 180000000U);
     McuSystem_Start();
     assert(fake_tmr1.running && fake_tmr6.running);
     assert(BspPwm_ArePhasesDisabled() && fake_tmr1.brk == 0U);

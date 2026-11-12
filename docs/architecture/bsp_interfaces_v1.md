@@ -122,6 +122,7 @@ MT6835返回高16位或完整21位；TLE5012B原15位左移补零；不施加方
 两板共用[bsp_can.h](../../firmware/platform/bsp/include/bsp_can.h)，板型只在工程和BSP内部选择。
 
 ```c
+bool BspCan_ConfigureBitrate(uint8_t profile);
 void BspCan_Start(void);
 bool BspCan_TrySend(const BspCanFrame *frame);
 bool BspCan_Receive(BspCanFrame *frame);

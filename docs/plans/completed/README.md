@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [五轴 AT32F456 CAN 波特率配置 v1](2026-11-12-at32-can-bitrate-v1.md) — APP v0.7.1 与 Loader v2.3.1 默认 1M/5M，12 档寄存器和五轴备份通过离线回放。现场保留现有固件。
+
 - [主控适配驱动服务 v1](2026-11-10-controller-firmware-adaptation-v1.md) — 参数、标定票据、NTC、输出角与坐标CRC离线完成；6目标构建通过，全仓文档门禁及实机验收待完成。
 
 - [APP 实例化合并与 PITCH 实机验收](2026-11-09-app-instance-integration.md) — 双板构建、CAN 升级及闭环实测通过；联合角度标定 4 次通过 3 次。

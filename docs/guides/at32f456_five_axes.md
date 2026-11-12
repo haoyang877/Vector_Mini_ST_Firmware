@@ -4,7 +4,7 @@
 
 本页是五轴产品配置的维护入口。PITCH（YQ-5740）和 YAW（YQ-5708 预设）使用 40:1 装配。两者共用已登记的电机轴电气参数；schema14 记录保存电气参数、节点和角色。实物铭牌及标定归属由工装操作人员核实。更换减速器后需重新联合标定，并在工装零点设置输出轴零位。
 
-APP v0.7.0 与 Loader v2.3.0 支持两段 CAN 速率独立配置，初始档为 500K/2M。五轴逐台保存后统一重启，命令与台架工具见[波特率接口](../protocols/README.md#at32f456-can-波特率-v1)。
+APP v0.7.1 与 Loader v2.3.1 默认仲裁 1M、数据 5M。两段可独立配置，五轴逐台保存、回读后统一重启。v0.7.0 写入的零值升级后采用新默认。命令见[波特率接口](../protocols/README.md#at32f456-can-波特率-v1)。
 
 ## 电机 ID 与轴角色
 
@@ -198,9 +198,7 @@ Excel SHA-256：`7ab51536abea9857bb2be9aa1dbdc264884a39488e81b8dea5eed75b9b2bb4a
 uv run python tools/bench/five_axis_can_stability.py --dll "$env:CONTROLCANFD_DLL"
 ```
 
-[压测脚本](../../tools/bench/five_axis_can_stability.py) 默认加载[实测批次](../../tools/bench/five_axis_can_stability.json)，
-核对五台的 UID、APP 0.6.2、Loader 2.2.0。也可用 `--batch` 指定同格式的烧录记录。
-脚本以 500 kbit/s 仲裁、2 Mbit/s 数据速率查询设备信息、能力、设备状态和电机状态。
+这项[压测](../../tools/bench/five_axis_can_stability.py)复现 APP v0.6.2、Loader v2.2.0 的[历史实测批次](../../tools/bench/five_axis_can_stability.json)。脚本按该批次的 500K/2M 核对五台 UID、固件版本、设备信息、能力、设备状态和电机状态。
 每台轮询和五台连续发送各 35,000 次，首答期限 50 ms，应用层重试为零。
 原始帧和验收结论保存在启动时打印的 `outputs/can-stability-*/` 目录中，分别为
 `frames.csv` 和 `summary.json`。退出码 0 表示通过。

@@ -35,12 +35,8 @@
 
 输入 SDK 的 `wk_can.c` 使用 PCLK 和整数分频/整数段长，厂商公式为
 `bitrate = can_clock / (divider * (segment1 + segment2))`。
-192MHz PCLK 配合当前144+48和36+12配置，分别得到1Mbit/s和4Mbit/s。
-192MHz/5MHz=38.4，不能只改整数位时间段就得到精确5Mbit/s。
-
-适配时需重新核定 AT32 的 CAN 时钟源、PLL/PCLK及位时序，必要时调整平台内部时钟树，
-同时保持20kHz快环和2kHz监督等对外时序契约。不得使用近似5M或退回4M作为通过条件。
-准确时钟方案、采样点与收发时序将在平台实现阶段验证；本页不将候选分频标为已实现。
+输入 SDK 的 192 MHz PCLK 配 144+48 和 36+12 TQ，分别得到 1 Mbit/s 和 4 Mbit/s。
+板级实现使用 180 MHz CAN 时钟。默认 1M/5M 时预分频为 1，仲裁段 135+45 TQ，数据段 27+9 TQ，两段采样点均为 75%，发送延迟补偿偏移为 28 TQ。APP 和 Loader 共用[位时序定义](../../shared/targets/at32f456_can_timing.h)。其余档位及寄存器期望值见[协议黄金向量](../../tests/fixtures/protocol/at32f456_can_bitrate_v1.json)。
 
 ### 电机温度输入更新
 

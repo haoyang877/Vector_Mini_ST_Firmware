@@ -250,7 +250,8 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->application.axis_profile_valid = true;
     configuration->configuration_confirmed = false;
     configuration->configuration_source = MOTOR_CONFIGURATION_DEFAULTS;
-    configuration->device.can_bitrate_profile = 0U;
+    configuration->device.can_bitrate_profile =
+        BSP_BOARD == BSP_BOARD_AT32F456 ? CAN_BITRATE_DEFAULT_PROFILE : 0U;
     /* 未装配的产品板不注册整车 CAN 地址。 */
     configuration->device.node_id =
         BSP_BOARD == BSP_BOARD_AT32F456 ? UINT8_MAX : PARAM_DEVICE_CAN_NODE_ID;
@@ -354,7 +355,8 @@ void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration
 
     memset(param, 0, sizeof(*param));
     param->node_id = (float)configuration->device.node_id;
-    if (BSP_BOARD == BSP_BOARD_AT32F456 && configuration->device.can_bitrate_profile != 0U)
+    if (BSP_BOARD == BSP_BOARD_AT32F456 &&
+        configuration->device.can_bitrate_profile != CAN_BITRATE_DEFAULT_PROFILE)
     {
         param->can_bitrate_record =
             CAN_BITRATE_RECORD_V1 | configuration->device.can_bitrate_profile;

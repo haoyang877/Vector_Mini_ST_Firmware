@@ -53,25 +53,34 @@ class _RXFD(C.Structure):
     _fields_ = [("frame", _CANFD_FRAME), ("timestamp", C.c_ulonglong)]
 
 
+DEFAULT_NOMINAL_BPS = 1_000_000
+DEFAULT_DATA_BPS = 5_000_000
+
+
 class ControlCanFd:
-    """仅在显式上下文内打开指定设备的通道0，ISO CAN FD 1M/5M。"""
+    """显式打开指定的 ISO CAN FD 通道，默认通道 0、1M/5M。"""
 
     def __init__(
         self,
         dll_path: Path,
         device_index: int = 0,
         *,
-        nominal_bps: int = 1000000,
-        data_bps: int = 5000000,
+        channel_index: int = 0,
+        nominal_bps: int = DEFAULT_NOMINAL_BPS,
+        data_bps: int = DEFAULT_DATA_BPS,
     ) -> None:
         if type(device_index) is not int or not 0 <= device_index <= 0xFFFFFFFF:
             raise ValueError("USB-CAN设备索引必须是非负u32整数")
+        if type(channel_index) is not int or channel_index not in (0, 1):
+            raise ValueError("USB-CAN 通道索引须为 0 或 1")
+        self.channel_index = channel_index
         self.dll_path = dll_path.resolve()
         self.device_index = device_index
         self.nominal_bps = nominal_bps
         self.data_bps = data_bps
         self.device = None
         self.channel = None
+        self._rx_buffer = (_RXFD * 32)()
         self.pending: list[tuple[int, bytes]] = []
 
     def __enter__(self) -> ControlCanFd:
@@ -98,11 +107,11 @@ class ControlCanFd:
                 ("ZCAN_SetDbitBaud", self.data_bps),
                 ("ZCAN_SetCANFDStandard", 0),
             ):
-                if getattr(self.dll, name)(self.device, 0, value) != 1:
+                if getattr(self.dll, name)(self.device, self.channel_index, value) != 1:
                     raise OSError(name + "失败")
             config = _CHANNEL_CONFIG()
             config.can_type = 1
-            self.channel = self.dll.ZCAN_InitCAN(self.device, 0, C.byref(config))
+            self.channel = self.dll.ZCAN_InitCAN(self.device, self.channel_index, C.byref(config))
             if not self.channel or self.dll.ZCAN_StartCAN(self.channel) != 1:
                 raise OSError("CAN通道初始化或启动失败")
             return self
@@ -132,17 +141,23 @@ class ControlCanFd:
         if self.dll.ZCAN_TransmitFD(self.channel, C.byref(tx), 1) != 1:
             raise OSError("CAN FD发送失败；不重开设备或继续擦写")
 
+    def read_fd_batch(self) -> list[_RXFD]:
+        """非阻塞读取 SDK 的整批原始帧，保留标志。同一端口下次读取会复用缓冲区。"""
+        if not self.channel:
+            raise OSError("CAN 通道未打开")
+        buffer = self._rx_buffer
+        count = self.dll.ZCAN_ReceiveFD(self.channel, C.byref(buffer), len(buffer), 0)
+        if not 0 <= count <= len(buffer):
+            raise OSError(f"CAN FD 接收失败 (SDK {count})")
+        return buffer[:count]
+
     def receive(self, timeout_s: float) -> tuple[int, bytes] | None:
         """接收有界批次；总线错误或ESI立即失败，不将错误帧当作有效业务回复。"""
         deadline = time.monotonic() + timeout_s
         while self.channel:
             if self.pending:
                 return self.pending.pop(0)
-            batch = (_RXFD * 32)()
-            count = self.dll.ZCAN_ReceiveFD(self.channel, C.byref(batch), 32, 0)
-            if not 0 <= count <= 32:
-                raise OSError("CAN FD接收失败")
-            for item in batch[:count]:
+            for item in self.read_fd_batch():
                 frame = item.frame
                 if frame.err or frame.esi:
                     raise OSError("CAN总线错误或设备error-passive；停止升级")

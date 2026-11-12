@@ -38,8 +38,38 @@ class ControlCanFdSelectionTests(unittest.TestCase):
         dll.ZCAN_OpenDevice.assert_called_once_with(41, 1, 0)
         self.assertEqual(dll.ZCAN_InitCAN.call_args.args[:2], (11, 0))
         dll.ZCAN_SetAbitBaud.assert_called_once_with(11, 0, 1000000)
+        dll.ZCAN_SetDbitBaud.assert_called_once_with(11, 0, 5000000)
         dll.ZCAN_ResetCAN.assert_called_once_with(22)
         dll.ZCAN_CloseDevice.assert_called_once_with(11)
+
+    def test_desktop_channel_two_and_normal_fd_transmission(self) -> None:
+        """GUI 第二通道在 SDK 中为 1；普通数据帧必须保留 CAN 控制器自动重发。"""
+        names = (
+            "OpenDevice",
+            "InitCAN",
+            "SetAbitBaud",
+            "SetDbitBaud",
+            "SetCANFDStandard",
+            "StartCAN",
+            "ResetCAN",
+            "CloseDevice",
+            "TransmitFD",
+            "ReceiveFD",
+        )
+        dll = SimpleNamespace(**{"ZCAN_" + name: Mock(return_value=1) for name in names})
+        with (
+            patch.object(Path, "is_file", return_value=True),
+            patch("host_app.ports.controlcanfd.C.WinDLL", return_value=dll, create=True),
+            ControlCanFd(
+                Path("test.dll"), channel_index=1, nominal_bps=1000000, data_bps=5000000
+            ) as port,
+        ):
+            port.send(0x0CEF0302, bytes(20))
+        dll.ZCAN_SetAbitBaud.assert_called_once_with(1, 1, 1000000)
+        dll.ZCAN_SetDbitBaud.assert_called_once_with(1, 1, 5000000)
+        self.assertEqual(dll.ZCAN_InitCAN.call_args.args[:2], (1, 1))
+        tx = dll.ZCAN_TransmitFD.call_args.args[1]._obj
+        self.assertEqual((tx.transmit_type, tx.frame.eff, tx.frame.brs), (0, 1, 1))
 
     def test_invalid_index_rejected_before_open(self) -> None:
         """负数、越界和隐式类型转换都不能选择设备。"""

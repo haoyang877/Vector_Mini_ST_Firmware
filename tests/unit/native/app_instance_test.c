@@ -566,7 +566,7 @@ static void parameter_and_output_services(void)
     assert(axis->parameters.revision == rate.expected_revision + 1U);
     assert(MotorAxis_SaveParameters(axis, rate.expected_revision) == PARAMETER_REVISION_CONFLICT);
     assert(MotorAxis_ReadParameter(axis, 0x71U, true, &value) == PARAMETER_OK);
-    assert(value.raw_value == ((500UL << 16U) | 2000U));
+    assert(value.raw_value == ((1000UL << 16U) | 5000U));
     assert(MotorAxis_SaveParameters(axis, axis->parameters.revision) == PARAMETER_OK);
     assert(MotorAxis_ReadParameter(axis, 0x71U, true, &value) == PARAMETER_OK);
     assert(value.raw_value == rate.raw_value);

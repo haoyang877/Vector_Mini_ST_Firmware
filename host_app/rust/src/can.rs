@@ -8,8 +8,8 @@ use std::ptr::NonNull;
 use std::time::{Duration, Instant};
 
 pub const ARBITRATION_RATES: [u32; 4] = [125_000, 250_000, 500_000, 1_000_000];
-pub const DATA_RATES: [u32; 6] = [
-    500_000, 1_000_000, 2_000_000, 4_000_000, 5_000_000, 8_000_000,
+pub const DATA_RATES: [u32; 7] = [
+    500_000, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 8_000_000,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,8 +32,8 @@ impl Bitrates {
             "仲裁段波特率不在支持列表内"
         );
         ensure!(
-            DATA_RATES.contains(&self.data) && self.data >= self.arbitration,
-            "数据段波特率须在支持列表内且不低于仲裁段"
+            DATA_RATES.contains(&self.data),
+            "数据段波特率不在支持列表内"
         );
         Ok(())
     }
@@ -321,15 +321,12 @@ mod tests {
     }
     #[test]
     fn invalid_rates_are_rejected_before_loading_sdk() {
-        assert!(Bitrates::default().validate().is_ok());
+        assert_eq!(Bitrates::default().arbitration, 1_000_000);
+        assert_eq!(Bitrates::default().data, 5_000_000);
         for rates in [
             Bitrates {
                 arbitration: 123,
                 data: 5_000_000,
-            },
-            Bitrates {
-                arbitration: 1_000_000,
-                data: 500_000,
             },
             Bitrates {
                 arbitration: 500_000,
@@ -341,12 +338,9 @@ mod tests {
                 .unwrap();
             assert!(error.to_string().contains("波特率"));
         }
-        for arbitration in ARBITRATION_RATES {
-            for data in DATA_RATES {
-                assert_eq!(
-                    Bitrates { arbitration, data }.validate().is_ok(),
-                    data >= arbitration
-                );
+        for arbitration in [500_000, 1_000_000] {
+            for data in [500_000, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000] {
+                assert!(Bitrates { arbitration, data }.validate().is_ok());
             }
         }
     }

@@ -15,10 +15,10 @@ int main(int argc, char **argv)
 {
     McuCan_Init();
     assert(sim_can.ctrlstat_bit.reset && sim_can.ctrlstat_bit.fd_iso);
-    assert(sim_timing.bittime_div == 2U);
+    assert(sim_timing.bittime_div == 1U);
     assert(sim_timing.ac_bts1_size == 135U && sim_timing.ac_bts2_size == 45U);
-    assert(sim_timing.fd_bts1_size == 34U && sim_timing.fd_bts2_size == 11U);
-    assert(sim_timing.fd_ssp_offset == 35U);
+    assert(sim_timing.fd_bts1_size == 27U && sim_timing.fd_bts2_size == 9U);
+    assert(sim_timing.fd_ssp_offset == 28U);
     assert(argc == 7 && !BspCan_ConfigureBitrate(12U));
     assert(BspCan_ConfigureBitrate((uint8_t)strtoul(argv[1], NULL, 10)));
     check_can_timing(&sim_timing, argv);

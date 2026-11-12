@@ -8,7 +8,9 @@ static void check_bitrate(const InterfaceParam *original)
     ParameterValue read;
     ParameterWriteRequest write = {.parameter_id = 0x71, .value_type = PARAMETER_VALUE_U32};
     Param_Download(original, sizeof(*original), &cfg);
-    assert(cfg.device.can_bitrate_profile == 0);
+    assert(cfg.device.can_bitrate_profile == 11U);
+    assert(ParameterValue_Read(&cfg, 1, 0x71, &read) == PARAMETER_OK);
+    assert(read.raw_value == ((1000UL << 16U) | 5000U));
     for (unsigned nominal = 500; nominal <= 1000; nominal += 500)
     {
         for (unsigned i = 0; i < 6; ++i)
@@ -20,9 +22,11 @@ static void check_bitrate(const InterfaceParam *original)
             assert(read.raw_value == write.raw_value && read.access == 3 && read.value_type == 2);
             uint8_t profile = cfg.device.can_bitrate_profile;
             Param_Upload(&record, &cfg);
-            assert(record.can_bitrate_record == (profile ? 0x43420100U | profile : 0));
+            assert(record.can_bitrate_record == (profile == 11U ? 0U : 0x43420100U | profile));
             memcpy(parameter_flash, &record, sizeof(record));
-            assert(LoaderParameters_ReadBitrate() == profile);
+            assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == profile);
+            assert(LoaderParameters_ReadBitrate(YI_PARAMS_BLANK) == 11U);
+            assert(LoaderParameters_ReadBitrate(YI_PARAMS_UNSAFE) == 11U);
             Param_Download(&record, sizeof(record), &cfg);
             assert(cfg.device.can_bitrate_profile == profile);
             assert(cfg.device.node_id == original->node_id);
@@ -35,20 +39,31 @@ static void check_bitrate(const InterfaceParam *original)
     write.value_type = PARAMETER_VALUE_I32;
     assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_BAD_TYPE);
     assert(cfg.device.can_bitrate_profile == 11);
-    record.record_crc32 ^= 1U;
+    /* v0.7.0 曾显式保存所有非零档位，包括现在的默认档 11。 */
+    for (unsigned id = 0; id < 12; ++id)
+    {
+        record.can_bitrate_record = 0x43420100U | id;
+        record.record_crc32 = Param_RecordCrc(&record);
+        memcpy(parameter_flash, &record, sizeof(record));
+        Param_Download(&record, sizeof(record), &cfg);
+        assert(cfg.device.can_bitrate_profile == id);
+        assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == id);
+    }
+    record.can_bitrate_record = 0x43420100U; /* 显式 500K/2M 也必须通过基础 CRC。 */
+    record.record_crc32 = Param_RecordCrc(&record) ^ 1U;
     memcpy(parameter_flash, &record, sizeof(record));
-    assert(LoaderParameters_ReadBitrate() == 0);
+    assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == 11U);
     Param_Download(&record, sizeof(record), &cfg);
-    assert(cfg.device.can_bitrate_profile == 0);
+    assert(cfg.device.can_bitrate_profile == 11U);
     const uint32_t legacy[] = {0U, 0xFFFFFFFFU, 0x4342010CU, 0x43420201U};
     for (unsigned i = 0; i < sizeof(legacy)/sizeof(legacy[0]); ++i)
     {
         record.can_bitrate_record = legacy[i];
         record.record_crc32 = Param_RecordCrc(&record);
         memcpy(parameter_flash, &record, sizeof(record));
-        assert(LoaderParameters_ReadBitrate() == 0);
+        assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == 11U);
         Param_Download(&record, sizeof(record), &cfg);
-        assert(cfg.device.can_bitrate_profile == 0 && cfg.device.node_id == original->node_id);
+        assert(cfg.device.can_bitrate_profile == 11U && cfg.device.node_id == original->node_id);
     }
 }
 

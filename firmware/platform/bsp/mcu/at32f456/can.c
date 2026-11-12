@@ -48,7 +48,7 @@ void McuCan_Init(void)
     gpio_pin_mux_config(MCU_CAN_GPIO_PORT, MCU_CAN_RX_SOURCE, MCU_CAN_GPIO_AF);
     gpio_pin_mux_config(MCU_CAN_GPIO_PORT, MCU_CAN_TX_SOURCE, MCU_CAN_GPIO_AF);
     gpio_init(MCU_CAN_GPIO_PORT, &pins);
-    (void)BspCan_ConfigureBitrate(0U);
+    (void)BspCan_ConfigureBitrate(CAN_BITRATE_DEFAULT_PROFILE);
     can_fd_iso_mode_enable(MCU_CAN, TRUE);
     can_mode_set(MCU_CAN, CAN_MODE_COMMUNICATE);
     can_receive_all_enable(MCU_CAN, FALSE);

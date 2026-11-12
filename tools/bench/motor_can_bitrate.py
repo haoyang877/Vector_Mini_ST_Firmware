@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "host_app"))
-from ports.controlcanfd import ControlCanFd
+from ports.controlcanfd import DEFAULT_DATA_BPS, DEFAULT_NOMINAL_BPS, ControlCanFd
 from upgrade_client import decode_reply, encode_frames
 
 READ = bytes.fromhex("71 00 00 00")
@@ -80,14 +80,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dll", required=True, type=Path, help="ControlCANFD 厂商 DLL 路径")
     parser.add_argument("--device-index", type=int, default=0)
+    parser.add_argument(
+        "--channel-index", type=int, choices=(0, 1), default=0, help="USB-CAN 通道索引，默认 0"
+    )
     parser.add_argument("--node", type=int, required=True, choices=range(1, 255), metavar="1..254")
     parser.add_argument(
         "--current",
         nargs=2,
         type=int,
-        default=(500, 2000),
+        default=(DEFAULT_NOMINAL_BPS // 1000, DEFAULT_DATA_BPS // 1000),
         metavar=("ARB", "DATA"),
-        help="适配器当前仲裁和数据速率，单位 kbit/s，默认 500 2000",
+        help="适配器当前仲裁和数据速率，单位 kbit/s，默认 %(default)s",
     )
     parser.add_argument(
         "--set",
@@ -108,6 +111,7 @@ def main():
             ControlCanFd(
                 dll,
                 args.device_index,
+                channel_index=args.channel_index,
                 nominal_bps=args.current[0] * 1000,
                 data_bps=args.current[1] * 1000,
             ) as bus,

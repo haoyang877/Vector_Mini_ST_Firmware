@@ -6,24 +6,26 @@
 #include "can_bitrate.h"
 #include "crc32.h"
 
-uint8_t LoaderParameters_ReadBitrate(void)
+uint8_t LoaderParameters_ReadBitrate(LoaderParameterState state)
 {
 #if defined(TARGET_CONFIGURABLE_CAN) && TARGET_CONFIGURABLE_CAN
 #if CAN_BITRATE_RECORD_OFFSET != TARGET_RAW_SCHEMA_OFFSET + 8U
 #error Incompatible schema, magic and bitrate offsets
 #endif
     uint32_t header[3];
-    if (!LoaderPlatform_ReadParameters(TARGET_RAW_SCHEMA_OFFSET, header, sizeof(header)) ||
+    if (state != YI_PARAMS_RAW11 ||
+        !LoaderPlatform_ReadParameters(TARGET_RAW_SCHEMA_OFFSET, header, sizeof(header)) ||
         header[0] != TARGET_SCHEMA || header[1] != TARGET_RAW_MAGIC)
     {
-        return 0U;
+        return CAN_BITRATE_DEFAULT_PROFILE;
     }
     uint8_t profile = CanBitrate_FromRecord(header[2]);
     uint32_t expected_crc;
-    if (profile == 0U || !LoaderPlatform_ReadParameters(
-                             CAN_BITRATE_RECORD_CRC_OFFSET, &expected_crc, sizeof(expected_crc)))
+    if (profile == CAN_BITRATE_DEFAULT_PROFILE ||
+        !LoaderPlatform_ReadParameters(
+            CAN_BITRATE_RECORD_CRC_OFFSET, &expected_crc, sizeof(expected_crc)))
     {
-        return 0U;
+        return CAN_BITRATE_DEFAULT_PROFILE;
     }
 
     /* 与 schema14 所有者相同，跳过 CRC 槽本身；分块读取限制启动栈占用。 */
@@ -45,13 +47,14 @@ uint8_t LoaderParameters_ReadBitrate(void)
         LoaderPlatform_Watchdog();
         if (!LoaderPlatform_ReadParameters(offset, block, count))
         {
-            return 0U;
+            return CAN_BITRATE_DEFAULT_PROFILE;
         }
         crc = Crc32_Compute(block, count, crc);
         offset += count;
     }
-    return crc == expected_crc ? profile : 0U;
+    return crc == expected_crc ? profile : CAN_BITRATE_DEFAULT_PROFILE;
 #else
+    (void)state;
     return 0U;
 #endif
 }

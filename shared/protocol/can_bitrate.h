@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 
-/* 0x71 的高/低半字分别是仲裁/数据 kbit/s。档位号也用于 schema14，0 为现场缺省值。 */
+/* 0x71 的高/低半字分别是仲裁/数据 kbit/s。schema14 的已标记档位号保持稳定。 */
 #define CAN_BITRATE_PARAMETER_ID 0x71U
 #define CAN_BITRATE_PROFILE_COUNT 12U
+#define CAN_BITRATE_DEFAULT_PROFILE 11U /* 1 Mbit/s 仲裁，5 Mbit/s 数据。 */
 #define CAN_BITRATE_RECORD_V1 0x43420100U
 #define CAN_BITRATE_RECORD_OFFSET 2168U
 #define CAN_BITRATE_RECORD_CRC_OFFSET 2140U
@@ -42,13 +43,13 @@ static inline uint8_t CanBitrate_Profile(uint32_t value)
 /**
  * @brief 读取 schema14 的带标记档位，兼容旧保留槽。
  * @param word 基础记录偏移 2168 的小端 u32，记录 CRC 由调用者校验。
- * @return 合法档位；未知标记或档位回退到缺省档 0。
+ * @return 合法档位；无标记、未知版本或越界值回退到当前默认档。
  */
 static inline uint8_t CanBitrate_FromRecord(uint32_t word)
 {
     uint8_t profile = (uint8_t)word;
     return (word & 0xFFFFFF00UL) == CAN_BITRATE_RECORD_V1 && profile < CAN_BITRATE_PROFILE_COUNT
                ? profile
-               : 0U;
+               : CAN_BITRATE_DEFAULT_PROFILE;
 }
 #endif

@@ -3,6 +3,8 @@
 适用于 APP v1.8.0、Loader v2.3.3、CAN-Link-Test v1.7.0 和电机工装 v1.4.1。
 本包为 debug 开发验证包。当前连接的 PITCH 台架用于验证，其他轴没有本轮实机结论；
 动态角度检测的已知限制与本次结果以随包测试报告为准。
+本次[合并后复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)八项静态通过，
+旋转动态仍失败；包用于复现与调试，尚未取得完整功能验收。
 
 ## 连接和节点
 
@@ -31,6 +33,7 @@ ISO FD+BRS、仲裁 1 Mbit/s、数据 5 Mbit/s，工具的“通道 1”对应 S
 | `firmware/*.axf`、`*.map` | 与镜像匹配的调试符号和资源信息 |
 | `manifest.json`、`firmware/summary.json` | 文件 SHA-256、版本、目标、布局和构建来源 |
 | `CAN-Link-Test-v1.7.0.exe` | SWD 烧录、CAN 升级、通信与硬件功能检测 |
+| `Hardware-Check-v1.0.0.exe` | 独立命令行硬件检测，不依赖本机 Python |
 | `YG-Motor-Commission-v1.4.1.exe` | 空板配参、标定和标定结果导出 |
 
 大包仅包含 Loader 和 APP 的实际加载段，**不包含参数、LUT 或生产身份**。
@@ -76,6 +79,15 @@ uv run --extra maintenance python tools/run.py hardware_check --dll <ControlCANF
 
 `--observe` 在关相后输入实物去回方向，正/反分别用 `+`/`-`。命令参数中的温度、
 行程和计数必须按本次现场填写。原始 CAN 帧、板端统计和 STOP 结果一起留档。
+交付 EXE 的同一入口是 `Hardware-Check-v1.0.0.exe`，将上述命令的
+`uv run --extra maintenance python tools/run.py hardware_check` 替换为 EXE 路径，
+`--dll` 指向随包 `bin/ControlCANFD.dll`。
+
+`--travel-deg` 是行程保护值，不是旋转目标。目标由电频和时间决定：
+单程输出轴角度约为 `360 × 电频Hz × 单程秒 / (极对数 × 减速比)`。
+当前 14 极对、40:1 的台架，3 Hz、1500 ms 对应约 2.89°/程；实际提前中止时达不到
+该角度。改变电频、时长或电流用于对照，不代表可以改动检测限值；推荐至少留出
+1500 ms 单程时间，不能用不足 500 ms 的短段宣称已经稳定并完成轨迹验收。
 
 ## 标定
 
@@ -107,6 +119,7 @@ CAN 底层入口是 Type160：kind=1 LUT、kind=2 电角零位、kind=6 机械�
 uv run python loader/tools/generate_target.py --target yg_esc_v1_at32f456
 uv run python tools/build/generate_loader_app_project.py --target yg_esc_v1_at32f456
 uv run python tools/run.py build_loader_bundle --target yg_esc_v1_at32f456 --uv4 <UV4.exe> --fromelf <fromelf.exe> --token <本次非零事务号> --output outputs/<新包目录>
+$env:KEIL_UV4 = '<UV4.exe>'
 uv run python tools/run.py verify --profile release
 ```
 

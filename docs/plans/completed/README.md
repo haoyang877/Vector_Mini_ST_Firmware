@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [母线电流 RMS 50 cnt 与完整复测](2026-11-13-bus-current-rms-50.md) — 合并到重构分支，离线 release 档与八项静态通过；转角/电流对照仍未通过动态，保留 debug 交付及剩余验收记录。
+
 - [远端重构合并与单节点 1M/5M 验证](2026-11-12-remote-refactor-can-validation.md) — APP v1.7.0、Loader v2.3.3 在节点 7 完成 CAN 升级，1,000 次状态查询全部通过，现场已恢复。
 - [母线电流静态噪声定位](2026-11-13-bus-current-noise-diagnosis.md) — 时长、相位、NTC 对照均约 25 cnt；噪声随 PA4 进入 ADC1，主要指向模拟输入链路，缺示波器未定具体器件；已恢复完整原镜像。
 

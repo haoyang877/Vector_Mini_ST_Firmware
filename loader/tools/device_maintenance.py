@@ -59,19 +59,37 @@ def physical_flash_bytes(target: dict) -> int:
     return target.get("physical_flash_bytes", target_value(target, "TARGET_FLASH_BYTES"))
 
 
+def read_mcu_uid(probe, target: dict) -> bytes:
+    """从目标芯片的出厂 UID 寄存器双读，拒绝空总线返回的填充值。"""
+    address = 0x1FFFF7E8 if target["device"].startswith("AT32F456") else 0x1FFF7590
+    uid = read_twice(probe, address, 12)
+    if uid in (bytes(12), b"\xff" * 12):
+        raise RuntimeError("未读到有效 MCU UID，请检查板型、供电和 SWD 接线")
+    return uid
+
+
 def check_identity(probe, target: dict, uid: bytes) -> None:
     """写操作前核对真实UID及物理Flash容量，不按枚举顺序换板。"""
     if len(uid) != 12:
         raise ValueError("UID必须为12字节")
     at32 = target["device"].startswith("AT32F456")
-    address = 0x1FFFF7E8 if at32 else 0x1FFF7590
     capacity = 0x1FFFF7E0 if at32 else 0x1FFF75E0
-    if read_twice(probe, address, 12) != uid:
+    if read_mcu_uid(probe, target) != uid:
         raise RuntimeError("实际UID与绑定设备不符")
     if probe.memory_read16(capacity, 1)[0] * 1024 != physical_flash_bytes(target):
         raise RuntimeError("实际Flash容量与目标不符")
     if not at32 and probe.memory_read32(0xE0042000, 1)[0] & 0xFFF != 0x468:
         raise RuntimeError("实际芯片不是G431")
+
+
+def release_reset_catch(probe) -> None:
+    """独占维护时仅清除 DEMCR.VC_CORERESET，让下一次固件复位正常执行。"""
+    demcr = 0xE000EDFC
+    value = probe.memory_read32(demcr, 1)[0]
+    if value & 1:
+        probe.memory_write32(demcr, [value & ~1])
+        if probe.memory_read32(demcr, 1)[0] & 1:
+            raise RuntimeError("探针仍捕获目标复位，无法开始 CAN 交接")
 
 
 def check_outputs_off(probe, target: dict) -> None:
@@ -91,7 +109,11 @@ def check_outputs_off(probe, target: dict) -> None:
             probe.memory_read32(gpio + 0x400 + 0x10, 1)[0] & b_mask,
         )
         if any(state) or (previous is not None and previous != state):
-            raise RuntimeError("未确认六路输出关闭，拒绝操作")
+            channels, master, pins_a, pins_b = state
+            raise RuntimeError(
+                f"未确认六路输出关闭：通道={channels:#x} 主使能={master:#x} "
+                f"GPIOA={pins_a:#x} GPIOB={pins_b:#x}"
+            )
         previous = state
 
 
@@ -99,6 +121,7 @@ def capture(probe, target: dict, uid: bytes, directory: Path) -> dict:
     """保持CPU原运行状态，备份完整物理Flash和完整保护区。"""
     directory.mkdir(parents=True, exist_ok=False)
     check_identity(probe, target, uid)
+    release_reset_catch(probe)
     check_outputs_off(probe, target)
     raw = read_twice(probe, target_value(target, "TARGET_FLASH_BASE"), physical_flash_bytes(target))
     check_outputs_off(probe, target)
@@ -112,6 +135,7 @@ def capture(probe, target: dict, uid: bytes, directory: Path) -> dict:
         "flash": digest(raw),
         "parameters": digest(raw[parameters : parameters + 16384]),
         "cpu_state_changed": False,
+        "reset_catch_released": True,
     }
     (directory / "snapshot.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
@@ -338,11 +362,22 @@ def install(
     }
 
 
+def create_probe(dll: Path | None):
+    """发布包使用同目录的 SDK 和器件库，开发环境沿用已安装的 SDK。"""
+    import pylink
+
+    if dll is None and (ROOT / "runtime").is_dir():
+        dll = ROOT / "runtime/jlink/JLink_x64.dll"
+    library = pylink.library.Library(dllpath=str(dll), use_tmpcpy=False) if dll else None
+    return pylink.JLink(lib=library)
+
+
 def main() -> None:
-    """默认离线命令；SWD动作必须显式给出目标、探针、UID和输出目录。"""
+    """SWD 作业按探针序列号连接，自动读取或核验指定的 MCU UID。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=("prepare-migration", "parameters", "verify", "backup", "install")
+        "action",
+        choices=("probes", "prepare-migration", "parameters", "verify", "backup", "install"),
     )
     parser.add_argument("--target", default="vector_mini_st_g431")
     parser.add_argument("--input", type=Path)
@@ -352,15 +387,22 @@ def main() -> None:
     parser.add_argument("--bundle", type=Path)
     parser.add_argument("--migration", type=Path)
     parser.add_argument("--probe", type=int)
-    parser.add_argument("--uid")
+    identity = parser.add_mutually_exclusive_group()
+    identity.add_argument("--uid", help="要求与指定 MCU UID 相符")
+    identity.add_argument("--auto-uid", action="store_true", help="从所选探针对应的 MCU 绑定 UID")
     parser.add_argument("--jlink-dll", type=Path)
     parser.add_argument("--exclusive-bench", "--exclusive-no-power", action="store_true")
     parser.add_argument(
-        "--allow-target-reset", action="store_true", help="备份后释放调试复位捕获，供 CAN 交接"
+        "--allow-target-reset", action="store_true", help="初装后释放调试复位捕获；备份默认释放"
     )
     args = parser.parse_args()
     target = load_target(args.target)
-    if args.action == "prepare-migration":
+    if args.action == "probes":
+        probe = create_probe(args.jlink_dll)
+        report = sorted(
+            {item.SerialNumber for item in probe.connected_emulators() if item.SerialNumber}
+        )
+    elif args.action == "prepare-migration":
         if not args.input or not args.out or not args.source_sha256:
             parser.error("迁移需要快照目录、SHA256和新输出目录")
         report = prepare_migration(args.input, args.out, args.source_sha256)
@@ -377,18 +419,19 @@ def main() -> None:
             not args.exclusive_bench
             or not args.probe
             or args.probe <= 0
-            or not args.uid
+            or not (args.uid or args.auto_uid)
             or not args.out
         ):
-            parser.error("SWD操作需要明确探针、UID、停机且独占台架和输出目录")
+            parser.error("SWD操作需要明确探针、--uid 或 --auto-uid、停机且独占台架和输出目录")
         if args.action == "install" and not args.bundle:
             parser.error("初装需要已通过校验的配套构建包")
-        uid = bytes.fromhex(args.uid)
+        uid = bytes.fromhex(args.uid) if args.uid else None
+        if uid is not None and len(uid) != 12:
+            parser.error("指定的 MCU UID 必须为 12 字节")
         bundle = load_bundle(args.bundle, args.target) if args.action == "install" else None
         import pylink  # 离线命令不加载DLL，更不打开设备。
 
-        library = pylink.library.Library(dllpath=str(args.jlink_dll)) if args.jlink_dll else None
-        probe = pylink.JLink(lib=library)
+        probe = create_probe(args.jlink_dll)
         report = {"success": False}
         args.out.mkdir(parents=True, exist_ok=False)
         try:
@@ -405,17 +448,15 @@ def main() -> None:
                 probe.exec_command(command)
             probe.set_tif(pylink.enums.JLinkInterfaces.SWD)
             probe.connect(target["build"]["jlink_device"], speed=1000)
+            if uid is None:
+                uid = read_mcu_uid(probe, target)
             report = (
                 capture(probe, target, uid, args.out / "snapshot")
                 if bundle is None
                 else install(probe, target, uid, bundle[1], bundle[2], args.out, args.migration)
             )
-            if args.allow_target_reset:
-                # 独占台架的下一步由 APP 或 Loader 自行复位，只释放 Cortex-M 的 VC_CORERESET。
-                demcr = 0xE000EDFC
-                probe.memory_write32(demcr, [probe.memory_read32(demcr, 1)[0] & ~1])
-                if probe.memory_read32(demcr, 1)[0] & 1:
-                    raise RuntimeError("探针仍捕获目标复位，无法开始 CAN 交接")
+            if bundle is not None and args.allow_target_reset:
+                release_reset_catch(probe)
                 report["reset_catch_released"] = True
             report["success"] = True
         except Exception as error:

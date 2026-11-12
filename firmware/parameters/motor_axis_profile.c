@@ -42,23 +42,39 @@ static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            ENCODER_SPEED_PLL_HZ,
                                            NULL};
 
-/* ROLL/PITCH/YAW 各装 2 N·m 阻尼轴；标定起点按脱开负载的工装设置。 */
+/* ROLL 带摩擦轴标定；4.9 A 的 q 轴目标为 0.5 A 的 d 轴电流留出余量。 */
+#define ROLL_CALIB_CURRENT_A 5.0f
 #define PRODUCT_RUN_CURRENT_LIMIT_A 7.0f
-/* 输出轴最高 120°/s，恒加速 1 s 达到上限；控制与存储使用电机轴单位。 */
+/* YAW 输出轴运行上限为 120°/s；两个减速轴的输出轴加减速度均为 120°/s²。 */
 #define YQ_OUTPUT_SPEED_RAD_S (CONFIG_TWO_PI / 3.0f)
 #define YQ_MOTOR_SPEED_RAD_S (YQ_OUTPUT_SPEED_RAD_S * YQ_JOINT_GEAR_RATIO)
 #define YQ_MOTOR_ACCEL_RAD_S2 (YQ_MOTOR_SPEED_RAD_S / 1.0f)
 
 static const SensorlessStartupConfig s_wheel_start =
-    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.05f, 0.5f);
-static const SensorlessStartupConfig s_roll_start =
-    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.5f, 1.0f);
+    CALIB_STARTUP_CONFIG(2.0f,
+                         0.5f,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                         HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS,
+                         0.05f,
+                         0.5f);
+static const SensorlessStartupConfig s_roll_start = CALIB_STARTUP_CONFIG(
+    ROLL_CALIB_CURRENT_A, 4.9f, 0.25f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.5f, 1.0f);
 /* PITCH 长扫圈的电机轴速度目标，保持在观测器最低锁定速度以上。 */
 #define PITCH_CALIB_SPEED_RAD_S 24.0f
 static const SensorlessStartupConfig s_pitch_start =
-    CALIB_STARTUP_CONFIG(1.6f, 0.5f, PITCH_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.012f, 0.5f);
+    CALIB_STARTUP_CONFIG(1.6f,
+                         0.5f,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                         PITCH_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
+                         0.012f,
+                         0.5f);
 static const SensorlessStartupConfig s_yq_start =
-    CALIB_STARTUP_CONFIG(1.6f, 0.5f, YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.048f, 0.5f);
+    CALIB_STARTUP_CONFIG(1.6f,
+                         0.5f,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                         YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
+                         0.048f,
+                         0.5f);
 static const MotorAxisPreset s_presets[] = {
     {0x03,
      MOTOR_JOINT_WHEEL_LEFT,
@@ -92,7 +108,7 @@ static const MotorAxisPreset s_presets[] = {
      &s_ht,
      &s_roll_start,
      HT8115_CALIB_SPEED_RAD_S,
-     3.0f,
+     ROLL_CALIB_CURRENT_A,
      3.14159265f,
      {8.0f, 2.0f, 0.5f, 1.0f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,

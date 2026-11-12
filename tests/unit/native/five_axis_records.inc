@@ -34,7 +34,7 @@ int main(void)
         assert(strcmp(p->model_name, ht ? "HT8115-4" : node == 6 ? "YQ-5740" : "YQ-5708") == 0);
         assert(p->joint == roles[node-3] && configuration.model.motor_pole_pairs == (ht ? 21 : 14));
         assert(configuration.model.motor_phase_resistance_ohm == (ht ? 1.905f : .55f));
-        assert(configuration.model.calibration_current_a == (ht ? 3.f : 1.6f));
+        assert(configuration.model.calibration_current_a == (node == 5 ? 5.f : ht ? 3.f : 1.6f));
         assert(configuration.application.current_limit_a == 7);
         assert(configuration.model.thermal.continuous_vector_a == 3);
         if (node == 5)

@@ -126,6 +126,8 @@ def application_entry_fixture(platform: str) -> str:
         rtt = r"""
 void RTT_Init(void) { assert(count==2U); }
 void BspSystem_StartCycleCounter(void) { assert(count==2U); }
+static unsigned HardwareCheck_Bind(const unsigned *axis) { assert(axis==&g_app.axis && count==1U); return 1U; }
+static void HardwareCheck_Process(const unsigned *axis) { assert(axis==&g_app.axis && g_app.endpoint.hardware_check==1U && iterations==1U); }
 """
     return (
         r"""
@@ -137,11 +139,12 @@ static jmp_buf exit_entry;
 static unsigned trace[8],count,failure,iterations;
 static void step(unsigned n) { trace[count++]=n; }
 static BspResult Bsp_Init(void) { step(1);return failure==1 ? BSP_IO_ERROR : BSP_OK; }
-static unsigned g_app;
-static void App_Init(unsigned *app) { assert(app==&g_app);step(2); }
+typedef struct { unsigned axis; struct { unsigned hardware_check; } endpoint; } EntryApp;
+static EntryApp g_app;
+static void App_Init(EntryApp *app) { assert(app==&g_app);step(2); }
 static BspResult Bsp_Start(void) { step(3);return failure==2 ? BSP_IO_ERROR : BSP_OK; }
-static void App_Start(unsigned *app) { assert(app==&g_app);step(4); }
-static void App_Process(unsigned *app) { assert(app==&g_app);step(5);if(++iterations==2)longjmp(exit_entry,1); }
+static void App_Start(EntryApp *app) { assert(app==&g_app);step(4); }
+static void App_Process(EntryApp *app) { assert(app==&g_app);step(5);if(++iterations==2)longjmp(exit_entry,1); }
 static void startup_failed(void) { longjmp(exit_entry,1); }
 """.replace("static BspResult Bsp_", "BspResult Bsp_")
         + rtt

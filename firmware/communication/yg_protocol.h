@@ -66,6 +66,28 @@ typedef struct
 } ProtocolReply;
 
 #define PROTOCOL_MASTER_ID 2U
+#define PROTOCOL_HARDWARE_CHECK 127U
+#define PROTOCOL_HARDWARE_CHECK_VERSION 2U
+#define PROTOCOL_FEATURE_HARDWARE_CHECK (1UL << 19U)
+
+/** @brief 单轮硬件检查的值快照，通道顺序和两段旋向见 Type 127 契约。 */
+typedef struct
+{
+    uint32_t run_id;
+    uint8_t stage, items[10], directions;
+} ProtocolHardwareReport;
+
+/** @brief 前台串行处理，mode=0 为只读，1/2 为静态/带驱动采集，命令本身不启相。 */
+typedef struct
+{
+    void *context;
+    ProtocolCode (*handle)(void *context,
+                           uint8_t mode,
+                           uint16_t sequence,
+                           uint32_t expected_run,
+                           ProtocolHardwareReport *report);
+    void (*started)(void *context, uint8_t mode, uint16_t sequence);
+} ProtocolHardwareCheck;
 #define PROTOCOL_READ_PARAMETER 120U
 #define PROTOCOL_WRITE_PARAMETER 121U
 #define PROTOCOL_SAVE_PARAMETER 122U
@@ -613,6 +635,7 @@ struct ProtocolEndpoint
     volatile ProtocolReceivedCommand command;
     BootState boot;
     ProtocolMotor motor;
+    ProtocolHardwareCheck hardware_check;
     ProtocolJobs jobs;
     ProtocolParameters parameters;
     ProtocolMotorConfiguration configuration;

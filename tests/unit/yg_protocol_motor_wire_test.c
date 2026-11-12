@@ -180,8 +180,62 @@ static void test_host_position_session_wire(void)
           keepalive_calls == 1U);
 }
 
+static ProtocolCode hardware_report(void *context,
+                                    uint8_t mode,
+                                    uint16_t sequence,
+                                    uint32_t expected_run,
+                                    ProtocolHardwareReport *report)
+{
+    CHECK(context == &endpoint && sequence == 0x1234U);
+    if (mode != 0U)
+    {
+        CHECK(mode == 2U && expected_run == 0x01020303U);
+    }
+    *report = (ProtocolHardwareReport){.run_id = 0x01020304U, .stage = 4U, .directions = 0x99U};
+    memset(report->items, 1, sizeof(report->items));
+    return mode == 0U ? PROTOCOL_RESULT_OK : PROTOCOL_RESULT_ACCEPTED;
+}
+
+static void test_hardware_wire(void)
+{
+    CHECK(test_reset_protocol(6U));
+    uint8_t start[8] = {2, 1, 2, 0, 3, 3, 2, 1};
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .message_type = 127U,
+                                             .source_node = 2U,
+                                             .destination_node = 6U,
+                                             .sequence = 0x1234U,
+                                             .payload = start,
+                                             .payload_length = 8U}};
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_ROUTE_NOT_FOUND);
+    endpoint.hardware_check =
+        (ProtocolHardwareCheck){.context = &endpoint, .handle = hardware_report};
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 21U &&
+          exchange.reply.data[0] == 1);
+    exchange.request.payload_length = 0;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 21U);
+    printf("HARDWARE_REPORT ");
+    for (unsigned i = 0; i < exchange.reply.length; ++i)
+    {
+        printf("%02x", exchange.reply.data[i]);
+    }
+    puts("");
+    exchange.request.payload_length = 7;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 4 &&
+          exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH);
+    exchange.request.payload_length = 8;
+    start[3] = 1;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD);
+    exchange.request.source_node = 8;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN);
+}
+
 int main(void)
 {
+    test_hardware_wire();
     test_host_position_session_wire();
     test_minimal_state();
     test_open_loop_vectors();

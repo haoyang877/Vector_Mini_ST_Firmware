@@ -30,19 +30,25 @@ def main() -> None:
     )
     # 使用实际APP能力配置验证编码结果，防止控制入口已接通但发现页仍遗漏模式。
     startup = (ROOT / "firmware/app/app.c").read_text(encoding="utf-8")
-    capabilities = re.search(r"ProtocolCaps capabilities = \{.*?\};", startup, re.DOTALL)
+    capabilities = re.search(
+        r"ProtocolCaps capabilities = \{.*?(?=\s+uint8_t target_payload)", startup, re.DOTALL
+    )
     if capabilities is None:
         raise RuntimeError("未找到APP能力配置")
     caps_source = output_dir / "application_caps.c"
     caps_source.write_text(
         '#include "yg_protocol.h"\n#include <string.h>\n'
         "bool test_application_capabilities(void) {\n"
+        "struct { ProtocolEndpoint endpoint; } device={0}, *app=&device;\n"
+        "for(unsigned installed=0; installed<=1; ++installed) {\n"
+        "app->endpoint.hardware_check.handle = installed ? hardware_report : NULL;\n"
         + capabilities.group(0)
-        + "\nconst uint8_t expected[16] = {0x00,0xfd,7,0,0x4e,0x06,0x40,0,"
+        + "\nuint8_t expected[16] = {0x00,0xfd,7,0,0x4e,0x06,0x40,0,"
         "0x2e,0,0,0,0xf4,1,0xf4,1};\nProtocolResponse response = {0};\n"
-        "return encode_device_caps(&capabilities, &response) == YG_PROTOCOL_OK &&"
-        " response.length == sizeof(expected) &&"
-        " memcmp(response.data, expected, sizeof(expected)) == 0;\n}\n",
+        "if(installed){expected[2]=15;}\n"
+        "if(encode_device_caps(&capabilities, &response) != YG_PROTOCOL_OK ||"
+        " response.length != sizeof(expected) ||"
+        " memcmp(response.data, expected, sizeof(expected)) != 0) return false;\n}return true;\n}\n",
         encoding="utf-8",
     )
     fixture = output_dir / "motor_wire_fixture.c"
@@ -77,6 +83,9 @@ def main() -> None:
     subprocess.run(command, check=True)
     result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
     print(result.stdout, end="")
+    hardware = json.loads((ROOT / "tests/fixtures/protocol/hardware_check_v2.json").read_text())
+    if f"HARDWARE_REPORT {hardware['report_payload']}" not in result.stdout.splitlines():
+        raise RuntimeError("Type127 生产编码与 v2 黄金报告不符")
     host_vectors = json.loads(
         (
             ROOT / "tests/fixtures/protocol/yg_protocol_host_position_session_v1_vectors.json"

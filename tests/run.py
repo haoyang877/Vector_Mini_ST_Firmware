@@ -14,6 +14,7 @@ NATIVE = (
     "test_at32_foundation",
     "test_at32_io",
     "test_at32_encoder",
+    "test_hardware_check",
     "test_at32_storage_temperature",
     "test_power_stage_start",
     "run_position_servo_tests",

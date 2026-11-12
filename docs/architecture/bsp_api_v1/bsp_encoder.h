@@ -34,6 +34,10 @@ extern "C"
      *       不做方向、零位或LUT修正；现有控制算法应显式选择16位。
      */
     uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution);
+#if defined(FIRMWARE_TARGET_AT32_OFF)
+    /** @brief AT32 快拍在 ReadAngle 完成后读取同一笔 MT6835 的角度、状态和 CRC。 */
+    uint32_t BspEncoder_ReadCompletedFrame(void);
+#endif
 
 #ifdef __cplusplus
 }

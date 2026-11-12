@@ -123,10 +123,10 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
     MotorTarget target = {.mode = (uint16_t)mode,
                           .position_rad = request->position_mrad * 0.001f,
                           .speed_rad_s = request->speed_mrad_s * 0.001f,
-                          .iq_a = request->iq_mA * 0.001f,
+                          .iq_a = request->iq_mA / 1000.0f,
                           .vq_v = request->v_q_mV * 0.001f,
                           .frequency_hz = request->electrical_frequency_mHz * 0.001f,
-                          .id_a = request->id_mA * 0.001f,
+                          .id_a = request->id_mA / 1000.0f,
                           .vd_v = request->vd_mV * 0.001f};
     /* 只有前台能启动新会话；STOP 可在目标提交后抢占，重发仍须属于原会话。 */
     uint32_t epoch = adapter->state_machine->epoch;

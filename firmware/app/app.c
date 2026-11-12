@@ -246,6 +246,10 @@ static bool configure_protocol_device_info(AppContext *app)
         .supported_modes = (1U << 1) | (1U << 2) | (1U << 3) | (1U << 6) | (1U << 9) | (1U << 10),
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
+    if (app->endpoint.hardware_check.handle != NULL)
+    {
+        capabilities.features |= PROTOCOL_FEATURE_HARDWARE_CHECK;
+    }
     uint8_t target_payload[DEVICE_IDENTITY_INFO_BYTES];
     uint8_t identity_record[DEVICE_IDENTITY_RECORD_BYTES];
     const uint32_t target_description[] = {

@@ -1804,6 +1804,11 @@
               <FilePath>main.c</FilePath>
             </File>
             <File>
+              <FileName>hardware_check.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>hardware_check.c</FilePath>
+            </File>
+            <File>
               <FileName>system.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\system.c</FilePath>

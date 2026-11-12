@@ -14,6 +14,13 @@ void RTT_Sampling(void) {
 
 OUTER_STUB = r"""
 #include "config.h"
+#if BSP_BOARD == BSP_BOARD_AT32F456
+static volatile bool g_hardware_check_capture;
+static unsigned captures;
+static void HardwareCheck_CaptureFast(const MotorAxis *axis) {
+ assert(axis == &g_app.axis && axis->state_machine.fast_sample_ticks > 0U); ++captures;
+}
+#endif
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
 static volatile bool s_outer_outstanding;
 static unsigned requests, outer_calls, overruns;
@@ -210,12 +217,14 @@ int main(void) {
  s_milliseconds = UINT32_MAX; BspSystem_HandleTickInterrupt();
  assert(s_milliseconds == 0U && count == 2U);
  for(unsigned valid_samples=2;valid_samples<=15;valid_samples++) {
+   g_hardware_check_capture = valid_samples >= 8;
    count=0; fast_adc.flags=aux_adc.flags=ADC_PCCE_FLAG;
    MCU_ADC_IRQ_HANDLER();
    assert(requests == (valid_samples<5 ? 0U : valid_samples<10 ? 1U : 2U));
    if(valid_samples==5) { assert(s_outer_outstanding); PendSV_Handler(); }
  }
  assert(outer_calls==1U && overruns==1U && s_outer_outstanding);
+ assert(captures==8U);
  PendSV_Handler(); assert(outer_calls==2U && !s_outer_outstanding);
  puts("PASS AT32 hardware IRQ: missing/paired events, clear-before-callback, SysTick wrap");
  return 0;

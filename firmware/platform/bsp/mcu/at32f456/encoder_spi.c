@@ -148,3 +148,9 @@ uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution)
     /* 控制环继续使用高16位；两种格式均未检查状态或CRC。 */
     return s_encoder_rx.angle_high;
 }
+
+uint32_t BspEncoder_ReadCompletedFrame(void)
+{
+    return ((uint32_t)s_encoder_rx.angle_high << 16U) | ((uint32_t)s_encoder_rx.angle_low << 11U) |
+           ((uint32_t)s_encoder_rx.status << 8U) | s_encoder_rx.crc;
+}

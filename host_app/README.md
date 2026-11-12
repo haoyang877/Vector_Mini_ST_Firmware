@@ -1,14 +1,25 @@
 # YG_MC_HOST
 
 双板开发候选增加目标选择与SWD维护入口，复用`loader/tools/device_maintenance.py`完成全片备份、
-保存参数/LUT查看、保护区比较和AT32原样迁移/初装。启动工作台时以仓库根目录为工作目录，
-或在维护页显式填写Python及脚本路径；详见[双板指南](../docs/guides/dual_board_loader.md)。
+保存参数/LUT查看、保护区比较和AT32原样迁移/初装。Windows v3.1.2 发布包完整解压后即可使用随包 Python、脚本与 J-Link 器件库。
+中控可打开整机烧录页并自动识别 USB 探针。详见[构建与发布](rust/README.md)。
 
-Rust实机候选v2.1.2位于`rust/`，配套版本、layout、schema及ABI读取shared目标契约；
-原GUI计划的APP1.5.1是历史验收起点，当前工作树声明已到APP1.5.7，须按实际候选重新冻结。
-保留七工作区与深色工具主题。连接页显式填写CAN设备索引与节点；
-不自动尝试其他适配器。启用原生辅助功能接口，用于键盘操作和 GUI 验证。
-本轮范围和验收见[GUI 实机验证计划](../docs/plans/completed/2026-10-21-host-gui-bench-v1.md)。
+Rust 候选 v2.7.1 位于 `rust/`，配套版本、layout、schema 及 ABI 读取 shared 目标契约；
+AT32 PITCH 既有实测配套 APP 1.6.0 / Loader 2.2.0；v2.6.0 四模式尚未实机验证。空闲态无 Iq 时，先按 STOP，等待 0/0 和 IDLE 回读后才可零速启动或升级；运行期间仍要求有效 Iq。
+中控打开「添加设备」后自动扫描可打开的 USBCANFD-200U 索引 0–15
+及通道 0 的节点 1–254，使用只读 GET_INFO 识别目标和 UID，选中设备后仍须显式连接，
+连接时重新核对 UID。扫描不会发现被其他进程占用的适配器，超时节点可能遗漏；
+手动连接仍在高级设置。启用原生辅助功能接口，用于键盘操作和 GUI 验证。
+v2.7.1 调试页使用右侧集中控制面板，模式下拉选择、使能/失能、红色 STOP 与目标就近放置。
+运动控制取消台架勾选，设备身份、反馈与状态门禁保持；升级与配置写入确认独立保留。
+v2.7.0 增加CAN仲裁/数据段波特率配置，以及需配套APP1.6.1的CAN型号配置事务。
+支持明确指定HT8115-4、YQ-5708、YQ-5740，配套参数保存、回读与显式重启；旧标定清除后须重新标定。
+v2.6.0 调试页支持 Vq（V）、力矩 Iq（A）、速度（rad/s）、位置（rad），按设备 GET_CAPS 开放。
+切换模式先 STOP 并确认空闲；位置启动保持当前位置。调试限值与详细要求见[当前需求](../docs/guides/yg_mc_host_requirements_v1.md)。
+v3.0.0候选采用仪器工作台布局，常驻型号/连接/固件版本，提供分类全参数表；保留原有连接、四模式、升级、标定及诊断。实机验证与限制见当前证据。
+开始观察后 CAN108 轮询默认目标为 60 Hz（约 16.67 ms）；工具栏分别显示实际接收与曲线新数据更新频率。
+CAN 快照直接发送给曲线线程，由它负责时间窗、范围和保留极值的抽稀，UI 线程采用不可变快照绘制。实际速率取决于设备、总线和主机，须实测确认。暂停观察后恢复 200 ms 周期。
+本轮范围和验收见[GUI 实机验证记录](../docs/plans/completed/2026-10-21-host-gui-bench-v1.md)。
 界面候选存在不代表实机通过；实际结果以本轮 `outputs/host-live-test/` 记录为准。
 
 ```powershell
@@ -18,6 +29,8 @@ cargo clippy --manifest-path host_app/rust/Cargo.toml --all-targets -- -D warnin
 cargo test --manifest-path host_app/rust/Cargo.toml --locked
 cargo build --manifest-path host_app/rust/Cargo.toml --release --locked
 ```
+
+Windows GNU 链接和维护脚本的运行条件见 [Rust 构建说明](rust/README.md)。
 
 v1.4.4 是单页 CAN FD 台架工具，配套共享目标契约的 schema 14 / 参数 ABI 0x000E08F0。默认断开且所有设备值显示未知；没有演示设备、导航、参数写入或标定任务。程序与 APP、Loader 独立构建。
 

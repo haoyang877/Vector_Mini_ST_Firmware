@@ -1787,7 +1787,6 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\communication\yg_protocol_boot.c</FilePath>
             </File>
-
           </Files>
         </Group>
         <Group>

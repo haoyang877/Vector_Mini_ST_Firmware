@@ -11,14 +11,16 @@ import ctypes as C
 import hashlib
 import json
 import struct
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared/targets"))
+from target_contract import LEGACY_CAN_BPS, can_bitrates, load_target  # noqa: E402
 
 VCI_USBCAN2 = 41
 STATUS_OK = 1
 CANFD_TYPE = 1
-NOMINAL_BPS = 1_000_000
-DATA_BPS = 5_000_000
 PROTOCOL_MAGIC = 0xA55A
 PROTOCOL_VERSION = 1
 FLAGS_ACK_REQUEST = 0x20
@@ -169,11 +171,21 @@ def main() -> int:
     parser.add_argument("--node-id", type=int, required=True)
     parser.add_argument("--source-id", type=int, default=1)
     parser.add_argument("--board", required=True)
+    parser.add_argument("--target", help="目标名称或 JSON，省略使用 G431")
+    parser.add_argument("--nominal-bps", type=int, help="当前总线仲裁段速率 (bit/s)")
+    parser.add_argument("--data-bps", type=int, help="当前总线数据段速率 (bit/s)")
     parser.add_argument("--firmware-sha256", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout-s", type=float, default=1.0)
     parser.add_argument("--no-motor-power", action="store_true", required=True)
     args = parser.parse_args()
+    try:
+        target = load_target(args.target)
+        nominal, data = can_bitrates(
+            target.get("default_can_bps", LEGACY_CAN_BPS), args.nominal_bps, args.data_bps
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        parser.error(str(exc))
     if not 1 <= args.node_id <= 254 or not 1 <= args.source_id <= 254:
         parser.error("node IDs must be 1..254")
     if len(args.firmware_sha256) != 64:
@@ -205,8 +217,9 @@ def main() -> int:
         "board": args.board,
         "node_id": args.node_id,
         "source_id": args.source_id,
-        "nominal_bps": NOMINAL_BPS,
-        "data_bps": DATA_BPS,
+        "target": target["target"],
+        "nominal_bps": nominal,
+        "data_bps": data,
         "no_motor_power": args.no_motor_power,
         "expected_firmware_sha256": args.firmware_sha256.lower(),
         "adapter_dll_sha256": hashlib.sha256(dll_path.read_bytes()).hexdigest(),
@@ -216,8 +229,8 @@ def main() -> int:
     }
     return_code = 1
     try:
-        _ok(dll.ZCAN_SetAbitBaud(device, 0, NOMINAL_BPS), "nominal bitrate")
-        _ok(dll.ZCAN_SetDbitBaud(device, 0, DATA_BPS), "data bitrate")
+        _ok(dll.ZCAN_SetAbitBaud(device, 0, nominal), "nominal bitrate")
+        _ok(dll.ZCAN_SetDbitBaud(device, 0, data), "data bitrate")
         _ok(dll.ZCAN_SetCANFDStandard(device, 0, 0), "ISO CAN FD")
         config = _CHANNEL_CONFIG()
         config.can_type = CANFD_TYPE

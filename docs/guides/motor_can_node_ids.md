@@ -14,7 +14,7 @@ APP要求1～254的有限精确整数。CAN在启动时用该地址配置端点�
 旧record如roll/node7，旧APP实际用3、Loader用7；新APP/Loader均用7，可能改变现有连接地址。
 应用运行限值也不再由节点决定。完整前后例子见[地址与应用包络v2](../../firmware/parameters/README.md#storage)。
 
-现有协议使用公司 CAN FD：29 位扩展 ID、FD+BRS、1 Mbit/s 仲裁段和 5 Mbit/s 数据段。
+现有协议使用 29 位扩展 ID 和 FD+BRS。STM32G431 固定使用 500 kbit/s 仲裁段和 2 Mbit/s 数据段。AT32F456 的两段速率可配置，默认 1 Mbit/s 和 5 Mbit/s。
 节点 ID 是地址字段，不是完整 CAN ID 或业务 Type；已删除旧 `(node << 8) | 参数号` 规则。
 CAN ID 还包含方向、优先级及业务标识，按共享编解码契约生成。
 

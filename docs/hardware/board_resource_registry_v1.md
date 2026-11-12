@@ -30,7 +30,7 @@
 | MCU温度 | ADC1内部温度及VREF | ADC1内部温度及VREF原码；物理量仍需实板校准 |
 | 电机编码器SPI | SPI2；CS/SCK/MISO/MOSI：PB12/13/14/15 | SPI2；CS/SCK/MISO/MOSI：PB12/13/14/15 |
 | 输出端反馈资源 | SPI1：PB3/4/5，CS：PC11，未启用 | PA5、PA6 / ADC2，两路sin/cos |
-| CAN引脚 / 速率 | RX：PB8，TX：PB9；1M/5M | RX：PB8，TX：PB9；1M/5M |
+| CAN引脚 / 速率 | RX：PB8，TX：PB9；500K/2M | RX：PB8，TX：PB9；1M/5M |
 | UART资源 | TX：PB6，RX：PB7，驱动已移除 | TX：PA15，RX：PB3，未启用 |
 | DMA当前用途 | 无，RGB已移除 | DMA1_CH2：辅助ADC；CH3：内部温度/VREF；DMA2_CH1/2：SPI2 RX/TX |
 | SWD | PA13 / PA14 | PA13 / PA14 |

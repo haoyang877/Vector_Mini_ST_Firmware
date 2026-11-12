@@ -7,6 +7,17 @@ import re
 from pathlib import Path
 
 DEFAULT_TARGET = "vector_mini_st_g431"
+LEGACY_CAN_BPS = (500_000, 2_000_000)
+
+
+def can_bitrates(defaults, nominal: int | None = None, data: int | None = None) -> tuple[int, int]:
+    """分别选择两段速率，旧契约沿用 G431 默认值。"""
+    nominal_default, data_default = defaults
+    nominal = nominal_default if nominal is None else nominal
+    data = data_default if data is None else data
+    if not all(type(value) is int and 0 < value <= 0xFFFFFFFF for value in (nominal, data)):
+        raise ValueError("两段 CAN 速率均须为正 u32")
+    return nominal, data
 
 
 def target_value(target: dict, name: str) -> int:

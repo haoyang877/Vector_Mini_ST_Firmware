@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "target": "vector_mini_st_g431",
+  "default_can_bps": [500000, 2000000],
   "device": "STM32G431CBUx",
   "name": "YG2026_ESC_LOADER",
   "constants": {
@@ -30,7 +31,7 @@
     "TARGET_RAW_MAGIC": "0x454E4332U",
     "TARGET_RAW_BYTES": "4372U",
     "TARGET_PROGRAM_BYTES": "8U",
-    "TARGET_APP_VERSION": "0x00010602U",
+    "TARGET_APP_VERSION": "0x00000602U",
     "TARGET_LOADER_VERSION": "0x00020200U",
     "TARGET_BOOT_API": "3U",
     "TARGET_IDENTITY_BASE": "0x0801F800U",

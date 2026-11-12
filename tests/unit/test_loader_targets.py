@@ -18,7 +18,7 @@ from tools.build.build_loader_bundle import verify_target_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "shared/targets"))
-from target_contract import load_target, repository_path, target_value  # noqa: E402
+from target_contract import can_bitrates, load_target, repository_path, target_value  # noqa: E402
 
 
 class LoaderTargetTests(unittest.TestCase):
@@ -137,7 +137,16 @@ class LoaderTargetTests(unittest.TestCase):
             (directory / "image.bin").write_bytes(image)
             (directory / "manifest.bin").write_bytes(manifest)
             (directory / "package.json").write_text(json.dumps(report), encoding="utf-8")
-            self.assertEqual(UpgradePackage.load(directory, name).image, image)
+            package = UpgradePackage.load(directory, name)
+            self.assertEqual(package.image, image)
+            self.assertEqual(
+                package.default_can_bps,
+                (500_000, 2_000_000) if name == "vector_mini_st_g431" else (1_000_000, 5_000_000),
+            )
+            self.assertEqual(
+                can_bitrates(package.default_can_bps, data=500_000),
+                (package.default_can_bps[0], 500_000),
+            )
             with self.assertRaises(ValueError):
                 UpgradePackage.load(directory, names[1 - names.index(name)])
             invalid = copy.deepcopy(target)

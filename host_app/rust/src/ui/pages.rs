@@ -70,7 +70,7 @@ impl HostApp {
                     self.manual_connect = false; self.acknowledged = false;
                     self.scan_status = "波特率已改变，请重新扫描并选择设备。".into();
                 }
-                widgets::hint(ui, "配置适配器波特率，须与板端一致；板端当前默认 1 Mbit/s / 5 Mbit/s。");
+                widgets::hint(ui, "适配器须与板端速率一致。AT32F456 默认 1M/5M，STM32G431 固定 500K/2M。");
                 ui.add_space(8.0);
                 let scan_allowed = !self.fixture_mode && !self.connected && !scanning
                     && !self.dll.trim().is_empty() && (!self.hard_stop || self.intervention_ack);

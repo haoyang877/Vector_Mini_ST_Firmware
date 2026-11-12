@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "target": "yg_esc_v1_at32f456",
+  "default_can_bps": [1000000, 5000000],
   "device": "AT32F456CCU7",
   "name": "ESC-LOADER-AT32F456",
   "constants": {
@@ -31,8 +32,8 @@
     "TARGET_RAW_BYTES": "4372U",
     "TARGET_PROGRAM_BYTES": "8U",
     "TARGET_CONFIGURABLE_CAN": "1U",
-    "TARGET_APP_VERSION": "0x00000702U",
-    "TARGET_LOADER_VERSION": "0x00020302U",
+    "TARGET_APP_VERSION": "0x00000703U",
+    "TARGET_LOADER_VERSION": "0x00020303U",
     "TARGET_BOOT_API": "3U",
     "TARGET_IDENTITY_BASE": "0x0801F800U",
     "TARGET_IDENTITY_BYTES": "0x800U"

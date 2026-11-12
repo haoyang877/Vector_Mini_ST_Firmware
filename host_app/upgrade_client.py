@@ -20,7 +20,7 @@ sys_path = (
     HOST_DIRECTORY if (HOST_DIRECTORY / "target_contract.py").is_file() else ROOT / "shared/targets"
 )
 sys.path.insert(0, str(sys_path))
-from target_contract import load_target  # noqa: E402
+from target_contract import LEGACY_CAN_BPS, can_bitrates, load_target  # noqa: E402
 
 TARGET_DIRECTORY = HOST_DIRECTORY / "contracts"
 if not TARGET_DIRECTORY.is_dir():
@@ -102,6 +102,7 @@ class UpgradePackage:
     token: int
     target: tuple[int, ...]
     loader_version: int
+    default_can_bps: tuple[int, int] = LEGACY_CAN_BPS
 
     @classmethod
     def load(cls, directory: Path, target_selection: str | Path | None = None) -> UpgradePackage:
@@ -189,7 +190,16 @@ class UpgradePackage:
             or metadata.get("loader_version") != value("TARGET_LOADER_VERSION")
         ):
             raise ValueError("描述符、镜像CRC、向量或文件哈希不匹配")
-        return cls(image, manifest, version, crc, token, target, value("TARGET_LOADER_VERSION"))
+        return cls(
+            image,
+            manifest,
+            version,
+            crc,
+            token,
+            target,
+            value("TARGET_LOADER_VERSION"),
+            can_bitrates(contract.get("default_can_bps", cls.default_can_bps)),
+        )
 
 
 class CanTransport(Protocol):
@@ -514,10 +524,8 @@ def main() -> int:
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--sdk", type=Path)
     parser.add_argument("--device-index", type=int, default=0, help="USB-CAN设备索引；使用通道0")
-    parser.add_argument(
-        "--nominal-bps", type=int, default=500_000, help="CAN FD 仲裁段速率 (bit/s)"
-    )
-    parser.add_argument("--data-bps", type=int, default=2_000_000, help="CAN FD 数据段速率 (bit/s)")
+    parser.add_argument("--nominal-bps", type=int, help="CAN FD 仲裁段速率，默认随目标 (bit/s)")
+    parser.add_argument("--data-bps", type=int, help="CAN FD 数据段速率，默认随目标 (bit/s)")
     parser.add_argument("--node", type=int)
     parser.add_argument("--uid")
     parser.add_argument("--output", type=Path)
@@ -551,8 +559,10 @@ def main() -> int:
         or args.output is None
     ):
         parser.error("upgrade必须提供SDK、节点、UID、outputs证据目录及独占台架条件")
-    if not 0 < args.nominal_bps <= args.data_bps <= 0xFFFFFFFF:
-        parser.error("CAN 速率须为正 u32，数据段速率须大于或等于仲裁段速率")
+    try:
+        nominal, data = can_bitrates(package.default_can_bps, args.nominal_bps, args.data_bps)
+    except ValueError as exc:
+        parser.error(str(exc))
     output = args.output.resolve()
     if not output.is_relative_to((ROOT / "outputs").resolve()):
         parser.error("证据目录必须在当前工作树outputs下")
@@ -563,6 +573,8 @@ def main() -> int:
         "success": False,
         "protected_regions_verified": False,
         "package_sha256": hashlib.sha256(package.image).hexdigest(),
+        "nominal_bps": nominal,
+        "data_bps": data,
     }
     client = None
     try:
@@ -581,8 +593,8 @@ def main() -> int:
         with ControlCanFd(
             args.sdk,
             device_index=args.device_index,
-            nominal_bps=args.nominal_bps,
-            data_bps=args.data_bps,
+            nominal_bps=nominal,
+            data_bps=data,
         ) as transport:
             client = UpgradeClient(transport, args.node, uid, progress)
             if args.rescue_window:

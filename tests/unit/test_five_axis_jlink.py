@@ -164,10 +164,14 @@ class FlashGuiTests(unittest.TestCase):
     def allow_core_reset(self):
         original_write = self.probe.memory_write32
         self.probe.registers[0xE000EDFC] = 0x01000001
+        self.probe.registers[0xE000ED0C] = 0xFA050300
         self.probe.registers[0xE000ED08] = 0x08004000
 
         def write(address, values):
-            if address == 0xE000EDFC:
+            if address == 0xE000ED0C:
+                self.assertEqual(values, [0x05FA0304])
+                self.probe.reset(halt=False)
+            elif address == 0xE000EDFC:
                 self.probe.registers[address] = values[0]
             else:
                 original_write(address, values)

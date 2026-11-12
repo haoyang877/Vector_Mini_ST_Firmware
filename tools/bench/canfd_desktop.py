@@ -13,18 +13,20 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from can_upgrade_stress import run_upgrade_test, scan_upgrade_motors
+from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
     PER_NODE,
     ControlCanFd,
+    batch_versions,
     controlcan_dll_path,
     encode_frames,
     run_queries,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
+from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.6.0"
+TITLE = "CAN FD 通信测试 v1.6.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -135,6 +137,30 @@ def acquire(settings: dict, out: Path, events, stop) -> None:
             (out / "summary.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
+        elif settings["profile"] == "can_bitrate":
+            report = dict(settings, results=[], **{"pass": False})
+            try:
+                with (
+                    os.add_dll_directory(str(dll.parent)),
+                    ControlCanFd(dll, **settings["bus"]) as bus,
+                ):
+                    for target in settings["targets"]:
+                        if stop.is_set():
+                            break
+                        node = target["node"]
+                        if read_node_uids(bus, node) != {bytes.fromhex(target["uid"])}:
+                            raise ValueError(f"节点 {node} 身份与扫描结果不符，请重新扫描")
+                        value = configure_bitrate(
+                            bus, node, settings["set"], log=lambda msg: events.put(("stage", msg))
+                        )
+                        report["results"].append({"node": node, **value})
+                report["cancelled"] = len(report["results"]) != len(settings["targets"])
+                report["pass"] = not report["cancelled"]
+            except (OSError, ValueError, RuntimeError) as exc:
+                report["fatal"] = str(exc)
+            (out / "summary.json").write_text(
+                json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
         elif settings["profile"] == "manual":
             report = send_manual(dll, out, settings, stop)
             (out / "summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -148,6 +174,7 @@ def acquire(settings: dict, out: Path, events, stop) -> None:
                 out,
                 {n: bytes.fromhex(uids.get(n, "")) for n in settings["nodes"]},
                 batch["hex_sha256"],
+                versions=batch_versions(batch),
                 profile=settings["profile"],
                 per_node=settings["count"],
                 rate_hz=settings["rate"],
@@ -200,7 +227,7 @@ class CanTestWindow:
 
         self.channel = combo(top, "USB-CAN 通道", ("1", "2"), "1", 3)
         self.nominal = combo(top, "仲裁段", ("500K", "1M"), "1M", 6)
-        self.data = combo(top, "数据段", ("1M", "2M", "3M", "4M", "5M"), "5M", 6)
+        self.data = combo(top, "数据段", tuple(RATES), "5M", 6)
         ttk.Label(top, text="ISO FD + BRS").pack(side="left")
         self.tabs = ttk.Notebook(frame)
         self.tabs.pack(fill="x")
@@ -211,15 +238,15 @@ class CanTestWindow:
         self.swd_tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(self.swd_tab, text="J-Link 烧录")
         upgrade_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(upgrade_tab, text="CAN 升级压测")
+        self.tabs.add(upgrade_tab, text="CAN 升级与参数")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/build/keil/ESC-APP-AT32F456/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v0.7.2/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 0.6.2")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 0.7.2")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -263,6 +290,19 @@ class CanTestWindow:
             ):
                 labels[node] = ttk.Label(grid, text="—")
                 labels[node].grid(row=row, column=col, sticky="w", padx=(0, 8))
+        bitrate_row = ttk.Frame(upgrade_tab)
+        bitrate_row.pack(anchor="w", pady=4)
+        self.target_nominal = combo(bitrate_row, "电机仲裁段", ("500K", "1M"), "1M", 6)
+        self.target_data = combo(bitrate_row, "数据段", tuple(RATES), "5M", 6)
+        self.bitrate_read = ttk.Button(
+            bitrate_row, text="读取波特率", command=lambda: self.start(bitrate_action="read")
+        )
+        self.bitrate_save = ttk.Button(
+            bitrate_row, text="保存波特率", command=lambda: self.start(bitrate_action="save")
+        )
+        self.bitrate_read.pack(side="left", padx=4)
+        self.bitrate_save.pack(side="left", padx=4)
+        ttk.Label(bitrate_row, text="保存后重启生效").pack(side="left", padx=4)
         count_row = ttk.Frame(upgrade_tab)
         count_row.pack(anchor="w")
         ttk.Label(count_row, text="每台升级次数").pack(side="left")
@@ -277,9 +317,9 @@ class CanTestWindow:
         compatibility.pack(side="left", padx=5)
         self.controls.append((compatibility, "normal"))
         ttk.Label(count_row, text="升级期间请暂停其他主站轮询。").pack(side="left")
-        ttk.Label(self.swd_tab, text="AT32F456 · Loader 2.2.0 + APP 0.6.2 · CAN FD 1M/5M").pack(
-            anchor="w"
-        )
+        ttk.Label(
+            self.swd_tab, text="AT32F456 · Loader 2.3.2 + APP 0.7.2 · 默认 CAN FD 1M/5M"
+        ).pack(anchor="w")
         embedded = (
             Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "firmware" / "five-axis.hex"
         )
@@ -453,7 +493,17 @@ class CanTestWindow:
             check.configure(
                 state="normal" if node in self.upgrade_targets and not busy else "disabled"
             )
-        selected = sum(self.upgrade_selected[n].get() for n in self.upgrade_targets)
+        selected_motors = [
+            m for n, m in self.upgrade_targets.items() if self.upgrade_selected[n].get()
+        ]
+        selected = len(selected_motors)
+        bitrate_state = (
+            "normal"
+            if not busy and selected and all(m["role"] == 1 for m in selected_motors)
+            else "disabled"
+        )
+        self.bitrate_read.configure(state=bitrate_state)
+        self.bitrate_save.configure(state=bitrate_state)
         if current == 3 and selected:
             action = f"开始升级（{selected} 台）"
         blank = self.identity is not None and self.identity["node"] is None
@@ -497,14 +547,14 @@ class CanTestWindow:
         self.output.insert("end", text)
         self.output.configure(state="disabled")
 
-    def start(self, *, scan=False) -> None:
+    def start(self, *, scan=False, bitrate_action=None) -> None:
         if self.process is not None:
             return
         mode = (
             MODES[self.mode.get()],
             "manual",
             "jlink_flash" if self.identity else "jlink_identify",
-            "can_scan" if scan else "can_upgrade",
+            "can_bitrate" if bitrate_action else "can_scan" if scan else "can_upgrade",
         )[self.tabs.index("current")]
         swd = mode.startswith("jlink_")
         settings = {
@@ -527,25 +577,37 @@ class CanTestWindow:
                     "first_fit_node": self.axis_choices.get(self.new_axis.get())
                     if self.identity and self.identity["node"] is None
                     else None,
-                    "bus": dict(settings["bus"], nominal_bps=1_000_000, data_bps=5_000_000),
+                    "bus": settings["bus"],
                 }
             elif mode == "can_scan":
                 self.upgrade_info.set("正在扫描当前通道…")
-            elif mode == "can_upgrade":
+            elif mode in ("can_upgrade", "can_bitrate"):
                 targets = [
                     {"node": n, "uid": m["uid"]}
                     for n, m in self.upgrade_targets.items()
                     if self.upgrade_selected[n].get()
                 ]
-                rounds = int(self.upgrade_rounds.get())
-                if not targets or rounds < 1:
-                    raise ValueError("请先扫描并勾选在线电机，每台升级次数须为正整数")
-                settings.update(
-                    targets=targets,
-                    rounds=rounds,
-                    single_frame_writes=self.single_frame_writes.get(),
-                    package=str(self.upgrade_package),
-                )
+                if not targets:
+                    raise ValueError("请先扫描并勾选在线电机")
+                settings["targets"] = targets
+                if mode == "can_bitrate":
+                    settings["set"] = (
+                        (
+                            RATES[self.target_nominal.get()] // 1000,
+                            RATES[self.target_data.get()] // 1000,
+                        )
+                        if bitrate_action == "save"
+                        else None
+                    )
+                else:
+                    rounds = int(self.upgrade_rounds.get())
+                    if rounds < 1:
+                        raise ValueError("每台升级次数须为正整数")
+                    settings.update(
+                        rounds=rounds,
+                        single_frame_writes=self.single_frame_writes.get(),
+                        package=str(self.upgrade_package),
+                    )
             elif mode == "manual":
                 settings["frame"] = parse_raw(self.identifier.get(), self.payload.get())
             else:
@@ -672,6 +734,23 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "can_bitrate":
+            lines = []
+            for item in r.get("results", []):
+                ram, flash = item["ram"], item["flash"]
+                lines.append(
+                    f"节点 {item['node']}　RAM {ram >> 16}/{ram & 65535}　Flash {flash >> 16}/{flash & 65535} kbit/s"
+                )
+            status = r.get("fatal") or (
+                "波特率操作已停止" if r.get("cancelled") else "波特率回读完成"
+            )
+            if r.get("set") and r.get("results"):
+                lines.append("已保存的节点在复位后采用新速率。")
+            self.state.set(status)
+            self.show("\n".join([status, *lines]))
+            self.bar["value"] = 100 if r.get("pass") else 0
+            self.progress.set(f"{self.bar['value']:.0f}%")
+            return
         if r["profile"] == "can_scan":
             motors = [] if r.get("cancelled") or r.get("fatal") else r["motors"]
             previous = {

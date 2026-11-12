@@ -51,12 +51,11 @@ def parameter(bus, node, kind, payload):
     return value, revision, saved_revision, flags
 
 
-def configure(bus, node, target=None):
+def configure(bus, node, target=None, *, log=print):
     """读取活动配置，写入时按实际 revision 保存，再从 Flash 核对。"""
     value, revision, saved_revision, _ = parameter(bus, node, 120, READ)
     if target is None:
-        print(f"节点 {node} RAM {value >> 16}/{value & 0xFFFF} kbit/s，revision={revision}")
-
+        log(f"节点 {node} RAM {value >> 16}/{value & 0xFFFF} kbit/s，revision={revision}")
     else:
         value = target[0] << 16 | target[1]
         payload = struct.pack("<BBBBII", 0x71, 2, 4, 0, revision, value)
@@ -71,9 +70,10 @@ def configure(bus, node, target=None):
         target is not None and (not flags & 1 or saved != value)
     ):
         raise RuntimeError("Flash 参数回读不匹配")
-    print(f"节点 {node} Flash {saved >> 16}/{saved & 0xFFFF} kbit/s，保存版本={stored_revision}")
+    log(f"节点 {node} Flash {saved >> 16}/{saved & 0xFFFF} kbit/s，保存版本={stored_revision}")
     if target:
-        print("已保存。共线节点全部回读成功后统一重启，并按新速率重开适配器。")
+        log("已保存。共线节点全部回读成功后统一重启，并按新速率重开适配器。")
+    return {"ram": value, "flash": saved, "revision": revision, "saved_revision": stored_revision}
 
 
 def main():

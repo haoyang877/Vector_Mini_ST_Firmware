@@ -9,6 +9,8 @@ static uint32_t model_time;
 #include "../../loader/ports/at32f456/can_port.c"
 #include "native/can_bitrate_register_test.h"
 static can_bittime_type observed_timing;
+static can_filter_config_type rx_filters[2];
+static uint32_t enabled_filters;
 
 uint32_t LoaderPlatform_NowMs(void)
 {
@@ -61,14 +63,20 @@ void can_filter_default_para_init(can_filter_config_type *filter)
 void can_filter_enable(can_type *can, can_filter_type filter, confirm_state value)
 {
     (void)can;
-    (void)filter;
-    (void)value;
+    if (value)
+    {
+        enabled_filters |= 1U << filter;
+    }
+    else
+    {
+        enabled_filters &= ~(1U << filter);
+    }
 }
 void can_filter_set(can_type *can, can_filter_type index, can_filter_config_type *filter)
 {
     (void)can;
-    (void)index;
-    (void)filter;
+    assert(index == CAN_FILTER_NUM_0 || index == CAN_FILTER_NUM_1);
+    rx_filters[index] = *filter;
 }
 flag_status can_busoff_get(can_type *can)
 {
@@ -108,6 +116,17 @@ int main(int argc, char **argv)
     assert(argc == 7 && !LoaderCan_Init(3, 12U));
     assert(LoaderCan_Init(3, (uint8_t)strtoul(argv[1], NULL, 10)));
     check_can_timing(&observed_timing, argv);
+    assert(enabled_filters == 3U);
+    for (uint32_t dest = 0; dest <= UINT8_MAX; ++dest)
+    {
+        uint32_t id = 0x0CEF0002U | (dest << 8U);
+        bool matches = false;
+        for (size_t i = 0; i < 2; ++i)
+        {
+            matches |= !((id ^ rx_filters[i].code_para.id) & ~rx_filters[i].mask_para.id);
+        }
+        assert(matches == (dest == 3U || dest == UINT8_MAX));
+    }
     assert(LoaderCan_Send(&frame, 0x123456789ABCDEF0ULL));
     model_can.sts = 0; /* 寄存器模型显式模拟W1C及异步硬件进展。 */
     assert(!LoaderCan_Send(&frame, 2));

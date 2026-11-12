@@ -43,7 +43,9 @@ bool LoaderCan_Init(uint8_t node, uint8_t profile)
     filter.mask_para.id_type = FALSE;
     filter.code_para.frame_type = CAN_FRAME_DATA;
     filter.mask_para.frame_type = FALSE;
-    filter.mask_para.id = 0x1FFFFFFFU;
+    /* 只接收本机和广播，避免启动校验期间其他轴的突发流量填满 RX FIFO。 */
+    filter.mask_para.id = 0x1FFF00FFU;
+    filter.code_para.id = (uint32_t)node << 8U;
     filter.mask_para.data_length = 0xFU;
     filter.mask_para.fd_format = TRUE;
     filter.mask_para.fd_rate_switch = TRUE;
@@ -54,6 +56,9 @@ bool LoaderCan_Init(uint8_t node, uint8_t profile)
     }
     can_filter_set(CAN1, CAN_FILTER_NUM_0, &filter);
     can_filter_enable(CAN1, CAN_FILTER_NUM_0, TRUE);
+    filter.code_para.id = (uint32_t)UINT8_MAX << 8U;
+    can_filter_set(CAN1, CAN_FILTER_NUM_1, &filter);
+    can_filter_enable(CAN1, CAN_FILTER_NUM_1, TRUE);
     can_interrupt_enable(CAN1, CAN_ALL_INT, FALSE);
     can_flag_clear(CAN1, CAN_TPIF_FLAG | CAN_AIF_FLAG | CAN_ROIF_FLAG);
     CAN1->lbtcfg = (CAN1->lbtcfg & ~0x77000000U) | ((uint32_t)CAN_RE_TRANS_TIMES_1 << 28U) |

@@ -10,7 +10,7 @@ import time
 import zlib
 from pathlib import Path
 
-from five_axis_can_stability import controlcan_dll_path, query_restarted_motor
+from five_axis_can_stability import batch_versions, controlcan_dll_path, query_restarted_motor
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "loader/tools"))
@@ -359,7 +359,10 @@ def restart_verified_app(probe, target, parameter_file):
     # VC_CORERESET 会在复位入口截停 CPU，保留 DEMCR 中的其他调试位。
     demcr = 0xE000EDFC
     probe.memory_write32(demcr, [probe.memory_read32(demcr, 1)[0] & ~1])
-    probe.reset(halt=False)
+    # 经系统复位请求重新启动两段固件，避免探针复位过程触发看门狗驻留。
+    aircr = 0xE000ED0C
+    priority_group = probe.memory_read32(aircr, 1)[0] & 0x700
+    probe.memory_write32(aircr, [0x05FA0004 | priority_group])
     time.sleep(0.1)
     if probe.halted():
         probe.memory_write32(demcr, [probe.memory_read32(demcr, 1)[0] & ~1])
@@ -504,6 +507,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                 bytes.fromhex(identity["uid"]),
                 result,
                 stage,
+                versions=batch_versions(batch),
             )
         report["success"] = True
     except Exception as exc:

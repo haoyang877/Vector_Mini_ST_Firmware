@@ -49,11 +49,21 @@ def _upper_pct(n: int, errors: int, alpha: float) -> float:
     return 100 * hi
 
 
-def _validate(uid: bytes, node: int, kind: int, payload: bytes) -> None:
+LEGACY_VERSIONS = (0x602, 0x20200)
+
+
+def batch_versions(batch: dict) -> tuple[int, int]:
+    """历史批次在清单中只记录镜像哈希，当时使用 APP 0.6.2、Loader 2.2.0。"""
+    return batch.get("app_version", LEGACY_VERSIONS[0]), batch.get(
+        "loader_version", LEGACY_VERSIONS[1]
+    )
+
+
+def _validate(uid: bytes, node: int, kind: int, payload: bytes, versions: tuple[int, int]) -> None:
     if kind == 1 and (
         len(payload) != 32
         or payload[:12] != uid
-        or struct.unpack_from("<II", payload, 20) != (0x602, 0x20200)
+        or struct.unpack_from("<II", payload, 20) != versions
     ):
         raise ValueError("UID/version")
     if kind == 2 and payload != struct.pack("<I6H", 0x7FD00, 0x64E, 64, 46, 0, 500, 500):
@@ -77,7 +87,7 @@ def controlcan_dll_path(resource: Path) -> Path:
     return dll
 
 
-def query_restarted_motor(dll, bus, node, uid, result, stage):
+def query_restarted_motor(dll, bus, node, uid, result, stage, *, versions=LEGACY_VERSIONS):
     """查询芯片身份和十次电机状态。每笔独立匹配首答，保留出错前的实测结果。"""
     with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **bus) as port:
         for seq in range(1, 12):
@@ -102,7 +112,7 @@ def query_restarted_motor(dll, bus, node, uid, result, stage):
                 if len(data) >= 10 and struct.unpack_from("<HH", data, 6) != (kind, seq):
                     continue
                 payload = decode_reply(rx_id, data, node, kind, seq)
-                _validate(uid, node, kind, payload)
+                _validate(uid, node, kind, payload, versions)
                 row.update(
                     rx_id=hex(rx_id),
                     reply_hex=data.hex(),
@@ -113,7 +123,7 @@ def query_restarted_motor(dll, bus, node, uid, result, stage):
             if not row["passed"]:
                 raise TimeoutError(f"节点 {node} 的{label}在 50 ms 内未收到匹配应答")
             result["passed"] += 1
-            detail = f"UID {uid.hex()}，APP 0.6.2，Loader 2.2.0　" if kind == 1 else ""
+            detail = f"UID {uid.hex()}，固件版本已核对　" if kind == 1 else ""
             stage(f"{label}通过　{detail}应答 {row['rx_id']}，{row['latency_ms']:.3f} ms")
 
 
@@ -136,6 +146,7 @@ def run_queries(
     uids: dict[int, bytes],
     hex_sha256: str,
     *,
+    versions: tuple[int, int] = LEGACY_VERSIONS,
     profile: str = "acceptance",
     per_node: int = PER_NODE,
     rate_hz: int = 50,
@@ -239,7 +250,7 @@ def run_queries(
                 kind, sequence, sent = pending[node]
                 try:
                     payload = decode_reply(identifier, data, node, kind, sequence)
-                    _validate(uids[node], node, kind, payload)
+                    _validate(uids[node], node, kind, payload, versions)
                 except ValueError as exc:
                     if event == "rx":
                         stats[node]["errors"]["protocol/payload"] += 1
@@ -480,6 +491,7 @@ def main() -> int:
         out,
         uids,
         batch["hex_sha256"],
+        versions=batch_versions(batch),
         nominal_bps=batch.get("can_arbitration_bps", 500_000),
         data_bps=batch.get("can_data_bps", 2_000_000),
     )

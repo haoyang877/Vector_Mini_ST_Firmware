@@ -16,6 +16,8 @@
 
 - [双板 APP 与 Loader 现行文档整理](2026-11-10-app-loader-docs.md) — 工程选择、协议角色、状态机、标定存储与历史归档。
 
+- [Rust GUI 实机验收](2026-10-21-host-gui-bench-v1.md) — AT32 PITCH 上的趋势、速度控制、停机和一次 GUI CAN 升级通过。
+
 - [APP 实例化合并与 PITCH 实机验收](2026-11-09-app-instance-integration.md) — 双板构建、CAN 升级及闭环实测通过；联合角度标定 4 次通过 3 次。
 
 - [合并状态机接口并删减重复检查](2026-11-09-state-machine-api.md) — 合并目标、外环和反馈实现，双板状态及目标对照通过。

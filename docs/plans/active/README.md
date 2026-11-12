@@ -90,7 +90,6 @@
 | [PA4母线电流APP接入](2026-10-23-pa4-bus-current-app-v1.md) | 按硬件能力选择反馈；关相偏置及120次CAN读取通过，带载绝对精度待验证 |
 | [STM32G4 APP入口统一](2026-10-23-stm32-application-entry-v1.md) | 历史目录迁移完成；当前各板application/main.c为真实入口，平台实现归platform_app.c；本次入口分离仅离线验证 |
 | [电机配置分离与1kHz默认值](2026-10-23-motor-profiles-1khz-v1.md) | HT有/无阻尼环、独立YQ型号配置；仅编译和离线验证 |
-| [Rust GUI实机验收](2026-10-21-host-gui-bench-v1.md) | 当前host_app/rust候选；原计划未记录GUI实机终态，不沿用CLI结果 |
 | [当前候选剩余验收](2026-10-21-current-candidate-acceptance-v1.md) | 合并旧计划中仍有效的当前候选/复位/时序证据缺口，未测保持NOT_RUN |
 | [AT32F456 最小改动适配](2026-10-22-at32f456-port-v1.md) | 接口契约冻结，已分离旧板配置；先平台与MT6835，输出轴最后；驱动未实施 |
 

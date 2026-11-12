@@ -7,7 +7,7 @@
 | --- | --- | --- |
 | VERIFY-001 | 1.5.5/1.5.6及四入口工作树后续重构不能继承1.5.1或1.5.4硬件结论 | 冻结当前源码/产物后，按明确授权的范围补齐匹配验收；见[当前候选验收计划](active/2026-10-21-current-candidate-acceptance-v1.md) |
 | TIMING-001 | 既有IRQ结果是有限工况观测；当前重构版本尚无覆盖全部标定/运行路径的时序证据 | 明确候选、测量开销和场景；不能以旧计数、平均值或诊断镜像替代当前时序 |
-| HOST-001 | Rust GUI候选与Qt兼容工具的源码/能力不同，GUI实机验收尚未在现行计划中闭合 | 按[GUI计划](active/2026-10-21-host-gui-bench-v1.md)固定实际版本并记录结果；不把脚本PASS当GUI PASS |
+| HOST-001 | Rust GUI候选与Qt兼容工具的源码/能力不同，GUI实机验收尚未在现行计划中闭合 | 按[GUI计划](completed/2026-10-21-host-gui-bench-v1.md)固定实际版本并记录结果；不把脚本PASS当GUI PASS |
 | TOOL-001 | release需要本机有效Keil和洁净源码，当前有预先存在的未提交修改 | doctor release、clean-source和匹配构建/哈希全部通过后才形成release声明 |
 | TEST-001 | 历史状态等价比较需要独立旧源码 | 使用既有可选--reference-source并如实记录是否提供 |
 | SENSOR-001 | TLE5012B当前端口未读取运行安全字/CRC，STAT配置快照不参与逐帧资格 | 如需完整传感器健康检测，另立协议/时序与台架范围明确的实现计划；当前诊断覆盖按[标定指南](../guides/calibration_process.md)说明，不伪称已经校验 |

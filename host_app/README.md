@@ -8,7 +8,7 @@ Rust实机候选v2.1.2位于`rust/`，配套版本、layout、schema及ABI读取
 原GUI计划的APP1.5.1是历史验收起点，当前工作树声明已到APP1.5.7，须按实际候选重新冻结。
 保留七工作区与深色工具主题。连接页显式填写CAN设备索引与节点；
 不自动尝试其他适配器。启用原生辅助功能接口，用于键盘操作和 GUI 验证。
-本轮范围和验收见[GUI 实机验证计划](../docs/plans/active/2026-10-21-host-gui-bench-v1.md)。
+本轮范围和验收见[GUI 实机验证计划](../docs/plans/completed/2026-10-21-host-gui-bench-v1.md)。
 界面候选存在不代表实机通过；实际结果以本轮 `outputs/host-live-test/` 记录为准。
 
 ```powershell

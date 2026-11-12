@@ -524,6 +524,7 @@ def main():
         direction_results(report, *refs)
     print(summarize(report))
     if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     required = ITEMS if args.drive else ITEMS[:8]
     return int(

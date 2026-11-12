@@ -27,7 +27,7 @@ from hardware_check import Drive, direction_results, empty_report, run_check, su
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.6.3"
+TITLE = "CAN FD 通信测试 v1.7.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -263,7 +263,7 @@ class CanTestWindow:
         self.tabs.add(check_tab, text="硬件功能检测")
         check_row = ttk.Frame(check_tab)
         check_row.pack(anchor="w")
-        self.check_node = combo(check_row, "轴节点", tuple(str(n) for n in range(3, 8)), "3", 3)
+        self.check_node = combo(check_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "3", 3)
         self.check_mode = combo(
             check_row, "检测方式", ("关相静态", "静态和双向驱动"), "关相静态", 14
         )
@@ -299,10 +299,10 @@ class CanTestWindow:
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.7.0/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.0/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.7.0")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.0")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")

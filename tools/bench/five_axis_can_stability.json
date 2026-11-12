@@ -1,5 +1,9 @@
 {
-  "hex_sha256": "0b6cb67726847d7ebc7ecaa6ece40b6d7483406c9ee1031f1af623dedd6bdf2f",
+  "can_arbitration_bps": 1000000,
+  "can_data_bps": 5000000,
+  "hex_sha256": "9cb9f92f4f9c81896795babec54456069b1800abb744ddafed7ac562eba18534",
+  "can_image_sha256": "a976518ba411e38c98143ba4dca85345940e6b9102bada087ef6febd7f888f00",
+  "can_manifest_sha256": "4cde1a3aaa11ee492c277ac545926faef40523056559cdd3a4307a4859b6d0a6",
   "motors": [
     {
       "node": 3,

@@ -13,7 +13,9 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
-from unittest.mock import patch
+from queue import SimpleQueue
+from threading import Event
+from unittest.mock import MagicMock, patch
 
 from host_app.upgrade_client import (
     UpgradeClient,
@@ -175,6 +177,244 @@ class UpgradeClientTests(unittest.TestCase):
         self.assertTrue(any(item["attempt"] == 1 for item in client.trace))
         self.assertTrue(any(item["type"] == 57 for item in client.trace))
 
+    def desktop_rounds(self, uid, stop_stage=None, incoming=(), targets=None, transport=None):
+        """用生产 Loader C 内核运行桌面升级工作进程；仅替换适配器和测试包。"""
+        with patch.object(sys, "path", [str(ROOT / "tools/bench"), *sys.path]):
+            import can_upgrade_stress as stress
+
+        device = transport
+        if device is None:
+            device = NativeDevice(self.dll)
+            device.queue.extend(incoming)
+            self.dll.Device_StartApp()
+        stop, events = Event(), SimpleQueue()
+
+        class Events:
+            def put(self, msg):
+                events.put(msg)
+                if msg[0] == "stage" and stop_stage and stop_stage in msg[1]:
+                    stop.set()
+
+        with tempfile.TemporaryDirectory(dir=self.directory) as directory:
+            out = Path(directory)
+            bus = MagicMock()
+            bus.__enter__.return_value = device
+            settings = {
+                "profile": "can_upgrade",
+                "node": 3,
+                "rounds": 3,
+                "uid": uid.hex(),
+                "bus": {},
+                "package": str(out),
+            }
+            if targets is not None:
+                settings["targets"] = targets
+            with (
+                patch.object(stress.UpgradePackage, "load", return_value=self.package),
+                patch.object(stress, "controlcan_dll_path", return_value=out / "test.dll"),
+                patch.object(stress.os, "add_dll_directory", return_value=MagicMock(), create=True),
+                patch.object(stress, "ControlCanFd", return_value=bus),
+                patch("time.sleep"),
+            ):
+                stress.run_upgrade_test(settings, out, Events(), stop)
+            log = out / "rounds.jsonl"
+            rows = (
+                [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+                if log.exists()
+                else []
+            )
+            return json.loads((out / "summary.json").read_text(encoding="utf-8")), rows, device
+
+    def test_batch_confirms_both_devices_before_starting_next_round(self):
+        binary = Path(self.dll._name)
+        second = binary.with_name("batch-node7.dll")
+        shutil.copyfile(binary, second)
+        dll = ctypes.CDLL(str(second))
+        dll.Device_Exchange.argtypes = self.dll.Device_Exchange.argtypes
+        dll.Device_Exchange.restype = self.dll.Device_Exchange.restype
+        devices = {3: NativeDevice(self.dll), 7: NativeDevice(dll)}
+        dll.Device_SetNode(7)
+        for device in devices.values():
+            device.dll.Device_StartApp()
+        bus = MagicMock()
+        bus.send.side_effect = lambda identifier, data: devices[(identifier >> 8) & 255].send(
+            identifier, data
+        )
+        bus.receive.side_effect = lambda _: next(
+            (d.queue.pop(0) for d in devices.values() if d.queue), None
+        )
+        targets = [{"node": n, "uid": bytes([n - 2]).hex() * 12} for n in (7, 3)]
+        report, rows, _ = self.desktop_rounds(b"", targets=targets, transport=bus)
+        self.assertEqual(
+            (report["planned"], report["passed"], report["status"]), (6, 6, "通过"), report
+        )
+        self.assertEqual(
+            [(r["round"], r["node"]) for r in rows], [(n, k) for n in (1, 2, 3) for k in (3, 7)]
+        )
+        self.assertTrue(
+            all(r["success"] and r["bytes_written"] == len(self.package.image) for r in rows)
+        )
+        self.assertTrue(all(r["timing"]["by_type"]["57"]["requests"] for r in rows))
+
+    def test_batch_stops_on_missing_second_motor_and_retains_first_result(self):
+        targets = [{"node": 3, "uid": "01" * 12}, {"node": 7, "uid": "05" * 12}]
+        report, rows, _ = self.desktop_rounds(b"", targets=targets)
+        self.assertEqual([r["node"] for r in rows], [3, 7])
+        self.assertEqual(report["motors"]["3"]["passed"], 1)
+        self.assertTrue(report["motors"]["7"]["identity_changed_or_missing"])
+        self.assertEqual(rows[1]["bytes_written"], 0)
+        report, rows, _ = self.desktop_rounds(b"", stop_stage="下载 APP", targets=targets)
+        self.assertEqual(report["status"], "已停止")
+        self.assertEqual([(r["node"], r["success"]) for r in rows], [(3, True)])
+        self.assertEqual(report["motors"]["7"]["passed"], 0)
+
+    def test_desktop_keeps_scan_and_selection_across_jobs(self):
+        try:
+            import tkinter as tk
+        except ImportError:
+            self.skipTest("Tk 未安装")
+        with patch.object(sys, "path", [str(ROOT / "tools/bench"), *sys.path]):
+            from canfd_desktop import CanTestWindow
+        try:
+            window = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(str(exc))
+        window.withdraw()
+        self.addCleanup(window.destroy)
+        ui = CanTestWindow(window)
+        ui.tabs.select(3)
+        motors = [
+            dict(
+                node=n,
+                uid=bytes([n]).hex() * 12,
+                role=1,
+                state=5,
+                faults=0,
+                app_version=1538,
+                loader_version=131584,
+            )
+            for n in (6, 7)
+        ]
+        ui.display_report(dict(profile="can_scan", motors=motors))
+        ui.update_controls()
+        for n in (6, 7):
+            self.assertIn("在线", ui.upgrade_lights[n].cget("text"))
+            ui.upgrade_checks[n].invoke()
+        report = dict(
+            profile="can_upgrade",
+            status="通过",
+            planned=2,
+            rounds_per_motor=1,
+            passed=2,
+            failed=0,
+            elapsed_s=1,
+            version=1538,
+            motors={str(m["node"]): dict(uid=m["uid"], passed=1, failed=0) for m in motors},
+        )
+        ui.display_report(report)
+        ui.update_controls()
+        self.assertEqual(set(ui.upgrade_targets), {6, 7})
+        self.assertTrue(all(ui.upgrade_selected[n].get() for n in (6, 7)))
+        self.assertFalse(ui.start_button.instate(["disabled"]))
+        self.assertIn("1/1", ui.upgrade_results[6].cget("text"))
+        report["motors"]["7"].update(passed=0, failed=1, identity_changed_or_missing=True)
+        ui.display_report(report)
+        ui.update_controls()
+        self.assertEqual(set(ui.upgrade_targets), {6})
+        self.assertTrue(ui.upgrade_checks[7].instate(["disabled"]))
+        self.assertTrue(ui.upgrade_selected[6].get())
+        ui.channel.set("2")
+        self.assertFalse(ui.upgrade_targets)
+        self.assertTrue(ui.start_button.instate(["disabled"]))
+
+    def test_batch_rejects_duplicate_target_before_handoff(self):
+        targets = [{"node": 3, "uid": "01" * 12}, {"node": 7, "uid": "01" * 12}]
+        report, rows, device = self.desktop_rounds(b"", targets=targets)
+        self.assertIn("重复", report["fatal"])
+        self.assertEqual((report["attempted"], rows, device.writes), (0, [], 0))
+
+    def test_desktop_rewrites_and_confirms_same_image_each_round(self):
+        result, rows, _ = self.desktop_rounds(b"\x01" * 12)
+        self.assertEqual(
+            (result["status"], result["passed"], result["failed"]), ("通过", 3, 0), result
+        )
+        self.assertEqual([r["round"] for r in rows], [1, 2, 3])
+        for row in rows:
+            self.assertEqual(row["bytes_written"], len(self.package.image))
+            self.assertTrue(row["success"])
+            self.assertIn("57", row["timing"]["by_type"])
+
+    def test_desktop_detects_polling_on_another_axis_before_handoff(self):
+        incoming = encode_frames(7, 108, b"", 9)
+        result, rows, device = self.desktop_rounds(b"\x01" * 12, incoming=incoming)
+        self.assertIn("节点 7 发送 Type108", result["fatal"])
+        self.assertEqual(rows[0]["trace"], [])
+        self.assertEqual(rows[0]["bytes_written"], 0)
+        self.assertEqual(device.writes, 0)
+
+    def test_desktop_ignores_responses_during_passive_check(self):
+        identifier, request = encode_frames(7, 108, b"", 9)[0]
+        response_id = (identifier & ~0xFFFF) | (2 << 8) | 7
+        result, _, _ = self.desktop_rounds(b"\x01" * 12, incoming=[(response_id, request)])
+        self.assertEqual(result["passed"], 3)
+
+    def test_desktop_stop_finishes_current_image(self):
+        result, rows, _ = self.desktop_rounds(b"\x01" * 12, "下载 APP")
+        self.assertEqual((result["status"], result["passed"], result["failed"]), ("已停止", 1, 0))
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["success"])
+
+    def test_scan_identifies_loader_without_starting_upgrade(self):
+        with patch.object(sys, "path", [str(ROOT / "tools/bench"), *sys.path]):
+            import can_upgrade_stress as stress
+
+        device = NativeDevice(self.dll)
+        with patch.object(device, "send", wraps=device.send) as send:
+            motors, issues = stress.scan_upgrade_motors(device, lambda: False, lambda _: None)
+        self.assertEqual(issues, [])
+        self.assertEqual([(m["node"], m["uid"], m["role"]) for m in motors], [(3, "01" * 12, 2)])
+        self.assertNotIn("state", motors[0])
+        self.assertEqual(
+            {struct.unpack_from("<H", c.args[1], 6)[0] for c in send.call_args_list}, {1}
+        )
+
+    def test_duplicate_node_uids_excluded_from_scan_and_upgrade(self):
+        with patch.object(sys, "path", [str(ROOT / "tools/bench"), *sys.path]):
+            import can_upgrade_stress as stress
+
+        device = NativeDevice(self.dll)
+        original_send = device.send
+
+        def duplicate_reply(identifier, data):
+            original_send(identifier, data)
+            if device.queue:
+                reply_id, response = device.queue[-1]
+                altered = bytearray(response)
+                altered[16] ^= 0x80
+                struct.pack_into("<H", altered, 48, crc16(altered[:48]))
+                device.queue.append((reply_id, bytes(altered)))
+
+        with patch.object(device, "send", side_effect=duplicate_reply):
+            motors, issues = stress.scan_upgrade_motors(device, lambda: False, lambda _: None)
+        self.assertFalse(motors)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("多个 UID", issues[0])
+        with patch.object(
+            stress, "read_node_uids", return_value={bytes([1]) * 12, bytes([3]) * 12}
+        ):
+            report, rows, _ = self.desktop_rounds(bytes([1]) * 12)
+        self.assertIn("地址冲突", report["fatal"])
+        self.assertEqual(rows[0]["bytes_written"], 0)
+
+    def test_desktop_identity_mismatch_stops_batch(self):
+        result, rows, device = self.desktop_rounds(b"\x02" * 12)
+        self.assertEqual(
+            (result["status"], result["attempted"], result["passed"], result["failed"]),
+            ("失败", 1, 0, 1),
+        )
+        self.assertFalse(rows[0]["success"])
+        self.assertEqual(device.writes, 0)
+
     def test_cli_requires_exclusive_bench_without_power_isolation_flag(self) -> None:
         """独占参数仍为必填；带电台架入口可进入SDK打开前的失败路径。"""
         output = self.directory / "cli_live_bench"
@@ -258,6 +498,37 @@ class UpgradeClientTests(unittest.TestCase):
         self.assertEqual(timing["retries"], 1)
         self.assertEqual(timing["failed_requests"], 0)
         self.assertGreater(timing["transport_send_s"], 0)
+
+    def test_fast_write_discards_delayed_ack_after_fragment_sequence_reuse(self):
+        device = NativeDevice(self.dll)
+        original_send = device.send
+        previous_ack = None
+
+        def send_with_delayed_ack(identifier, data):
+            nonlocal previous_ack
+            original_send(identifier, data)
+            if data[6:8] == b"\x33\x00" and data[3] == 0xE0 and device.queue:
+                current_ack = device.queue[-1]
+                if previous_ack is not None:
+                    device.queue.insert(0, previous_ack)
+                previous_ack = current_ack
+
+        client = UpgradeClient(device, 3, b"\x01" * 12, write_block_limit=72)
+        with patch.object(device, "send", side_effect=send_with_delayed_ack), patch("time.sleep"):
+            self.assertTrue(client.run(self.package)["success"])
+        writes = client.timing_summary()["by_type"]["51"]
+        expected = (len(self.package.image) + 71) // 72
+        self.assertEqual(writes["requests"], expected)
+        self.assertLessEqual(writes["frames_sent"], expected * 2)
+        self.assertEqual(writes["retries"], 0)
+
+    def test_compatibility_write_uses_one_frame_per_ack(self):
+        client = UpgradeClient(NativeDevice(self.dll), 3, b"\x01" * 12, single_frame_writes=True)
+        with patch("time.sleep"):
+            self.assertTrue(client.run(self.package)["success"])
+        writes = client.timing_summary()["by_type"]["51"]
+        self.assertEqual(writes["requests"], (len(self.package.image) + 23) // 24)
+        self.assertEqual(writes["requests"], writes["frames_sent"])
 
     def test_request_timing_separates_adapter_time(self) -> None:
         """注入时钟核对发送占用与回复等待分开，避免把调试器开销算成CAN速度。"""

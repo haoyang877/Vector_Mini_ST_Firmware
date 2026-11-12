@@ -91,7 +91,12 @@ def check_outputs_off(probe, target: dict) -> None:
             probe.memory_read32(gpio + 0x400 + 0x10, 1)[0] & b_mask,
         )
         if any(state) or (previous is not None and previous != state):
-            raise RuntimeError("未确认六路输出关闭，拒绝操作")
+            channels, main, porta, portb = state
+            raise RuntimeError(
+                f"未确认六路输出关闭，拒绝操作。通道使能=0x{channels:04X}，"
+                f"主输出=0x{main:04X}，A 端口高电平=0x{porta:04X}，"
+                f"B 端口高电平=0x{portb:04X}"
+            )
         previous = state
 
 
@@ -237,6 +242,35 @@ def load_bundle(directory: Path, selection: str) -> tuple[dict, bytes, bytes]:
     return target, loader, package.image
 
 
+def halt_for_flash(probe, target: dict) -> None:
+    """确认关相并暂停 CPU，延长已运行的看门狗以覆盖 RAM 烧录算法。"""
+    # 暂停期间禁止继承WDT复位打断SWD事务；只改调试寄存器，不改选项字节。
+    # 保持暂停退出，由Loader下一次正常启动撤销调试冻结。
+    frozen = probe.memory_read32(0xE0042008, 1)[0]
+    probe.memory_write32(0xE0042008, [frozen | (1 << 12)])
+    if not probe.halt():
+        raise RuntimeError("探针未确认CPU暂停，拒绝写入Flash")
+    check_outputs_off(probe, target)
+    # 两款MCU的WDT寄存器偏移相同。Flash算法运行时CPU会暂时离开暂停态，
+    # 调试冻结不足以保护原APP的短看门狗；先延长已有WDT，不启动未运行的WDT。
+    probe.memory_write32(0x40003000, [0x5555])
+    probe.memory_write32(0x40003004, [6])
+    probe.memory_write32(0x40003008, [4095])
+    probe.memory_write32(0x40003010, [4095])
+    deadline = time.monotonic() + 0.1
+    while probe.memory_read32(0x4000300C, 1)[0]:
+        if time.monotonic() >= deadline:
+            raise RuntimeError("WDT配置更新超时，拒绝写入Flash")
+        time.sleep(0.001)
+    if (
+        probe.memory_read32(0x40003004, 1)[0] != 6
+        or probe.memory_read32(0x40003008, 1)[0] != 4095
+        or probe.memory_read32(0x40003010, 1)[0] != 4095
+    ):
+        raise RuntimeError("WDT配置回读不符，拒绝写入Flash")
+    probe.memory_write32(0x40003000, [0xAAAA])
+
+
 def install(
     probe,
     target: dict,
@@ -279,31 +313,7 @@ def install(
             raise ValueError("已是新布局，拒绝重复迁移")
     check_identity(probe, target, uid)
     check_outputs_off(probe, target)
-    # 暂停期间禁止继承WDT复位打断SWD事务；只改调试寄存器，不改选项字节。
-    # 保持暂停退出，由Loader下一次正常启动撤销调试冻结。
-    frozen = probe.memory_read32(0xE0042008, 1)[0]
-    probe.memory_write32(0xE0042008, [frozen | (1 << 12)])
-    if not probe.halt():
-        raise RuntimeError("探针未确认CPU暂停，拒绝写入Flash")
-    check_outputs_off(probe, target)
-    # 两款MCU的WDT寄存器偏移相同。Flash算法运行时CPU会暂时离开暂停态，
-    # 调试冻结不足以保护原APP的短看门狗；先延长已有WDT，不启动未运行的WDT。
-    probe.memory_write32(0x40003000, [0x5555])
-    probe.memory_write32(0x40003004, [6])
-    probe.memory_write32(0x40003008, [4095])
-    probe.memory_write32(0x40003010, [4095])
-    deadline = time.monotonic() + 0.1
-    while probe.memory_read32(0x4000300C, 1)[0]:
-        if time.monotonic() >= deadline:
-            raise RuntimeError("WDT配置更新超时，拒绝写入Flash")
-        time.sleep(0.001)
-    if (
-        probe.memory_read32(0x40003004, 1)[0] != 6
-        or probe.memory_read32(0x40003008, 1)[0] != 4095
-        or probe.memory_read32(0x40003010, 1)[0] != 4095
-    ):
-        raise RuntimeError("WDT配置回读不符，拒绝写入Flash")
-    probe.memory_write32(0x40003000, [0xAAAA])
+    halt_for_flash(probe, target)
     expected = bytearray(before)
     padded = image + b"\xff" * (98304 - len(image))
     # 先使APP描述符失效，再安装Loader。全部写入由精确长度限制，不调用整片擦除。

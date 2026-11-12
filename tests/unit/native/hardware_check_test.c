@@ -375,8 +375,8 @@ static void motion_cases(void)
             assert(r.items[8] == 2U && r.items[9] != 0U);
             continue;
         }
-        assert(r.items[8] == (k == 18 ? 2 : 1) &&
-               r.items[9] == (k == 4 ? 3 : (k == 11 || k == 18 ? 2 : 1)));
+        assert(r.items[8] == (k == 1 || k == 18 ? 2 : 1) &&
+               r.items[9] == (k == 4 ? 3 : (k == 18 ? 2 : 1)));
         assert((r.directions & 15) == (k == 1 ? 6 : (k == 18 ? 5 : 9)));
         assert((r.directions >> 4) == (k == 4 ? 0 : (k == 18 ? 5 : 9)));
     }

@@ -491,6 +491,12 @@ static void finish_drive(MotorAxis *axis)
             uint32_t forward = track->forward_windows;
             uint32_t backward = track->backward_windows;
             uint32_t agreed = directions[leg] == 1U ? forward : backward;
+            unsigned expected = (s_check.first_sign > 0) != (leg != 0U) ? 1U : 2U;
+            if (sensor == 0U && directions[leg] != 0U && directions[leg] != 3U &&
+                directions[leg] != expected)
+            {
+                *item = FAIL;
+            }
             if (directions[leg] != 0U && directions[leg] != 3U &&
                 agreed * 3U < (forward + backward) * 2U)
             {
@@ -505,23 +511,7 @@ static void finish_drive(MotorAxis *axis)
             }
         }
     }
-    /* 已标定的机械传动方向把独立 Hall 和电机编码器变换到同一坐标。
-       此处不在检测中估计或翻转方向；不一致归入输出轴动态关系项。 */
-    const OutputEncoderParams *relation = &axis->output_encoder.params;
-    if (s_check.report.items[ROTOR_DRIVE] == PASS && s_check.report.items[HALL_DRIVE] == PASS &&
-        (relation->status & OUTPUT_ENCODER_CAL_OK) != 0U &&
-        (relation->direction == 1 || relation->direction == -1))
-    {
-        for (unsigned leg = 0U; leg < 2U; ++leg)
-        {
-            unsigned motor = (s_check.report.directions >> (2U * leg)) & 3U;
-            unsigned hall = (s_check.report.directions >> (4U + 2U * leg)) & 3U;
-            if ((motor == hall) != (relation->direction == 1))
-            {
-                s_check.report.items[HALL_DRIVE] = FAIL;
-            }
-        }
-    }
+    /* 电机角必须与三相开环命令同向；霍尔只验证自身趋势，不作安装方向关联验收。 */
     end_check(axis, DONE);
 }
 

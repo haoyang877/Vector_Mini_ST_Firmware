@@ -11,7 +11,7 @@ import time
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
@@ -297,7 +297,7 @@ class CanTestWindow:
         ).pack(anchor="w")
         ttk.Label(
             check_tab,
-            text="APP v1.8.1：稳定后按50ms均值验证双向趋势；单拍波动只作诊断。单程至少700ms。",
+            text="APP v1.8.1：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         self.builtin_package = (
@@ -818,27 +818,9 @@ class CanTestWindow:
                 self.state.set("通信异常")
                 self.show(r["fatal"])
                 return
-            if r.get("stop_confirmed") and r["stage"] == 4 and not self.close_pending:
-                refs = []
-                for label, index in (("电机轴", 8), ("输出轴", 9)):
-                    text = None
-                    if r["board_items"][index] != 3:
-                        text = simpledialog.askstring(
-                            "实际旋向",
-                            f"{label}去程和回程，各填一个字符：+ 正、- 负、0 静止、? 未观察",
-                            parent=self.root,
-                        )
-                    lookup = {"?": 0, "+": 1, "-": 2, "0": 3}
-                    refs.append(
-                        tuple(lookup[c] for c in text)
-                        if text and len(text) == 2 and all(c in lookup for c in text)
-                        else (0, 0)
-                    )
-                direction_results(r, *refs)
-                (self.report_dir / "summary.json").write_text(
-                    json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
             self.state.set("硬件功能检测 · 通信" + r["communication"])
+            if r.get("communication_reliability_passed") is False:
+                self.state.set(self.state.get() + " · 50ms首答异常")
             self.show(summarize(r))
             self.bar["value"] = 100 if r["stage"] in (4, 5) else 0
             self.progress.set(f"{self.bar['value']:.0f}%")

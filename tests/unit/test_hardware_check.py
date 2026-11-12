@@ -35,6 +35,8 @@ class Port:
         self.mode = 0
         self.outward = 0
         self.previous_lease = 0
+        self.lost_lease_ack = False
+        self.status_was_busy = False
         self.uid = bytes(range(12))
 
     def send(self, identifier, data):
@@ -91,6 +93,9 @@ class Port:
             struct.pack_into("<h", reply, 36, 6500 if self.fault == "hot" else 2500)
             if self.fault == "travel" and self.running:
                 struct.pack_into("<i", reply, 12, 100000)
+            if self.fault == "statusbusy" and not self.status_was_busy:
+                self.status_was_busy = True
+                reply = b"\x06\0\0\0"
         elif kind == 120:
             reply = struct.pack("<HHBBBBIII", 0, 0, 5, 2, 1, 1, 14, 1, 0)
         elif kind == 126:
@@ -120,6 +125,9 @@ class Port:
             assert self.running and count > self.previous_lease
             self.previous_lease = count
             if self.fault == "linkloss":
+                return
+            if self.fault == "leaseackloss" and not self.lost_lease_ack:
+                self.lost_lease_ack = True
                 return
         elif kind == 110:
             if self.fault == "stoploss":
@@ -221,8 +229,7 @@ class HardwareHostTest(unittest.TestCase):
         r, bus = self.check(drive=True)
         self.assertEqual((r["communication"], r["stage"], r["stop_confirmed"]), ("正常", 4, True))
         self.assertGreater(bus.previous_lease, 3)
-        self.assertEqual(list(r["items"].values())[-2:], ["未测"] * 2)
-        self.assertIn("趋势正常，待实物旋向确认", hw.summarize(r))
+        self.assertEqual(list(r["items"].values())[-2:], ["正常"] * 2)
         hw.direction_results(r, (1, 2), (1, 2))
         self.assertEqual(list(r["items"].values())[-2:], ["正常"] * 2)
         hw.direction_results(r, (2, 1), (1, 0))
@@ -240,6 +247,20 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual((r["communication"], r["stage"], r["stop_confirmed"]), ("正常", 4, True))
         self.assertIn(117, [kind for kind, _, _ in bus.sent])
         self.assertGreater(bus.previous_lease, 3)
+
+    def test_lost_lease_ack_completes_checks_without_hiding_timeout(self):
+        r, bus = self.check("leaseackloss", True)
+        self.assertEqual((r["stage"], r["stop_confirmed"]), (4, True))
+        self.assertFalse(r["communication_reliability_passed"])
+        self.assertEqual(r["communication_timeouts"], {118: 1})
+        self.assertEqual(sum(kind == 117 for kind, _, _ in bus.sent), 1)
+        self.assertIn("50 ms 首答可靠性未通过", hw.summarize(r))
+
+    def test_busy_status_is_retried_without_restarting_motion(self):
+        r, bus = self.check("statusbusy", True)
+        self.assertEqual((r["stage"], r["stop_confirmed"], r["status_busy_replies"]), (4, True, 1))
+        self.assertTrue(r["communication_reliability_passed"])
+        self.assertEqual(sum(kind == 117 for kind, _, _ in bus.sent), 1)
 
     def test_stop_paths(self):
         for fault in ("startloss", "linkloss", "travel", "stoploss", "pendingstop", "denied"):

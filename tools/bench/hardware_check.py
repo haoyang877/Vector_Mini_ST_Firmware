@@ -45,6 +45,8 @@ class Link:
             raise ValueError("请选择与主站 2 不同的单播节点")
         self.bus, self.node = bus, node
         self.sequence = secrets.randbelow(65535)
+        self.timeouts = {}
+        self.status_busy_replies = 0
 
     def request(self, kind, payload=b"", *, page=None, sequence=None):
         if sequence is None:
@@ -62,7 +64,15 @@ class Link:
                 return decode_reply(*frame, self.node, kind, sequence)
             except ValueError:
                 continue
+        self.timeouts[kind] = self.timeouts.get(kind, 0) + 1
         raise TimeoutError(f"节点 {self.node} Type {kind} 未收到匹配应答")
+
+    def _read(self, kind: int) -> bytes:
+        """只读快照丢应答时最多重读一次；每次仍按 50ms 记录超时。"""
+        try:
+            return self.request(kind)
+        except TimeoutError:
+            return self.request(kind)
 
     def command(self, kind, payload=b"", *, sequence=None):
         reply = self.request(kind, payload, sequence=sequence)
@@ -74,15 +84,23 @@ class Link:
         return code
 
     def status(self):
-        data = self.request(108)
-        if data == b"\x06\0\0\0" or (len(data) == 45 and data[:2] == b"\x06\0"):
+        for _ in range(3):
+            data = self._read(108)
+            if data != b"\x06\0\0\0" and not (len(data) == 45 and data[:2] == b"\x06\0"):
+                break
+            self.status_busy_replies += 1
+        else:
             raise Rejected("状态采样忙")
         if len(data) != 45 or data[:4] != bytes(4) or data[42] != self.node:
             raise ValueError("Type 108 状态帧无效")
         return data
 
     def board(self, payload=b"", sequence=None):
-        data = self.request(127, payload, sequence=sequence)
+        data = (
+            self.request(127, payload, sequence=sequence)
+            if payload or sequence is not None
+            else self._read(127)
+        )
         if len(data) == 4:
             raise Rejected("Type 127 拒绝，result=%d detail=%d" % struct.unpack("<HH", data))
         if len(data) != 21 or data[0] != bool(payload) or data[1:4] != bytes(3) or data[4] != 2:
@@ -150,13 +168,21 @@ def reserve_counters(path, uid, previous, previous_target):
         connection.close()
 
 
-def direction_results(report, motor=(0, 0), hall=(0, 0)):
-    """0 无物理参照、1 正、2 负、3 实物静止。去回两段分别比较。"""
+def direction_results(report, motor=None, hall=(0, 0)):
+    """电机默认比较正/负命令；霍尔独立看双向趋势，实物参照仅作可选附加核对。"""
     values = report["board_items"].copy()
-    for sensor, reference in enumerate((motor, hall)):
+    for sensor, reference in enumerate((motor if motor is not None else (1, 2), hall)):
         measured = [(report["directions"] >> (4 * sensor + 2 * leg)) & 3 for leg in (0, 1)]
         index = 8 + sensor
         if values[index] in (2, 3):
+            continue
+        if sensor == 1 and reference == (0, 0):
+            if report["stage"] != 4 or values[index] != 1:
+                values[index] = 0
+            elif measured[0] not in (1, 2) or measured[1] not in (1, 2):
+                values[index] = 0
+            elif measured[0] == measured[1]:
+                values[index] = 2
             continue
         if any(m and r and m != r for m, r in zip(measured, reference, strict=True)):
             values[index] = 2
@@ -170,7 +196,11 @@ def direction_results(report, motor=(0, 0), hall=(0, 0)):
             values[index] = 0
     if report.get("ntc_mismatch"):
         values[5] = 2
-    report["observed"] = {"motor": list(motor), "hall": list(hall)}
+    report["observed"] = {"motor": list(motor or (0, 0)), "hall": list(hall)}
+    report["direction_reference"] = {
+        "motor": list(motor if motor is not None else (1, 2)),
+        "hall": list(hall),
+    }
     report["items"] = dict(zip(ITEMS, (STATES[v] for v in values), strict=True))
 
 
@@ -274,8 +304,14 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
             while True:
                 if stopped():
                     raise Rejected("操作员停止")
-                lease = (lease + 1) & 0xFFFFFFFF or 1
-                link.command(118, struct.pack("<I", lease))
+                for attempt in range(2):
+                    lease = (lease + 1) & 0xFFFFFFFF or 1
+                    try:
+                        link.command(118, struct.pack("<I", lease))
+                        break
+                    except TimeoutError:
+                        if attempt:
+                            raise
                 refresh()
                 if report["stage"] != 3:
                     raise Rejected("板端已结束驱动检测")
@@ -344,7 +380,7 @@ def run_check(
     stopped=lambda: False,
     progress=lambda _: None,
 ):
-    """返回通信结论、本轮板端快照和结合实物参照的结果；此处不打开设备。"""
+    """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
     link = Link(bus, node)
     report = empty_report(node, ambient)
     if drive:
@@ -446,20 +482,26 @@ def run_check(
                 refresh()
             except (Rejected, ValueError, TimeoutError, OSError):
                 pass
+    report["communication_timeouts"] = link.timeouts.copy()
+    report["communication_reliability_passed"] = not link.timeouts
+    report["status_busy_replies"] = link.status_busy_replies
     direction_results(report)
     return report
 
 
 def summarize(report):
     lines = [f"节点 {report['node']}　通信{report['communication']}　{STAGES[report['stage']]}"]
-    for index, (name, state) in enumerate(report["items"].items()):
-        if index >= 8 and state == "未测" and report["board_items"][index] == 1:
-            state += "（趋势正常，待实物旋向确认）"
+    for name, state in report["items"].items():
         lines.append(f"{name}　{state}")
     if "motor_temperature_c" in report:
         lines.append("电机 NTC 实测 %.2f °C" % report["motor_temperature_c"])
     if "stop_confirmed" in report:
         lines.append("关相已确认" if report["stop_confirmed"] else "关相待现场确认")
+    if report.get("communication_reliability_passed") is False:
+        lines.append(
+            "50 ms 首答可靠性未通过：超时 %d 次，重试与检测结果已保留"
+            % sum(report["communication_timeouts"].values())
+        )
     if report["note"]:
         lines.append(report["note"])
     return "\n".join(lines)
@@ -532,6 +574,7 @@ def main():
     required = ITEMS if args.drive else ITEMS[:8]
     return int(
         report["communication"] != "正常"
+        or not report.get("communication_reliability_passed", False)
         or report["stage"] != 4
         or any(report["items"][name] not in ("正常", "未装") for name in required)
     )

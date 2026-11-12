@@ -62,8 +62,8 @@ Loader 更新使用 SWD 大包。具体分区及恢复步骤见[双板 Loader](d
 5. 每方向至少预转 500 ms，且连续两个 50 ms 平均转速窗满足稳定条件后才验证轨迹。
    v1.8.1 取 50 ms 角度均值观察趋势，至少三个窗口确认位移和方向，单拍波动只作诊断。
    净位移与至少 2/3 可辨窗口同向；趋势无主方向、停滞及去回同向仍判异常。中间零频保持并确认停稳，再反转。
-6. 结束确认 STOP、轴空闲、无故障和实际关相，再依据现场观察填写电机及输出轴的
-   去回方向。未观察、未稳定、行程不足或中止的项目保留“未测”，不能算通过。
+6. 结束确认 STOP、轴空闲、无故障和实际关相，自动比较正命令角度递增、反命令角度递减。霍尔仅核对自身趋势，无需现场旋向。
+   未稳定、行程不足或中止的项目保留“未测”，不能算通过。
 
 母线电流以原始 ADC 数据计算去均值 RMS，限值为 **<50 cnt**；三相和霍尔仍为
 **<10 cnt**。四路电流的偏置界限仍为距 2048 **<300 cnt**，电压仍为 27～29 V。
@@ -75,10 +75,10 @@ SN/motor_type 未填写不阻止本项测试，节点/UID、APP 角色、能力�
 ```powershell
 uv sync --locked --extra dev --extra maintenance
 uv run --extra maintenance python tools/run.py hardware_check --dll <ControlCANFD.dll> --node 6 --ambient-c 20 --out outputs/static.json
-uv run --extra maintenance python tools/run.py hardware_check --dll <ControlCANFD.dll> --node 6 --drive --current-a 3 --frequency-hz 3 --leg-ms 1500 --travel-deg <两侧可用角度> --last-lease 0 --last-target 0 --observe --out outputs/drive.json
+uv run --extra maintenance python tools/run.py hardware_check --dll <ControlCANFD.dll> --node 6 --drive --current-a 3 --frequency-hz 3 --leg-ms 1500 --travel-deg <两侧可用角度> --last-lease 0 --last-target 0 --out outputs/drive.json
 ```
 
-`--observe` 在关相后输入实物去回方向，正/反分别用 `+`/`-`。命令参数中的温度、
+默认自动比较命令与编码器方向；`--observe` 仅供需要实物附加核对时选用。命令参数中的温度、
 行程和计数必须按本次现场填写。原始 CAN 帧、板端统计和 STOP 结果一起留档。
 交付 EXE 的同一入口是 `Hardware-Check-v1.0.1.exe`，将上述命令的
 `uv run --extra maintenance python tools/run.py hardware_check` 替换为 EXE 路径，

@@ -66,7 +66,8 @@ def _validate(uid: bytes, node: int, kind: int, payload: bytes, versions: tuple[
         or struct.unpack_from("<II", payload, 20) != versions
     ):
         raise ValueError("UID/version")
-    if kind == 2 and payload != struct.pack("<I6H", 0x7FD00, 0x64E, 64, 46, 0, 500, 500):
+    features = 0xFFD00 if versions[0] >= 0x00010800 else 0x7FD00
+    if kind == 2 and payload != struct.pack("<I6H", features, 0x64E, 64, 46, 0, 500, 500):
         raise ValueError("capabilities")
     if kind == 3 and payload != struct.pack("<HHBBHQ", 6, 0, 1, 0, 0, 0):
         raise ValueError("device status")

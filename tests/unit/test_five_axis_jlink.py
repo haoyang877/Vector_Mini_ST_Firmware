@@ -25,6 +25,14 @@ from upgrade_client import crc8, crc16  # noqa: E402
 
 
 class FlashGuiTests(unittest.TestCase):
+    def test_hardware_check_capability_matches_application_version(self):
+        old = struct.pack("<I6H", 0x7FD00, 0x64E, 64, 46, 0, 500, 500)
+        current = struct.pack("<I6H", 0xFFD00, 0x64E, 64, 46, 0, 500, 500)
+        can._validate(bytes(12), 6, 2, old, (0x00010700, 0x00020303))
+        can._validate(bytes(12), 6, 2, current, (0x00010800, 0x00020303))
+        with self.assertRaises(ValueError):
+            can._validate(bytes(12), 6, 2, old, (0x00010800, 0x00020303))
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

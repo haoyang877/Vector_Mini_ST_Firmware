@@ -54,13 +54,26 @@ class _RXFD(C.Structure):
 
 
 class ControlCanFd:
-    """仅在显式上下文内打开指定设备的通道0，ISO CAN FD 1M/5M。"""
+    """打开指定设备与通道，默认通道 0，ISO CAN FD 1M/5M。"""
 
-    def __init__(self, dll_path: Path, device_index: int = 0) -> None:
+    def __init__(
+        self,
+        dll_path: Path,
+        device_index: int = 0,
+        *,
+        channel_index: int = 0,
+        arb_bps: int = 1_000_000,
+        data_bps: int = 5_000_000,
+    ) -> None:
         if type(device_index) is not int or not 0 <= device_index <= 0xFFFFFFFF:
             raise ValueError("USB-CAN设备索引必须是非负u32整数")
         self.dll_path = dll_path.resolve()
         self.device_index = device_index
+        if type(channel_index) is not int or channel_index not in (0, 1):
+            raise ValueError("USB-CAN通道索引必须是0或1")
+        self.arb_bps = arb_bps
+        self.data_bps = data_bps
+        self.channel_index = channel_index
         self.device = None
         self.channel = None
         self.pending: list[tuple[int, bytes]] = []
@@ -85,15 +98,15 @@ class ControlCanFd:
             raise OSError("CAN适配器打开失败，检查设备独占与驱动")
         try:
             for name, value in (
-                ("ZCAN_SetAbitBaud", 1000000),
-                ("ZCAN_SetDbitBaud", 5000000),
+                ("ZCAN_SetAbitBaud", self.arb_bps),
+                ("ZCAN_SetDbitBaud", self.data_bps),
                 ("ZCAN_SetCANFDStandard", 0),
             ):
-                if getattr(self.dll, name)(self.device, 0, value) != 1:
-                    raise OSError(name + "失败")
+                if getattr(self.dll, name)(self.device, self.channel_index, value) != 1:
+                    raise OSError(f"{name} 设置 {value} 失败")
             config = _CHANNEL_CONFIG()
             config.can_type = 1
-            self.channel = self.dll.ZCAN_InitCAN(self.device, 0, C.byref(config))
+            self.channel = self.dll.ZCAN_InitCAN(self.device, self.channel_index, C.byref(config))
             if not self.channel or self.dll.ZCAN_StartCAN(self.channel) != 1:
                 raise OSError("CAN通道初始化或启动失败")
             return self

@@ -1,12 +1,12 @@
 # 当前故障、关断与恢复
 
-核对日期：2026-10-21。本文按当前实现描述职责，取代旧故障保护设计稿中的拟议接口。
+核对基线：176f3c7e。本文按当前实现描述职责，取代旧故障保护设计稿中的拟议接口。
 
 | 所有者 | 实际职责与入口 |
 | --- | --- |
 | [`motor_sensing`](../../firmware/motor/sensing/motor_current.c) | ADC偏置、相电流、母线和MCU温度判定及测量资格 |
 | [`motor_fault`](../../firmware/motor/protection/motor_fault.c) | 故障锁存、过流恢复驻留和源恢复矩阵；不启相 |
-| [`motor_thermal_control`](../../firmware/motor/protection/motor_thermal_control.h) | 快环热历史/动态电流额度，失效及策略边界；监督监控采样窗口 |
+| [`motor_thermal_control`](../../firmware/motor/protection/motor_thermal_control.h) | 保留热模型控制接口，当前 APP 未调度 |
 | [`motor_axis`](../../firmware/app/motor_axis.c) | 调度采样与保护，执行快速故障关断，向监督提供一致事实 |
 | [`motor_state_machine`](../../firmware/app/motor_state_machine.c) | 启停许可、故障锁存、清错及实际关相 |
 | [`BspPwm`](../../firmware/platform/bsp/include/bsp_pwm.h) | 功率关闭、启用与实际数字回读；寄存器实现位于各板PWM BSP |
@@ -18,18 +18,15 @@
 
 ## CLEAR与停止
 
-FAULT中的明确CLEAR须满足源恢复、完整基础健康、输出关闭、取消确认及维护/前台资源已归还，
+FAULT 中显式 CLEAR 要求关相读回、有效采样与配置、标定会话空闲、故障源恢复并通过启动/停机锁检查，
 成功只回IDLE；旧目标和任务不恢复。过流恢复使用2kHz下2000拍驻留证据；
 MCU温度恢复低于80°C；电压使用启动恢复区间。详细矩阵以 `MotorFault_SourceRecovered` 为准。
-FATAL没有普通软件事件出口，不能以STOP、CLEAR或重连解除。
+实际关相失败等情况会置 `fault_locked`，状态机拒绝普通 CLEAR。
 停止受理、数字关相、资源归还和机械静止是不同事实，均按对应接口确认。
 
 ## 热保护边界
 
-热模型基于快环三相电流平方，每20拍更新；停机后保留热历史估计冷却，MCU复位不保留历史。
-电流闭环按可用额度降额，开环电压/功率标定不允许用降额继续，触及策略边界则故障关断。
-失效输入或采样看门狗失败禁止出力；不能通过CLEAR伪造新鲜样本。
-热配置的停机重配保留并保守换算历史；普通参数变更不清空热量。
+当前 APP 使用配置电流额度，绕组热模型的计算接口和存储字段保留。运行时 MCU 温度测量与绕组热模型是两种不同来源。采样、恢复计数及 CLEAR 的具体要求以 [MotorFault_SourceRecovered](../../firmware/motor/protection/motor_fault.c) 为准。
 
 门限与测量细节见[母线保护](../guides/bus_voltage_8s.md)、[MCU温度](../guides/mcu_temperature.md)，
-状态转换见[八状态契约](motor_state_machine_v1.md)。本页不声明新实机或硬件额定能力。
+状态转换见[电机五态与功率交接](motor_state_machine_v1.md)。本页不声明新实机或硬件额定能力。

@@ -1,13 +1,15 @@
 # 核心工程模块职责
 
+归档于 2026-11-10。本文保留旧阶段的设计与行为；当前实现见[电机状态机](../../architecture/motor_state_machine_v1.md)和[文件职责](../../architecture/code_structure.md)。
+
 更新：2026-10-21。描述当前核心工程源码；历史设计不代表仍存在的功能。
-逐文件定位见[APP文件职责与分层对照](app_file_responsibilities_v1.md)，与Keil实际源清单顺序对应。
+逐文件定位见[APP文件职责与分层对照](../../architecture/app_file_responsibilities_v1.md)，与Keil实际源清单顺序对应。
 
 2026-10-17增量：`motor/protection/motor_thermal`只计算热预算、降额和总向量限流；
 `motor/protection/motor_thermal_control`持有热历史并处理显式采样/监督事件，`motor_axis`
 负责调度，STOP/CLEAR/DEFAULTS不重置热量。`motor/control/speed_feedforward`只做可选目标
 整形与惯量电流计算，规划状态由既有`s_outer`独占；前馈默认关闭。
-配置归原model/application分组，保存及兼容见[schema13](../../firmware/parameters/README.md#storage)。
+配置归原model/application分组，保存及兼容见[schema13](../../../firmware/parameters/README.md#storage)。
 
 ## 先看完整流程
 
@@ -28,18 +30,18 @@ LUT与电零位分别请求，各任务只流转自己的内部阶段。
 
 | 模块及源码入口 | 输入 → 核心处理 → 输出 | 状态归属与边界 |
 | --- | --- | --- |
-| [composition](../../firmware/app/app.c) | 四入口契约 → 初始化、前台、快环、监督编排 → 可调度的电机及通信端点 | 只组装，不计算控制算法 |
-| [motor_axis](../../firmware/app/motor_axis.c) | 采样与受理请求 → 快慢拍调度 → 控制输出及一致快照 | 持有单份电机、编码器、FOC、PI与观测器对象 |
-| [主状态机](motor_state_machine_v1.md) | 请求、健康与任务结果 → 准入、启停、清理 → 许可及进展 | 独占生命周期和功率动作；不计算标定数学 |
-| [控制执行](motor_execution_core_v3.md) | 已准入模式、目标与反馈 → 外环/电流环 → 电流参考及一拍结果 | 控制器拥有积分/滤波；不决定启动 |
-| [维护与标定](motor_maintenance_core_v3.md) | 已退役，不再提供标定、保存或任务进度 | 旧Flash记录仍可读取 |
-| [参数](parameter_ownership_v1.md) | 默认值、RAW记录、标量请求 → 装载/校验/事务 → 活动配置及保存结果 | Axis持有值，事务模块持有revision与重试记录 |
-| [反馈与保护](../../firmware/motor/README.md) | 角度、电流、电压和温度 → 校正/估计/故障判定 → 测量及故障事实 | 不创建第二份生命周期 |
-| [通信](../protocols/README.md#implementation) | CAN FD帧 → 共享codec/业务映射 → 所有者请求与回复 | 不直接修改电机对象或访问PWM/Flash |
-| [平台](../../firmware/platform/bsp/include) | 能力调用 → BSP/ports执行I/O → 值、时间与失败结果 | HAL、寄存器和硬件变体只在平台 |
-| [Loader](loader/loader_product_v3.md) | 匹配目标的镜像 → 边界/CRC/提交/试运行 → 启动或恢复升级 | 独立产品；升级会话不等于电机运行会话 |
-| [shared](../../shared/README.md) | 跨产品字节和值 → 纯编解码/契约 → 统一数据 | 不依赖APP或HAL，不拥有运行电机 |
-| [上位机](../../host_app/README.md) | CAN读回、速度/STOP请求与匹配APP包 → 单页展示及升级客户端 → 实际回复与结果 | 默认断开，无演示或标定入口；GUI实机控制/升级尚待验收 |
+| [composition](../../../firmware/app/app.c) | 四入口契约 → 初始化、前台、快环、监督编排 → 可调度的电机及通信端点 | 只组装，不计算控制算法 |
+| [motor_axis](../../../firmware/app/motor_axis.c) | 采样与受理请求 → 快慢拍调度 → 控制输出及一致快照 | 持有单份电机、编码器、FOC、PI与观测器对象 |
+| [主状态机](../../architecture/motor_state_machine_v1.md) | 请求、健康与任务结果 → 准入、启停、清理 → 许可及进展 | 独占生命周期和功率动作；不计算标定数学 |
+| [控制执行](../../architecture/motor_execution_core_v3.md) | 已准入模式、目标与反馈 → 外环/电流环 → 电流参考及一拍结果 | 控制器拥有积分/滤波；不决定启动 |
+| [维护与标定](../../architecture/motor_maintenance_core_v3.md) | 已退役，不再提供标定、保存或任务进度 | 旧Flash记录仍可读取 |
+| [参数](../../architecture/parameter_ownership_v1.md) | 默认值、RAW记录、标量请求 → 装载/校验/事务 → 活动配置及保存结果 | Axis持有值，事务模块持有revision与重试记录 |
+| [反馈与保护](../../../firmware/motor/README.md) | 角度、电流、电压和温度 → 校正/估计/故障判定 → 测量及故障事实 | 不创建第二份生命周期 |
+| [通信](../../protocols/README.md#implementation) | CAN FD帧 → 共享codec/业务映射 → 所有者请求与回复 | 不直接修改电机对象或访问PWM/Flash |
+| [平台](../../../firmware/platform/bsp/include) | 能力调用 → BSP/ports执行I/O → 值、时间与失败结果 | HAL、寄存器和硬件变体只在平台 |
+| [Loader](../../architecture/loader/loader_product_v3.md) | 匹配目标的镜像 → 边界/CRC/提交/试运行 → 启动或恢复升级 | 独立产品；升级会话不等于电机运行会话 |
+| [shared](../../../shared/README.md) | 跨产品字节和值 → 纯编解码/契约 → 统一数据 | 不依赖APP或HAL，不拥有运行电机 |
+| [上位机](../../../host_app/README.md) | CAN读回、速度/STOP请求与匹配APP包 → 单页展示及升级客户端 → 实际回复与结果 | 默认断开，无演示或标定入口；GUI实机控制/升级尚待验收 |
 
 APP 的 `motor_state_machine` 校验命令并管理本轴状态；`motor/control/motor_control`独占控制执行和外环。
 `motor_sensing`推进上电零偏累计，`foc`绑定PI配置与电压额度；Axis只传对象和安排顺序。
@@ -68,5 +70,5 @@ APP 的 `motor_state_machine` 校验命令并管理本轴状态；`motor/control
 保留电流、速度、S 曲线位置规划和位置串级、q轴电压，LUT、电/机械零位，参数保存，保护和Loader升级恢复。
 LUT依赖的无感启动/观测器保留，不表示新增独立无感控制产品功能。
 
-当前范围见[删减决定](../archive/plans/2026-10-08-core-only-v3.md)，
-工程候选和未测项见[v1.3.0交付说明](../releases/architecture-app-v1.3.0-candidate.md)。
+当前范围见[删减决定](../plans/2026-10-08-core-only-v3.md)，
+工程候选和未测项见[v1.3.0交付说明](../../releases/architecture-app-v1.3.0-candidate.md)。

@@ -340,7 +340,7 @@ class FlashGuiTests(unittest.TestCase):
         identity, _ = self.blank_board(3)
         self.probe.registers[0x40020410] = 0x10
         result = self.job(identity=identity, first_fit_node=3)
-        self.assertIn("B 端口高电平=0x0010", result["fatal"])
+        self.assertIn("GPIOB=0x10", result["fatal"])
         self.assertFalse(result["write_started"])
         self.probe.flash_file.assert_not_called()
 

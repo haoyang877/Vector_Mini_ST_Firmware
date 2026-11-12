@@ -1,14 +1,23 @@
 # 文档入口
 
-通信只保留一份[现行协议说明](protocols/README.md)，已按 2026-11-03 的
-`the-system-refactor` 代码核对。报文、命令、反馈、标定和升级均在该页；
-回归向量位于 `tests/fixtures/protocol/`，不作为设备支持清单。
+## APP 与 Loader 固件设计
+
+- [架构设计](architecture/software_architecture.md)说明两种镜像如何协作，以及前台、中断和业务模块如何分工。
+- [状态机设计](architecture/motor_state_machine_v1.md)给出电机运行与标定的转移条件，以及 Loader 下载、激活和确认的状态。
+- [通信协议设计](protocols/README.md)定义 CAN FD 帧、各镜像的命令、应答和重发语义。
+- [参数管理设计](architecture/parameter_ownership_v1.md)说明参数的来源、校验、活动对象、保存和重启恢复。
+
+具体板型和 Keil 工程见[镜像选择表](../README.md#选择板卡与固件工程)。
+
+## 主题索引
 
 | 主题 | 入口与用途 |
 | --- | --- |
 | [architecture/](architecture/) | 软件职责、文件归属、状态机、控制/维护、参数与保护 |
 | [protocols/](protocols/) | 唯一现行通信协议说明 |
 | [guides/](guides/) | 当前开发、操作、标定与发布指南 |
+| [YG_MC_HOST 功能需求清单](guides/yg_mc_host_requirements_v1.md) | 当前 Rust 上位机功能、状态和验收范围 |
+| [YG_MC_HOST 软件设计说明](architecture/yg_mc_host_design_v1.md) | Rust 上位机模块边界、页面流程、通信和安全门禁 |
 | [AT32F456 五轴电机配置](guides/at32f456_five_axes.md) | 电机 ID、轴角色、型号、参数对照及后续维护 |
 | [hardware/](hardware/) | 板卡PDF、器件资料与性能曲线 |
 | [analysis/](analysis/) | 专题分析及其独立基线 |

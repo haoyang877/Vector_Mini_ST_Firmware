@@ -23,8 +23,9 @@ pub(super) struct PreviewRun {
 }
 
 impl PreviewRun {
-    pub(super) fn new(request: PreviewRequest) -> Self {
+    pub(super) fn new(request: PreviewRequest) -> Option<Self> {
         let (directory, single) = match request {
+            PreviewRequest::Interactive => return None,
             PreviewRequest::Single(path) => (
                 path.parent()
                     .unwrap_or(std::path::Path::new("."))
@@ -61,6 +62,70 @@ impl PreviewRun {
         if single.is_some() {
             steps.truncate(1);
         } else {
+            for (name, scale, size) in [
+                ("parameters-speed", 1.0, Vec2::new(1366.0, 768.0)),
+                ("parameters-position", 1.0, Vec2::new(1366.0, 768.0)),
+                ("parameters-motor", 1.0, Vec2::new(1366.0, 768.0)),
+                ("parameters-threshold", 1.0, Vec2::new(1366.0, 768.0)),
+                ("parameters-all", 1.0, Vec2::new(1366.0, 768.0)),
+                ("parameters-125", 1.25, Vec2::new(1093.0, 700.0)),
+                ("parameters-150", 1.5, Vec2::new(1024.0, 700.0)),
+            ] {
+                steps.push(Step {
+                    name,
+                    page: Page::Parameters,
+                    sample: false,
+                    dark: true,
+                    scale,
+                    size,
+                    mode: UpgradeMode::App,
+                    stale: false,
+                });
+            }
+            for (name, page, size) in [
+                ("controls-fault", Page::Home, Vec2::new(1366.0, 768.0)),
+                (
+                    "controls-fault-history",
+                    Page::Home,
+                    Vec2::new(1024.0, 700.0),
+                ),
+                (
+                    "controls-calibration-lut-running",
+                    Page::Calibration,
+                    Vec2::new(1366.0, 768.0),
+                ),
+                (
+                    "controls-calibration-lut-1024",
+                    Page::Calibration,
+                    Vec2::new(1024.0, 700.0),
+                ),
+                (
+                    "controls-calibration-electrical-saved",
+                    Page::Calibration,
+                    Vec2::new(1366.0, 768.0),
+                ),
+                (
+                    "controls-calibration-mechanical",
+                    Page::Calibration,
+                    Vec2::new(1366.0, 768.0),
+                ),
+                (
+                    "controls-calibration-cancelled",
+                    Page::Calibration,
+                    Vec2::new(1366.0, 768.0),
+                ),
+            ] {
+                steps.push(Step {
+                    name,
+                    page,
+                    sample: false,
+                    dark: true,
+                    scale: 1.0,
+                    size,
+                    mode: UpgradeMode::App,
+                    stale: false,
+                });
+            }
             for (name, size) in [
                 ("workbench-vq", Vec2::new(1366.0, 768.0)),
                 ("workbench-iq", Vec2::new(1366.0, 768.0)),
@@ -86,6 +151,7 @@ impl PreviewRun {
                 ("controls-idle", true, Vec2::new(1366.0, 768.0)),
                 ("controls-running", true, Vec2::new(1366.0, 768.0)),
                 ("controls-hard-stop", true, Vec2::new(1024.0, 700.0)),
+                ("controls-lease-history", true, Vec2::new(1024.0, 700.0)),
             ] {
                 steps.push(Step {
                     name,
@@ -184,14 +250,84 @@ impl PreviewRun {
                 });
             }
         }
-        Self {
+        if single.is_none() {
+            for (page, names) in [
+                (
+                    Page::Connection,
+                    [
+                        "studio-center-100",
+                        "studio-center-125",
+                        "studio-center-150",
+                        "studio-center-175",
+                        "studio-center-200",
+                    ],
+                ),
+                (
+                    Page::Workbench,
+                    [
+                        "studio-motion-100",
+                        "studio-motion-125",
+                        "studio-motion-150",
+                        "studio-motion-175",
+                        "studio-motion-200",
+                    ],
+                ),
+                (
+                    Page::Parameters,
+                    [
+                        "studio-params-100",
+                        "studio-params-125",
+                        "studio-params-150",
+                        "studio-params-175",
+                        "studio-params-200",
+                    ],
+                ),
+            ] {
+                for (index, name) in names.into_iter().enumerate() {
+                    steps.push(Step {
+                        name,
+                        page,
+                        sample: true,
+                        dark: index != 2,
+                        scale: 1.0 + index as f32 * 0.25,
+                        size: if index == 4 {
+                            Vec2::new(1024.0, 700.0)
+                        } else {
+                            Vec2::new(1366.0, 768.0)
+                        },
+                        mode: UpgradeMode::App,
+                        stale: false,
+                    });
+                }
+            }
+        }
+        if single.is_none() {
+            for (name, page, height) in [
+                ("studio-reference-empty", Page::Connection, 720.0),
+                ("studio-reference-center", Page::Connection, 720.0),
+                ("studio-reference-motion", Page::Workbench, 706.0),
+                ("studio-reference-parameters", Page::Parameters, 706.0),
+            ] {
+                steps.push(Step {
+                    name,
+                    page,
+                    sample: true,
+                    dark: true,
+                    scale: 1.0,
+                    size: Vec2::new(1080.0, height),
+                    mode: UpgradeMode::App,
+                    stale: false,
+                });
+            }
+        }
+        Some(Self {
             directory,
             single,
             steps,
             index: 0,
             frames: 0,
             report: vec![],
-        }
+        })
     }
 
     pub(super) fn theme_menu(&self) -> bool {
@@ -215,7 +351,9 @@ impl PreviewRun {
         }
         let step = &self.steps[self.index];
         if self.frames == 0 {
+            egui::Popup::close_all(ctx);
             app.page = step.page;
+            app.add_device_open = step.name == "connection-bitrate";
             app.bitrates = if step.name == "connection-bitrate" {
                 Bitrates {
                     arbitration: 500_000,
@@ -226,6 +364,7 @@ impl PreviewRun {
             };
             app.motor_draft = crate::motor_configuration::Draft::default();
             app.motor_thermal.clear();
+            app.parameter_state = parameters::State::preview(step.name);
             if step.name == "parameters-yq" {
                 app.motor_draft.model = crate::motor_configuration::Model::Yq5740;
                 app.motor_draft.node = 6;
@@ -240,34 +379,7 @@ impl PreviewRun {
             } else {
                 ControlMode::Speed
             };
-            app.capture = if step.sample {
-                Capture::preview_record()
-            } else {
-                Capture::default()
-            };
-            // 示例也遵循所选模式的反馈语义，避免展示该模式没有的参考量。
-            for sample in &mut app.capture.samples {
-                match app.control_mode {
-                    ControlMode::Voltage => {
-                        sample.values[4] = None;
-                    }
-                    ControlMode::Torque => {
-                        sample.values[4] = None;
-                        sample.values[5] = Some(0.3);
-                    }
-                    ControlMode::Position => {
-                        let x = (sample.time_s - 3.0).max(0.0);
-                        sample.values[0] = Some(0.12 * (1.0 - (-x * 1.8).exp()));
-                        sample.values[3] = Some(0.12 * (1.0 - (-x * 2.0).exp()));
-                        sample.values[1] = Some(0.216 * (-x * 1.8).exp());
-                        sample.values[4] = Some(0.24 * (-x * 2.0).exp());
-                    }
-                    ControlMode::Speed => {}
-                }
-            }
-            if let Some(worker) = &app.curve_worker {
-                worker.reset(app.capture.samples.iter().cloned().collect());
-            }
+            app.load_preview_record(step.sample);
             app.theme = if step.dark {
                 egui::ThemePreference::Dark
             } else {
@@ -278,6 +390,8 @@ impl PreviewRun {
             app.connected = false;
             app.hard_stop = false;
             app.acknowledged = false;
+            app.task_index = 0;
+            app.operation_pending = false;
             if step.name.starts_with("controls-") {
                 app.connected = true;
                 app.bound_uid = "PREVIEW-NO-DEVICE".into();
@@ -315,6 +429,55 @@ impl PreviewRun {
                     app.snapshot.feedback_at =
                         Some(std::time::Instant::now() - Duration::from_secs(8));
                     app.status = "离线示例 · 通信超时后硬停，等待状态确认".into();
+                } else if step.name == "controls-lease-history" {
+                    app.snapshot.motion_lease_error = Some(
+                        "未找到已有续租高水位；禁止从1重新开始，请恢复原主机的计数记录".into(),
+                    );
+                }
+                if step.name.starts_with("controls-fault") {
+                    app.snapshot.faults = 1 | (1 << 6);
+                    app.snapshot.motor_state = 8;
+                    if step.name.ends_with("history") {
+                        app.connected = false;
+                        app.snapshot.feedback_at =
+                            Some(std::time::Instant::now() - Duration::from_secs(8));
+                    }
+                }
+                let job = match step.name {
+                    "controls-calibration-lut-running" | "controls-calibration-lut-1024" => {
+                        Some((1, 0, 1, 1, 0x1001_u16))
+                    }
+                    "controls-calibration-electrical-saved" => Some((2, 1, 2, 2, 0)),
+                    "controls-calibration-cancelled" => Some((1, 0, 4, 2, 0)),
+                    _ => None,
+                };
+                if step.name == "controls-calibration-mechanical" {
+                    app.task_index = 2;
+                }
+                if let Some((kind, index, phase, effects, detail)) = job {
+                    app.task_index = index;
+                    app.snapshot.calibration = Some(
+                        crate::calibration::Job::parse(&[
+                            0,
+                            0,
+                            detail as u8,
+                            (detail >> 8) as u8,
+                            42,
+                            0,
+                            0,
+                            0,
+                            kind,
+                            0,
+                            phase,
+                            effects,
+                        ])
+                        .unwrap(),
+                    );
+                    if phase == 1 {
+                        app.snapshot.motor_state = 4;
+                        app.snapshot.motion_may_run = true;
+                        app.snapshot.stop_confirmed = false;
+                    }
                 }
             }
             app.window_s = 30.0;
@@ -325,6 +488,19 @@ impl PreviewRun {
                 app.snapshot.speed_rad_s = Some(0.0);
                 app.snapshot.iq_a = Some(0.0);
                 app.snapshot.feedback_at = Some(std::time::Instant::now() - Duration::from_secs(8));
+            }
+            if step.name.starts_with("studio-") {
+                app.studio = Some(studio::Scenario::Disconnected);
+                app.init_studio();
+                if step.page != Page::Connection || step.name == "studio-reference-center" {
+                    app.set_studio_scenario(studio::Scenario::Idle);
+                    if step.name == "studio-reference-parameters" {
+                        app.parameter_state = parameters::State::preview("all");
+                        app.parameter_state.studio_values(&app.bound_uid);
+                    } else {
+                        app.parameter_state.focus_group("current");
+                    }
+                }
             }
             ctx.set_pixels_per_point(step.scale);
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(step.size));
@@ -360,6 +536,8 @@ impl PreviewRun {
                 "sample_count":app.capture.samples.len(),"preview":true,"connected":app.connected,
                 "control_mode":app.control_mode.wire(), "arbitration_bps":app.bitrates.arbitration,
                 "data_bps":app.bitrates.data,
+                "fault_bits":app.snapshot.faults,
+                "calibration":app.snapshot.calibration.as_ref().map(|job|serde_json::json!({"kind":job.kind as u16,"phase":job.phase,"effects":job.effects})),
                 "controls":app.control_evidence,"saved":saved.is_ok()}));
             if let Err(error) = saved {
                 eprintln!("预览保存失败：{error}");

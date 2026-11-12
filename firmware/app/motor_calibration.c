@@ -5,6 +5,17 @@
 
 MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
 {
+    const float motor_limit_rad_s =
+        MOTOR_CALIBRATION_OUTPUT_SPEED_LIMIT_RAD_S * calibration->output->params.gear_ratio;
+    const float measured_rad_s = Encoder_GetMechVel(calibration->drive.encoder);
+    if (!isfinite(measured_rad_s))
+    {
+        return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
+    }
+    if (fabsf(measured_rad_s) > motor_limit_rad_s)
+    {
+        return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_CALIBRATION_OVERSPEED};
+    }
     switch (MotorStateMachine_GetCalibrationType(calibration->state_machine))
     {
     case MOTOR_CALIBRATION_ENCODER_LINEARIZATION:

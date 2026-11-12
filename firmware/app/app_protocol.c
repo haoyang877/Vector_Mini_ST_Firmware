@@ -370,6 +370,7 @@ static uint32_t encode_fault_bits(MotorFaultCode error)
         return 1U << 9U;
     case MOTOR_FAULT_CURRENT_OFFSET:
     case MOTOR_FAULT_COGGING_CALIBRATION:
+    case MOTOR_FAULT_CALIBRATION_OVERSPEED:
     case MOTOR_FAULT_LINEAR_HALL_CALIBRATION:
         return 1U << 14U;
     case MOTOR_FAULT_PHASE_RESISTANCE:

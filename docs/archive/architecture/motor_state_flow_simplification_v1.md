@@ -1,8 +1,10 @@
 # 五状态跳转与请求处理
 
+归档于 2026-11-10。本文保留旧阶段的设计与行为；当前实现见[电机状态机](../../architecture/motor_state_machine_v1.md)和[文件职责](../../architecture/code_structure.md)。
+
 更新日期：2026-10-30。旧八态方案由五态重写取代，自检暂不实现。
 
-详见[五状态核心](motor_state_machine_v1.md)。实际迁移只有：
+详见[五状态核心](../../architecture/motor_state_machine_v1.md)。实际迁移只有：
 
 - 上电 → 空闲。
 - 空闲 + 实际启相确认 → 运行。

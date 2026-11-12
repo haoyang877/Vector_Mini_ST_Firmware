@@ -65,6 +65,7 @@ int main(int argc, char **argv)
     Param_Upload(&record, &configuration);
     Param_Download(&record, sizeof(record), &configuration);
     if (configuration.preset != p || configuration.device.node_id != node ||
+        configuration.device.encoder.reverse != 0U || record.encoder_reverse != 0U ||
         configuration.configuration_confirmed != (argv[5][0] == '1'))
     {
         fputs("record failed firmware readback\n", stderr);

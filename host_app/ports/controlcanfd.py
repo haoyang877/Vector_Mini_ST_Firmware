@@ -66,7 +66,8 @@ class ControlCanFd:
         device_index: int = 0,
         *,
         channel_index: int = 0,
-        nominal_bps: int = DEFAULT_NOMINAL_BPS,
+        nominal_bps: int | None = None,
+        arb_bps: int | None = None,
         data_bps: int = DEFAULT_DATA_BPS,
     ) -> None:
         if type(device_index) is not int or not 0 <= device_index <= 0xFFFFFFFF:
@@ -76,12 +77,25 @@ class ControlCanFd:
         self.channel_index = channel_index
         self.dll_path = dll_path.resolve()
         self.device_index = device_index
-        self.nominal_bps = nominal_bps
+        if arb_bps is not None:
+            if nominal_bps is not None and nominal_bps != arb_bps:
+                raise ValueError("arb_bps 和 nominal_bps 须指定同一仲裁速率")
+            nominal_bps = arb_bps
+        self.nominal_bps = DEFAULT_NOMINAL_BPS if nominal_bps is None else nominal_bps
         self.data_bps = data_bps
         self.device = None
         self.channel = None
         self._rx_buffer = (_RXFD * 32)()
         self.pending: list[tuple[int, bytes]] = []
+
+    @property
+    def arb_bps(self) -> int:
+        """兼容链路测试工具使用的仲裁段速率名称。"""
+        return self.nominal_bps
+
+    @arb_bps.setter
+    def arb_bps(self, value: int) -> None:
+        self.nominal_bps = value
 
     def __enter__(self) -> ControlCanFd:
         """加载用户指定SDK并打开唯一台架通道；任一步失败关闭本次设备。"""
@@ -108,7 +122,7 @@ class ControlCanFd:
                 ("ZCAN_SetCANFDStandard", 0),
             ):
                 if getattr(self.dll, name)(self.device, self.channel_index, value) != 1:
-                    raise OSError(name + "失败")
+                    raise OSError(f"{name} 设置 {value} 失败")
             config = _CHANNEL_CONFIG()
             config.can_type = 1
             self.channel = self.dll.ZCAN_InitCAN(self.device, self.channel_index, C.byref(config))

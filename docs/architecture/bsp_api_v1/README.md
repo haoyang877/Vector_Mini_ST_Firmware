@@ -6,7 +6,8 @@
 2026-10-30更新：CAN两板已统一最简接口，本目录副本与当前公开头同步；
 旧票据/保护约定由[当前CAN链路](../can_chain_v1.md)取代，本轮未编译、未测试。
 
-当前为8个公开头、39个函数声明（含3个应用回调）；内部初始化和单相台架接口不计入公开面。正式声明在[firmware/platform/bsp/include](../../../firmware/platform/bsp/include)，
+2026-11-10 增加 `BspSystem_Reset`，用于停机型号配置的显式重启；调用者先确认关相、禁止启动及回复发送完成。
+当前为8个公开头、40个函数声明（含3个应用回调）；内部初始化和单相台架接口不计入公开面。正式声明在[firmware/platform/bsp/include](../../../firmware/platform/bsp/include)，
 本目录保留一致副本供接口文档引用。完整[分层、函数索引和两板差异](../bsp_interfaces_v1.md)。
 
 - [执行约定](EXECUTION.md)：生命周期、快帧、许可、事务、错误及恢复。

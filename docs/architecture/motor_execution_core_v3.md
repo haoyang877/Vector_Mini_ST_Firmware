@@ -1,16 +1,16 @@
 # 核心控制执行模块
 
-更新：2026-10-21。当前模式包括电流、速度、位置、q轴电压及开环电压/电流。
+核对基线：176f3c7e。当前模式包括电流、速度、位置、q轴电压及开环电压/电流。
 
 ## 模块边界
 
 主状态机批准模式和目标，MotorAxis调度，motor层的motor_control执行一拍控制。
 控制任务不自行启相、不切换主状态、不写Flash；错误由所有者处理。
 
-MotorAxis_FastTick按编码器启动、母线与相电流采样、观测器、编码器更新、
+MotorAxis_SampleFast 与 MotorAxis_ControlFast 依次按编码器启动、母线与相电流采样、观测器、编码器更新、
 故障检查、维护或控制、结果发布的顺序执行。校零未完成时只累计原码，不读取被丢弃的
 三相物理电流。维护、普通控制和空闲预载互斥，所有分支统一发布结果并复核关断。
-本轮仅完成源码精简，未编译、未测试或测量执行时间。
+
 
 磁链观测器接口只借用电机模型和αβ电流/电压物理值，不读取整份配置、测量对象或FOC状态。
 MotorAxis在观测器调用前完成本拍电流的Clarke变换，并以原式
@@ -24,7 +24,7 @@ MotorAxis在观测器调用前完成本拍电流的Clarke变换，并以原式
 | 源码 | 核心工作 |
 | --- | --- |
 | [motor_state_machine.c](../../firmware/app/motor_state_machine.c) | 五态判断与功率动作、控制目标校验与写入、外环输入和反馈快照 |
-| [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调速度/位置外环（AT32F456/YQ-5708 每 250 µs，其余配置每 500 µs），分发20kHz任务；不读取APP状态机或服务命令 |
+| [motor_control.c](../../firmware/motor/control/motor_control.c) | 协调速度/位置外环（AT32F456 每 250 µs，STM32G431 每 500 µs），分发20kHz任务；不读取APP状态机或服务命令 |
 | [position_control.c](../../firmware/motor/control/position_control.c) | 位置 OTG 参考 → 位置PD → 限幅速度参考 → 速度PI → 电流参考 |
 | [foc.c](../../firmware/motor/control/foc.c) | 电流变换、d/q PI、电压限幅与调制，显式绑定控制器配置 |
 | [foc_output.c](../../firmware/motor/control/foc_output.c) | 调用FOC计算、提交PWM并完成后处理；提交失败仍报告故障 |
@@ -59,7 +59,7 @@ PI 输出受相电流额度约束，限流下调立即生效。目标更新保�
 
 ## 阅读与操作入口
 
-先看MotorAxis的SupervisorTick/FastTick，再看执行模块，最后读具体算法。
+先读 MotorAxis 的 SampleFast、ControlFast、SupervisorTick 和 OuterTick，再按模式进入控制算法。
 启动用117，运行中同模式目标用116，切模式先STOP再START。
 请求格式见[启动v0.2](../protocols/README.md#control)。
 软件接线不等于完成当前候选的实机验收。

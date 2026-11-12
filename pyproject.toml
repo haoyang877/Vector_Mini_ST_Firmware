@@ -8,6 +8,7 @@ dependencies = []
 [project.optional-dependencies]
 maintenance = [
   "intelhex==2.3.0",
+  "pyelftools==0.32",
   "pylink-square==2.0.2",
 ]
 test = [

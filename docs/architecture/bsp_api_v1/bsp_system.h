@@ -16,10 +16,27 @@ extern "C"
 #define BSP_SYSTEM_UID_BYTES 12U
 #define BSP_SYSTEM_IDENTITY_BYTES 64U
 
+    /**
+     * @brief 处理本板监督定时器中断，确认事件后通知应用慢环。
+     * @note 仅由APP映射的监督向量调用；保留HAL处理及辅助采样触发顺序。
+     */
+    void BspSystem_HandleControlInterrupt(void);
 #if defined(FIRMWARE_TARGET_AT32_OFF)
     /** @brief AT32 正式 APP 在有效 ADC 分频后请求可由快环抢占的外环执行。 */
     void BspSystem_PendOuterTick(void);
+    /** @brief 在开放 ADC 中断前启用 CPU 周期计数。 */
+    void BspSystem_StartCycleCounter(void);
+    /** @brief 读取用于快环执行时间测量的硬件周期计数。
+     * @return 自然回绕的 CPU 周期数。
+     */
+    uint32_t BspSystem_CycleCount(void);
 #endif
+
+    /**
+     * @brief 推进本板1ms时基。
+     * @note 仅由SysTick向量调用；AT32累加毫秒计数，STM32维护原HAL时基。
+     */
+    void BspSystem_HandleTickInterrupt(void);
 
     /**
      * @brief 读取单调递增的毫秒时间。
@@ -27,6 +44,12 @@ extern "C"
      * @note Init成功后前台/ISR有界调用；差值使用uint32_t无符号减法。
      */
     uint32_t BspSystem_TimeMs(void);
+
+    /**
+     * @brief 执行芯片软件复位，重新装载已保存配置。
+     * @note 仅前台在确认实际关相、禁止启动且回复发送完成后调用；生产实现不返回。
+     */
+    void BspSystem_Reset(void);
 
     /**
      * @brief 保存并屏蔽可屏蔽中断。

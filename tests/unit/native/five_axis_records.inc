@@ -71,20 +71,20 @@ static void check_bitrate(const InterfaceParam *original)
 int main(void)
 {
     const MotorJointType roles[] = {MOTOR_JOINT_WHEEL_LEFT, MOTOR_JOINT_WHEEL_RIGHT,
-                                    MOTOR_JOINT_ROLL, MOTOR_JOINT_PITCH, MOTOR_JOINT_YAW};
+                                    MOTOR_JOINT_ROLL, MOTOR_JOINT_PITCH, MOTOR_JOINT_YAW, MOTOR_JOINT_LIFT};
     MotorWindingThermalConfig heat = {3, 7, 66, .8f, .7f, 1, .5f};
     InterfaceParam record;
     Param_Return_Default(&configuration);
     assert(configuration.device.node_id == UINT8_MAX && !configuration.configuration_confirmed);
     assert(!Param_CreateAxis(6, -1, 1, .5f, NULL, &configuration));
-    for (unsigned node = 3; node <= 7; ++node)
+    for (unsigned node = 3; node <= 8; ++node)
     {
-        bool wheel = node < 5, ht = node <= 5;
+        bool wheel = node < 5, ht = node <= 5, pitch_parameters = node == 6 || node == 8;
         bool unrestricted = wheel;
 #if MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS
         unrestricted = true;
 #elif MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
-        unrestricted = wheel || node == 6;
+        unrestricted = wheel || pitch_parameters;
 #endif
         assert(Param_CreateAxis(node, wheel ? 0 : -1, wheel ? 0 : 1, .5f, &heat, &configuration));
         Param_Upload(&record, &configuration);
@@ -100,10 +100,10 @@ int main(void)
         Param_Download(&record, sizeof(record), &configuration);
         const MotorAxisPreset *p = configuration.preset;
         assert(configuration.configuration_confirmed && p && p->node_id == node);
-        assert(strcmp(p->model_name, ht ? "HT8115-4" : node == 6 ? "YQ-5740" : "YQ-5708") == 0);
+        assert(strcmp(p->model_name, ht ? "HT8115-4" : pitch_parameters ? "YQ-5740" : "YQ-5708") == 0);
         assert(p->joint == roles[node-3] && configuration.model.motor_pole_pairs == (ht ? 21 : 14));
         assert(configuration.model.motor_phase_resistance_ohm == (ht ? 1.905f : .55f));
-        assert(configuration.model.calibration_current_a == (ht ? 3.f : 1.6f));
+        assert(configuration.model.calibration_current_a == (node == 5 ? 5.f : ht ? 3.f : 1.6f));
         assert(configuration.application.current_limit_a == 7);
         assert(configuration.model.thermal.continuous_vector_a == 3);
         if (node == 5)
@@ -119,10 +119,10 @@ int main(void)
         if (node >= 6)
         {
             const float ratio = p->gear_ratio;
-            const float output_limit = 2.094395102f;
+            const float output_limit = pitch_parameters ? 30.0f : 2.094395102f;
             assert(fabsf(p->speed_ceiling_rad_s / ratio - output_limit) < 1e-6f);
-            assert(fabsf(p->control.acceleration_rad_s2 / ratio - output_limit) < 1e-6f);
-            assert(fabsf(p->control.deceleration_rad_s2 / ratio - output_limit) < 1e-6f);
+            assert(fabsf(p->control.acceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
+            assert(fabsf(p->control.deceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
             MotorConfiguration full;
             assert(Param_CreateAxis(node, -1, 1, output_limit * ratio, &heat, &full));
             assert(!Param_CreateAxis(node, -1, 1, (output_limit + 0.001f) * ratio, &heat, &full));
@@ -131,13 +131,13 @@ int main(void)
         assert(configuration.application.speed_ki == (node == 5 ? 1.f : .5f));
         assert(fabsf(configuration.model.iq_kp - (ht ? 12.32761f : .60995855f)) < .0001f);
         assert(fabsf(configuration.model.iq_ki - (ht ? 14363.36f : 3226.22067f)) < .01f);
-        assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : node == 6 ? 336 : 420));
+        assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : pitch_parameters ? 336 : 420));
         assert(p->electrical->speed_pll_hz == 600);
         assert(p->gear_ratio == (ht ? 1 : 40));
         assert(p->electrical->observer_gamma == 800000);
         assert(configuration.device.encoder.linearization_lut_q15[71] == -42);
         assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));
-        assert(MotorAxisPreset_HasLinearHall(p) == (node == 6 || node == 7));
+        assert(MotorAxisPreset_HasLinearHall(p) == (!ht));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, 0, 0));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, -8.0f, 14.0f) == unrestricted);
         assert(MotorAxisProfile_TargetWithinBounds(&record.axis_profile, -16.0f) == unrestricted);
@@ -159,7 +159,7 @@ int main(void)
         }
         if (!wheel)
         {
-            const float degrees = node == 5 ? 150.0f : node == 6 ? 30.0f : 180.0f;
+            const float degrees = node == 5 ? 150.0f : pitch_parameters ? 30.0f : 180.0f;
             assert(fabsf(p->output_travel_limit_rad - degrees * 0.01745329252f) < 1e-6f);
             const float limit = p->output_travel_limit_rad * p->gear_ratio;
             MotorConfiguration full;
@@ -173,7 +173,7 @@ int main(void)
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, -limit - 1.0f) == unrestricted);
             InterfaceParam old = record;
             old.axis_profile.minimum_position_rad = -21.949001f;
-            old.axis_profile.maximum_position_rad = node == 6 ? 19.939001f : 1.0f;
+            old.axis_profile.maximum_position_rad = pitch_parameters ? 19.939001f : 1.0f;
             old.axis_profile.crc32 = Crc32_Compute(&old.axis_profile, offsetof(MotorAxisProfile, crc32), 0);
             old.record_crc32 = Param_RecordCrc(&old);
             Param_Download(&old, sizeof(old), &full);
@@ -216,6 +216,6 @@ int main(void)
     record.record_crc32 ^= 1;
     Param_Download(&record, sizeof(record), &configuration);
     assert(!configuration.preset && !configuration.configuration_confirmed);
-    puts("PASS five-axis record matrix, limits, mismatches and reboot");
+    puts("PASS six-axis record matrix, limits, mismatches and reboot");
     return 0;
 }

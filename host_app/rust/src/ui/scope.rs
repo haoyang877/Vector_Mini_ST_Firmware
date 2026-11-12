@@ -334,17 +334,23 @@ pub(super) fn plot(
             egui::Color32::from_rgb(127, 71, 174),
         ][channel]
     };
-    painter.rect_filled(rect, 2.0, c.panel);
-    painter.rect_stroke(rect, 2.0, Stroke::new(1.0, c.line), StrokeKind::Inside);
-    painter.line_segment(
-        [
-            rect.left_top() + Vec2::new(1.0, 10.0),
-            rect.left_top() + Vec2::new(1.0, 24.0),
-        ],
-        Stroke::new(2.0, signal),
+    let dark = ui.ctx().theme() == egui::Theme::Dark;
+    let grid = if dark {
+        egui::Color32::from_rgb(93, 86, 109)
+    } else {
+        c.line
+    };
+    painter.rect_filled(
+        rect,
+        0.0,
+        if dark {
+            egui::Color32::from_rgb(38, 34, 53)
+        } else {
+            c.panel
+        },
     );
     let chart = Rect::from_min_max(
-        rect.min + Vec2::new(66.0, 35.0),
+        rect.min + Vec2::new(if rect.width() > 450.0 { 82.0 } else { 56.0 }, 36.0),
         rect.max - Vec2::new(18.0, 24.0),
     );
     if !chart.is_positive() {
@@ -356,14 +362,21 @@ pub(super) fn plot(
     let (low, high) = curve.range;
     let sx = |time: f64| chart.left() + ((time - start) / (end - start)) as f32 * chart.width();
     let sy = |value: f64| chart.bottom() - ((value - low) / (high - low)) as f32 * chart.height();
-    let font = FontId::proportional(12.0);
+    let font = FontId::proportional(if rect.width() > 450.0 { 14.0 } else { 12.0 });
     let title = ["位置 · rad", "速度 · rad/s", "电流 Iq · A", "电压 Vq · V"][channel];
     painter.text(
         rect.min + Vec2::new(12.0, 9.0),
         Align2::LEFT_TOP,
-        title,
-        font.clone(),
-        signal,
+        format!(
+            "{title}   {}",
+            curve
+                .actual
+                .last()
+                .and_then(|path| path.last())
+                .map_or("—".into(), |p| format!("{:.3}", p[1]))
+        ),
+        FontId::proportional(if rect.width() > 450.0 { 17.0 } else { 13.0 }),
+        c.ink,
     );
     painter.text(
         rect.right_top() + Vec2::new(-12.0, 9.0),
@@ -383,7 +396,7 @@ pub(super) fn plot(
         let y = sy(value);
         painter.line_segment(
             [Pos2::new(chart.left(), y), Pos2::new(chart.right(), y)],
-            Stroke::new(0.6, c.line),
+            Stroke::new(0.7, grid),
         );
         painter.text(
             Pos2::new(chart.left() - 8.0, y),
@@ -398,7 +411,7 @@ pub(super) fn plot(
         let x = sx(t);
         painter.line_segment(
             [Pos2::new(x, chart.top()), Pos2::new(x, chart.bottom())],
-            Stroke::new(0.6, c.line),
+            Stroke::new(0.7, grid),
         );
         painter.text(
             Pos2::new(x, chart.bottom() + 5.0),
@@ -414,6 +427,7 @@ pub(super) fn plot(
             c.muted,
         );
     }
+    painter.rect_stroke(chart, 0.0, Stroke::new(0.8, c.muted), StrokeKind::Inside);
     let draw_series = |paths: &[Vec<[f64; 2]>], dashed: bool| {
         for points in paths {
             let path: Vec<_> = points

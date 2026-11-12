@@ -29,7 +29,8 @@ typedef enum
     MOTOR_JOINT_PITCH = 2,
     MOTOR_JOINT_YAW = 3,
     MOTOR_JOINT_WHEEL_RIGHT = 4,
-    MOTOR_JOINT_WHEEL_LEFT = 5
+    MOTOR_JOINT_WHEEL_LEFT = 5,
+    MOTOR_JOINT_LIFT = 6
 } MotorJointType;
 
 /* 参数尾部的独立版本轴记录；小端 IEEE-754 binary32 目标上为 32 字节。
@@ -82,8 +83,9 @@ static inline bool MotorAxisProfile_UsesPositionLimits(const MotorAxisProfile *p
         profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
     {
         uint32_t joint = profile->identity.numeric.joint_type;
-        if (joint == MOTOR_JOINT_PITCH || (MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS &&
-                                           (joint == MOTOR_JOINT_ROLL || joint == MOTOR_JOINT_YAW)))
+        if (joint == MOTOR_JOINT_PITCH || joint == MOTOR_JOINT_LIFT ||
+            (MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS &&
+             (joint == MOTOR_JOINT_ROLL || joint == MOTOR_JOINT_YAW)))
         {
             return false;
         }
@@ -130,8 +132,9 @@ static inline bool MotorAxisProfile_AllowsPosition(const MotorAxisProfile *profi
              (profile->identity.numeric.joint_type == MOTOR_JOINT_ROLL ||
               profile->identity.numeric.joint_type == MOTOR_JOINT_PITCH)) ||
             (profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION &&
-             profile->identity.numeric.joint_type >= MOTOR_JOINT_ROLL &&
-             profile->identity.numeric.joint_type <= MOTOR_JOINT_YAW)) &&
+             ((profile->identity.numeric.joint_type >= MOTOR_JOINT_ROLL &&
+               profile->identity.numeric.joint_type <= MOTOR_JOINT_YAW) ||
+              profile->identity.numeric.joint_type == MOTOR_JOINT_LIFT))) &&
            (profile->magic == 0U ||
             (actual > profile->minimum_position_rad && actual < profile->maximum_position_rad &&
              MotorAxisProfile_TargetWithinBounds(profile, target)));
@@ -151,7 +154,9 @@ static inline uint32_t MotorAxisProfile_JointType(const MotorAxisProfile *profil
     }
     if (profile->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         profile->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION &&
-        profile->identity.numeric.joint_type <= MOTOR_JOINT_WHEEL_LEFT)
+        (profile->identity.numeric.joint_type <= MOTOR_JOINT_WHEEL_LEFT ||
+         (profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION &&
+          profile->identity.numeric.joint_type == MOTOR_JOINT_LIFT)))
     {
         return profile->identity.numeric.joint_type;
     }
@@ -188,7 +193,8 @@ static inline int32_t MotorAxisProfile_InitialEncoderOffsetQ15(const MotorAxisPr
         return single_turn_difference;
     }
     joint_type = MotorAxisProfile_JointType(profile);
-    if ((joint_type != MOTOR_JOINT_ROLL && joint_type != MOTOR_JOINT_PITCH) ||
+    if ((joint_type != MOTOR_JOINT_ROLL && joint_type != MOTOR_JOINT_PITCH &&
+         joint_type != MOTOR_JOINT_LIFT) ||
         !(profile->minimum_position_rad > -3.141592654f &&
           profile->maximum_position_rad < 3.141592654f &&
           profile->minimum_position_rad < profile->maximum_position_rad))

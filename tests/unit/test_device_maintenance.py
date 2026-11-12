@@ -34,7 +34,7 @@ class Probe:
         return [self.registers.get(address, 0)]
 
     def memory_write32(self, address, values):
-        if address not in (0xE0042008, 0x40003000, 0x40003004, 0x40003008, 0x40003010):
+        if address not in (0xE000EDFC, 0xE0042008, 0x40003000, 0x40003004, 0x40003008, 0x40003010):
             raise RuntimeError("Unexpected register write")
         self.registers[address] = values[0]
 
@@ -70,6 +70,39 @@ class MaintenanceTests(unittest.TestCase):
             self.probe, self.target, self.probe.uid, self.directory / "snapshot"
         )
         self.assertEqual(report["flash"]["bytes"], 262144)
+        self.assertEqual((self.probe.writes, self.probe.halts), ([], 0))
+
+    def test_auto_uid_reads_the_target_register_and_rejects_fill_values(self):
+        reads = []
+
+        def read_uid(register, count):
+            reads.append((register, count))
+            return self.probe.uid
+
+        self.probe.memory_read8 = read_uid
+        for name, address in (
+            ("yg_esc_v1_at32f456", 0x1FFFF7E8),
+            ("vector_mini_st_g431", 0x1FFF7590),
+        ):
+            target = maintenance.load_target(name)
+            reads.clear()
+            self.probe.uid = bytes(range(12))
+            self.assertEqual(maintenance.read_mcu_uid(self.probe, target), self.probe.uid)
+            self.assertEqual(reads, [(address, 12)] * 2)
+            for invalid in (bytes(12), b"\xff" * 12):
+                self.probe.uid = invalid
+                with self.assertRaisesRegex(RuntimeError, "有效 MCU UID"):
+                    maintenance.read_mcu_uid(self.probe, target)
+
+    def test_changed_chip_after_auto_uid_is_rejected_before_install(self):
+        uid = maintenance.read_mcu_uid(self.probe, self.target)
+        self.probe.uid = uid[::-1]
+        image = bytearray(1024)
+        image[0x240:0x258] = b"\xff" * 24
+        with self.assertRaisesRegex(RuntimeError, "实际UID与绑定设备不符"):
+            maintenance.install(
+                self.probe, self.target, uid, bytes(256), bytes(image), self.directory / "install"
+            )
         self.assertEqual((self.probe.writes, self.probe.halts), ([], 0))
 
     def test_large_snapshot_uses_bounded_transactions_for_two_complete_passes(self):
@@ -121,8 +154,17 @@ class MaintenanceTests(unittest.TestCase):
         )
 
     def test_wrong_uid_has_no_write_or_halt(self):
+        self.probe.registers[0xE000EDFC] = 0x01000001
         with self.assertRaises(RuntimeError):
             maintenance.capture(self.probe, self.target, bytes(12), self.directory / "snapshot")
+        self.assertEqual((self.probe.writes, self.probe.halts), ([], 0))
+        self.assertEqual(self.probe.registers[0xE000EDFC], 0x01000001)
+
+    def test_backup_releases_reset_catch_even_when_output_check_fails(self):
+        self.probe.registers.update({0xE000EDFC: 0x01000001, 0x40020010: 0xE00})
+        with self.assertRaisesRegex(RuntimeError, "GPIOA=0xe00"):
+            maintenance.capture(self.probe, self.target, self.probe.uid, self.directory / "bad")
+        self.assertEqual(self.probe.registers[0xE000EDFC], 0x01000000)
         self.assertEqual((self.probe.writes, self.probe.halts), ([], 0))
 
     def test_migration_preserves_all_bytes_and_is_bound_to_snapshot(self):

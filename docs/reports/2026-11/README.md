@@ -1,5 +1,13 @@
 # 2026-11报告
 
+- [YG_MC_HOST v3.0.1续租计数回退防护](yg_mc_host_lease_counter_20261111.md)：真实5/0拒绝、使能前预留与缺失记录门禁；离线通过，回退来源与实机复测待确认。
+
+- [YG_MC_HOST v3.0.0候选验收](yg_mc_host_acceptance_20261111.md)：整体验收未通过；81项测试及PR通过，现有GUI续租拒绝后断联与曲线60Hz未达标仍阻断。
+
+- [YG_MC_HOST v3.0.0仪器工作台](yg_mc_host_instrument_20261111.md)：全参数表、81项测试和PITCH四模式GUI回归；曲线稳定60Hz、动态精度及正式发布限制见报告。
+
+- [APP 与 Loader 固件架构审查](app_loader_architecture_review_20261110.md)梳理双板的协议、状态机与文件职责，记录激活票据的两项故障注入结果。
+
 - [PITCH 1024 点 Hall LUT 与滤波验收](2026-11-06-hall-lut-1024-filter-v1.md)：独立数据峰值0.356°，延迟/时序及参数复位恢复通过，发布门禁限制见报告。
 
 - [PITCH 新板 Hall LUT 标定与精度检查](2026-11-06-hall-lut-new-board-v1.md)：标定、保存及软件复位恢复通过，0.5° 峰值门槛未通过，未提交。

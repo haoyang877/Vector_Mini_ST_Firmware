@@ -4,7 +4,7 @@
 
 日期：2026-10-08。状态：设计对照与第一批等价删除已保存；八状态与 INIT 线码已决定，实施独立推进。
 承接[讨论与交接 v1](2026-10-08-motor-state-flow-simplification-v1.md)，
-设计见[完整旧新出口、伪代码与变量归属](../../architecture/motor_state_flow_simplification_v1.md)。
+设计见[完整旧新出口、伪代码与变量归属](../architecture/motor_state_flow_simplification_v1.md)。
 
 ## 目标、保持行为与非目标
 

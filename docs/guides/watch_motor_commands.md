@@ -47,7 +47,8 @@ Loader 配套的 `ESC-APP-AT32F456` 和独立的 `ESC-APP-AT32F456-Standalone` �
 
 1. 确认轴在 IDLE、无故障、配置已确认。PITCH/YAW 联合标定采样需要连续旋转 100 电机轴圈，40:1 装配约为 2.5 输出轴圈，须在脱开机械限位的工装上执行。
 2. 写一次 `1` 请求编码器 LUT 标定。命令回零表示已读取。观察 `g_app.axis.state_machine.state` 进入 CALIBRATION，并通过 `g_app.axis.calibration.session.lut.phase` 查看进度。拒绝的请求不会重试。
-3. 中止时写一次 `2`，保持 CPU 运行直至关相。正常完成后，核对回到 IDLE、故障为 0、编码器 LUT 和电零位有效位，以及 PITCH/YAW 的 Hall 标定结果。[标定流程](calibration_process.md)
+3. 直驱轴在 LUT 保存后回到 IDLE，再写一次 `3` 请求电气零位标定。
+4. 中止时写一次 `2`，保持 CPU 运行直至关相。正常完成后，核对回到 IDLE、故障为 0、编码器 LUT 和电零位有效位，以及 PITCH/YAW 的 Hall 标定结果。[标定流程](calibration_process.md)
 
 ## Watch 1：状态、安全与维护
 
@@ -61,7 +62,7 @@ Loader 配套的 `ESC-APP-AT32F456` 和独立的 `ESC-APP-AT32F456-Standalone` �
 
 | 表达式 | 单位或含义 | 观察重点 |
 | --- | --- | --- |
-| `g_app.axis.state_machine.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，详见下方五态映射 |
+| `g_app.axis.state_machine.state` | 主状态枚举 | 待命为 IDLE；IDLE 不等于所有模式均可启动，见下方状态与线路映射 |
 | `g_app.axis.motor.control_mode` | 内部控制枚举 | 无待启动的 IDLE 为 NONE；START 受理后可先显示所选模式，不能据此认定已经启相 |
 | `g_app.axis.motor.fault_code` | 故障枚举 | NONE=0；其他值查 `motor_types.h`，不得手动清零 |
 | `g_app.axis.configuration.configuration_confirmed` | bool | 配置是否已确认；不能靠 Watch 写 true 绕过检查 |
@@ -88,7 +89,7 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 | `g_app.axis.rotor_encoder.mechanical_velocity_rad_s` | rad/s | 机械速度反馈；乘 `9.5492966` 换算 rpm |
 | `g_app.axis.motor.id_target_a` | A | d 轴电流目标 |
 | `g_app.axis.motor.iq_target_a` | A | q 轴电流目标；维护任务可能使用单独参考，需结合任务判断 |
-| `g_app.axis.foc.id_a` / `g_app.axis.foc.iq_a` | A | d/q 电流反馈；两条表达式分别添加 |
+| `g_app.axis.foc.current_dq_a.d` / `g_app.axis.foc.current_dq_a.q` | A | d/q 电流反馈；两条表达式分别添加 |
 | `g_app.axis.motor.position_target_rad` | rad | 位置目标 |
 | `g_app.axis.motor.position_reference_rad` | rad | 规划后的位置参考 |
 | `g_app.axis.rotor_encoder.mechanical_position_rad` | rad | 机械位置反馈 |
@@ -96,70 +97,11 @@ CCER 可能保留其他通道的位，不要求整个 CCER 寄存器为零。
 | `g_app.axis.rotor_encoder.sample_epoch` | 采样计数 | 每次角度更新推进 |
 | `g_app.axis.configuration.device.encoder.calib_flag` | bitmask | bit0 线性化、bit1 电零位、bit2 可选机械零位；属于配置，非动态采样状态 |
 
-## 参数布局与编号
+## 状态与线路映射
 
-### 上电电流零点与 PI 初始化
+上电后 Watch 中的主状态为 IDLE。SELF_TEST 保留枚举。当前关相零偏窗口为 2048 个有效快拍，按 20 kHz 约为 102.4 ms。控制器的轴对象见[APP 文件与公共入口](../../firmware/app/README.md)。
 
-本次修复后，上电保持三相关闭，累计1秒的新鲜ADC2 JEOS帧（20kHz下20000帧）。
-偏置采用四次求和乘0.25后的12位counts均值；成功前三相偏置及电流显示NAN，
-这表示尚无本次上电的有效校正结果，不应手动改成2048或绕过自检。
-当前上电 INIT 期限为1500ms；FAULT CLEAR 满足完整恢复条件后直接 IDLE，
-不会重新开始500ms自检。INIT STOP 不重启本次期限或健康窗口。
-完成校正只更新RAM及活动revision，不自动保存，也不自动启相。
-硬件采样、真实残余零电流及启动时间仍需实机验证。
-
-| 表达式 | 观察重点 |
-| --- | --- |
-| `s_current_offset_calibration.sample_count` | 新鲜帧计数，从0到20000，完成后不再累加 |
-| `s_current_offset_calibration.complete` | 成功后为true；不能单独证明整个自检完成 |
-| `s_current_offset_calibration.failed` | 输出、模式、原始范围或偏置失败；不自动重试 |
-| `g_app.axis.configuration.device.phase_a_offset_counts` | A相零点，成功后为1948..2148内实测均值 |
-| `g_app.axis.configuration.device.phase_b_offset_counts` | B相零点，不要求与A相相同 |
-| `g_app.axis.configuration.device.phase_c_offset_counts` | C相零点，不要求为固定2048 |
-| `g_app.axis.foc.id_pi` / `g_app.axis.foc.iq_pi` | 上电已配置活动Kp/Ki及Current_Ts；展开分别添加 |
-| `g_app.axis.speed_pi` | 上电已配置活动速度Kp/Ki、Speed_Ts和-1..1归一化输出限幅 |
-
-电流PI首次有效母线采样之前电压限幅为零；限幅刷新修复版在每次母线采样后，
-即使空闲也刷新d/q PI的output_min/output_max，单位为V，不是相电流额度A。
-范围复用FOC_MaximumVoltage（约±0.95×母线电压/√3），32.84V时约±18.01V；
-无效/非正母线对应零限幅，不改变PI增益、周期或积分状态。
-旧a2a6e97c候选仍有空闲限幅为零的遗漏，不能用该候选的观测替代新版本验收；
-新限幅修复候选须另行下载并加载匹配AXF，见[修复计划](../archive/plans/2026-09-29-current-pi-limit-refresh-v1.md)。
-活动参数在 `g_app.axis.configuration.model` 的 `id_kp/id_ki/iq_kp/iq_ki` 和
-`g_app.axis.configuration.application` 的 `speed_kp/speed_ki`，
-不以PI积分/输出为零判断增益缺失。校正失败时保持无效资格与锁存故障，
-先排除原因再重新上电，不通过Watch改值恢复。本修复增加运行对象，必须重建匹配AXF。
-
-当前配置独立于运行态，按 `model/application/device` 分类；下面只列当前有效表达式。
-RAM布局变化不由Flash schema编号识别，本次不改变schema14/12/13的存储长度、字段或CRC。
-必须新构建并使用与实际下载镜像匹配的AXF；旧AXF和旧字段路径不能继续用于新固件。
-本文不表示本轮构建或测试已经通过。
-
-| 参数 | 当前表达式 | 单位或含义 |
-| --- | --- | --- |
-| 极对数 | `g_app.axis.configuration.model.motor_pole_pairs` | 极对数 |
-| 校准电流 | `g_app.axis.configuration.model.calibration_current_a` | A |
-| 电流上限 | `g_app.axis.configuration.application.current_limit_a` | A |
-| 速度上限 | `g_app.axis.configuration.application.speed_limit_rad_s` | rad/s |
-| A 相零偏 | `g_app.axis.configuration.device.phase_a_offset_counts` | ADC counts |
-| LUT | `g_app.axis.configuration.device.encoder.linearization_lut_q15` | Q15角度修正表；展开数组只读观察 |
-| 电零位 | `g_app.axis.configuration.device.encoder.electrical_zero_q15` | Q15 |
-| 机械零位 | `g_app.axis.configuration.device.encoder.mechanical_zero_q15` | Q15 |
-| 编码器方向 | `g_app.axis.configuration.device.encoder.reverse` | 方向配置 |
-
-`g_app.axis.configuration.device.node_id` 是设备节点参数，
-`g_app.axis.configuration.application.speed_ceiling_rad_s` 是应用上限；不要通过 Watch 改动它们。
-采样电阻 `CURRENT_SENSE_SHUNT_MILLIOHM` 是编译宏，不是 Watch 可修改的 RAM 变量。
-6 mΩ 硬件需要核对实际构建输入为 `CURRENT_SENSE_SHUNT_MILLIOHM=6U`。
-
-内部主状态值：INIT=1、IDLE=2、STARTING=3、RUNNING=4、MAINTENANCE=5、
-STOPPING=6、FAULT=7、FATAL=8；0 不再是 BOOT 状态。
-CAN 反馈使用 INIT=3、IDLE=5、STARTING=2、RUNNING=6、STOPPING=7、FAULT=8、
-FATAL=9，MAINTENANCE 按任务投影为 4／5；线上 0 保留退役。
-INIT／IDLE STOP 原地保持，STOPPING 完成和 FAULT CLEAR 成功直接 IDLE，
-FATAL 没有软件出口。完整条件见[状态输入与跳转表](../architecture/motor_state_flow_simplification_v1.md)。
-内部控制模式值：CURRENT=0、SPEED=1、POSITION=2、VQ=3、NONE=4。
-这些值不是 CAN 编号；例如 CAN 速度模式 2 对应内部 SPEED=1。
+Watch 显示源码枚举；CAN 108/124 使用独立的线路编号。当前 IDLE、RUNNING、CALIBRATION、FAULT 对应线路值 5、6、4、8。START 受理后可以先看见模式和待启动意图，实际启相后主状态才变为 RUNNING。最近一次解析的命令位于 `g_app.endpoint.command`。[电机状态机](../architecture/motor_state_machine_v1.md) · [反馈格式](../protocols/README.md#feedback)
 
 ## 观察顺序与安全边界
 
@@ -168,7 +110,7 @@ FATAL 没有软件出口。完整条件见[状态输入与跳转表](../architec
 对应任务终态和资源释放一起判定，不能只看一个变量。
 
 - Watch 不用于写模式、目标、故障、生命周期上下文或 PWM；不调用内部函数绕过正式受理入口。
-- 当前 117 普通启动候选已接 CURRENT／SPEED／POSITION／VQ，116 只更新 RUNNING 同模式目标；
+- 当前 117 可请求电流、速度、位置、Vq、开环电压或开环电流模式，116 只更新 RUNNING 同模式目标；
   能力及实机边界见[普通启动 v0.2](../protocols/README.md#control)，Watch 不代替正式入口。
 - 电机出力时不用断点、单步或 Keil CPU Stop 停车。CPU 停止不保证定时器输出停止，
   固件保护与命令处理也可能停止运行。

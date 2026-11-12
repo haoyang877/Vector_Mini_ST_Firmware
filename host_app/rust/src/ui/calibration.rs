@@ -47,7 +47,7 @@ impl HostApp {
                                 ("任务状态",job.as_ref().map(|job|job.state().to_owned()).unwrap_or("尚未启动".into())),
                                 ("设备票据",job.as_ref().map(|job|job.ticket.to_string()).unwrap_or("—".into())),
                                 ("保存状态",job.as_ref().map(|job|job.saved().to_owned()).unwrap_or("未读取".into())),
-                                ("设备明细",job.as_ref().map(|job|format!("0x{:04X}",job.detail)).unwrap_or("—".into())),
+                                ("设备阶段",job.as_ref().map(|job|format!("{} · 0x{:04X}",job.detail_text(),job.detail)).unwrap_or("—".into())),
                                 ("质量评估","设备未提供量化指标".into()),
                             ] {ui.label(label);ui.label(value);ui.end_row();}
                         });

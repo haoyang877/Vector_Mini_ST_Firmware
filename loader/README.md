@@ -3,7 +3,7 @@
 当前开发候选为 G431 与 YG_ESC_V1.0 / AT32F456CCU7 的独立 Loader，共用升级核心。
 通信使用 CAN FD（G431 固定 500K/2M，AT32F456 默认 1M/5M）、公司Type1与50..55、单槽CRC32升级，
 含持久激活门槛与一次试运行确认。配套APP支持56停机交接及57健康确认。
-Loader v2.2.0 / APP v1.6.0 为开发候选；本轮不执行硬件下载。
+目标版本与硬件修订由对应的[目标清单](../shared/targets/)维护。
 功能、128 KiB 布局及维护步骤见[双板指南](../docs/guides/dual_board_loader.md)。
 历史 G431 实机结果见[验收记录](../docs/reports/2026-10/loader_storage_optimization_20261020.md)，不能代替本轮双板验收。
 
@@ -40,7 +40,7 @@ CAN 通道固定为 0。设备索引和通道索引不是同一个编号，不�
 不支持USB、UART、跨复位续传、旧APP回滚、维护角色或签名。
 layout 5 到 layout 6 必须通过受控 SWD 同时迁移 Loader 与 APP；不能混用旧址 APP
 或以 CAN 改写 Loader。参数仍使用[schema14](../firmware/parameters/README.md#storage)。
-本轮实机预检因SWD回读不稳定停止，尚未进入安装或升级；历史次数不计入双板候选。
+AT32 早期预检和后续升级属于不同批次，验收按目标、镜像和日期查[双板指南](../docs/guides/dual_board_loader.md)。
 APP 的 READY 回复必须关联队列入队位置，并等待该帧真实发送完成后才能复位；
 修复与验证见[交接队列修复计划](../docs/plans/completed/2026-10-20-loader-handoff-queue-v1.md)。
 

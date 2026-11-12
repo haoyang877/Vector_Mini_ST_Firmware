@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 #[path = "device_jobs.rs"]
 mod jobs;
+#[path = "device_parameters.rs"]
+mod parameter_service;
 
 const IDLE_SPEED_RAD_S: f64 = std::f64::consts::PI / 6.0;
 const FEEDBACK_VALIDITY: Duration = Duration::from_millis(500);
@@ -86,6 +88,8 @@ pub struct Snapshot {
     pub feedback_at: Option<Instant>,
     pub stop_confirmed: bool,
     pub motion_may_run: bool,
+    pub host_position_session: bool,
+    pub motion_lease_error: Option<String>,
     pub active_configuration: Option<ConfigurationInfo>,
     pub saved_configuration: Option<ConfigurationInfo>,
     pub calibration: Option<CalibrationJob>,
@@ -167,6 +171,7 @@ impl Snapshot {
     }
     pub fn can_start_mode(&self, target: &Target, uid: &str, mode: ControlMode) -> bool {
         self.safe_idle(target, uid)
+            && self.motion_lease_error.is_none()
             && self
                 .active_configuration
                 .as_ref()
@@ -187,6 +192,9 @@ impl Snapshot {
     }
     pub fn can_set_target(&self, target: &Target, uid: &str, mode: ControlMode) -> bool {
         self.compatible(target, uid)
+            && (mode != ControlMode::Position
+                || (self.host_position_session
+                    && self.features & crate::control::HOST_POSITION_SESSION_FEATURE != 0))
             && self.mode_supported(mode)
             && self.running_limits_ok()
             && self.motor_state == 6
@@ -275,10 +283,14 @@ fn apply_feedback(snapshot: &mut Snapshot, data: &[u8], node: u8) -> Result<()> 
     if data[43] != 5 || data[44] != 0 || snapshot.faults != 0 {
         snapshot.stop_confirmed = false;
     }
+    if data[44] != 3 || snapshot.faults != 0 {
+        snapshot.host_position_session = false;
+    }
     Ok(())
 }
 
 pub enum Command {
+    Parameters(crate::parameters::Action),
     ClearFault,
     StartCalibration(CalibrationKind),
     CancelCalibration,
@@ -305,6 +317,7 @@ pub enum Command {
 }
 
 pub enum Event {
+    Parameters(crate::parameters::Report),
     OperationDone,
     Rejected(String),
     ConfigurationSaved,
@@ -374,15 +387,40 @@ fn persist_sequences(path: &Path, store: &impl Serialize) -> Result<()> {
     Ok(())
 }
 
-// 每次预留一段持久化计数，进程重启时跳过未发送部分，避免重复续租。
-fn reserve_renewals(path: &Path, uid: &str) -> Result<std::ops::RangeInclusive<u32>> {
-    ensure!(!uid.is_empty() && uid.bytes().all(|b| b.is_ascii_hexdigit()), "续租 UID 无效");
-    let path = path.with_extension(format!("{uid}.lease.json"));
-    let last: u32 = match fs::read(&path) {
-        Ok(data) => serde_json::from_slice(&data)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(error.into()),
-    };
+fn renewal_path(path: &Path, uid: &str) -> Result<PathBuf> {
+    ensure!(
+        !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_hexdigit()),
+        "续租 UID 无效"
+    );
+    Ok(path.with_extension(format!("{uid}.lease.json")))
+}
+
+fn saved_renewal_counter(path: &Path) -> Result<u32> {
+    let data = fs::read(path).with_context(|| {
+        format!(
+            "无法读取已有续租高水位 {}；禁止从1重新开始，请恢复原主机的计数记录",
+            path.display()
+        )
+    })?;
+    let counter = serde_json::from_slice(&data).context("续租高水位记录损坏，禁止使能")?;
+    ensure!(counter != 0, "续租高水位为0，无法确认历史，禁止使能");
+    Ok(counter)
+}
+
+// 每次新START均先预留；不沿用上一运行的未发区间，不为缺失记录创建零值。
+fn reserve_renewals(
+    path: &Path,
+    uid: &str,
+    minimum: Option<u32>,
+) -> Result<std::ops::RangeInclusive<u32>> {
+    let path = renewal_path(path, uid)?;
+    let last = saved_renewal_counter(&path)?;
+    if let Some(minimum) = minimum {
+        ensure!(
+            last.wrapping_sub(minimum) <= i32::MAX as u32,
+            "本机续租高水位回退，禁止使能或继续续租"
+        );
+    }
     let first = last.wrapping_add(1).max(1);
     let end = first.saturating_add(255);
     persist_sequences(&path, &end)?;
@@ -406,6 +444,7 @@ struct Session<T: Transport> {
     lease_supported: bool,
     last_renewal: Option<Instant>,
     renewal_block: Option<std::ops::RangeInclusive<u32>>,
+    pending_start: Option<(ControlMode, Instant)>,
 }
 
 fn check_expected_uid(expected: &str, actual: &str) -> Result<()> {
@@ -417,6 +456,23 @@ fn check_expected_uid(expected: &str, actual: &str) -> Result<()> {
 }
 
 impl<T: Transport> Session<T> {
+    fn reserve_motion_lease(&mut self) -> Result<()> {
+        let minimum = self.renewal_block.as_ref().map(|block| *block.end());
+        let block = reserve_renewals(&self.sequence_file, &self.bound_uid, minimum)?;
+        self.port.report(
+            "info",
+            "motion_lease_reserved",
+            serde_json::json!({
+                "sequence_file":self.sequence_file,
+                "renewal_file":renewal_path(&self.sequence_file, &self.bound_uid)?,
+                "first_counter":block.start(), "reserved_through":block.end(),
+                "previous_reservation":minimum,
+            }),
+        );
+        self.renewal_block = Some(block);
+        Ok(())
+    }
+
     fn dispatch(&mut self, command: Command) -> Result<bool> {
         match self.handle(command) {
             Err(error) if matches!(error.downcast_ref(), Some(SessionIssue::Rejected(_))) => {
@@ -437,15 +493,24 @@ impl<T: Transport> Session<T> {
         let Some(last) = self.last_renewal else {
             return Ok(());
         };
-        if self.snapshot.motor_state != 6 {
+        let starting = self.pending_start.is_some_and(|(mode, at)| {
+            at.elapsed() < FEEDBACK_VALIDITY
+                && self.snapshot.motor_state == 5
+                && self.snapshot.mode == mode.wire()
+        });
+        if !self.snapshot.motion_may_run || (self.snapshot.motor_state != 6 && !starting) {
             self.last_renewal = None;
             return Ok(());
         }
         if last.elapsed() < Duration::from_millis(100) {
             return Ok(());
         }
-        if self.renewal_block.as_ref().is_none_or(|block| block.is_empty()) {
-            self.renewal_block = Some(reserve_renewals(&self.sequence_file, &self.bound_uid)?);
+        if self
+            .renewal_block
+            .as_ref()
+            .is_none_or(|block| block.is_empty())
+        {
+            self.reserve_motion_lease()?;
         }
         let counter = self
             .renewal_block
@@ -454,7 +519,21 @@ impl<T: Transport> Session<T> {
             .context("续租计数预留失败")?;
         let seq = self.next_sequence();
         let reply = self.exchange(118, seq, &counter.to_le_bytes())?;
-        ensure!(reply == [0; 4], "设备拒绝续租；停止当前运动会话");
+        ensure!(reply.len() == 4, "Type118续租回复长度错误");
+        let result = u16le(&reply, 0)?;
+        let detail = u16le(&reply, 2)?;
+        if result != 0 || detail != 0 {
+            self.port.report(
+                "error",
+                "motion_lease_rejected",
+                serde_json::json!({
+                    "counter":counter,"sequence":seq,"result":result,"detail":detail,
+                    "sequence_file":self.sequence_file,
+                    "renewal_file":renewal_path(&self.sequence_file, &self.bound_uid)?,
+                }),
+            );
+            bail!("设备拒绝续租：计数{counter}，回复{result}/{detail}；停止当前运动会话");
+        }
         self.last_renewal = Some(Instant::now());
         Ok(())
     }
@@ -695,18 +774,41 @@ impl<T: Transport> Session<T> {
         self.lease_supported = snapshot.features & (1 << 13) != 0
             && u16le(&caps, 12)? == 500
             && u16le(&caps, 14)? == 500;
+        snapshot.motion_lease_error = if self.lease_supported {
+            let path = renewal_path(&self.sequence_file, &self.bound_uid)?;
+            saved_renewal_counter(&path)
+                .err()
+                .map(|error| format!("{error:#}"))
+        } else {
+            None
+        };
+        if self.snapshot.uid.is_empty() {
+            self.port.report(
+                "info",
+                "motion_state_store",
+                serde_json::json!({
+                    "sequence_file":self.sequence_file,
+                    "renewal_file":renewal_path(&self.sequence_file, &self.bound_uid)?,
+                    "lease_supported":self.lease_supported,
+                    "lease_error":snapshot.motion_lease_error,
+                }),
+            );
+        }
         snapshot.modes = u16le(&caps, 4)?;
         snapshot.active_configuration = None;
         snapshot.saved_configuration = None;
         if snapshot.role == 1 && snapshot.features & motor_configuration::FEATURE != 0 {
-            snapshot.active_configuration = Some(ConfigurationInfo::parse(&self.query(motor_configuration::READ, 0)?)?);
+            snapshot.active_configuration = Some(ConfigurationInfo::parse(
+                &self.query(motor_configuration::READ, 0)?,
+            )?);
             if snapshot
                 .active_configuration
                 .as_ref()
                 .is_some_and(|info| info.flags & 8 != 0)
             {
-                snapshot.saved_configuration =
-                    Some(ConfigurationInfo::parse(&self.query(motor_configuration::READ, 1)?)?);
+                snapshot.saved_configuration = Some(ConfigurationInfo::parse(
+                    &self.query(motor_configuration::READ, 1)?,
+                )?);
             }
         }
         snapshot.identity_at = Some(Instant::now());
@@ -763,9 +865,33 @@ impl<T: Transport> Session<T> {
                 serde_json::json!({"previous":previous_faults,"current":self.snapshot.faults}),
             );
         }
+        let starting = if let Some((mode, at)) = self.pending_start {
+            if self.snapshot.motor_state == 6 {
+                ensure!(
+                    self.snapshot.mode == mode.wire(),
+                    "启动回读的运行模式与请求不符"
+                );
+                self.pending_start = None;
+                false
+            } else {
+                ensure!(
+                    at.elapsed() < FEEDBACK_VALIDITY,
+                    "启动未在500ms内进入RUNNING，停止当前会话"
+                );
+                self.snapshot.motor_state == 5
+                    && self.snapshot.mode == mode.wire()
+                    && self.snapshot.bus_limits_ok()
+                    && self
+                        .snapshot
+                        .iq_a
+                        .is_none_or(|iq| iq.is_finite() && iq.abs() <= 6.0)
+            }
+        } else {
+            false
+        };
         if allow_auto_stop
             && self.snapshot.motion_may_run
-            && (!self.snapshot.running_limits_ok()
+            && ((!starting && !self.snapshot.running_limits_ok())
                 || self
                     .snapshot
                     .speed_rad_s
@@ -828,6 +954,8 @@ impl<T: Transport> Session<T> {
     }
 
     fn stop(&mut self) -> Result<()> {
+        self.snapshot.host_position_session = false;
+        self.pending_start = None;
         self.last_renewal = None;
         let deadline = Instant::now() + Duration::from_millis(1500);
         loop {
@@ -865,6 +993,7 @@ impl<T: Transport> Session<T> {
 
     fn handle(&mut self, command: Command) -> Result<bool> {
         match command {
+            Command::Parameters(action) => self.parameter_action(action),
             Command::ClearFault => self.clear_fault(),
             Command::StartCalibration(kind) => self.start_calibration(kind),
             Command::CancelCalibration => self.cancel_calibration(),
@@ -935,8 +1064,12 @@ impl<T: Transport> Session<T> {
                     false,
                 )?;
                 self.manual_start = 0;
-                let response =
-                    self.exchange_timed(motor_configuration::COMMIT, sequence, &commit, Duration::from_secs(5))?;
+                let response = self.exchange_timed(
+                    motor_configuration::COMMIT,
+                    sequence,
+                    &commit,
+                    Duration::from_secs(5),
+                )?;
                 ensure!(
                     response.len() == 12
                         && u16le(&response, 0)? == 0
@@ -1062,6 +1195,16 @@ impl<T: Transport> Session<T> {
                         .can_start_mode(&self.target, &self.bound_uid, mode),
                     SessionIssue::Rejected("启动门禁未满足".into())
                 );
+                if self.lease_supported
+                    && let Err(error) = self.reserve_motion_lease()
+                {
+                    let message = format!("使能前无法准备续租：{error:#}");
+                    self.snapshot.motion_lease_error = Some(message.clone());
+                    self.send
+                        .send(Event::Snapshot(Box::new(self.snapshot.clone())))
+                        .ok();
+                    return Err(SessionIssue::Rejected(message).into());
+                }
                 self.snapshot.motion_may_run = true;
                 let (result, detail) = self.command(117, &mode.start_payload())?;
                 if result > 1 {
@@ -1074,6 +1217,8 @@ impl<T: Transport> Session<T> {
                 }
                 ensure!(detail == 0, "启动回复 detail 非法：{detail}");
                 self.last_renewal = self.lease_supported.then(Instant::now);
+                self.pending_start = Some((mode, Instant::now()));
+                self.snapshot.host_position_session = mode == ControlMode::Position;
                 self.snapshot.stop_confirmed = false;
                 self.send
                     .send(Event::Status(format!(
@@ -1229,6 +1374,7 @@ pub fn run(
             lease_supported: false,
             last_renewal: None,
             renewal_block: None,
+            pending_start: None,
         };
         let mut discovery = Instant::now() - Duration::from_secs(4);
         let mut next_poll = Instant::now();
@@ -1561,6 +1707,7 @@ mod tests {
             view.modes ^= 1 << mode.wire();
             view.motor_state = 6;
             view.mode = mode.wire();
+            view.host_position_session = mode == ControlMode::Position;
             view.motion_may_run = true;
             assert!(!view.can_start_mode(&target, "A", mode));
             for requested in ControlMode::ALL {

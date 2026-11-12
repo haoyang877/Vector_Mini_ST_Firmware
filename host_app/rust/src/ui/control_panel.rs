@@ -3,9 +3,12 @@ use super::*;
 
 impl HostApp {
     pub(super) fn workbench_control_panel(&mut self, ui: &mut egui::Ui) {
-        let c = Palette::from_ctx(ui.ctx());
+        let c = Palette::for_theme(egui::Theme::Light);
         let fresh = self.connected && self.snapshot.feedback_fresh();
-        Self::panel(ui, "电机控制", |ui| {
+        ui.set_style(ui.ctx().style_of(egui::Theme::Light));
+        ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+        widgets::control_group(ui, "运动控制", |ui| {
+            ui.spacing_mut().item_spacing.y = 3.0;
             let (state, color) = if self.hard_stop {
                 ("● 硬停 · 状态待确认", c.danger)
             } else if !self.connected {
@@ -19,7 +22,7 @@ impl HostApp {
             };
             ui.label(RichText::new(state).strong().size(16.0).color(color))
                 .on_hover_text("状态来自新鲜设备回读；点击按钮不代表操作已经完成。");
-            ui.add_space(8.0);
+            ui.add_space(2.0);
             ui.label(RichText::new("控制模式").small().color(c.muted));
             let can_switch = !self.upgrading
                 && !self.configuration_busy
@@ -50,6 +53,9 @@ impl HostApp {
                 egui::Popup::open_id(ui.ctx(), menu.response.id.with("popup"));
             }
             if self.control_mode != previous {
+                if self.studio.is_some() {
+                    self.load_preview_record(true);
+                }
                 self.control_targets[self.control_mode.index()] =
                     if self.control_mode == ControlMode::Position {
                         self.snapshot.position_rad.filter(|_| fresh).unwrap_or(0.0)
@@ -69,18 +75,18 @@ impl HostApp {
                 .snapshot
                 .can_set_target(&self.target, &self.bound_uid, mode);
             let stop_available = self.connected && !self.fixture_mode && !self.upgrading;
-            ui.add_space(8.0);
+            ui.add_space(2.0);
             ui.columns(2, |columns| {
                 let enable = columns[0].add_enabled(
                     live && can_start,
                     egui::Button::new(
                         RichText::new("使能")
                             .strong()
-                            .size(17.0)
+                            .size(15.0)
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(27, 124, 82))
-                    .min_size(Vec2::new(columns[0].available_width(), 40.0)),
+                    .min_size(Vec2::new(columns[0].available_width(), 28.0)),
                 );
                 self.control("mode_enable", &enable);
                 if enable.clicked() {
@@ -92,11 +98,11 @@ impl HostApp {
                     egui::Button::new(
                         RichText::new("失能")
                             .strong()
-                            .size(17.0)
+                            .size(15.0)
                             .color(Color32::WHITE),
                     )
-                    .fill(Color32::from_rgb(157, 98, 24))
-                    .min_size(Vec2::new(columns[1].available_width(), 40.0)),
+                    .fill(Color32::from_rgb(70, 79, 91))
+                    .min_size(Vec2::new(columns[1].available_width(), 28.0)),
                 );
                 self.control("mode_disable", &disable);
                 if disable.clicked() {
@@ -104,18 +110,18 @@ impl HostApp {
                 }
                 disable.on_hover_text("请求 STOP，等待最终 0/0 和 IDLE 回读。");
             });
-            ui.add_space(6.0);
+            ui.add_space(2.0);
             let stop = ui.add_enabled(
                 stop_available,
                 egui::Button::new(
                     RichText::new("STOP · 停止输出")
                         .strong()
-                        .size(18.0)
+                        .size(16.0)
                         .color(Color32::WHITE),
                 )
                 .fill(Color32::from_rgb(181, 43, 57))
                 .stroke(Stroke::new(1.5, c.danger))
-                .min_size(Vec2::new(ui.available_width(), 44.0)),
+                .min_size(Vec2::new(ui.available_width(), 28.0)),
             );
             self.control("workbench_stop", &stop);
             if stop.clicked() {
@@ -124,9 +130,9 @@ impl HostApp {
             stop.on_hover_text(
                 "立即请求协议 STOP；等待停机回读，物理输出仍需现场核查。与失能使用同一 Type110。",
             );
-            ui.add_space(10.0);
+            ui.add_space(3.0);
             ui.separator();
-            ui.add_space(6.0);
+            ui.add_space(2.0);
             ui.columns(2, |columns| {
                 columns[0].label(
                     RichText::new(format!("目标 · {}", mode.unit()))
@@ -134,7 +140,7 @@ impl HostApp {
                         .color(c.muted),
                 );
                 columns[0].add_sized(
-                    [columns[0].available_width(), 36.0],
+                    [columns[0].available_width(), 28.0],
                     egui::DragValue::new(&mut self.control_targets[mode.index()])
                         .range(mode.range())
                         .speed(if mode == ControlMode::Position {
@@ -150,7 +156,7 @@ impl HostApp {
                         .color(c.muted),
                 );
                 columns[1].add_sized(
-                    [columns[1].available_width(), 36.0],
+                    [columns[1].available_width(), 28.0],
                     egui::Label::new(
                         RichText::new(
                             self.snapshot
@@ -159,7 +165,7 @@ impl HostApp {
                                 .unwrap_or("—".into()),
                         )
                         .monospace()
-                        .size(19.0)
+                        .size(22.0)
                         .color(if fresh { c.ink } else { c.muted }),
                     ),
                 );
@@ -190,11 +196,11 @@ impl HostApp {
                 self.control_targets[mode.index()],
                 self.snapshot.position_rad.filter(|_| fresh),
             );
-            ui.add_space(6.0);
+            ui.add_space(2.0);
             let set = ui.add_enabled(
                 live && can_set && target_result.is_ok(),
                 egui::Button::new(RichText::new("下发目标").strong())
-                    .min_size(Vec2::new(ui.available_width(), 34.0)),
+                    .min_size(Vec2::new(ui.available_width(), 28.0)),
             );
             self.control("mode_set", &set);
             if set.clicked() {
@@ -226,6 +232,8 @@ impl HostApp {
                 "位置控制需配套APP支持上位机不限位会话"
             } else if !fresh {
                 "反馈过期；等待设备更新"
+            } else if self.snapshot.motion_lease_error.is_some() {
+                "续租历史不可用，禁止使能；请查看诊断并恢复原计数记录"
             } else if self.snapshot.faults != 0 {
                 "设备存在故障；请检查故障状态"
             } else if self
@@ -263,7 +271,12 @@ impl HostApp {
             if fresh && let Err(error) = target_result {
                 ui.label(RichText::new(error.to_string()).small().color(c.warning));
             }
-            ui.add_space(6.0);
+            if let Some(error) = &self.snapshot.motion_lease_error {
+                egui::CollapsingHeader::new("续租记录诊断").show(ui, |ui| {
+                    ui.label(error);
+                });
+            }
+            ui.add_space(2.0);
             egui::CollapsingHeader::new("模式说明与调试限值").show(ui, |ui| {
                 ui.label(mode.description());
                 ui.label(mode.limit_text());
@@ -277,9 +290,8 @@ impl HostApp {
                 }
             });
         });
-        ui.add_space(8.0);
-        if ui.button("电机型号与参数 →").clicked() {
-            self.page = Page::Parameters;
-        }
+        ui.add_space(2.0);
+        self.control_loop_summary(ui, "电流环参数", &["current"]);
+        self.control_loop_summary(ui, "位置与速度环参数", &["speed", "position"]);
     }
 }

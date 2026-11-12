@@ -26,7 +26,7 @@ from five_axis_jlink import FIRST_FIT_AXES, run_jlink
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.6.2"
+TITLE = "CAN FD 通信测试 v1.6.3"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -243,10 +243,10 @@ class CanTestWindow:
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v0.7.3/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.7.0/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 0.7.3")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.7.0")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -318,7 +318,7 @@ class CanTestWindow:
         self.controls.append((compatibility, "normal"))
         ttk.Label(count_row, text="升级期间请暂停其他主站轮询。").pack(side="left")
         ttk.Label(
-            self.swd_tab, text="AT32F456 · Loader 2.3.3 + APP 0.7.3 · 默认 CAN FD 1M/5M"
+            self.swd_tab, text="AT32F456 · Loader 2.3.3 + APP 1.7.0 · 默认 CAN FD 1M/5M"
         ).pack(anchor="w")
         embedded = (
             Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "firmware" / "five-axis.hex"

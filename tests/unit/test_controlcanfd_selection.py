@@ -71,6 +71,15 @@ class ControlCanFdSelectionTests(unittest.TestCase):
         tx = dll.ZCAN_TransmitFD.call_args.args[1]._obj
         self.assertEqual((tx.transmit_type, tx.frame.eff, tx.frame.brs), (0, 1, 1))
 
+    def test_link_tool_arbitration_alias(self) -> None:
+        """两种工具的仲裁速率名称指向同一配置，同时传入不同值时拒绝打开。"""
+        port = ControlCanFd(Path("test.dll"), arb_bps=500_000, data_bps=3_000_000)
+        self.assertEqual(
+            (port.nominal_bps, port.arb_bps, port.data_bps), (500_000, 500_000, 3_000_000)
+        )
+        with self.assertRaises(ValueError):
+            ControlCanFd(Path("test.dll"), nominal_bps=1_000_000, arb_bps=500_000)
+
     def test_invalid_index_rejected_before_open(self) -> None:
         """负数、越界和隐式类型转换都不能选择设备。"""
         for value in (-1, 0x100000000, True, 1.5):

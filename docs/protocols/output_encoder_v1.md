@@ -1,6 +1,6 @@
 # 输出轴标定记录 OEN1
 
-兼容读取资料。当前固件写入包含 Hall LUT 的 [OEN2](output_encoder_v2.md)，本页与旧黄金向量保持不变。
+本页记录 OEN1 的字节布局，供兼容读取和旧镜像分析使用。后续 [OEN2](output_encoder_v2.md) 增加 128 点 Hall 表，当前写入使用 [OEN3](output_encoder_v3.md) 的 1024 点表。
 
 OEN1 是 Flash 参数区的可选扩展，位于 schema14 基础记录之后。基础记录仍为 2288 字节，原 CRC 算法和偏移不变，整轴写入长度为 2320 字节。所有字段小端，浮点为 IEEE-754 binary32。
 
@@ -23,4 +23,4 @@ OEN1 是 Flash 参数区的可选扩展，位于 schema14 基础记录之后。�
 
 旧版 APP 继续读取 schema14 前缀。旧工具或旧 APP 保存时可能删除扩展，或者改变基础 CRC，重新升级后需恢复匹配备份或重新标定。新固件统一保存基础记录与扩展，避免半条新关系配旧参数。独立黄金字节见 [测试向量](../../tests/fixtures/protocol/output_encoder_v1.json)。
 
-AT32 与 STM32 的底层整记录写入容量均为 2320 字节，仍只擦除参数区前两个 2 KiB 页。上电首次定位等待现有电流偏置采样窗口完成（约 103 ms），再采用当前编码器与 Hall 数据；传感器启动初值不参与辨圈。
+OEN1 版本的整轴记录为 2320 字节，覆盖前两个 2 KiB 页。当前 OEN3 的页边界及启动恢复条件见[参数管理设计](../architecture/parameter_ownership_v1.md)。

@@ -116,6 +116,11 @@ int main(void)
                 (void)MotorStateMachine_RequestCalibration(&g_app.axis.state_machine,
                                                            MOTOR_CALIBRATION_ENCODER_LINEARIZATION);
             }
+            else if (command == 3U)
+            {
+                (void)MotorStateMachine_RequestCalibration(&g_app.axis.state_machine,
+                                                           MOTOR_CALIBRATION_ELECTRICAL_ZERO);
+            }
             else if (command == 2U)
             {
                 MotorStateMachine_RequestStop(&g_app.axis.state_machine);

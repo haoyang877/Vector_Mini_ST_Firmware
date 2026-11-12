@@ -221,7 +221,12 @@ static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibratio
         const SensorlessStartupConfig *startup = config->preset->startup;
         float budget =
             fminf(config->model.calibration_current_a, config->application.current_limit_a);
-        if (budget < startup->align_current_a ||
+        float motor_limit_rad_s =
+            MOTOR_CALIBRATION_OUTPUT_SPEED_LIMIT_RAD_S * config->preset->gear_ratio;
+        if (!(fabsf(config->preset->calibration_speed_rad_s) <= motor_limit_rad_s) ||
+            !(fabsf(startup->target_electrical_velocity_rad_s) <=
+              motor_limit_rad_s * (float)config->model.motor_pole_pairs) ||
+            budget < startup->align_current_a ||
             budget * budget < startup->startup_iq_a * startup->startup_iq_a +
                                   startup->startup_id_a * startup->startup_id_a)
         {

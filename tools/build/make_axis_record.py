@@ -12,6 +12,35 @@ from harness.common import zig_path
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
+def build_generator(executable: Path, cc: Path) -> None:
+    """构建可独立分发的本机记录生成器。"""
+    sources = [
+        "tools/build/make_axis_record.c",
+        "firmware/parameters/parameter_record.c",
+        "firmware/parameters/motor_axis_profile.c",
+        "shared/checksum/crc32.c",
+        "firmware/motor/protection/motor_thermal.c",
+        "firmware/motor/protection/motor_thermal_config.c",
+        "firmware/motor/math/control_math.c",
+        "firmware/motor/control/speed_feedforward.c",
+        "firmware/parameters/parameter_values.c",
+    ]
+    subprocess.run(
+        [
+            str(cc),
+            "cc",
+            *NATIVE_INCLUDE_FLAGS,
+            "-DBSP_BOARD=2",
+            "-Os",
+            *sources,
+            "-o",
+            str(executable),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--node", type=lambda s: int(s, 0), required=True, help="产品节点地址")
@@ -50,31 +79,7 @@ def main() -> None:
         work = Path(directory)
         executable = work / "make_axis_record.exe"
         record = work / "record.bin"
-        sources = [
-            "tools/build/make_axis_record.c",
-            "firmware/parameters/parameter_record.c",
-            "firmware/parameters/motor_axis_profile.c",
-            "shared/checksum/crc32.c",
-            "firmware/motor/protection/motor_thermal.c",
-            "firmware/motor/protection/motor_thermal_config.c",
-            "firmware/motor/math/control_math.c",
-            "firmware/motor/control/speed_feedforward.c",
-            "firmware/parameters/parameter_values.c",
-        ]
-        subprocess.run(
-            [
-                str(cc),
-                "cc",
-                *NATIVE_INCLUDE_FLAGS,
-                "-DBSP_BOARD=2",
-                "-Os",
-                *sources,
-                "-o",
-                str(executable),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
+        build_generator(executable, cc)
         result = subprocess.run(
             [
                 str(executable),

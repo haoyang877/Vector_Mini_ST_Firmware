@@ -33,7 +33,7 @@ impl Model {
         match self {
             Self::Ht8115 => &[3, 4, 5],
             Self::Yq5708 => &[7],
-            Self::Yq5740 => &[6],
+            Self::Yq5740 => &[6, 8],
         }
     }
 }
@@ -44,6 +44,7 @@ pub fn axis_name(node: u8) -> &'static str {
         5 => "ROLL",
         6 => "PITCH",
         7 => "YAW",
+        8 => "Lift",
         _ => "未指定轴",
     }
 }
@@ -238,6 +239,9 @@ mod tests {
         assert!(Info::parse(&read[..43]).is_err());
         read[6] = 5;
         assert!(Info::parse(&read).is_err());
+        read[6] = 8;
+        assert_eq!(axis_name(8), "Lift");
+        assert!(Info::parse(&read).is_ok());
         read[6] = 6;
         read[7] = 32;
         assert!(Info::parse(&read).is_ok());

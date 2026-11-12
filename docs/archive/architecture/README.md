@@ -4,6 +4,9 @@
 
 | 历史材料 | 原位置 | 归档原因 | 当前入口 |
 | --- | --- | --- | --- |
+| [核心工程模块职责](module_core_responsibilities.md) | `docs/architecture/module_core_responsibilities.md` | 旧流程含 STARTING、STOPPING 和独立 SAVE。 | [文件职责](../../architecture/code_structure.md) |
+| [状态跳转与请求处理旧稿](motor_state_flow_simplification_v1.md) | `docs/architecture/motor_state_flow_simplification_v1.md` | 标定持久化和交接时机已更新。 | [五态与功率交接](../../architecture/motor_state_machine_v1.md) |
+| [基础自检与准备资格旧稿](motor_readiness_v1.md) | `docs/architecture/motor_readiness_v1.md` | INIT 自检、FATAL 及在线参数资格查询已退出生产路径。 | [现行启动准入](../../architecture/motor_state_machine_v1.md) |
 | [APP 模块、对象与变量命名 v1](app_naming_v1.md) | `docs/architecture/app_naming_v1.md` | 阶段方案或重复总览；现行职责已归并到软件架构与代码结构。 | [现行](../../architecture/software_architecture.md) |
 | [齿槽标定采样、成表与运行边界 v1](cogging_calibration_v1.md) | `docs/architecture/cogging_calibration_v1.md` | 生产齿槽任务与补偿已删除；保留历史设计。 | [现行](../../architecture/motor_maintenance_core_v3.md) |
 | [齿槽核心、标定任务与运行边界 v2](cogging_core_boundaries_v2.md) | `docs/architecture/cogging_core_boundaries_v2.md` | 生产齿槽任务与补偿已删除；保留历史设计。 | [现行](../../architecture/motor_maintenance_core_v3.md) |

@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [远端重构合并与单节点 1M/5M 验证](2026-11-12-remote-refactor-can-validation.md) — APP v1.7.0、Loader v2.3.3 在节点 7 完成 CAN 升级，1,000 次状态查询全部通过，现场已恢复。
+
 - [重构分支集成与单节点 12 档 CAN 升级](2026-11-12-refactor-bitrate-integration.md) — 节点 7 完成逐档下载和持久确认，现场整片已恢复，双板调试包已复核。
 
 - [AT32F456 单板波特率与桌面工具](2026-11-12-can-bitrate-single-board.md) — APP v0.7.2、Loader v2.3.2 在节点 6 完成 1M/5M 实测并恢复原固件，CAN-Link-Test 更新为 v1.6.1。
@@ -28,7 +30,41 @@
 
 - [CAN FD统一1M/1M及V0.6.2测试版本](2026-11-11-can-1m-v1.md) — 双板APP/Loader和主机默认值同步，六目标构建通过；既有整仓门禁及硬件验收未完成。
 
+- [ROLL、Lift 的 CAN FD 数据段](2026-11-11-roll-lift-can-rate.md) — 已撤回的 1M/2M 试验记录。
+
+- [Lift 节点 0x08](2026-11-11-lift-node.md) — 实板烧录及 1,000 笔 CAN 状态查询通过。
+
+- [上位机独立 SWD 发布包](2026-11-11-host-portable-swd.md) — v3.1.2 解压验收、J-Link 与 CAN 自动发现。
+
+- [五轴标定输出轴限速](2026-11-11-calibration-speed.md) — 工装 v1.3.0，五轴标定限速 40 rad/s，PITCH 运行限速 30 rad/s。
+
+- [电机工装与固件 v1.2.0 联合交付](2026-11-11-motor-commission.md) — Windows 独立包、五轴参数及标定流程。
+
+- [五轴空板升级测试工装](2026-11-11-bare-board-install.md) — 同包逐板配置，五轴记录和当前右轮只读核验通过。
+
+- [上位机v3.0.0候选验收](2026-11-11-host-v3-acceptance.md) — 验收阶段结束，整体验收失败：已有续租拒绝后断联、曲线未达60Hz；81项测试及PR通过，现场检查未确认，未重连或操作电机。
+
+- [上位机仪器工作台](2026-11-11-host-instrument-workspace.md) — v3.0.0布局与全参数表，81项测试/52张原生页面；PITCH四模式/STOP/参数只读回归，曲线60Hz和动态精度仍未验收。
+
+- [底部故障栏与三项标定](2026-11-11-host-fault-calibration.md) — v2.8.1三项任务/阶段/取消/保存与清错，74项Rust测试、双板原生和45张页面；只读PITCH60s通过，实机标定/故障注入未测。
+
+- [上位机位置会话不限位](2026-11-11-host-position-session.md) — 合并bit18会话策略，修复启动过渡期续租，补本会话权限与500ms截止回归；本轮未运行位置实测。
+
 - [主控适配驱动服务 v1](2026-11-10-controller-firmware-adaptation-v1.md) — 参数、标定票据、NTC、输出角与坐标CRC离线完成；6目标构建通过，全仓文档门禁及实机验收待完成。
+
+- [上位机误断联修复与故障日志](2026-11-10-host-link-recovery.md) — v2.7.2 有界读重试、BUSY/拒绝分类及异步故障日志；离线验证，实机待回归。
+
+- [调试页右侧控制区](2026-11-10-host-control-panel.md) — v2.7.1 模式下拉、醒目使能/失能和本地 STOP；移除运动勾选门槛，离线验证通过。
+
+- [上位机波特率与CAN指定电机型号](2026-11-10-host-device-configuration.md) — 主机v2.7.0、APP1.6.1开发候选；双板离线实现及构建，实机未测。
+
+- [上位机四种调试模式与使能/失能](2026-11-10-host-four-modes.md) — v2.6.0 离线实现；四模式实机和稳定 60 Hz 仍待验收。
+
+- [四份固件设计文档详化](2026-11-10-firmware-design-contracts.md) — 模块交接、并发状态轨迹、CAN 原始报文与参数生效路径。
+
+- [双板 APP 与 Loader 现行文档整理](2026-11-10-app-loader-docs.md) — 工程选择、协议角色、状态机、标定存储与历史归档。
+
+- [Rust GUI 实机验收](2026-10-21-host-gui-bench-v1.md) — AT32 PITCH 上的趋势、速度控制、停机和一次 GUI CAN 升级通过。
 
 - [APP 实例化合并与 PITCH 实机验收](2026-11-09-app-instance-integration.md) — 双板构建、CAN 升级及闭环实测通过；联合角度标定 4 次通过 3 次。
 

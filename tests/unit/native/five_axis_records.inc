@@ -50,10 +50,10 @@ int main(void)
         if (node >= 6)
         {
             const float ratio = p->gear_ratio;
-            const float output_limit = 2.094395102f;
+            const float output_limit = node == 6 ? 30.0f : 2.094395102f;
             assert(fabsf(p->speed_ceiling_rad_s / ratio - output_limit) < 1e-6f);
-            assert(fabsf(p->control.acceleration_rad_s2 / ratio - output_limit) < 1e-6f);
-            assert(fabsf(p->control.deceleration_rad_s2 / ratio - output_limit) < 1e-6f);
+            assert(fabsf(p->control.acceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
+            assert(fabsf(p->control.deceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
             MotorConfiguration full;
             assert(Param_CreateAxis(node, -1, 1, output_limit * ratio, &heat, &full));
             assert(!Param_CreateAxis(node, -1, 1, (output_limit + 0.001f) * ratio, &heat, &full));

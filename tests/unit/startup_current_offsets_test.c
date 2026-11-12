@@ -389,7 +389,7 @@ float Encoder_GetMechPos(const EncoderState *encoder)
 }
 float Encoder_GetMechVel(const EncoderState *encoder)
 {
-    return 0.0f;
+    return encoder->mechanical_velocity_rad_s;
 }
 void MotorVoltage_Update(FocState *foc)
 {
@@ -473,6 +473,7 @@ static void sample_test_currents(void)
 
 static void initialize(void)
 {
+    axis.rotor_encoder.mechanical_velocity_rad_s = 0.0f;
     memset(&axis.motor, 0, sizeof(axis.motor));
     memset(&axis.foc, 0, sizeof(axis.foc));
     memset(&axis.speed_pi, 0, sizeof(axis.speed_pi));
@@ -809,6 +810,23 @@ static void test_bus_offset_limits(void)
 
 static void test_calibration_dispatch_and_publication(void)
 {
+    prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
+    simulated_calibration_type = MOTOR_CALIBRATION_ELECTRICAL_ZERO;
+    simulated_calibration_outcome = (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
+    const float ratios[] = {1.0f, 40.0f};
+    for (unsigned i = 0; i < 2; ++i)
+    {
+        OutputEncoder_Init(&axis.output_encoder, ratios[i]);
+        for (int sign = -1; sign <= 1; sign += 2)
+        {
+            axis.rotor_encoder.mechanical_velocity_rad_s = sign * 40.0f * ratios[i];
+            assert(MotorCalibration_StepFast(&axis.calibration).result == MOTOR_TASK_COMPLETED);
+            axis.rotor_encoder.mechanical_velocity_rad_s = sign * 40.01f * ratios[i];
+            MotorTaskResult outcome = MotorCalibration_StepFast(&axis.calibration);
+            assert(outcome.result == MOTOR_TASK_FAILED &&
+                   outcome.error == MOTOR_FAULT_CALIBRATION_OVERSPEED);
+        }
+    }
     for (MotorCalibrationType calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
          calibration_type <= MOTOR_CALIBRATION_MECHANICAL_ZERO;
          ++calibration_type)

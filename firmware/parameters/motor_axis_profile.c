@@ -106,7 +106,7 @@ static const MotorAxisPreset s_presets[] = {
      &s_pitch_start,
      PITCH_CALIB_SPEED_RAD_S,
      1.6f,
-     YQ_MOTOR_SPEED_RAD_S,
+     30.0f * YQ_JOINT_GEAR_RATIO,
      {2.0f,
       0.0f,
       0.048f,

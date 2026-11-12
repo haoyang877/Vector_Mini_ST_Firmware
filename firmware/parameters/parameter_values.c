@@ -217,14 +217,12 @@ ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
             candidate.raw_value = configuration->configuration_confirmed ? 1U : 0U;
             candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
             break;
+#if BSP_BOARD == BSP_BOARD_AT32F456
         case 0x71U:
-            if (BSP_BOARD != BSP_BOARD_AT32F456)
-            {
-                return PARAMETER_UNSUPPORTED;
-            }
             candidate.raw_value = CanBitrate_Value(configuration->device.can_bitrate_profile);
             candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
             break;
+#endif
         case 0x4EU:
             candidate.raw_value = (uint32_t)configuration->configuration_source;
             break;
@@ -293,12 +291,8 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     {
         return PARAMETER_INVALID_ARGUMENT;
     }
-    if (request->parameter_id == CAN_BITRATE_PARAMETER_ID)
+    if (BSP_BOARD == BSP_BOARD_AT32F456 && request->parameter_id == CAN_BITRATE_PARAMETER_ID)
     {
-        if (BSP_BOARD != BSP_BOARD_AT32F456)
-        {
-            return PARAMETER_UNSUPPORTED;
-        }
         if (request->value_type != PARAMETER_VALUE_U32)
         {
             return PARAMETER_BAD_TYPE;

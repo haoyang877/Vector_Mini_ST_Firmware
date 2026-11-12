@@ -166,6 +166,8 @@ static void configure(void *context,
             return;
         }
         service->previous_revision = service->saved_request.revision;
+        service->pending.device.can_bitrate_profile =
+            axis->configuration.device.can_bitrate_profile;
         Param_Upload(&axis->record.motor, &service->pending);
         memset(&axis->record.output, 0, sizeof(axis->record.output));
         uint32_t expected = Crc32_Compute(&axis->record, sizeof(axis->record), 0U);

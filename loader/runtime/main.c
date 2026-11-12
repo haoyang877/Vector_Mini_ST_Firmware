@@ -437,8 +437,9 @@ int main(void)
         LoaderPlatform_Fatal();
     }
     mailbox_valid = LoaderPlatform_TakeMailbox(&message);
-    (void)LoaderParameters_ReadNode(&node);
-    if (!LoaderCan_Init(node))
+    LoaderParameterState parameter_state = LoaderParameters_ReadNode(&node);
+    uint8_t profile = parameter_state == YI_PARAMS_RAW11 ? LoaderParameters_ReadBitrate() : 0U;
+    if (!LoaderCan_Init(node, profile))
     {
         LoaderPlatform_Fatal();
     }

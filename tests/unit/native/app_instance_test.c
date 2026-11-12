@@ -553,6 +553,26 @@ static void parameter_and_output_services(void)
     write.parameter_id = 3U;
     write.raw_value = axis->configuration.device.node_id;
     assert(MotorAxis_WriteParameter(axis, &write) == PARAMETER_READ_ONLY);
+    ParameterWriteRequest rate = {.parameter_id = 0x71U,
+                                  .value_type = PARAMETER_VALUE_U32,
+                                  .expected_revision = axis->parameters.revision,
+                                  .raw_value = (1000UL << 16U) | 3000U};
+#if BSP_BOARD == BSP_BOARD_AT32F456
+    axis->state_machine.state = MOTOR_STATE_RUNNING;
+    assert(MotorAxis_WriteParameter(axis, &rate) == PARAMETER_WRONG_STATE);
+    axis->state_machine.state = MOTOR_STATE_IDLE;
+    assert(MotorAxis_WriteParameter(axis, &rate) == PARAMETER_OK);
+    assert(MotorAxis_WriteParameter(axis, &rate) == PARAMETER_OK);
+    assert(axis->parameters.revision == rate.expected_revision + 1U);
+    assert(MotorAxis_SaveParameters(axis, rate.expected_revision) == PARAMETER_REVISION_CONFLICT);
+    assert(MotorAxis_ReadParameter(axis, 0x71U, true, &value) == PARAMETER_OK);
+    assert(value.raw_value == ((500UL << 16U) | 2000U));
+    assert(MotorAxis_SaveParameters(axis, axis->parameters.revision) == PARAMETER_OK);
+    assert(MotorAxis_ReadParameter(axis, 0x71U, true, &value) == PARAMETER_OK);
+    assert(value.raw_value == rate.raw_value);
+#else
+    assert(MotorAxis_WriteParameter(axis, &rate) == PARAMETER_UNSUPPORTED);
+#endif
     write.parameter_id = 16U;
     axis->parameters.revision = UINT32_MAX;
     write.expected_revision = UINT32_MAX;

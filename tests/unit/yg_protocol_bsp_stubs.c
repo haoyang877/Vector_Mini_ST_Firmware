@@ -14,6 +14,10 @@ __attribute__((weak)) bool BspCan_TrySend(const BspCanFrame *frame)
     return false;
 }
 
+__attribute__((weak)) bool BspCan_ConfigureBitrate(uint8_t profile)
+{
+    return profile == 0U;
+}
 __attribute__((weak)) void BspCan_Start(void)
 {
 }

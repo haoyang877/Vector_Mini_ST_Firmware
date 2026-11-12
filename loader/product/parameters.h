@@ -8,4 +8,9 @@
  * @note 仅前台只读扫描；生产身份不属于参数扫描范围。
  */
 LoaderParameterState LoaderParameters_ReadNode(uint8_t *node);
+/**
+ * @brief 从校验通过的本机基础记录读取 CAN 档位。
+ * @return 本板支持的保存档位；旧记录、不可读或 CRC 错误时返回默认档 0。
+ */
+uint8_t LoaderParameters_ReadBitrate(void);
 #endif

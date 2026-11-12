@@ -21,6 +21,7 @@ def fixture():
 #include <stdio.h>
 #include <string.h>
 #include "parameter_record.h"
+#include "can_bitrate.h"
 #include "motor_axis_profile.h"
 #include "application_config.h"
 #include "crc32.h"
@@ -224,7 +225,7 @@ int main(void) {
     }
     /* 当前布局的黄金字节与偏移保持；加载保留既有整定和标定数据。 */
     p=saved; p.node_id=1; p.speed_limit_rad_s=20;
-    p.configuration_flags=1U; p.reserved_pos_ki=0xffffffffU;
+    p.configuration_flags=1U; p.can_bitrate_record=0xffffffffU;
     p.record_crc32=0U; p.reserved_pos_integral_limit=0x80000000U;
     p.can_hb=NAN;
     p.cascade_pos_kp=.07f; p.cascade_pos_kd=.6f; p.speed_kp=.023f;
@@ -237,7 +238,7 @@ int main(void) {
         assert(offsetof(InterfaceParam,can_hb)==2156);
         assert(offsetof(InterfaceParam,configuration_flags)==2136);
         assert(offsetof(InterfaceParam,record_crc32)==2140);
-        assert(offsetof(InterfaceParam,reserved_pos_ki)==2168);
+        assert(offsetof(InterfaceParam,can_bitrate_record)==2168);
         assert(offsetof(InterfaceParam,reserved_pos_integral_limit)==2176);
         assert(memcmp((const uint8_t *)&p+2160,schema_bytes,sizeof(schema_bytes))==0);
         assert(memcmp((const uint8_t *)&p+2164,magic_bytes,sizeof(magic_bytes))==0);
@@ -252,7 +253,7 @@ int main(void) {
     assert(configuration.device.encoder.electrical_zero_q15==3155 && configuration.device.encoder.reverse==0);
     assert(configuration.device.encoder.calib_flag==3 && configuration.device.encoder.linearization_lut_q15[71]==-42);
     Param_Upload(&p,&configuration); p.magic_word=MAGIC_WORD;
-    assert(p.configuration_flags==1U && p.record_crc32==Param_RecordCrc(&p) && p.reserved_pos_ki==0 && p.reserved_pos_integral_limit==0);
+    assert(p.configuration_flags==1U && p.record_crc32==Param_RecordCrc(&p) && p.can_bitrate_record==0 && p.reserved_pos_integral_limit==0);
     {
         const uint8_t zero_bytes[] = {0,0,0,0};
         assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
@@ -420,6 +421,7 @@ def main():
         else part
         for part in command
     ]
+    tuning_command[-2:-2] = ["-DTARGET_CONFIGURABLE_CAN=1"]
     commands = [tuning_command, [str(tuning_exe)]]
     for scope in ("pitch", "joint"):
         debug_exe = out / f"{scope}_debug_tuning_test.exe"

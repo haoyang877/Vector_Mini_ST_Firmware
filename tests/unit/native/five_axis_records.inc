@@ -1,4 +1,57 @@
 
+/* 检查有效记录经过 APP 写入、重新装载和 Loader 的分块 CRC 后得到相同的档位。 */
+static void check_bitrate(const InterfaceParam *original)
+{
+    const unsigned data_kbps[] = {500, 1000, 2000, 3000, 4000, 5000};
+    InterfaceParam record;
+    MotorConfiguration cfg;
+    ParameterValue read;
+    ParameterWriteRequest write = {.parameter_id = 0x71, .value_type = PARAMETER_VALUE_U32};
+    Param_Download(original, sizeof(*original), &cfg);
+    assert(cfg.device.can_bitrate_profile == 0);
+    for (unsigned nominal = 500; nominal <= 1000; nominal += 500)
+    {
+        for (unsigned i = 0; i < 6; ++i)
+        {
+            write.raw_value = (nominal << 16) | data_kbps[i];
+            assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_OK);
+            assert(ParameterValue_MatchesRequest(&cfg, &write));
+            assert(ParameterValue_Read(&cfg, 2, 0x71, &read) == PARAMETER_OK);
+            assert(read.raw_value == write.raw_value && read.access == 3 && read.value_type == 2);
+            uint8_t profile = cfg.device.can_bitrate_profile;
+            Param_Upload(&record, &cfg);
+            assert(record.can_bitrate_record == (profile ? 0x43420100U | profile : 0));
+            memcpy(parameter_flash, &record, sizeof(record));
+            assert(LoaderParameters_ReadBitrate() == profile);
+            Param_Download(&record, sizeof(record), &cfg);
+            assert(cfg.device.can_bitrate_profile == profile);
+            assert(cfg.device.node_id == original->node_id);
+        }
+    }
+    write.raw_value = (250U << 16) | 2000U;
+    assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_OUT_OF_RANGE);
+    write.raw_value = (500U << 16) | 2500U;
+    assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_OUT_OF_RANGE);
+    write.value_type = PARAMETER_VALUE_I32;
+    assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_BAD_TYPE);
+    assert(cfg.device.can_bitrate_profile == 11);
+    record.record_crc32 ^= 1U;
+    memcpy(parameter_flash, &record, sizeof(record));
+    assert(LoaderParameters_ReadBitrate() == 0);
+    Param_Download(&record, sizeof(record), &cfg);
+    assert(cfg.device.can_bitrate_profile == 0);
+    const uint32_t legacy[] = {0U, 0xFFFFFFFFU, 0x4342010CU, 0x43420201U};
+    for (unsigned i = 0; i < sizeof(legacy)/sizeof(legacy[0]); ++i)
+    {
+        record.can_bitrate_record = legacy[i];
+        record.record_crc32 = Param_RecordCrc(&record);
+        memcpy(parameter_flash, &record, sizeof(record));
+        assert(LoaderParameters_ReadBitrate() == 0);
+        Param_Download(&record, sizeof(record), &cfg);
+        assert(cfg.device.can_bitrate_profile == 0 && cfg.device.node_id == original->node_id);
+    }
+}
+
 /* 模拟电机轴范围和热参数，仅供离线测试。 */
 int main(void)
 {
@@ -21,6 +74,7 @@ int main(void)
         assert(Param_CreateAxis(node, wheel ? 0 : -1, wheel ? 0 : 1, .5f, &heat, &configuration));
         Param_Upload(&record, &configuration);
         assert(record.record_crc32 == five_axis_crc[node - 3]);
+        check_bitrate(&record);
         configuration.configuration_confirmed = true;
         configuration.device.encoder.calib_flag = ENC_CALIB_ALL;
         configuration.device.encoder.linearization_lut_q15[71] = -42;

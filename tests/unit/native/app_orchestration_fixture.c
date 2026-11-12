@@ -55,7 +55,13 @@ void MotorAxis_Init(MotorAxis *instance)
 {
     instance->hardware = &hardware;
     instance->configuration.device.node_id = 7U;
+    instance->configuration.device.can_bitrate_profile = 3U;
     event(1, 0);
+}
+bool BspCan_ConfigureBitrate(uint8_t profile)
+{
+    assert(profile == 3U && app.endpoint.node_id == 7U);
+    return true;
 }
 bool Protocol_Init(ProtocolEndpoint *instance, uint8_t node)
 {

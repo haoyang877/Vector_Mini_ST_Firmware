@@ -1,4 +1,5 @@
 #include "parameter_record.h"
+#include "can_bitrate.h"
 
 #include <math.h>
 #include <string.h>
@@ -26,7 +27,10 @@ uint32_t Param_RecordCrc(const InterfaceParam *param)
 }
 
 typedef char
-    Schema14Layout[(offsetof(InterfaceParam, hall_sin_off_counts) == 2188U &&
+    Schema14Layout[(offsetof(InterfaceParam, can_bitrate_record) == CAN_BITRATE_RECORD_OFFSET &&
+                    offsetof(InterfaceParam, record_crc32) == CAN_BITRATE_RECORD_CRC_OFFSET &&
+                    sizeof(InterfaceParam) == CAN_BITRATE_BASE_RECORD_BYTES &&
+                    offsetof(InterfaceParam, hall_sin_off_counts) == 2188U &&
                     offsetof(InterfaceParam, hall_tag_status) == 2204U &&
                     offsetof(InterfaceParam, thermal) == 2240U && sizeof(InterfaceParam) == 2288U)
                        ? 1
@@ -246,6 +250,7 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->application.axis_profile_valid = true;
     configuration->configuration_confirmed = false;
     configuration->configuration_source = MOTOR_CONFIGURATION_DEFAULTS;
+    configuration->device.can_bitrate_profile = 0U;
     /* 未装配的产品板不注册整车 CAN 地址。 */
     configuration->device.node_id =
         BSP_BOARD == BSP_BOARD_AT32F456 ? UINT8_MAX : PARAM_DEVICE_CAN_NODE_ID;
@@ -349,6 +354,11 @@ void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration
 
     memset(param, 0, sizeof(*param));
     param->node_id = (float)configuration->device.node_id;
+    if (BSP_BOARD == BSP_BOARD_AT32F456 && configuration->device.can_bitrate_profile != 0U)
+    {
+        param->can_bitrate_record =
+            CAN_BITRATE_RECORD_V1 | configuration->device.can_bitrate_profile;
+    }
     param->currentoffset_a = (float)configuration->device.phase_a_offset_counts;
     param->currentoffset_b = (float)configuration->device.phase_b_offset_counts;
     param->currentoffset_c = (float)configuration->device.phase_c_offset_counts;
@@ -492,6 +502,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
 
     /* 与 Loader 共用 node_id 字段；应用轴身份不能改写设备地址。 */
     configuration->device.node_id = (uint8_t)param->node_id;
+    configuration->device.can_bitrate_profile =
+        BSP_BOARD == BSP_BOARD_AT32F456 ? CanBitrate_FromRecord(param->can_bitrate_record) : 0U;
     configuration->application.axis_profile_valid =
         preset != NULL || MotorAxisProfile_Load(&param->axis_profile, axis);
     configuration->application.speed_ceiling_rad_s = application_speed_ceiling_rad_s(

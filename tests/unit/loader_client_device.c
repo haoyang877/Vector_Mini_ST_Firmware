@@ -110,9 +110,13 @@ void LoaderPlatform_Reset(void)
     s_app = LoaderImage_PrepareBoot(&image_config);
     s_trial_ms = s_ticks;
 }
-bool LoaderCan_Init(uint8_t value)
+uint8_t LoaderParameters_ReadBitrate(void)
 {
-    return value == 3U;
+    return 0U;
+}
+bool LoaderCan_Init(uint8_t value, uint8_t profile)
+{
+    return value == 3U && profile == 0U;
 }
 bool LoaderCan_Ready(void)
 {

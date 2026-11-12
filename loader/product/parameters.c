@@ -3,6 +3,58 @@
 #include <stddef.h>
 #include "platform.h"
 #include "loader_target.h"
+#include "can_bitrate.h"
+#include "crc32.h"
+
+uint8_t LoaderParameters_ReadBitrate(void)
+{
+#if defined(TARGET_CONFIGURABLE_CAN) && TARGET_CONFIGURABLE_CAN
+#if CAN_BITRATE_RECORD_OFFSET != TARGET_RAW_SCHEMA_OFFSET + 8U
+#error Incompatible schema, magic and bitrate offsets
+#endif
+    uint32_t header[3];
+    if (!LoaderPlatform_ReadParameters(TARGET_RAW_SCHEMA_OFFSET, header, sizeof(header)) ||
+        header[0] != TARGET_SCHEMA || header[1] != TARGET_RAW_MAGIC)
+    {
+        return 0U;
+    }
+    uint8_t profile = CanBitrate_FromRecord(header[2]);
+    uint32_t expected_crc;
+    if (profile == 0U || !LoaderPlatform_ReadParameters(
+                             CAN_BITRATE_RECORD_CRC_OFFSET, &expected_crc, sizeof(expected_crc)))
+    {
+        return 0U;
+    }
+
+    /* 与 schema14 所有者相同，跳过 CRC 槽本身；分块读取限制启动栈占用。 */
+    uint32_t crc = 0U;
+    uint8_t block[64];
+    for (uint32_t offset = 0U; offset < CAN_BITRATE_BASE_RECORD_BYTES;)
+    {
+        if (offset == CAN_BITRATE_RECORD_CRC_OFFSET)
+        {
+            offset += sizeof(expected_crc);
+        }
+        uint32_t end = offset < CAN_BITRATE_RECORD_CRC_OFFSET ? CAN_BITRATE_RECORD_CRC_OFFSET
+                                                              : CAN_BITRATE_BASE_RECORD_BYTES;
+        uint32_t count = end - offset;
+        if (count > sizeof(block))
+        {
+            count = sizeof(block);
+        }
+        LoaderPlatform_Watchdog();
+        if (!LoaderPlatform_ReadParameters(offset, block, count))
+        {
+            return 0U;
+        }
+        crc = Crc32_Compute(block, count, crc);
+        offset += count;
+    }
+    return crc == expected_crc ? profile : 0U;
+#else
+    return 0U;
+#endif
+}
 
 LoaderParameterState LoaderParameters_ReadNode(uint8_t *node)
 {

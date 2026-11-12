@@ -9,6 +9,7 @@ LR_APP 0x08004000 0x18000 {
     system.o (i.Bsp_Init)
     system.o (i.McuSystem_Init)
     system.o (i.McuSystem_Start)
+    can.o (i.BspCan_ConfigureBitrate)
     adc.o (i.McuAdc_Init)
     pwm.o (i.McuPwm_Init)
     ; LUT发布仅在关相后台调用，不占用快速中断代码区。

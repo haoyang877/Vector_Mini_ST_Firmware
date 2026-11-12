@@ -4,25 +4,31 @@
 #include <stdio.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/can.c"
+#include "can_bitrate_register_test.h"
 
 void BspApp_OnCanReceive(void)
 {
     assert(0 && "unexpected CAN receive");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     McuCan_Init();
     assert(sim_can.ctrlstat_bit.reset && sim_can.ctrlstat_bit.fd_iso);
-    assert(sim_timing.bittime_div == 1U);
+    assert(sim_timing.bittime_div == 2U);
     assert(sim_timing.ac_bts1_size == 135U && sim_timing.ac_bts2_size == 45U);
-    assert(sim_timing.fd_bts1_size == 27U && sim_timing.fd_bts2_size == 9U);
+    assert(sim_timing.fd_bts1_size == 34U && sim_timing.fd_bts2_size == 11U);
+    assert(sim_timing.fd_ssp_offset == 35U);
+    assert(argc == 7 && !BspCan_ConfigureBitrate(12U));
+    assert(BspCan_ConfigureBitrate((uint8_t)strtoul(argv[1], NULL, 10)));
+    check_can_timing(&sim_timing, argv);
     assert(sim_filter.code_para.id_type == CAN_ID_EXTENDED);
     assert(sim_filter.code_para.frame_type == CAN_FRAME_DATA);
     assert(!sim_filter.mask_para.id_type && !sim_filter.mask_para.frame_type);
     assert(sim_can.inten == 0U);
     BspCan_Start();
-    assert(!sim_can.ctrlstat_bit.reset);
+    assert(!sim_can.ctrlstat_bit.reset && !BspCan_ConfigureBitrate(0U));
+    check_can_timing(&sim_timing, argv);
     assert(sim_can.lbtcfg_bit.retlim == CAN_RE_TRANS_TIMES_1);
     assert(sim_can.lbtcfg_bit.realim == CAN_RE_ARBI_TIMES_UNLIMIT);
     McuAdc_Init();

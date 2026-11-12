@@ -133,6 +133,11 @@ void App_Init(AppContext *app)
     app->endpoint.parameters = (ProtocolParameters){&app->axis, handle_parameter_request};
     app->communication_ready =
         Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
+    if (app->communication_ready && app->axis.configuration.device.can_bitrate_profile != 0U)
+    {
+        app->communication_ready =
+            BspCan_ConfigureBitrate(app->axis.configuration.device.can_bitrate_profile);
+    }
     if (app->communication_ready)
     {
         app->communication_ready = configure_protocol_device_info(app);

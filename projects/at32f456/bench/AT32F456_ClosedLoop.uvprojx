@@ -335,7 +335,7 @@
               <MiscControls>-DFIRMWARE_TARGET_AT32_BENCH </MiscControls>
               <Define>AT32F456CCU7,USE_STDPERIPH_DRIVER,AT32_OPENLOOP_POWER_ENABLED=1,AT32_OL_VOLTAGE_V=1.0f,AT32_OL_DURATION_MS=10000U,AT32_OL_CURRENT_LIMIT_A=3.0f,AT32_CLOSEDLOOP_TEST=1,BSP_BOARD=2U</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\calibration;..\..\..\firmware\platform\bsp</IncludePath>
+              <IncludePath>..\..\..\firmware\platform\bsp\mcu\at32f456;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\sdk\at32f45x\drivers\inc;..\..\..\firmware\platform\sdk\at32f45x\cmsis\core;..\..\..\firmware\platform\sdk\at32f45x\cmsis\device;..\..\..\firmware\motor;..\..\..\firmware\motor\math;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\protection;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\calibration;..\..\..\firmware\platform\bsp;..\..\..\shared\targets;..\..\..\shared\protocol</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>

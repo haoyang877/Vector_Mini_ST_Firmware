@@ -15,12 +15,13 @@ typedef struct
     bool success;
 } LoaderCanTxEvent;
 /**
- * @brief 冷启动配置固定1M/5M CAN-FD及本机/广播过滤器。
+ * @brief 冷启动配置 CAN FD 位时序及本机/广播过滤器。
  * @param node 本机0..254节点。
+ * @param profile 已保存的本板速率档位，零为板级缺省值。
  * @return 配置且进入正常模式返回true。
  * @note 每次真实启动只调用一次；失联不自动恢复旧发送票据。
  */
-bool LoaderCan_Init(uint8_t node);
+bool LoaderCan_Init(uint8_t node, uint8_t profile);
 /** @brief 读取一帧并重启被有界ISR暂停的接收。 @param frame 输出副本。 @return 有数据返回true。 */
 bool LoaderCan_Receive(LoaderCanFrame *frame);
 /**

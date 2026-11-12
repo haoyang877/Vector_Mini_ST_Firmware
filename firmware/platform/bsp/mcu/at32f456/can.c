@@ -4,12 +4,32 @@
  */
 #include "../../bsp_internal.h"
 #include "bsp_can.h"
+#include "at32f456_can_timing.h"
 #include "mcu_resources.h"
 #include <string.h>
 #include "at32f45x.h"
 
 #if BSP_ENABLED_CAN
 static const uint8_t s_dlc_lengths[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
+
+bool BspCan_ConfigureBitrate(uint8_t profile)
+{
+    if (profile >= CAN_BITRATE_PROFILE_COUNT || !MCU_CAN->ctrlstat_bit.reset)
+    {
+        return false;
+    }
+    At32CanTiming bits = At32Can_BitTiming(profile);
+    can_bittime_type timing;
+    can_bittime_default_para_init(&timing);
+    timing.bittime_div = bits.divider;
+    timing.ac_bts1_size = bits.nominal_seg1;
+    timing.ac_bts2_size = timing.ac_rsaw_size = bits.nominal_seg2;
+    timing.fd_bts1_size = bits.data_seg1;
+    timing.fd_bts2_size = timing.fd_rsaw_size = bits.data_seg2;
+    timing.fd_ssp_offset = bits.ssp_offset;
+    can_bittime_set(MCU_CAN, &timing);
+    return true;
+}
 
 void McuCan_Init(void)
 {
@@ -28,17 +48,7 @@ void McuCan_Init(void)
     gpio_pin_mux_config(MCU_CAN_GPIO_PORT, MCU_CAN_RX_SOURCE, MCU_CAN_GPIO_AF);
     gpio_pin_mux_config(MCU_CAN_GPIO_PORT, MCU_CAN_TX_SOURCE, MCU_CAN_GPIO_AF);
     gpio_init(MCU_CAN_GPIO_PORT, &pins);
-    can_bittime_type timing;
-    can_bittime_default_para_init(&timing);
-    timing.bittime_div = 1U;
-    timing.ac_bts1_size = AT32_CAN_NOMINAL_SEG1;
-    timing.ac_bts2_size = AT32_CAN_NOMINAL_SEG2;
-    timing.ac_rsaw_size = AT32_CAN_NOMINAL_SEG2;
-    timing.fd_bts1_size = AT32_CAN_DATA_SEG1;
-    timing.fd_bts2_size = AT32_CAN_DATA_SEG2;
-    timing.fd_rsaw_size = AT32_CAN_DATA_SEG2;
-    timing.fd_ssp_offset = AT32_CAN_DATA_SEG1 + 1U;
-    can_bittime_set(MCU_CAN, &timing);
+    (void)BspCan_ConfigureBitrate(0U);
     can_fd_iso_mode_enable(MCU_CAN, TRUE);
     can_mode_set(MCU_CAN, CAN_MODE_COMMUNICATE);
     can_receive_all_enable(MCU_CAN, FALSE);

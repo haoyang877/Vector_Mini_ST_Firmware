@@ -964,6 +964,10 @@ impl eframe::App for HostApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_events();
         self.poll_scan();
+        self.maintenance_panel.poll(ui.ctx());
+        if self.page != Page::Maintenance || self.upgrade_mode != UpgradeMode::Combined {
+            self.maintenance_panel.leave_page();
+        }
         if let Some(mut bench) = self.bench.take() {
             bench.tick(self, ui.ctx());
             self.bench = Some(bench);

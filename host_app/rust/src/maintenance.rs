@@ -10,6 +10,9 @@ pub struct Panel {
     python: String,
     script: String,
     probe: String,
+    probes: Option<Vec<u32>>,
+    action: &'static str,
+    board: String,
     uid: String,
     bundle: String,
     input: String,
@@ -22,12 +25,50 @@ pub struct Panel {
 
 impl Default for Panel {
     fn default() -> Self {
+        let dir = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|p| p.to_owned()))
+            .unwrap_or_default();
+        Self::from_directory(&dir)
+    }
+}
+
+impl Panel {
+    fn from_directory(dir: &std::path::Path) -> Self {
+        let (python, script) = if dir.join("runtime").is_dir() {
+            (
+                dir.join("runtime/python/python.exe"),
+                dir.join("loader/tools/device_maintenance.py"),
+            )
+        } else {
+            (
+                PathBuf::from(".venv/Scripts/python.exe"),
+                PathBuf::from("loader/tools/device_maintenance.py"),
+            )
+        };
+        let firmware = dir.join("firmware");
+        #[derive(serde::Deserialize)]
+        struct BundledTarget {
+            target: String,
+        }
+        let board = std::fs::read(firmware.join("target.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<BundledTarget>(&raw).ok())
+            .and_then(|info| Target::named(&info.target).ok())
+            .map_or_else(String::new, |target| target.name);
         Self {
-            python: ".venv/Scripts/python.exe".into(),
-            script: "loader/tools/device_maintenance.py".into(),
+            python: python.to_string_lossy().into_owned(),
+            script: script.to_string_lossy().into_owned(),
             probe: String::new(),
+            probes: None,
+            action: "",
+            board,
             uid: String::new(),
-            bundle: String::new(),
+            bundle: if firmware.join("summary.json").is_file() {
+                firmware.to_string_lossy().into_owned()
+            } else {
+                String::new()
+            },
             input: String::new(),
             after: String::new(),
             migration: String::new(),
@@ -52,40 +93,56 @@ fn field(ui: &mut egui::Ui, name: &str, value: &mut String) {
     });
 }
 
-fn swd_ready(disconnected: bool, confirmed: bool, probe: &str, uid: &str) -> bool {
+fn swd_ready(disconnected: bool, confirmed: bool, probe: &str) -> bool {
     let probe_valid = probe.trim().parse::<u32>().is_ok_and(|serial| serial > 0);
-    let uid = uid.trim();
-    disconnected
-        && confirmed
-        && probe_valid
-        && uid.len() == 24
-        && uid.bytes().all(|byte| byte.is_ascii_hexdigit())
+    disconnected && confirmed && probe_valid
 }
 
 impl Panel {
+    pub fn leave_page(&mut self) {
+        if !self.busy() && self.probes.take().is_some() {
+            self.confirmed = false;
+        }
+    }
     pub fn busy(&self) -> bool {
         self.receiver.is_some()
     }
-    fn start(&mut self, action: &str, target: &Target) {
+    fn start(&mut self, action: &'static str, target: &str) {
+        if self.busy() {
+            return;
+        }
+        self.action = action;
         let mut args = vec![
             self.script.clone(),
             action.into(),
             "--target".into(),
-            target.name.clone(),
+            target.into(),
         ];
         if matches!(action, "backup" | "install") {
             args.extend([
                 "--probe".into(),
                 self.probe.clone(),
-                "--uid".into(),
-                self.uid.clone(),
                 "--exclusive-bench".into(),
             ]);
+            if self.uid.is_empty() {
+                args.push("--auto-uid".into());
+            } else {
+                args.extend(["--uid".into(), self.uid.clone()]);
+            }
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis();
-            args.extend(["--out".into(), format!("outputs/swd-{action}-{stamp}")]);
+            let root = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .map(|dir| dir.join("YG/YG_MC_HOST/swd"))
+                .unwrap_or_else(std::env::temp_dir);
+            args.extend([
+                "--out".into(),
+                root.join(format!("swd-{action}-{stamp}"))
+                    .to_string_lossy()
+                    .into_owned(),
+            ]);
         }
         match action {
             "install" => {
@@ -126,7 +183,7 @@ impl Panel {
         self.result = format!("正在执行 {action}；完成前不启动其他下载/调试会话");
         std::thread::spawn(move || {
             let mut command = Command::new(python);
-            command.args(args);
+            command.args(["-X", "utf8"]).args(args);
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -151,27 +208,127 @@ impl Panel {
         });
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, target: &Target, disconnected: bool) {
+    pub fn poll(&mut self, ctx: &egui::Context) {
         if let Some(receiver) = &self.receiver {
             match receiver.try_recv() {
                 Ok(result) => {
-                    self.result = result.unwrap_or_else(|error| format!("失败：{error}"));
+                    if self.action == "probes" {
+                        let previous = self.probe.clone();
+                        let parsed = result.and_then(|text| {
+                            serde_json::from_str::<Vec<u32>>(&text).map_err(|e| e.to_string())
+                        });
+                        match parsed {
+                            Ok(probes) => {
+                                self.probe = match probes.as_slice() {
+                                    [only] => only.to_string(),
+                                    _ if previous
+                                        .parse::<u32>()
+                                        .ok()
+                                        .is_some_and(|p| probes.contains(&p)) =>
+                                    {
+                                        previous.clone()
+                                    }
+                                    _ => String::new(),
+                                };
+                                self.result = if probes.is_empty() {
+                                    "未发现 USB J-Link，请接入后重新扫描。".into()
+                                } else {
+                                    String::new()
+                                };
+                                self.probes = Some(probes);
+                            }
+                            Err(error) => {
+                                self.probe.clear();
+                                self.probes = Some(vec![]);
+                                self.result = format!("失败：J-Link 扫描失败，{error}");
+                            }
+                        }
+                        if self.probe != previous {
+                            self.uid.clear();
+                            self.confirmed = false;
+                        }
+                    } else {
+                        self.result = result
+                            .and_then(|text| {
+                                if matches!(self.action, "install" | "backup") {
+                                    #[derive(serde::Deserialize)]
+                                    struct DeviceReport {
+                                        uid: String,
+                                        success: bool,
+                                    }
+                                    let report: DeviceReport = serde_json::from_str(&text)
+                                        .map_err(|e| format!("维护结果无法确认：{e}\n{text}"))?;
+                                    if !report.success
+                                        || report.uid.len() != 24
+                                        || !report.uid.bytes().all(|b| b.is_ascii_hexdigit())
+                                    {
+                                        return Err(format!(
+                                            "维护报告缺少有效 MCU UID 或成功状态\n{text}"
+                                        ));
+                                    }
+                                    self.uid = report.uid;
+                                }
+                                Ok(text)
+                            })
+                            .unwrap_or_else(|error| format!("失败：{error}"));
+                    }
+                    self.action = "";
                     self.receiver = None;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
+                    if self.action == "probes" {
+                        self.probe.clear();
+                        self.uid.clear();
+                        self.confirmed = false;
+                        self.probes = Some(vec![]);
+                    }
+                    self.action = "";
                     self.result = "失败：维护任务意外结束；结果未知，请检查设备和日志。".into();
                     self.receiver = None;
                 }
                 Err(mpsc::TryRecvError::Empty) => {
-                    ui.ctx()
-                        .request_repaint_after(std::time::Duration::from_millis(100));
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
                 }
             }
         }
-        ui.label(format!(
-            "目标：{} · Loader + APP · 通过 J-Link / SWD",
-            target.name
-        ));
+    }
+
+    pub fn show(&mut self, ui: &mut egui::Ui, session_target: &Target, disconnected: bool) {
+        if self.board.is_empty() {
+            self.board = session_target.name.clone();
+        }
+        let previous = self.board.clone();
+        ui.horizontal(|ui| {
+            ui.label("目标板");
+            ui.add_enabled_ui(disconnected && !self.busy(), |ui| {
+                egui::ComboBox::from_id_salt("swd_board")
+                    .selected_text(if self.board == "yg_esc_v1_at32f456" {
+                        "AT32F456"
+                    } else {
+                        "STM32G431"
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.board,
+                            "yg_esc_v1_at32f456".into(),
+                            "AT32F456",
+                        );
+                        ui.selectable_value(
+                            &mut self.board,
+                            "vector_mini_st_g431".into(),
+                            "STM32G431",
+                        );
+                    });
+            });
+        });
+        if previous != self.board {
+            self.uid.clear();
+            self.confirmed = false;
+        }
+        let target = self.board.clone();
+        if disconnected && self.probes.is_none() && !self.busy() {
+            self.start("probes", &target);
+        }
         ui.label(RichText::new("整机包用于初装或恢复整机固件；运行中的设备请使用「升级 APP（CAN）」。操作前断开 CAN 并关闭其他调试器。")
             .small().color(ui.visuals().weak_text_color()));
         ui.add_space(8.0);
@@ -200,29 +357,64 @@ impl Panel {
             ui.add_space(14.0);
             crate::ui::widgets::section(ui, "02  目标设备", |ui| {
                 ui.columns(2, |columns| {
-                    field(&mut columns[0], "J-Link 探针序列号", &mut self.probe);
-                    field(&mut columns[1], "MCU UID（24 位十六进制）", &mut self.uid);
+                    columns[0].label("USB J-Link 探针");
+                    columns[0].horizontal_wrapped(|ui| {
+                        let previous = self.probe.clone();
+                        egui::ComboBox::from_id_salt("swd_probe")
+                            .selected_text(if self.action == "probes" {
+                                "正在扫描…"
+                            } else if self.probe.is_empty() {
+                                "选择探针"
+                            } else {
+                                &self.probe
+                            })
+                            .show_ui(ui, |ui| {
+                                for serial in self.probes.iter().flatten() {
+                                    ui.selectable_value(
+                                        &mut self.probe,
+                                        serial.to_string(),
+                                        format!("J-Link · {serial}"),
+                                    );
+                                }
+                            });
+                        if self.probe != previous {
+                            self.uid.clear();
+                            self.confirmed = false;
+                        }
+                        if ui
+                            .add_enabled(disconnected, egui::Button::new("重新扫描"))
+                            .clicked()
+                        {
+                            self.uid.clear();
+                            self.confirmed = false;
+                            self.start("probes", &target);
+                        }
+                    });
+                    columns[1].label("MCU UID");
+                    if self.uid.is_empty() {
+                        columns[1].label("备份或烧录时自动读取");
+                    } else {
+                        columns[1].monospace(&self.uid);
+                    }
                 });
             });
             ui.add_space(12.0);
             ui.checkbox(
                 &mut self.confirmed,
-                "已核对探针与 MCU UID，设备已停机，当前由本工具独占 SWD",
+                "已选择目标探针，设备已停机，当前由本工具独占 SWD",
             );
             let probe_valid = self
                 .probe
                 .trim()
                 .parse::<u32>()
                 .is_ok_and(|serial| serial > 0);
-            let uid = self.uid.trim();
-            let uid_valid = uid.len() == 24 && uid.bytes().all(|byte| byte.is_ascii_hexdigit());
             ui.horizontal(|ui| {
-                let hardware = swd_ready(disconnected, self.confirmed, &self.probe, &self.uid);
+                let hardware = !self.busy() && swd_ready(disconnected, self.confirmed, &self.probe);
                 if ui
                     .add_enabled(hardware, egui::Button::new("读取完整备份"))
                     .clicked()
                 {
-                    self.start("backup", target);
+                    self.start("backup", &target);
                 }
                 if ui
                     .add_enabled(
@@ -231,15 +423,13 @@ impl Panel {
                     )
                     .clicked()
                 {
-                    self.start("install", target);
+                    self.start("install", &target);
                 }
             });
             let reason = if !disconnected {
                 "请先断开 CAN；离线预览不能操作设备。"
             } else if !probe_valid {
-                "请填写有效的 J-Link 探针序列号。"
-            } else if !uid_valid {
-                "请填写 24 位十六进制 MCU UID。"
+                "请选择已识别的 USB J-Link 探针。"
             } else if !self.confirmed {
                 "请确认设备已停机并独占 SWD。"
             } else if self.bundle.trim().is_empty() {
@@ -256,19 +446,19 @@ impl Panel {
                 field(ui, "AT32 迁移包目录（可选）", &mut self.migration);
                 ui.horizontal(|ui| {
                     if ui.button("查看保存参数与 LUT").clicked() {
-                        self.start("parameters", target);
+                        self.start("parameters", &target);
                     }
                     if ui.button("比较下载前后的保护区").clicked() {
-                        self.start("verify", target);
+                        self.start("verify", &target);
                     }
                     if ui
                         .add_enabled(
-                            target.name == "yg_esc_v1_at32f456",
+                            target == "yg_esc_v1_at32f456",
                             egui::Button::new("离线生成原样迁移包"),
                         )
                         .clicked()
                     {
-                        self.start("prepare-migration", target);
+                        self.start("prepare-migration", &target);
                     }
                 });
             });
@@ -279,7 +469,14 @@ impl Panel {
                 ui.label(egui::RichText::new(&self.result).strong());
             });
         } else if !self.result.is_empty() {
-            let headline = self.result.lines().next().unwrap_or("维护任务已完成");
+            let verified = serde_json::from_str::<serde_json::Value>(&self.result)
+                .ok()
+                .is_some_and(|report| report["install_verified"] == true);
+            let headline = if verified {
+                "整机包写入并回读通过，APP 启动待验证。"
+            } else {
+                self.result.lines().next().unwrap_or("维护任务已完成")
+            };
             let is_error = self.result.starts_with("失败：");
             ui.label(
                 egui::RichText::new(headline)
@@ -305,17 +502,110 @@ impl Panel {
 
 #[cfg(test)]
 mod tests {
-    use super::swd_ready;
+    use super::{Panel, swd_ready};
+
+    #[test]
+    #[ignore = "需要以 YG_HOST_TEST_PACKAGE 指定已解压的 Windows 发布包"]
+    fn unpacked_gui_discovers_probe_and_installs_combined_image() {
+        use eframe::egui::{self, accesskit};
+        let kit = std::path::PathBuf::from(std::env::var_os("YG_HOST_TEST_PACKAGE").unwrap());
+        let mut panel = Panel::from_directory(&kit);
+        assert_eq!(
+            std::path::Path::new(&panel.python),
+            kit.join("runtime/python/python.exe")
+        );
+        assert_eq!(
+            std::path::Path::new(&panel.script),
+            kit.join("loader/tools/device_maintenance.py")
+        );
+        assert_eq!(std::path::Path::new(&panel.bundle), kit.join("firmware"));
+        // 测试入口只替换探针传输；解释器、业务脚本、目标契约和镜像都取自解压目录。
+        panel.script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/host_swd_probe.py")
+            .to_string_lossy()
+            .into_owned();
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let target = crate::target::Target::bundled().unwrap();
+        let frame = |panel: &mut Panel, action: Option<accesskit::NodeId>| {
+            let mut input = egui::RawInput::default();
+            if let Some(id) = action {
+                input.events.push(egui::Event::AccessKitActionRequest(
+                    accesskit::ActionRequest {
+                        action: accesskit::Action::Click,
+                        target_tree: accesskit::TreeId::ROOT,
+                        target_node: id,
+                        data: None,
+                    },
+                ));
+            }
+            let mut output = ctx.run_ui(input, |ui| panel.show(ui, &target, true));
+            output.textures_delta.clear();
+            output
+        };
+        let finish = |panel: &mut Panel| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while panel.busy() {
+                assert!(std::time::Instant::now() < deadline, "{}", panel.result);
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                panel.poll(&ctx);
+            }
+        };
+        frame(&mut panel, None);
+        finish(&mut panel);
+        assert_eq!(panel.probe, "314159", "{}", panel.result);
+        assert!(panel.uid.is_empty());
+        panel.confirmed = true;
+        let tree = frame(&mut panel, None)
+            .platform_output
+            .accesskit_update
+            .unwrap();
+        let (button, _) = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some("安装整机包（J-Link / SWD）"))
+            .unwrap();
+        frame(&mut panel, Some(*button));
+        assert!(panel.busy());
+        finish(&mut panel);
+        assert_eq!(panel.uid, "000102030405060708090a0b");
+        let report: serde_json::Value = serde_json::from_str(&panel.result).expect(&panel.result);
+        assert_eq!(report["install_verified"], true);
+        assert_eq!(report["flash"]["bytes"], 262144);
+    }
+
+    #[test]
+    fn usb_scan_keeps_only_an_unambiguous_or_previously_selected_probe() {
+        let mut panel = Panel::default();
+        let ctx = eframe::egui::Context::default();
+        let scan = |panel: &mut Panel, data: &str| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            panel.action = "probes";
+            panel.receiver = Some(rx);
+            tx.send(Ok(data.to_owned())).unwrap();
+            panel.poll(&ctx);
+        };
+        scan(&mut panel, "[12,34]");
+        assert!(panel.probe.is_empty());
+        scan(&mut panel, "[34]");
+        assert_eq!(panel.probe, "34");
+        panel.uid = "00".repeat(12);
+        panel.confirmed = true;
+        scan(&mut panel, "[12,34]");
+        assert_eq!(panel.probe, "34");
+        scan(&mut panel, "[]");
+        assert!(panel.probe.is_empty() && panel.uid.is_empty() && !panel.confirmed);
+        scan(&mut panel, "[12]");
+        scan(&mut panel, "invalid");
+        assert!(panel.probe.is_empty() && panel.result.starts_with("失败"));
+    }
 
     #[test]
     fn swd_requires_exclusive_confirmation_and_valid_identity() {
-        let uid = "0123456789abcdef01234567";
-        assert!(swd_ready(true, true, "12345", uid));
-        assert!(!swd_ready(false, true, "12345", uid));
-        assert!(!swd_ready(true, false, "12345", uid));
-        assert!(!swd_ready(true, true, "0", uid));
-        assert!(!swd_ready(true, true, "abc", uid));
-        assert!(!swd_ready(true, true, "12345", "1234"));
-        assert!(!swd_ready(true, true, "12345", "0123456789abcdef0123456g"));
+        assert!(swd_ready(true, true, "12345"));
+        assert!(!swd_ready(false, true, "12345"));
+        assert!(!swd_ready(true, false, "12345"));
+        assert!(!swd_ready(true, true, "0"));
+        assert!(!swd_ready(true, true, "abc"));
     }
 }

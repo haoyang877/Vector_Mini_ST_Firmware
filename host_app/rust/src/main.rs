@@ -20,6 +20,10 @@ use std::path::Path;
 
 fn main() -> Result<()> {
     let mut args: Vec<String> = std::env::args().collect();
+    if matches!(args.as_slice(), [_, option] if option == "--version") {
+        println!("YG_MC_HOST v{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let target = if let Some(at) = args.iter().position(|value| value == "--target") {
         let name = args
             .get(at + 1)

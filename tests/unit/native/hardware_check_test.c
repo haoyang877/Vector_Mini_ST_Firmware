@@ -337,7 +337,7 @@ static void motion_cases(void)
                 motion_sample(rotor, angle, -1);
             }
         }
-        if (k == 5 || k == 12 || k == 17 || k == 19)
+        if (k == 5 || k == 19)
         {
             ProtocolHardwareReport aborted = report();
             assert(aborted.stage == 5 && s_stops == (k == 5 ? 0U : 1U));
@@ -370,6 +370,11 @@ static void motion_cases(void)
             continue;
         }
         assert(r.stage == 4 && s_stops == 0U);
+        if (k == 12 || k == 17)
+        {
+            assert(r.items[8] == 2U && r.items[9] != 0U);
+            continue;
+        }
         assert(r.items[8] == (k == 18 ? 2 : 1) &&
                r.items[9] == (k == 4 ? 3 : (k == 11 || k == 18 ? 2 : 1)));
         assert((r.directions & 15) == (k == 1 ? 6 : (k == 18 ? 5 : 9)));

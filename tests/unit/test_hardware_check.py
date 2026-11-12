@@ -222,6 +222,7 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual((r["communication"], r["stage"], r["stop_confirmed"]), ("正常", 4, True))
         self.assertGreater(bus.previous_lease, 3)
         self.assertEqual(list(r["items"].values())[-2:], ["未测"] * 2)
+        self.assertIn("趋势正常，待实物旋向确认", hw.summarize(r))
         hw.direction_results(r, (1, 2), (1, 2))
         self.assertEqual(list(r["items"].values())[-2:], ["正常"] * 2)
         hw.direction_results(r, (2, 1), (1, 0))

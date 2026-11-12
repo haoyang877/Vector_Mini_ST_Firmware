@@ -1,6 +1,6 @@
 # AT32F456 固件烧录、测试与标定使用指南
 
-适用于 APP v1.8.1、Loader v2.3.3、CAN-Link-Test v1.7.1 和电机工装 v1.4.1。
+适用于 APP v1.8.1、Loader v2.3.3、CAN-Link-Test v1.7.1 和电机工装 v1.4.2。
 本包为 debug 开发验证包。当前连接的 PITCH 台架用于验证，其他轴没有本轮实机结论；
 动态角度检测的已知限制与本次结果以随包测试报告为准。
 v1.8.0 的[历史复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)保留单拍判据的失败结论。
@@ -34,7 +34,7 @@ ISO FD+BRS、仲裁 1 Mbit/s、数据 5 Mbit/s，工具的“通道 1”对应 S
 | `manifest.json`、`firmware/summary.json` | 文件 SHA-256、版本、目标、布局和构建来源 |
 | `CAN-Link-Test-v1.7.1.exe` | SWD 烧录、CAN 升级、通信与硬件功能检测 |
 | `Hardware-Check-v1.0.1.exe` | 独立命令行硬件检测，不依赖本机 Python |
-| `YG-Motor-Commission-v1.4.1.exe` | 空板配参、标定和标定结果导出 |
+| `YG-Motor-Commission-v1.4.2.exe` | 空板配参、标定和标定结果导出 |
 
 大包仅包含 Loader 和 APP 的实际加载段，**不包含参数、LUT 或生产身份**。
 现有已配板使用 CAN-Link-Test 的“J-Link 烧录”：先识别单台板卡，核对 UID/节点，
@@ -99,7 +99,7 @@ PITCH、YAW、Lift 若连接限位或阻尼机构，须先按[五轴配置](at32
 已有配套固件及有效参数的板卡，用工装“已配板重新标定”或：
 
 ```powershell
-.\YG-Motor-Commission-v1.4.1.exe --operation calibrate --axis pitch
+.\YG-Motor-Commission-v1.4.2.exe --operation calibrate --axis pitch
 ```
 
 PITCH、YAW、Lift 的 LUT 请求联合电机端和输出 Hall 标定及电角零位；直驱轴按工装

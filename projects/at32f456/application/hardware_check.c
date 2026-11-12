@@ -546,9 +546,11 @@ static bool rotation_settled(float rotor, uint32_t cycles, float frequency_hz, u
 static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
 {
     uint8_t *items = s_check.report.items;
+    bool invalid_sample = false;
     if (!frame_valid(sample->frame))
     {
         items[ROTOR_DRIVE] = FAIL;
+        invalid_sample = true;
     }
     if (s_check.hall_installed)
     {
@@ -566,10 +568,11 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
             if (raw < 95U || raw > 4000U)
             {
                 items[HALL_DRIVE] = FAIL;
+                invalid_sample = true;
             }
         }
     }
-    if (items[ROTOR_DRIVE] == FAIL || items[HALL_DRIVE] == FAIL)
+    if (invalid_sample)
     {
         end_check(axis, ABORTED);
         return;
@@ -656,6 +659,8 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
         if (updated[sensor] < 0)
         {
             items[ROTOR_DRIVE + sensor] = FAIL;
+            end_check(axis, ABORTED);
+            return;
         }
     }
     if (sign == 0)
@@ -664,13 +669,16 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
         {
             if (s_check.settle[0].max_turns - s_check.settle[0].min_turns >
                     s_check.jitter_turns[0] ||
-                s_check.settle[1].max_turns - s_check.settle[1].min_turns > s_check.jitter_turns[1])
+                (items[HALL_DRIVE] != FAIL &&
+                 s_check.settle[1].max_turns - s_check.settle[1].min_turns >
+                     s_check.jitter_turns[1]))
             {
                 memset(s_check.settle, 0, sizeof(s_check.settle));
                 s_check.settled_samples = 0U;
             }
             else if (updated[0] == 1 && s_check.settle[0].samples >= 2U &&
-                     (!s_check.hall_calibrated || s_check.settle[1].samples >= 2U))
+                     (!s_check.hall_calibrated || items[HALL_DRIVE] == FAIL ||
+                      s_check.settle[1].samples >= 2U))
             {
                 s_check.settled_samples += FOC_FREQ / 20U;
             }
@@ -715,10 +723,7 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
             }
         }
     }
-    if (items[ROTOR_DRIVE] == FAIL || items[HALL_DRIVE] == FAIL)
-    {
-        end_check(axis, ABORTED);
-    }
+    /* 趋势异常只锁存本项失败，继续取得其他项证据；原码/故障等保护仍立即中止。 */
 }
 
 static void consume_sample(MotorAxis *axis, const HardwareSample *sample)

@@ -249,7 +249,7 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
         # 正向、定角保持等待稳定、反向。118 只续同一会话。
         for frequency, duration in (
             (drive.frequency_hz, drive.leg_ms),
-            (0, 250),
+            (0, 500),
             (-drive.frequency_hz, drive.leg_ms),
         ):
             if stopped():
@@ -452,7 +452,10 @@ def run_check(
 
 def summarize(report):
     lines = [f"节点 {report['node']}　通信{report['communication']}　{STAGES[report['stage']]}"]
-    lines.extend(f"{name}　{state}" for name, state in report["items"].items())
+    for index, (name, state) in enumerate(report["items"].items()):
+        if index >= 8 and state == "未测" and report["board_items"][index] == 1:
+            state += "（趋势正常，待实物旋向确认）"
+        lines.append(f"{name}　{state}")
     if "motor_temperature_c" in report:
         lines.append("电机 NTC 实测 %.2f °C" % report["motor_temperature_c"])
     if "stop_confirmed" in report:

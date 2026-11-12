@@ -35,6 +35,15 @@ class CanBitrateHostTest(unittest.TestCase):
         actual = [(c.args[2], c.args[3]) for c in send.call_args_list]
         self.assertEqual(actual, [(int(k), bytes.fromhex(p)) for k, p in vectors.items()])
 
+    def test_read_legacy_record_even_with_zero_saved_revision(self):
+        # 旧输出轴扩展可使整轴 saved_revision 为零，123 仍可校验并读取基础记录。
+        reply = bitrate.REPLY.pack(0, 0, 0x71, 2, 3, 2, (500 << 16) | 2000, 1, 0)
+        with patch.object(bitrate, "request", return_value=reply) as send:
+            with contextlib.redirect_stdout(io.StringIO()) as log:
+                bitrate.configure(None, 4)
+        self.assertEqual([call.args[2] for call in send.call_args_list], [120, 123])
+        self.assertIn("Flash 500/2000", log.getvalue())
+
     def test_denied_write_stops_before_save(self):
         with patch.object(
             bitrate, "request", side_effect=[self.reply(120), struct.pack("<HH", 2, 5)]

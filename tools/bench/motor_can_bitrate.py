@@ -56,9 +56,7 @@ def configure(bus, node, target=None):
     value, revision, saved_revision, _ = parameter(bus, node, 120, READ)
     if target is None:
         print(f"节点 {node} RAM {value >> 16}/{value & 0xFFFF} kbit/s，revision={revision}")
-        if not saved_revision:
-            print("当前没有可验证的已保存参数")
-            return
+
     else:
         value = target[0] << 16 | target[1]
         payload = struct.pack("<BBBBII", 0x71, 2, 4, 0, revision, value)
@@ -69,7 +67,9 @@ def configure(bus, node, target=None):
         if (active, saved_revision, flags & 7) != (revision, revision, 1):
             raise RuntimeError("Flash 保存应答的版本或状态不匹配")
     saved, _, stored_revision, flags = parameter(bus, node, 123, READ)
-    if not flags & 1 or stored_revision != saved_revision or (target and saved != value):
+    if stored_revision != saved_revision or (
+        target is not None and (not flags & 1 or saved != value)
+    ):
         raise RuntimeError("Flash 参数回读不匹配")
     print(f"节点 {node} Flash {saved >> 16}/{saved & 0xFFFF} kbit/s，保存版本={stored_revision}")
     if target:

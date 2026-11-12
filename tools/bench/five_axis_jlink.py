@@ -359,7 +359,15 @@ def restart_verified_app(probe, target, parameter_file):
     # VC_CORERESET 会在复位入口截停 CPU，保留 DEMCR 中的其他调试位。
     demcr = 0xE000EDFC
     probe.memory_write32(demcr, [probe.memory_read32(demcr, 1)[0] & ~1])
-    # 经系统复位请求重新启动两段固件，避免探针复位过程触发看门狗驻留。
+    # 烧录算法可留下 C_MASKINTS，清除前必须暂停，否则 APP 的 CAN 中断不会执行。
+    dhcsr = 0xE000EDF0
+    if probe.memory_read32(dhcsr, 1)[0] & 8:
+        if not probe.halt():
+            raise RuntimeError("无法暂停 CPU 以恢复中断")
+        probe.memory_write32(dhcsr, [0xA05F0003])  # DBGKEY | C_HALT | C_DEBUGEN
+        if probe.memory_read32(dhcsr, 1)[0] & 8:
+            raise RuntimeError("调试中断屏蔽未清除")
+    # 使用 Cortex-M 系统复位，经过 Loader 的正常启动检查。
     aircr = 0xE000ED0C
     priority_group = probe.memory_read32(aircr, 1)[0] & 0x700
     probe.memory_write32(aircr, [0x05FA0004 | priority_group])

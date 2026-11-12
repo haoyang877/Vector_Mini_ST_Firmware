@@ -4,8 +4,12 @@ import contextlib
 import io
 import json
 import struct
+import sys
+import tempfile
 import unittest
 from pathlib import Path
+from queue import SimpleQueue
+from threading import Event
 from unittest.mock import patch
 
 from tools.bench import motor_can_bitrate as bitrate
@@ -60,6 +64,39 @@ class CanBitrateHostTest(unittest.TestCase):
                 configure.assert_called_once_with(
                     adapter.return_value.__enter__(), 4, [nominal, data]
                 )
+
+    def test_desktop_binds_uid_before_read_or_save(self):
+        try:
+            import tkinter  # noqa: F401
+        except ImportError:
+            self.skipTest("Tk 未安装")
+        with patch.object(sys, "path", [str(ROOT / "tools/bench"), *sys.path]):
+            import canfd_desktop as desktop
+
+        uid = bytes(range(12))
+        targets = [{"node": n, "uid": uid.hex()} for n in (6, 7)]
+        for setting in [None, *[(row[1], row[2]) for row in VECTORS["registers"]]]:
+            with (
+                self.subTest(setting=setting),
+                tempfile.TemporaryDirectory() as folder,
+                patch.object(desktop, "controlcan_dll_path", return_value=Path("adapter.dll")),
+                patch.object(desktop.os, "add_dll_directory", create=True),
+                patch.object(desktop, "ControlCanFd") as adapter,
+                patch.object(desktop, "read_node_uids", side_effect=[{uid}, {uid, bytes(12)}]),
+                patch.object(
+                    desktop, "configure_bitrate", return_value={"ram": 1, "flash": 1}
+                ) as cfg,
+            ):
+                events = SimpleQueue()
+                settings = {"profile": "can_bitrate", "bus": {}, "set": setting, "targets": targets}
+                desktop.acquire(settings, Path(folder), events, Event())
+                tag, result = events.get_nowait()
+                self.assertEqual(tag, "done")
+                self.assertFalse(result["pass"])
+                self.assertIn("节点 7 身份", result["fatal"])
+                self.assertEqual([row["node"] for row in result["results"]], [6])
+                self.assertEqual(cfg.call_count, 1)
+                self.assertEqual(cfg.call_args.args, (adapter.return_value.__enter__(), 6, setting))
 
     def test_read_legacy_record_even_with_zero_saved_revision(self):
         # 旧输出轴扩展可使整轴 saved_revision 为零，123 仍可校验并读取基础记录。

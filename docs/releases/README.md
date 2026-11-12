@@ -3,6 +3,8 @@
 这些记录保留其原版本的发布/验证状态，本目录没有自动推断“最新正式发布”的机制。
 当前目标版本从shared/targets读取，正式发布仍须匹配当前summary和产物哈希。
 
+- [AT32F456 v1.8.0 调试交付](at32f456-v1.8.0-debug-20261113.md)：固件与工具组合包、SHA-256；八项静态通过，旋转动态未通过，类别 debug。
+
 - [APP1.1.0候选](architecture-app-v1.1.0-candidate.md)
 - [APP1.2.0候选](architecture-app-v1.2.0-candidate.md)
 - [APP1.3.0候选](architecture-app-v1.3.0-candidate.md)

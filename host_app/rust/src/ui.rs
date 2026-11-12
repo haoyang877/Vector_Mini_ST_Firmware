@@ -4,11 +4,13 @@ mod bench;
 mod calibration;
 mod control_panel;
 mod faults;
+mod instrument;
 mod motor_configuration;
 mod pages;
 mod parameters;
 mod preview;
 mod scope;
+mod studio;
 pub(crate) mod widgets;
 
 use crate::can::Bitrates;
@@ -40,26 +42,12 @@ enum Page {
 }
 
 impl Page {
-    const WORKSPACES: [(Self, &'static str); 7] = [
-        (Self::Home, "开始"),
-        (Self::Workbench, "运行调试"),
-        (Self::Parameters, "参数管理"),
-        (Self::Calibration, "标定任务"),
-        (Self::Identification, "辨识任务"),
-        (Self::Records, "数据与日志"),
+    const WORKSPACES: [(Self, &'static str); 4] = [
+        (Self::Parameters, "参数设置"),
+        (Self::Calibration, "辨识校准"),
+        (Self::Workbench, "运动控制"),
         (Self::Maintenance, "固件升级"),
     ];
-
-    fn title(self) -> &'static str {
-        if self == Self::Connection {
-            return "设备连接";
-        }
-        Self::WORKSPACES
-            .iter()
-            .find(|(page, _)| *page == self)
-            .map(|(_, title)| *title)
-            .unwrap_or("开始")
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -72,7 +60,6 @@ enum UpgradeMode {
 struct Palette {
     background: Color32,
     panel: Color32,
-    sidebar: Color32,
     ink: Color32,
     muted: Color32,
     line: Color32,
@@ -90,21 +77,19 @@ impl Palette {
         let c = Color32::from_rgb;
         if theme == egui::Theme::Dark {
             Self {
-                background: c(24, 26, 29),
-                panel: c(32, 35, 39),
-                sidebar: c(28, 30, 33),
+                background: c(18, 19, 26),
+                panel: c(40, 40, 49),
                 ink: c(226, 232, 240),
                 muted: c(154, 167, 181),
-                line: c(49, 54, 61),
+                line: c(53, 65, 80),
                 accent: c(87, 173, 238),
                 danger: c(244, 135, 135),
                 warning: c(218, 183, 113),
             }
         } else {
             Self {
-                background: c(243, 243, 243),
+                background: c(242, 245, 249),
                 panel: Color32::WHITE,
-                sidebar: c(231, 237, 243),
                 ink: c(36, 50, 70),
                 muted: c(94, 109, 128),
                 line: c(214, 222, 232),
@@ -117,6 +102,7 @@ impl Palette {
 }
 
 pub enum PreviewRequest {
+    Interactive,
     Single(PathBuf),
     Gallery(PathBuf),
 }
@@ -140,6 +126,9 @@ pub struct HostApp {
     scan_selected: Option<usize>,
     scan_status: String,
     manual_connect: bool,
+    add_device_open: bool,
+    device_list_open: bool,
+    last_device_page: Page,
     node: u8,
     manual_sequence: u16,
     package_dir: String,
@@ -176,6 +165,7 @@ pub struct HostApp {
     task_index: usize,
     theme: egui::ThemePreference,
     fixture_mode: bool,
+    studio: Option<studio::Scenario>,
     preview: Option<preview::PreviewRun>,
     control_evidence: Vec<serde_json::Value>,
 }
@@ -269,6 +259,9 @@ impl HostApp {
             app.diagnostics = Some(log);
         }
         app.curve_worker = Some(scope::Worker::new(cc.egui_ctx.clone()));
+        if app.studio.is_some() {
+            app.init_studio();
+        }
         app.bench = bench.map(bench::Run::new);
         app
     }
@@ -277,7 +270,7 @@ impl HostApp {
         Self {
             maintenance_panel: crate::maintenance::Panel::default(),
             target,
-            page: Page::Home,
+            page: Page::Connection,
             dll: Self::find_sdk().unwrap_or_default(),
             device_index: 0,
             bitrates: Bitrates::default(),
@@ -288,6 +281,9 @@ impl HostApp {
             scan_selected: None,
             scan_status: "点击扫描，发现 CAN 适配器和设备。".into(),
             manual_connect: false,
+            add_device_open: false,
+            device_list_open: true,
+            last_device_page: Page::Workbench,
             node: 1,
             manual_sequence: 0,
             package_dir: String::new(),
@@ -324,7 +320,9 @@ impl HostApp {
             task_index: 0,
             theme: egui::ThemePreference::Dark,
             fixture_mode: request.is_some(),
-            preview: request.map(preview::PreviewRun::new),
+            studio: matches!(request, Some(PreviewRequest::Interactive))
+                .then_some(studio::Scenario::Disconnected),
+            preview: request.and_then(preview::PreviewRun::new),
             control_evidence: vec![],
         }
     }
@@ -470,7 +468,7 @@ impl HostApp {
                             self.page = if snapshot.role == 2 {
                                 Page::Maintenance
                             } else {
-                                Page::Home
+                                Page::Workbench
                             };
                         }
                     }
@@ -612,7 +610,10 @@ impl HostApp {
             return;
         }
         if self.bench.is_some()
-            && !matches!(command, Command::Observe(_) | Command::Stop | Command::Disconnect)
+            && !matches!(
+                command,
+                Command::Observe(_) | Command::Stop | Command::Disconnect
+            )
         {
             self.operation_pending = false;
             self.note("静止观察正在运行；该命令未发送。");
@@ -688,291 +689,11 @@ impl HostApp {
             && !self.upgrading
             && (self.capture.uid.is_empty() || self.capture.uid == self.bound_uid)
     }
-    fn navigation_icon(ui: &egui::Ui, center: egui::Pos2, index: usize, color: Color32) {
-        let painter = ui.painter();
-        let stroke = Stroke::new(1.3, color);
-        let line = |a: (f32, f32), b: (f32, f32)| {
-            painter.line_segment(
-                [center + Vec2::new(a.0, a.1), center + Vec2::new(b.0, b.1)],
-                stroke,
-            );
-        };
-        match index {
-            0 => {
-                painter.circle_stroke(center, 5.0, stroke);
-                line((0.0, -8.0), (0.0, -2.0));
-            }
-            1 => {
-                line((-7.0, 0.0), (0.0, -6.0));
-                line((0.0, -6.0), (7.0, 0.0));
-                line((-5.0, -1.0), (-5.0, 6.0));
-                line((5.0, -1.0), (5.0, 6.0));
-                line((-5.0, 6.0), (5.0, 6.0));
-            }
-            2 => {
-                line((-7.0, 2.0), (-4.0, 2.0));
-                line((-4.0, 2.0), (-2.0, -4.0));
-                line((-2.0, -4.0), (1.0, 5.0));
-                line((1.0, 5.0), (3.0, -1.0));
-                line((3.0, -1.0), (7.0, -1.0));
-            }
-            3 => {
-                for y in [-5.0, 0.0, 5.0] {
-                    line((-7.0, y), (7.0, y));
-                }
-                painter.circle_filled(center + Vec2::new(-2.0, -5.0), 2.0, color);
-                painter.circle_filled(center + Vec2::new(3.0, 0.0), 2.0, color);
-                painter.circle_filled(center + Vec2::new(-1.0, 5.0), 2.0, color);
-            }
-            4 => {
-                painter.circle_stroke(center, 5.0, stroke);
-                line((-8.0, 0.0), (8.0, 0.0));
-                line((0.0, -8.0), (0.0, 8.0));
-            }
-            5 => {
-                painter.circle_stroke(center, 7.0, stroke);
-                painter.circle_stroke(center, 3.0, stroke);
-            }
-            6 => {
-                painter.rect_stroke(
-                    egui::Rect::from_center_size(center, Vec2::new(11.0, 14.0)),
-                    1.0,
-                    stroke,
-                    egui::StrokeKind::Inside,
-                );
-                line((-3.0, -2.0), (3.0, -2.0));
-                line((-3.0, 2.0), (3.0, 2.0));
-            }
-            _ => {
-                painter.circle_stroke(center, 6.0, stroke);
-                painter.circle_stroke(center, 2.0, stroke);
-                line((-8.0, 0.0), (-6.0, 0.0));
-                line((6.0, 0.0), (8.0, 0.0));
-                line((0.0, -8.0), (0.0, -6.0));
-                line((0.0, 6.0), (0.0, 8.0));
-            }
-        }
-    }
-    fn sidebar(&mut self, ui: &mut egui::Ui) {
-        let c = Palette::from_ctx(ui.ctx());
-        let groups: &[(&str, &[(Page, bool)])] = &[
-            (
-                "常用操作",
-                &[
-                    (Page::Home, false),
-                    (Page::Connection, false),
-                    (Page::Workbench, false),
-                    (Page::Parameters, false),
-                    (Page::Calibration, false),
-                    (Page::Maintenance, false),
-                ],
-            ),
-            ("数据管理", &[(Page::Records, false)]),
-            (
-                "待接入功能",
-                &[(Page::Identification, true)],
-            ),
-        ];
-        for (group, entries) in groups {
-            ui.add_space(14.0);
-            ui.label(RichText::new(*group).size(11.0).color(c.muted));
-            ui.add_space(5.0);
-            for &(page, pending) in *entries {
-                let title = page.title();
-                let selected = self.page == page;
-                let (rect, response) = ui.allocate_exact_size(
-                    Vec2::new(ui.available_width(), 38.0),
-                    egui::Sense::click(),
-                );
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        true,
-                        selected,
-                        title,
-                    )
-                });
-                if selected || response.hovered() || response.has_focus() {
-                    ui.painter()
-                        .rect_filled(rect, 4.0, if selected { c.panel } else { c.line });
-                }
-                if selected {
-                    ui.painter().rect_filled(
-                        egui::Rect::from_min_size(
-                            rect.min + Vec2::new(0.0, 7.0),
-                            Vec2::new(3.0, 24.0),
-                        ),
-                        1.0,
-                        c.accent,
-                    );
-                }
-                let icon = match page {
-                    Page::Connection => 0,
-                    Page::Home => 1,
-                    Page::Workbench => 2,
-                    Page::Parameters => 3,
-                    Page::Calibration => 4,
-                    Page::Identification => 5,
-                    Page::Records => 6,
-                    Page::Maintenance => 7,
-                };
-                Self::navigation_icon(
-                    ui,
-                    rect.left_center() + Vec2::new(21.0, 0.0),
-                    icon,
-                    if selected { c.accent } else { c.muted },
-                );
-                ui.painter().text(
-                    rect.left_center() + Vec2::new(40.0, 0.0),
-                    egui::Align2::LEFT_CENTER,
-                    title,
-                    egui::FontId::proportional(13.0),
-                    if selected { c.ink } else { c.muted },
-                );
-                if pending {
-                    ui.painter().text(
-                        rect.right_center() + Vec2::new(-8.0, 0.0),
-                        egui::Align2::RIGHT_CENTER,
-                        "未接入",
-                        egui::FontId::proportional(10.0),
-                        c.muted,
-                    );
-                }
-                if response.clicked() {
-                    self.page = page;
-                }
-                if response.has_focus() {
-                    ui.painter().rect_stroke(
-                        rect.shrink(3.0),
-                        3.0,
-                        Stroke::new(1.0, c.accent),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-            }
-        }
-        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-            ui.label(RichText::new("CAN FD · 通道 0").size(10.0).color(c.muted));
-        });
-    }
-    fn header(&mut self, ui: &mut egui::Ui) {
-        let c = Palette::from_ctx(ui.ctx());
-        ui.horizontal(|ui| {
-            Frame::new()
-                .fill(c.accent)
-                .corner_radius(3.0)
-                .inner_margin(egui::Margin::symmetric(6, 3))
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new("YG")
-                            .color(Color32::WHITE)
-                            .strong()
-                            .size(13.0),
-                    );
-                });
-            ui.label(
-                RichText::new(concat!("YG_MC_HOST  v", env!("CARGO_PKG_VERSION")))
-                    .strong()
-                    .size(14.0),
-            );
-            ui.add_space(8.0);
-            ui.separator();
-            let device = if self.bound_uid.is_empty() {
-                "未识别设备".into()
-            } else {
-                format!(
-                    "节点 {} · {}",
-                    self.node,
-                    &self.bound_uid[..self.bound_uid.len().min(12)]
-                )
-            };
-            ui.label(RichText::new(device).color(c.muted).size(12.0))
-                .on_hover_text(&self.bound_uid);
-            let state = if self.fixture_mode {
-                "离线预览"
-            } else if self.hard_stop {
-                "硬停 · 需现场检查"
-            } else if self.upgrading {
-                "升级事务进行中"
-            } else if !self.connected {
-                "未连接"
-            } else if !self.snapshot.identity_fresh() {
-                "识别中 / 身份过期"
-            } else if self.snapshot.role == 2 {
-                "Loader"
-            } else if !self.snapshot.compatible(&self.target, &self.bound_uid) {
-                "不兼容 · 禁止控制"
-            } else if !self.snapshot.feedback_fresh() {
-                "反馈过期"
-            } else {
-                "APP · 已识别"
-            };
-            ui.label(
-                RichText::new(format!("●  {state}"))
-                    .small()
-                    .color(if self.hard_stop { c.danger } else { c.muted }),
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let stop = ui
-                    .add_enabled(
-                        self.connected && !self.fixture_mode && !self.upgrading,
-                        egui::Button::new(RichText::new("■  STOP").color(c.danger).strong())
-                            .stroke(Stroke::new(1.0, c.danger.gamma_multiply(0.6)))
-                            .min_size(Vec2::new(92.0, 28.0)),
-                    )
-                    .on_hover_text(
-                        "请求停机并等待最终 0/0 与 IDLE 回读；仍须现场核对物理输出已关闭。",
-                    );
-                self.control("stop", &stop);
-                if stop.clicked() {
-                    self.send(Command::Stop);
-                    self.push_log("已请求 STOP，等待最终回复与状态。");
-                }
-                if ui.add(egui::Button::new("连接管理").frame(false)).clicked() {
-                    self.page = Page::Connection;
-                }
-                let theme_menu = egui::ComboBox::from_id_salt("theme")
-                    .width(72.0)
-                    .selected_text(match self.theme {
-                        egui::ThemePreference::System => "跟随系统",
-                        egui::ThemePreference::Light => "浅色",
-                        egui::ThemePreference::Dark => "深色",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.theme,
-                            egui::ThemePreference::System,
-                            "跟随系统",
-                        );
-                        ui.selectable_value(&mut self.theme, egui::ThemePreference::Light, "浅色");
-                        ui.selectable_value(&mut self.theme, egui::ThemePreference::Dark, "深色");
-                    });
-                if self.fixture_mode && self.preview.as_ref().is_some_and(|p| p.theme_menu()) {
-                    egui::Popup::open_id(ui.ctx(), theme_menu.response.id.with("popup"));
-                }
-                ui.ctx().set_theme(self.theme);
-            });
-        });
-        if self.hard_stop {
-            ui.label(RichText::new(&self.status).color(c.danger));
-        } else if self.upgrading {
-            ui.label(
-                RichText::new("升级独占通道，设备保持停机；等待结果后可断开或关闭。")
-                    .small()
-                    .color(c.warning),
-            );
-        } else if !self.connected && !self.bound_uid.is_empty() {
-            ui.label(
-                RichText::new("链路已断开；保留最后观测与记录，设备当前状态未知。")
-                    .small()
-                    .color(c.warning),
-            );
-        }
-    }
 }
 
 impl eframe::App for HostApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.refresh_studio();
         self.poll_events();
         self.poll_scan();
         self.maintenance_panel.poll(ui.ctx());
@@ -1008,7 +729,10 @@ impl eframe::App for HostApp {
         {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        if self.connected && ui.ctx().input(|i| i.viewport().close_requested()) {
+        if self.connected
+            && !self.fixture_mode
+            && ui.ctx().input(|i| i.viewport().close_requested())
+        {
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if self.upgrading {
@@ -1022,65 +746,43 @@ impl eframe::App for HostApp {
         // 曲线工作线程驱动有新数据的刷新；这里仅保留状态事件的低频兜底。
         ui.ctx().request_repaint_after(Duration::from_millis(100));
         let c = Palette::from_ctx(ui.ctx());
-        egui::Panel::top("device")
-            .frame(
-                Frame::new()
-                    .fill(c.panel)
-                    .inner_margin(egui::Margin::symmetric(14, 7)),
-            )
-            .show(ui, |ui| self.header(ui));
-        egui::Panel::bottom("status")
-            .frame(
-                Frame::new()
-                    .fill(c.panel)
-                    .inner_margin(egui::Margin::symmetric(12, 4)),
-            )
-            .show(ui, |ui| {
-                self.fault_status_bar(ui);
-                let text = if self.fixture_mode {
-                    "离线预览 / 未连接硬件 / 示例曲线有来源标记"
-                } else {
-                    &self.status
-                };
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("●").color(c.accent).small());
-                    ui.add(egui::Label::new(RichText::new(text).small().color(c.muted)).truncate())
-                        .on_hover_text(&self.status);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "{}   ·   {}   ·   v{}",
-                                self.target.name,
-                                self.bitrates.label(),
-                                env!("CARGO_PKG_VERSION")
-                            ))
-                            .small()
-                            .color(c.muted),
-                        );
-                    });
-                });
-            });
-        egui::Panel::left("workspace-navigation")
-            .resizable(false)
-            .exact_size(200.0)
-            .frame(
-                Frame::new()
-                    .fill(c.sidebar)
-                    .inner_margin(egui::Margin::symmetric(12, 8)),
-            )
-            .show(ui, |ui| self.sidebar(ui));
+        self.workspace_shell(ui);
         egui::CentralPanel::default()
-            .frame(Frame::new().fill(c.background).inner_margin(20.0))
+            .frame(
+                Frame::new()
+                    .fill(
+                        if self.page == Page::Connection && ui.ctx().theme() == egui::Theme::Dark {
+                            Color32::from_gray(19)
+                        } else {
+                            c.background
+                        },
+                    )
+                    .inner_margin(10.0),
+            )
             .show(ui, |ui| match self.page {
                 Page::Workbench => self.workbench(ui),
-                Page::Connection => self.connection(ui),
+                Page::Connection => self.device_center(ui),
                 Page::Home => self.home(ui),
-                Page::Parameters => self.parameters(ui),
+                Page::Parameters => self.parameter_workspace(ui),
                 Page::Calibration => self.calibration(ui),
                 Page::Identification => self.identification(ui),
                 Page::Records => self.records(ui),
                 Page::Maintenance => self.maintenance(ui),
             });
+        if self.page != Page::Connection {
+            self.add_device_open = false;
+        }
+        if self.add_device_open {
+            let mut open = true;
+            egui::Window::new("添加设备")
+                .open(&mut open)
+                .default_width(720.0)
+                .max_height((ui.ctx().content_rect().height() - 85.0).max(180.0))
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .collapsible(false)
+                .show(ui.ctx(), |ui| self.connection(ui));
+            self.add_device_open = open && self.page == Page::Connection;
+        }
     }
 }
 
@@ -1094,6 +796,35 @@ fn version(v: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn add_device_starts_one_scan_and_leaves_connection_to_the_user() {
+        let mut app = HostApp::disconnected(Target::bundled().unwrap(), None);
+        app.dll = "missing-sdk-for-discovery-test.dll".into();
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.device_center(ui));
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.unwrap();
+        let (id, _) = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label().is_some_and(|s| s.contains("添加设备")))
+            .unwrap();
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::AccessKitActionRequest(
+            egui::accesskit::ActionRequest {
+                action: egui::accesskit::Action::Click,
+                target_tree: egui::accesskit::TreeId::ROOT,
+                target_node: *id,
+                data: None,
+            },
+        ));
+        ctx.run_ui(input, |ui| app.device_center(ui))
+            .textures_delta
+            .clear();
+        assert!(app.add_device_open && app.scan_rx.is_some());
+        assert!(!app.connected && app.command_tx.is_none() && app.scan_selected.is_none());
+    }
     #[test]
     fn rejected_operation_retains_connection_and_live_snapshot() {
         let mut app = HostApp::disconnected(Target::bundled().unwrap(), None);
@@ -1113,8 +844,8 @@ mod tests {
     }
 
     #[test]
-    fn complete_navigation_has_seven_workspaces_and_separate_connection() {
-        assert_eq!(Page::WORKSPACES.len(), 7);
+    fn device_tabs_are_unique_and_separate_from_global_navigation() {
+        assert_eq!(Page::WORKSPACES.len(), 4);
         assert!(!Page::WORKSPACES.iter().any(|(p, _)| *p == Page::Connection));
         for (index, (page, _)) in Page::WORKSPACES.iter().enumerate() {
             assert!(
@@ -1128,6 +859,7 @@ mod tests {
     #[test]
     fn disconnect_retains_history_and_last_values_but_revokes_control() {
         let mut app = HostApp::disconnected(Target::bundled().unwrap(), None);
+        app.page = Page::Workbench;
         let (tx, rx) = mpsc::channel();
         app.event_rx = Some(rx);
         app.connected = true;
@@ -1146,7 +878,7 @@ mod tests {
         assert_eq!(app.snapshot.speed_rad_s, Some(3.0));
         assert_eq!(app.capture.samples.len(), 1);
         assert!(!app.connected && !app.acknowledged && !app.capture.observing);
-        assert_eq!(app.page, Page::Home);
+        assert_eq!(app.page, Page::Workbench);
     }
 
     #[test]
@@ -1158,7 +890,9 @@ mod tests {
         }));
         let (tx, rx) = mpsc::channel();
         app.command_tx = Some(tx);
-        app.send(Command::Start { mode: ControlMode::Speed });
+        app.send(Command::Start {
+            mode: ControlMode::Speed,
+        });
         app.send(Command::Stop);
         assert!(matches!(rx.try_recv(), Ok(Command::Stop)));
         assert!(rx.try_recv().is_err());

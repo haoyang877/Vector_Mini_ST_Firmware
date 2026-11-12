@@ -1,7 +1,7 @@
 //! YG_MC_HOST Rust 入口；离线 inspect 不启动 GUI，也不打开 CAN 设备。
 
-mod can;
 mod calibration;
+mod can;
 mod capture;
 mod control;
 mod device;
@@ -61,7 +61,9 @@ fn main() -> Result<()> {
     } else {
         None
     };
-    let preview = if args.len() == 3 && args[1] == "--preview" {
+    let preview = if args.len() == 2 && args[1] == "--studio-preview" {
+        Some(ui::PreviewRequest::Interactive)
+    } else if args.len() == 3 && args[1] == "--preview" {
         let path = Path::new(&args[2]).to_path_buf();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -75,12 +77,12 @@ fn main() -> Result<()> {
         None
     } else {
         anyhow::bail!(
-            "用法: YG_MC_HOST [--inspect <APP 包目录> | --preview <PNG> | --preview-dir <目录>]"
+            "用法: YG_MC_HOST [--studio-preview | --inspect <APP 包目录> | --preview <PNG> | --preview-dir <目录>]"
         );
     };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1366.0, 768.0])
+            .with_inner_size([1080.0, 720.0])
             .with_min_inner_size([1024.0, 700.0]),
         ..Default::default()
     };

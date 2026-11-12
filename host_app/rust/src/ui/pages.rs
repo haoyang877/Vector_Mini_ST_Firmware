@@ -2,17 +2,6 @@
 
 use super::*;
 
-// 两处视图消费同一目录；在线参数服务接入前不建立可写的假草稿。
-const PARAMETERS: [(&str, &str, &str, &str); 7] = [
-    ("最大速度", "1", "rad/s", "以设备 READ 权限为准"),
-    ("最大 Iq", "2", "A", "以设备 READ 权限为准"),
-    ("速度环 Kp", "16", "内部系数", "当前通用写入口未开放"),
-    ("速度环 Ki", "17", "内部系数", "当前通用写入口未开放"),
-    ("持续向量电流", "0x60", "A", "停机可写，待主机接入"),
-    ("前馈加速度上限", "0x6A", "rad/s²", "停机可写，待主机接入"),
-    ("前馈电流上限", "0x6C", "A", "停机可写，待主机接入"),
-];
-
 fn field(ui: &mut egui::Ui, label: &str, value: impl Into<String>) {
     ui.label(RichText::new(label).color(Palette::from_ctx(ui.ctx()).muted));
     ui.label(value.into());
@@ -28,22 +17,37 @@ fn reading(value: Option<f64>, unit: &str, fresh: bool) -> String {
 
 impl HostApp {
     pub(super) fn connection(&mut self, ui: &mut egui::Ui) {
-        if self.maintenance_panel.busy() {
-            ui.label("J-Link / SWD 作业正在进行；完成后才能连接 CAN 或切换设备。");
-            return;
-        }
         let c = Palette::from_ctx(ui.ctx());
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            widgets::page_header(ui, "设备连接", "扫描适配器与节点，选择设备后建立连接。", "CAN FD");
-            widgets::workflow(ui, &["扫描设备", "选择节点", "连接并识别"],
-                if self.connected { 2 } else if !self.scan_devices.is_empty() { 1 } else { 0 });
-            if self.hard_stop {
-                ui.colored_label(c.danger, "硬停后需现场确认输出已关闭和接线状态。");
-                ui.checkbox(&mut self.intervention_ack, "已完成现场检查，允许重新连接");
-                ui.add_space(8.0);
+        egui::ScrollArea::vertical().id_salt("device_center").show(ui, |ui| {
+            ui.label(RichText::new("设备中心").size(24.0).strong());
+            ui.add_space(12.0);
+            if self.maintenance_panel.busy() {
+                ui.label("J-Link / SWD 作业进行中，完成后可连接 CAN。");
+                return;
             }
-            Self::panel(ui, "发现设备", |ui| {
-                let scanning = self.scan_rx.is_some();
+            if self.hard_stop && !self.fixture_mode {
+                ui.checkbox(&mut self.intervention_ack, "已完成现场检查，允许重新连接");
+            }
+            let wide = ui.available_width() >= 780.0;
+            let list_width = (ui.available_width() * 0.55).clamp(370.0, 760.0);
+            if wide {
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(Vec2::new(list_width, 0.0), Layout::top_down(Align::Min), |ui| self.device_list(ui));
+                    ui.add_space(4.0);
+                    ui.vertical(|ui| self.device_summary(ui));
+                });
+            } else {
+                self.device_list(ui);
+                ui.add_space(8.0);
+                self.device_summary(ui);
+            }
+            ui.add_space(12.0);
+            if self.studio.is_some() {
+                widgets::hint(ui, "离线样机使用示例节点，可在右上角「视图」调整缩放和预览状态。");
+                return;
+            }
+            let scanning = self.scan_rx.is_some();
+            egui::CollapsingHeader::new("CAN 通信设置").show(ui, |ui| {
                 let before = self.bitrates;
                 ui.add_enabled_ui(!self.connected && !scanning, |ui| {
                     ui.horizontal_wrapped(|ui| {
@@ -71,93 +75,10 @@ impl HostApp {
                     self.bitrates.data = self.bitrates.data.max(self.bitrates.arbitration);
                     self.scan_devices.clear(); self.scan_adapters.clear(); self.scan_selected = None;
                     self.manual_connect = false; self.acknowledged = false;
-                    self.scan_status = "波特率已改变，请重新扫描并选择设备。".into();
+                    self.start_scan();
                 }
-                widgets::hint(ui, "配置适配器波特率，须与板端一致；板端当前默认 1 Mbit/s / 5 Mbit/s。");
-                ui.add_space(8.0);
-                let scan_allowed = !self.fixture_mode && !self.connected && !scanning
-                    && !self.dll.trim().is_empty() && (!self.hard_stop || self.intervention_ack);
-                ui.horizontal_wrapped(|ui| {
-                    let button = egui::Button::new(RichText::new("扫描设备").strong())
-                        .min_size(Vec2::new(112.0, 34.0));
-                    if ui.add_enabled(scan_allowed, button).clicked() { self.start_scan(); }
-                    if scanning && ui.button("取消扫描").clicked() {
-                        self.scan_cancel.store(true, Ordering::Relaxed);
-                        self.scan_status = "正在取消扫描…".into();
-                    }
-                    ui.label(RichText::new(format!("CAN FD · 通道 0 · {}", self.bitrates.label())).small().color(c.muted));
-                });
-                ui.add_space(8.0);
-                let scan_status = if self.fixture_mode { "离线预览：扫描与连接不可用。" }
-                    else if self.dll.trim().is_empty() { "未找到厂家 SDK，请在高级设置中选择 ControlCANFD.dll。" }
-                    else { self.scan_status.as_str() };
-                ui.label(RichText::new(scan_status).small().color(c.muted));
-                ui.add_space(14.0);
-                ui.label(RichText::new(format!("设备列表  ·  {}", self.scan_devices.len())).strong());
-                ui.add_space(6.0);
-                if self.scan_devices.is_empty() {
-                    Frame::new().fill(c.background).corner_radius(4.0).inner_margin(16.0).show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.label(RichText::new(if scanning { "正在查找设备…" } else { "暂无设备 · 扫描后在这里选择" }).color(c.muted));
-                    });
-                } else {
-                    for (index, device) in self.scan_devices.clone().into_iter().enumerate() {
-                        let board = match device.target_name.as_deref() {
-                            Some("yg_esc_v1_at32f456") => "AT32F456",
-                            Some("vector_mini_st_g431") => "STM32G431",
-                            _ => "不兼容目标",
-                        };
-                        let label = format!("{}   ·   节点 {}   ·   {}\nUID {}    |    适配器 {}", board, device.node,
-                            if device.role == 2 { "Loader" } else { "APP" }, device.uid, device.adapter_index);
-                        let button = egui::Button::new(RichText::new(label).size(14.0))
-                            .selected(self.scan_selected == Some(index))
-                            .min_size(Vec2::new(ui.available_width(), 54.0));
-                        if ui.add_enabled(!self.connected && !scanning && device.target_name.is_some(), button).on_hover_text(&device.adapter).clicked()
-                            && let Some(name) = &device.target_name {
-                                match Target::named(name) {
-                                    Ok(target) => {
-                                        self.target = target;
-                                        self.device_index = device.adapter_index;
-                                        self.node = device.node;
-                                        self.scan_selected = Some(index);
-                                        self.manual_connect = false;
-                                        self.package = None;
-                                        self.bound_uid.clear();
-                                        self.acknowledged = false;
-                                    }
-                                    Err(error) => self.note(error.to_string()),
-                                }
-                        }
-                    }
-                }
-                if !self.scan_adapters.is_empty() && self.scan_devices.is_empty() {
-                    ui.add_space(6.0);
-                    ui.label(RichText::new(format!("可用适配器：{}", self.scan_adapters.iter()
-                        .map(|(index, name)| format!("{index} · {name}")).collect::<Vec<_>>().join("；"))).small().color(c.muted));
-                }
-                ui.add_space(14.0);
-                let selected = self.scan_selected.is_some() || self.manual_connect;
-                let enabled = !self.fixture_mode && !self.connected && !scanning && selected
-                    && !self.dll.trim().is_empty() && (!self.hard_stop || self.intervention_ack);
-                ui.horizontal_wrapped(|ui| {
-                    let mut button = egui::Button::new(RichText::new("连接所选设备").strong())
-                        .min_size(Vec2::new(150.0, 36.0));
-                    if enabled { button = button.fill(c.accent).stroke(egui::Stroke::NONE); }
-                    let connect = ui.add_enabled(enabled, button);
-                    self.control("connect", &connect);
-                    if connect.clicked() { self.connect(); }
-                    if self.connected && ui.add_enabled(!self.upgrading, egui::Button::new("断开")).clicked() {
-                        self.send(Command::Disconnect);
-                    }
-                    if self.connected && ui.button("进入运行调试 →").clicked() { self.page = Page::Workbench; }
-                });
-                if self.connected {
-                    ui.label(RichText::new(format!("已连接 · 节点 {} · UID {}", self.node,
-                        if self.bound_uid.is_empty() { "正在识别" } else { &self.bound_uid })).small().color(c.accent));
-                } else {
-                    ui.label(RichText::new("扫描仅查询身份；连接不会启动电机。").small().color(c.muted));
-                }
-                ui.add_space(10.0);
+
+            });
                 egui::CollapsingHeader::new("高级设置 / 手动连接").show(ui, |ui| {
                     ui.add_enabled_ui(!self.connected && !scanning, |ui| {
                         let before = (self.device_index, self.node, self.target.name.clone(), self.dll.clone());
@@ -203,7 +124,252 @@ impl HostApp {
                     });
                     ui.label(RichText::new("支持 USBCANFD-200U、通道 0；节点范围 1–254。RS-485 尚未接入。").small().color(c.muted));
                 });
+        });
+    }
+
+    fn device_list(&mut self, ui: &mut egui::Ui) {
+        let c = Palette::from_ctx(ui.ctx());
+        let scanning = self.scan_rx.is_some();
+        Self::panel(ui, "适配器与节点", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let allowed = !self.fixture_mode
+                    && !self.connected
+                    && !scanning
+                    && !self.dll.trim().is_empty()
+                    && (!self.hard_stop || self.intervention_ack);
+                if ui
+                    .add_enabled(allowed, egui::Button::new("重新扫描"))
+                    .clicked()
+                {
+                    self.start_scan();
+                }
+                if scanning && ui.button("取消扫描").clicked() {
+                    self.scan_cancel.store(true, Ordering::Relaxed);
+                }
+                widgets::hint(ui, &format!("CAN FD  ·  {}", self.bitrates.label()));
             });
+            ui.add_space(8.0);
+            if self.scan_adapters.is_empty() {
+                ui.separator();
+                ui.add_space(10.0);
+                ui.label(RichText::new("等待发现设备").strong());
+                widgets::hint(
+                    ui,
+                    if self.dll.is_empty() {
+                        "请在高级设置中选择 ControlCANFD.dll。"
+                    } else {
+                        &self.scan_status
+                    },
+                );
+            }
+            for (adapter, name) in self.scan_adapters.clone() {
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("{name}   /   通道 0"))
+                        .color(c.muted)
+                        .small(),
+                );
+                for (i, d) in self
+                    .scan_devices
+                    .clone()
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(_, d)| d.adapter_index == adapter)
+                {
+                    let axis = crate::motor_configuration::axis_name(d.node);
+                    let role = if d.role == 2 { "Loader" } else { "APP" };
+                    let label = if self.studio.is_some() {
+                        studio::model(d.node).name()
+                    } else if d.uid == self.snapshot.uid {
+                        self.snapshot
+                            .active_configuration
+                            .as_ref()
+                            .map_or(axis, |info| {
+                                crate::motor_configuration::model_name(info.model)
+                            })
+                    } else {
+                        axis
+                    };
+                    let right = format!("{axis}  ·  N{:02}   /   {role}", d.node);
+                    let reply = ui.add_enabled(
+                        (!self.connected || self.studio.is_some()) && !scanning,
+                        egui::Button::new(RichText::new(label).size(16.0).strong())
+                            .right_text(RichText::new(right).small())
+                            .selected(self.scan_selected == Some(i))
+                            .min_size(Vec2::new(ui.available_width(), 56.0)),
+                    );
+                    if reply
+                        .on_hover_text(format!("{}  /  {}", d.adapter, d.uid))
+                        .clicked()
+                    {
+                        self.scan_selected = Some(i);
+                        if let Some(name) = &d.target_name
+                            && let Ok(target) = Target::named(name)
+                        {
+                            if self.studio.is_none() {
+                                self.target = target;
+                                self.device_index = d.adapter_index;
+                                self.node = d.node;
+                                self.bound_uid.clear();
+                                self.manual_connect = false;
+                                self.package = None;
+                                self.acknowledged = false;
+                            }
+                        } else {
+                            self.manual_connect = false;
+                        }
+                    }
+                }
+            }
+            if !self.scan_adapters.is_empty() && self.studio.is_none() {
+                widgets::hint(ui, &self.scan_status);
+            }
+        });
+    }
+
+    fn device_summary(&mut self, ui: &mut egui::Ui) {
+        let c = Palette::from_ctx(ui.ctx());
+        let selected = self
+            .scan_selected
+            .and_then(|i| self.scan_devices.get(i))
+            .cloned();
+        Self::panel(ui, "设备详情", |ui| {
+            let known = selected
+                .as_ref()
+                .is_some_and(|d| d.uid == self.snapshot.uid);
+            let model = if self.studio.is_some() {
+                selected.as_ref().map(|d| studio::model(d.node).name())
+            } else {
+                self.snapshot
+                    .active_configuration
+                    .as_ref()
+                    .filter(|_| known || selected.is_none())
+                    .map(|cfg| crate::motor_configuration::model_name(cfg.model))
+            };
+            ui.horizontal(|ui| {
+                let (icon, _) = ui.allocate_exact_size(Vec2::splat(54.0), egui::Sense::hover());
+                let color = if selected.is_some() {
+                    c.accent
+                } else {
+                    c.muted
+                };
+                let center = icon.center();
+                let brush = ui.painter();
+                brush.circle_stroke(center, 20.0, Stroke::new(2.0, color));
+                brush.line_segment(
+                    [icon.left_center(), center - Vec2::new(20.0, 0.0)],
+                    Stroke::new(2.0, color),
+                );
+                brush.line_segment(
+                    [center + Vec2::new(20.0, 0.0), icon.right_center()],
+                    Stroke::new(2.0, color),
+                );
+                brush.text(
+                    center,
+                    egui::Align2::CENTER_CENTER,
+                    "M",
+                    egui::FontId::proportional(22.0),
+                    color,
+                );
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(model.unwrap_or(if selected.is_some() {
+                            "型号待回读"
+                        } else {
+                            "请选择节点"
+                        }))
+                        .size(24.0)
+                        .strong(),
+                    );
+                    if let Some(d) = &selected {
+                        ui.label(
+                            RichText::new(format!(
+                                "{}   /   节点 {:02}",
+                                crate::motor_configuration::axis_name(d.node),
+                                d.node
+                            ))
+                            .color(c.muted),
+                        );
+                    }
+                });
+            });
+            if let Some(d) = &selected {
+                ui.separator();
+                egui::Grid::new("selected_identity")
+                    .spacing([18.0, 6.0])
+                    .show(ui, |ui| {
+                        field(ui, "UID", &d.uid);
+                        field(
+                            ui,
+                            "身份来源",
+                            if self.studio.is_some() {
+                                "离线示例"
+                            } else if d.target_name.is_none() {
+                                "不兼容节点"
+                            } else {
+                                "本次 CAN 扫描"
+                            },
+                        );
+                        if known && self.connected {
+                            field(
+                                ui,
+                                "固件",
+                                format!(
+                                    "APP {}   /   Loader {}",
+                                    version(self.snapshot.app_version),
+                                    version(self.snapshot.loader_version)
+                                ),
+                            );
+                        }
+                    });
+            }
+            if !self.snapshot.uid.is_empty() && !self.connected && self.studio.is_none() {
+                widgets::hint(ui, &format!("上次连接   {}", self.snapshot.uid));
+            }
+            ui.add_space(12.0);
+            if self.studio.is_some() {
+                if ui
+                    .add_enabled(selected.is_some(), widgets::primary("打开示例工作台 →", c))
+                    .clicked()
+                    && let Some(d) = selected
+                {
+                    self.node = d.node;
+                    self.set_studio_scenario(studio::Scenario::Idle);
+                    self.page = Page::Workbench;
+                }
+            } else {
+                let enabled = !self.fixture_mode
+                    && !self.connected
+                    && self.scan_rx.is_none()
+                    && (self.manual_connect || selected.is_some_and(|d| d.target_name.is_some()))
+                    && !self.dll.trim().is_empty()
+                    && (!self.hard_stop || self.intervention_ack);
+                let connect = ui.add_enabled(enabled, widgets::primary("连接所选设备", c));
+                self.control("connect", &connect);
+                if connect.clicked() {
+                    self.connect();
+                }
+                if self.connected {
+                    if ui.button("打开工作台").clicked() {
+                        self.page = Page::Workbench;
+                    }
+                    if ui
+                        .add_enabled(!self.upgrading, egui::Button::new("断开连接"))
+                        .clicked()
+                    {
+                        self.send(Command::Disconnect);
+                    }
+                } else if !self.fixture_mode
+                    && ui.link("打开离线样机 ↗").clicked()
+                    && let Err(e) = std::env::current_exe().and_then(|exe| {
+                        std::process::Command::new(exe)
+                            .arg("--studio-preview")
+                            .spawn()
+                    })
+                {
+                    self.note(format!("样机启动失败 {e}"));
+                }
+            }
         });
     }
 
@@ -286,6 +452,11 @@ impl HostApp {
                     for (name, detail) in [
                         ("设备发现与连接", "识别适配器、节点与 UID"),
                         ("四模式调试与曲线", "Vq / Iq / 速度 / 位置 / CSV / STOP"),
+                        ("故障状态与清除", "底部常驻故障码；清除后保持失能"),
+                        (
+                            "标定任务",
+                            "LUT / 电气零位 / 机械零位，阶段、取消与保存回读",
+                        ),
                         ("指定电机型号", "CAN 保存配套参数，重启后生效；需配套固件"),
                         ("APP 升级", "CAN 流程已接入，实机升级待验收"),
                         ("Loader + APP 安装", "通过 J-Link，支持备份与离线参数查看"),
@@ -297,8 +468,6 @@ impl HostApp {
                 });
                 Self::panel(&mut columns[1], "尚未接入执行", |ui| {
                     for (name, detail) in [
-                        ("在线标量读写", "型号配置之外的读写仍未接入"),
-                        ("标定任务", "目前只能查看任务支持范围"),
                         ("辨识任务", "目前没有可执行任务"),
                         ("仅升级 Loader", "独立下载入口尚未接入"),
                     ] {
@@ -508,28 +677,55 @@ impl HostApp {
 
     pub(super) fn workbench(&mut self, ui: &mut egui::Ui) {
         let c = Palette::from_ctx(ui.ctx());
-        widgets::page_header(
-            ui,
-            "运行调试",
-            "左侧观察趋势，右侧选择模式、使能并下发目标。",
-            if self.capture.observing {
-                "观察中"
-            } else {
-                "待观察"
-            },
-        );
+        let control_width = (ui.available_width() * 0.35).clamp(215.0, 385.0);
         egui::Panel::right("workbench_controls")
             .resizable(false)
-            .exact_size(320.0)
-            .frame(Frame::new().inner_margin(egui::Margin {
-                left: 10,
+            .exact_size(control_width)
+            .frame(Frame::new().fill(c.background).inner_margin(egui::Margin {
+                left: 6,
                 right: 0,
                 top: 0,
                 bottom: 0,
             }))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| self.workbench_control_panel(ui));
+                egui::ScrollArea::vertical()
+                    .id_salt("control_groups")
+                    .show(ui, |ui| self.workbench_control_panel(ui));
             });
+        egui::Panel::bottom("scope_controls")
+            .frame(Frame::new().fill(c.panel).inner_margin(4.0))
+            .show(ui, |ui| self.scope_tools(ui));
+        let scene = self
+            .curve_worker
+            .as_mut()
+            .expect("曲线线程未初始化")
+            .scene(self.window_s, self.show_reference);
+        self.capture.record_curve_update(scene.latest_sample_time);
+        let channels = self.control_mode.channels();
+        let total = (ui.available_height() - 2.0).max(220.0);
+        let gap = ui.spacing().item_spacing.y;
+        let height = ((total - 2.0 * gap) / 3.0).max(94.0);
+        egui::ScrollArea::vertical()
+            .id_salt("scope_stack")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for channel in channels {
+                    let (hover, rect) = scope::plot(ui, &scene, channel, height, self.cursor_s);
+                    if self.fixture_mode {
+                        self.control_evidence
+                            .push(serde_json::json!({"name":format!("plot_{channel}"),
+                        "enabled":false,"rect":[rect.min.x,rect.min.y,rect.max.x,rect.max.y]}));
+                    }
+                    if let Some(time) = hover {
+                        self.cursor_s = Some(time);
+                    }
+                }
+            });
+    }
+
+    fn scope_tools(&mut self, ui: &mut egui::Ui) {
+        let c = Palette::from_ctx(ui.ctx());
+        ui.spacing_mut().item_spacing = Vec2::new(5.0, 3.0);
         ui.horizontal_wrapped(|ui| {
             let can_observe = !self.fixture_mode
                 && self.connected
@@ -597,51 +793,15 @@ impl HostApp {
                     }
                 });
             ui.checkbox(&mut self.show_reference, "参考量");
+            if ui
+                .small_button("复位视图")
+                .on_hover_text("恢复 30 秒时间窗并清除游标")
+                .clicked()
+            {
+                self.window_s = 30.0;
+                self.cursor_s = None;
+            }
         });
-        ui.add_space(6.0);
-        let fresh = self.connected && self.snapshot.feedback_fresh();
-        Frame::new()
-            .fill(c.panel)
-            .stroke(Stroke::new(1.0, c.line))
-            .inner_margin(egui::Margin::symmetric(14, 6))
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ui.spacing_mut().interact_size.y = 16.0;
-                let values = [
-                    ("位置", self.snapshot.position_rad, "rad"),
-                    ("速度", self.snapshot.speed_rad_s, "rad/s"),
-                    ("Iq", self.snapshot.iq_a, "A"),
-                    ("母线", self.snapshot.bus_v, "V"),
-                    ("温度", self.snapshot.temperature_c, "°C"),
-                ];
-                ui.columns(5, |columns| {
-                    for (column, (name, value, unit)) in columns.iter_mut().zip(values) {
-                        column.horizontal(|ui| {
-                            ui.label(RichText::new(name).small().color(c.muted));
-                            ui.label(RichText::new(unit).small().color(c.muted));
-                        });
-                        column.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(
-                                    value.map(|v| format!("{v:.3}")).unwrap_or("—".into()),
-                                )
-                                .monospace()
-                                .size(19.0)
-                                .color(if fresh {
-                                    c.ink
-                                } else {
-                                    c.muted
-                                }),
-                            );
-                            if value.is_some() && !fresh {
-                                ui.label(RichText::new("过期").small().color(c.warning));
-                            } else if value.is_none() {
-                                ui.label(RichText::new("未知").small().color(c.muted));
-                            }
-                        });
-                    }
-                });
-            });
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             let rate = |value: Option<f64>| {
@@ -679,81 +839,6 @@ impl HostApp {
                 "数据接收低于目标频率，请检查设备响应和总线负载。",
             );
         }
-        let scene = self
-            .curve_worker
-            .as_mut()
-            .expect("曲线线程未初始化")
-            .scene(self.window_s, self.show_reference);
-        self.capture.record_curve_update(scene.latest_sample_time);
-        let height = ((ui.available_height() - 12.0) / 3.0).max(90.0);
-        for (row, channel) in self.control_mode.channels().into_iter().enumerate() {
-            let (hover, rect) = scope::plot(ui, &scene, channel, height, self.cursor_s);
-            if self.fixture_mode {
-                self.control_evidence
-                    .push(serde_json::json!({"name":format!("plot_{channel}"),
-                    "enabled":false,"rect":[rect.min.x,rect.min.y,rect.max.x,rect.max.y]}));
-            }
-            if let Some(time) = hover {
-                self.cursor_s = Some(time);
-            }
-            if row < 2 {
-                ui.add_space(4.0);
-            }
-        }
-    }
-
-    pub(super) fn parameters(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            widgets::page_header(
-                ui,
-                "参数管理",
-                "通过 CAN 指定电机型号与配套参数；通用标量读写仍未接入。",
-                "型号配置",
-            );
-            self.motor_configuration_panel(ui);
-            ui.add_space(12.0);
-            Self::panel(ui, "参数目录", |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for (name, label) in [
-                        ("parameter_read", "读取设备"),
-                        ("parameter_write", "应用并读回"),
-                        ("parameter_save", "掉电保存"),
-                    ] {
-                        let response = ui
-                            .add_enabled(false, egui::Button::new(label))
-                            .on_disabled_hover_text("设备参数读写服务尚未接入");
-                        self.control(name, &response);
-                    }
-                });
-                widgets::hint(ui, "下表为协议目录节选，设备值尚未读取。");
-                ui.add_space(8.0);
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    egui::Grid::new("parameter_catalog")
-                        .striped(true)
-                        .min_col_width(((ui.available_width() - 80.0) / 5.0).max(90.0))
-                        .spacing([20.0, 14.0])
-                        .show(ui, |ui| {
-                            for heading in ["参数", "ID", "单位", "设备值", "支持状态"] {
-                                ui.strong(heading);
-                            }
-                            ui.end_row();
-                            for (name, id, unit, state) in PARAMETERS {
-                                ui.label(name);
-                                ui.monospace(id);
-                                ui.label(unit);
-                                ui.label("—");
-                                widgets::hint(ui, state);
-                                ui.end_row();
-                            }
-                        });
-                });
-            });
-            ui.add_space(14.0);
-            egui::CollapsingHeader::new("写入与保存流程").show(ui, |ui| {
-                widgets::hint(ui, "读取 → 修改 → 版本校验与写入 → 读回 → 掉电保存。");
-                widgets::hint(ui, "设备活动值、修改草稿与已保存版本需要分别确认。");
-            });
-        });
     }
 
     pub(super) fn identification(&mut self, ui: &mut egui::Ui) {

@@ -10,6 +10,7 @@ mod discovery;
 mod maintenance;
 mod motor_configuration;
 mod package;
+mod parameters;
 mod target;
 mod ui;
 mod upgrade;

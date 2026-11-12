@@ -6,6 +6,7 @@ mod control_panel;
 mod faults;
 mod motor_configuration;
 mod pages;
+mod parameters;
 mod preview;
 mod scope;
 pub(crate) mod widgets;
@@ -157,6 +158,7 @@ pub struct HostApp {
     motor_acknowledged: bool,
     configuration_busy: bool,
     operation_pending: bool,
+    parameter_state: parameters::State,
     progress: f32,
     upgrading: bool,
     status: String,
@@ -304,6 +306,7 @@ impl HostApp {
             motor_acknowledged: false,
             configuration_busy: false,
             operation_pending: false,
+            parameter_state: parameters::State::default(),
             progress: 0.0,
             upgrading: false,
             status: "未连接 · 设备状态未知".into(),
@@ -484,8 +487,10 @@ impl HostApp {
                     self.motor_acknowledged = false;
                     self.pause_capture();
                 }
+                Event::Parameters(report) => self.receive_parameters(report),
                 Event::Status(message) => self.note(message),
                 Event::Rejected(message) => {
+                    self.parameter_state.cancel_read();
                     self.operation_pending = false;
                     self.configuration_busy = false;
                     self.upgrading = false;
@@ -497,6 +502,7 @@ impl HostApp {
                 Event::Progress(value) => self.progress = value,
                 Event::UpgradeDone => self.upgrading = false,
                 Event::HardStop(message) => {
+                    self.parameter_state.cancel_read();
                     self.operation_pending = false;
                     self.configuration_busy = false;
                     self.upgrading = false;
@@ -508,6 +514,7 @@ impl HostApp {
                     self.note(message);
                 }
                 Event::Disconnected => {
+                    self.parameter_state.cancel_read();
                     self.operation_pending = false;
                     self.configuration_busy = false;
                     self.upgrading = false;
@@ -587,6 +594,7 @@ impl HostApp {
         self.intervention_ack = false;
         self.bound_uid.clear();
         self.snapshot = Snapshot::default();
+        self.parameter_state = parameters::State::default();
         self.motor_acknowledged = false;
         self.pause_capture();
         self.acknowledged = false;
@@ -597,6 +605,9 @@ impl HostApp {
         ));
     }
     fn send(&mut self, command: Command) {
+        if matches!(&command, Command::Stop | Command::Disconnect) {
+            self.parameter_state.cancel_read();
+        }
         if self.fixture_mode {
             return;
         }
@@ -1173,6 +1184,18 @@ mod tests {
             acknowledged: true,
         });
         app.send(Command::ActivateConfiguration);
+        app.send(Command::Parameters(crate::parameters::Action::Read {
+            ids: vec![11],
+            saved: false,
+        }));
+        app.send(Command::Parameters(crate::parameters::Action::Write {
+            id: 11,
+            raw: 1,
+            revision: 1,
+        }));
+        app.send(Command::Parameters(crate::parameters::Action::Save {
+            revision: 1,
+        }));
         app.send(Command::SetTarget {
             mode: ControlMode::Torque,
             value: 0.5,

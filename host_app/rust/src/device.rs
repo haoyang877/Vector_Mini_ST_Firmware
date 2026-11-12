@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 #[path = "device_jobs.rs"]
 mod jobs;
+#[path = "device_parameters.rs"]
+mod parameter_service;
 
 const IDLE_SPEED_RAD_S: f64 = std::f64::consts::PI / 6.0;
 const FEEDBACK_VALIDITY: Duration = Duration::from_millis(500);
@@ -288,6 +290,7 @@ fn apply_feedback(snapshot: &mut Snapshot, data: &[u8], node: u8) -> Result<()> 
 }
 
 pub enum Command {
+    Parameters(crate::parameters::Action),
     ClearFault,
     StartCalibration(CalibrationKind),
     CancelCalibration,
@@ -314,6 +317,7 @@ pub enum Command {
 }
 
 pub enum Event {
+    Parameters(crate::parameters::Report),
     OperationDone,
     Rejected(String),
     ConfigurationSaved,
@@ -794,14 +798,17 @@ impl<T: Transport> Session<T> {
         snapshot.active_configuration = None;
         snapshot.saved_configuration = None;
         if snapshot.role == 1 && snapshot.features & motor_configuration::FEATURE != 0 {
-            snapshot.active_configuration = Some(ConfigurationInfo::parse(&self.query(motor_configuration::READ, 0)?)?);
+            snapshot.active_configuration = Some(ConfigurationInfo::parse(
+                &self.query(motor_configuration::READ, 0)?,
+            )?);
             if snapshot
                 .active_configuration
                 .as_ref()
                 .is_some_and(|info| info.flags & 8 != 0)
             {
-                snapshot.saved_configuration =
-                    Some(ConfigurationInfo::parse(&self.query(motor_configuration::READ, 1)?)?);
+                snapshot.saved_configuration = Some(ConfigurationInfo::parse(
+                    &self.query(motor_configuration::READ, 1)?,
+                )?);
             }
         }
         snapshot.identity_at = Some(Instant::now());
@@ -986,6 +993,7 @@ impl<T: Transport> Session<T> {
 
     fn handle(&mut self, command: Command) -> Result<bool> {
         match command {
+            Command::Parameters(action) => self.parameter_action(action),
             Command::ClearFault => self.clear_fault(),
             Command::StartCalibration(kind) => self.start_calibration(kind),
             Command::CancelCalibration => self.cancel_calibration(),
@@ -1056,8 +1064,12 @@ impl<T: Transport> Session<T> {
                     false,
                 )?;
                 self.manual_start = 0;
-                let response =
-                    self.exchange_timed(motor_configuration::COMMIT, sequence, &commit, Duration::from_secs(5))?;
+                let response = self.exchange_timed(
+                    motor_configuration::COMMIT,
+                    sequence,
+                    &commit,
+                    Duration::from_secs(5),
+                )?;
                 ensure!(
                     response.len() == 12
                         && u16le(&response, 0)? == 0

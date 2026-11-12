@@ -628,6 +628,116 @@ fn stopped_feedback() -> Vec<u8> {
     data
 }
 
+fn parameter_reply(id: u8, raw: u32, revision: u32, saved: u32, flags: u8) -> Vec<u8> {
+    let mut reply = vec![0; 20];
+    if let Some(entry) = crate::parameters::scalar(id) {
+        reply[4..7].copy_from_slice(&[id, entry.value_type, entry.access]);
+    }
+    reply[7] = flags;
+    reply[8..12].copy_from_slice(&raw.to_le_bytes());
+    reply[12..16].copy_from_slice(&revision.to_le_bytes());
+    reply[16..20].copy_from_slice(&saved.to_le_bytes());
+    reply
+}
+
+#[test]
+fn parameter_reads_keep_active_and_flash_sources_and_report_unsupported() {
+    for saved in [false, true] {
+        let mut f = fixture(vec![
+            Reply::Data(stopped_feedback()),
+            Reply::Data(parameter_reply(11, 123, 4, 2, 3)),
+            Reply::Data(vec![2, 0, 1, 0]),
+        ]);
+        f.session.snapshot.features |= crate::parameters::FEATURE;
+        f.session
+            .dispatch(Command::Parameters(crate::parameters::Action::Read {
+                ids: vec![11, 112],
+                saved,
+            }))
+            .unwrap();
+        let reports: Vec<_> = f
+            .events
+            .try_iter()
+            .filter_map(|event| match event {
+                Event::Parameters(report) => Some(report),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].saved, saved);
+        assert_eq!(reports[0].values[&11].raw, 123);
+        assert_eq!(reports[0].unsupported, [112]);
+        assert_eq!(
+            *f.sent.lock().unwrap(),
+            [
+                108,
+                if saved { 123 } else { 120 },
+                if saved { 123 } else { 120 }
+            ]
+        );
+    }
+}
+
+#[test]
+fn parameter_write_uses_actual_quantized_readback_and_conflicts_are_not_retried() {
+    let action = || {
+        Command::Parameters(crate::parameters::Action::Write {
+            id: 11,
+            raw: 124,
+            revision: 3,
+        })
+    };
+    let mut f = fixture(vec![
+        Reply::Data(stopped_feedback()),
+        Reply::Data(parameter_reply(11, 123, 4, 3, 3)),
+        Reply::Data(parameter_reply(11, 123, 4, 3, 3)),
+    ]);
+    f.session.snapshot.features |= crate::parameters::FEATURE;
+    f.session.dispatch(action()).unwrap();
+    assert!(
+        f.events.try_iter().any(
+            |event| matches!(event, Event::Parameters(report) if report.values[&11].raw == 123)
+        )
+    );
+    assert_eq!(*f.sent.lock().unwrap(), [108, 121, 120]);
+    let mut conflict = fixture(vec![
+        Reply::Data(stopped_feedback()),
+        Reply::Data(vec![5, 0, 6, 0]),
+    ]);
+    conflict.session.snapshot.features |= crate::parameters::FEATURE;
+    conflict.session.dispatch(action()).unwrap();
+    assert!(
+        conflict
+            .events
+            .try_iter()
+            .any(|event| matches!(event, Event::Rejected(_)))
+    );
+    assert_eq!(*conflict.sent.lock().unwrap(), [108, 121]);
+}
+
+#[test]
+fn parameter_save_requires_confirmed_flash_revision_and_service_gate() {
+    let action = || Command::Parameters(crate::parameters::Action::Save { revision: 4 });
+    let mut denied = fixture(vec![Reply::Data(stopped_feedback())]);
+    denied.session.dispatch(action()).unwrap();
+    assert_eq!(*denied.sent.lock().unwrap(), [108]);
+    assert!(
+        denied
+            .events
+            .try_iter()
+            .any(|event| matches!(event, Event::Rejected(_)))
+    );
+    for (saved, flags, success) in [(4, 1, true), (3, 3, false), (0, 4, false)] {
+        let mut reply = parameter_reply(255, 0, 4, saved, flags);
+        reply[4..7].fill(0);
+        let mut f = fixture(vec![Reply::Data(stopped_feedback()), Reply::Data(reply)]);
+        f.session.snapshot.features |= crate::parameters::FEATURE;
+        assert_eq!(f.session.dispatch(action()).is_ok(), success);
+        assert_eq!(*f.sent.lock().unwrap(), [108, 122]);
+        assert!(!f.sent.lock().unwrap().contains(&117));
+    }
+}
+
 fn identity_replies(features: u32) -> Vec<Reply> {
     let target = Target::bundled().unwrap();
     let mut page0 = vec![0; 32];

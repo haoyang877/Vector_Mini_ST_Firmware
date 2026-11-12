@@ -60,7 +60,7 @@ G431将目标名换成`vector_mini_st_g431`。两套工程各自生成AXF、HEX�
 
 安装依赖`uv sync --locked --extra dev --extra maintenance`。
 命令入口`loader/tools/device_maintenance.py`，Rust工作台“SWD维护”页使用同一脚本。
-硬件操作必须显式指定`--target`、`--probe`、24位十六进制`--uid`、新`--out`目录及
+硬件操作指定`--target`、`--probe`、身份选项（`--auto-uid` 从当前探针读取，或 `--uid` 绑定已知的 24 位十六进制值）、新`--out`目录及
 `--exclusive-bench`。指定单只探针，停止电机并关闭其他调试器和 CAN 会话。母线可以保持带电，维护工具核对六路输出已关闭后才继续。旧参数 `--exclusive-no-power` 仍可使用。
 无硬件参数的`parameters`、`verify`和`prepare-migration`只处理本地文件。
 
@@ -68,7 +68,8 @@ G431将目标名换成`vector_mini_st_g431`。两套工程各自生成AXF、HEX�
    两份全片逐字节一致才接受；短读或差异直接失败，不靠重试挑选一致的数据。
    维护CLI显式关闭J-Link Flash/内存缓存，退出保留CPU原状态及APP的DWT时基。
    生成`summary.json`、`snapshot/flash.bin`、`snapshot/parameters.bin`及CRC/SHA256。
-   不主动halt/reset/run；对目标CPU无调试状态写入。
+   核对 UID 和容量后默认清除探针连接时设置的 DEMCR.VC_CORERESET，保留其他调试位和 CPU 运行状态。
+   这样下一次 CAN 交接复位可以执行 Loader，不会停在复位入口。
 2. `parameters --input <parameters.bin>`显示保存值与1024点LUT；不写回，不把保存结果当作当次标定。
 3. `verify --target <目标> --input <下载前flash.bin> --after <下载后flash.bin>`
    比较APP槽以外的每个字节，包括Loader、完整参数/身份和AT32上半区。

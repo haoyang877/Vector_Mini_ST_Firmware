@@ -1,6 +1,6 @@
 # Loader 设计：启动、升级与存储
 
-更新：2026-11-02。本文说明两板共用的Loader设计。G431为layout 6，
+核对基线：176f3c7e。本文说明两板共用的Loader设计。G431为layout 6，
 新增AT32F456CCU7为layout 7，分别编译MCU/板级端口；UART尚未实现。
 两板均采用前128 KiB中的16 KiB Loader、96 KiB APP和16 KiB参数/身份区。
 新配套包需重新构建及实机验证，不能复用旧布局的测试结论；
@@ -33,7 +33,7 @@ flowchart LR
 
     Boot[Loader启动控制<br/>救援窗口与启动判断] --> Image
     Boot --> Platform[板级安全端口<br/>关相、看门狗与跳转]
-    App[APP维护服务<br/>停机交接与健康确认] --> Wire
+    App[LoaderApp 停机交接与健康确认] --> AppWire[APP 通信端点]
     App --> Mailbox[APP/Loader交接邮箱]
     Identity[生产身份记录] --> Wire
     Identity --> App
@@ -44,7 +44,7 @@ flowchart LR
 | `shared/image`、`shared/boot`、`shared/protocol` | 镜像格式、启动标记、邮箱与通信契约 | 尽量复用；契约变化时先更新版本、文档和测试 |
 | `loader/core` | 单次升级事务、会话绑定、提交与超时 | 不接触 HAL、寄存器或板级引脚 |
 | `loader/runtime` | 组织启动判断、升级命令和只读设备信息 | 接入目标芯片的端口，核对安全顺序 |
-| `loader/ports/include`、`loader/ports/stm32g4` | 公共接口及现有 Flash、CAN、看门狗、跳转驱动 | 接口独立于 HAL；新 MCU 实现对应端口 |
+| `loader/ports/include`、`loader/ports/stm32g4`、`loader/ports/at32f456` | 公共接口及现有 Flash、CAN、看门狗、跳转驱动 | 接口独立于 HAL；新 MCU 实现对应端口 |
 | `loader/product`、`loader/boards` | 参数节点策略、板级关相与状态核对 | 参数策略不混入芯片驱动；安全状态随板卡验证 |
 | `shared/targets` 与工程输入 | 分区、擦写几何、版本和链接配置 | 为 Loader 和配套 APP 同时生成并构建 |
 
@@ -75,18 +75,32 @@ flowchart TB
     Activate --> Reset
 ```
 
-正常升级由 APP 先停机，等待参数保存结束，发送交接回复，再通过一次性 RAM 邮箱请求复位
-进入 Loader。邮箱只表达“这次复位要进入 Loader”；它不是升级进度、生产身份或永久确认。
-如果设备已经在 Loader，客户端先识别设备，再开始下载。
+正常启动保留 50 ms 救援窗口。看门狗复位、带有效 ENTER 邮箱的软件复位、受理的驻留发现等条件使 Loader 留在启动端。窗口结束后核对输出、链路、镜像及激活/尝试/确认标记，符合条件才跳入 APP。邮箱含请求和节点；当前 Loader 打开 CAN 时重新从参数区选节点，识别失败沿用救援节点。G431 APP 在记录 CRC 损坏时回退默认节点，而 Loader 仍可能接受记录中的节点。[启动入口](../../../loader/runtime/main.c) · [节点识别](../../../loader/product/parameters.c)
 
-Loader 收到下载请求后检查目标、版本与会话，擦除整个 APP 槽并顺序写入。写入时读回校验；
-下载完成还要检查镜像 CRC、描述符和启动向量。只有全部通过，才写入持久激活标记。
-受理回复或 CAN 发送成功都不等于升级成功。客户端还需重新识别同一设备上的新 APP，
-核对版本和镜像 CRC，发送确认请求，并读回已确认状态。确认过程不使能电机。
+### 下载状态与跨镜像交接
 
-APP 首次启动属于试运行。只有健康状态持续满足要求，且输出已关闭、参数保存空闲，APP
-才接受主机确认。试运行失败或未确认时停止喂狗；看门狗复位后 Loader 不再尝试自动启动
-这个未确认镜像。这里的“确认期限”不是“复位完成时间”，后者取决于看门狗配置和时钟。
+```mermaid
+sequenceDiagram
+    participant H as CAN 主站
+    participant A as 原 LoaderApp
+    participant L as Loader
+    participant N as 新 LoaderApp
+    H->>A: 56 请求停机交接
+    A-->>H: PENDING 或 READY
+    A->>L: READY 实际发出，复核后写邮箱并复位
+    H->>L: 50 BEGIN，登记 nonce 和 session
+    H->>L: 53 查擦除进度，51 顺序 WRITE
+    H->>L: 52 FINISH，53 查 VERIFIED
+    H->>L: 54 ACTIVATE
+    L-->>H: 带票据的回复
+    L->>N: 物理发送完成，写激活标记，复位校验并启动试运行
+    H->>N: 57 确认版本与 CRC
+    N-->>H: 持久确认成功，可通过 GET_INFO 回读
+```
+
+镜像阶段为 IDLE → READY → ERASING → RECEIVING → VERIFYING → VERIFIED，失败可进入 ERROR。50 建立写会话；Poll 逐页擦除、分段校验，51 写入并读回。53 可发现或查询会话，55 撤销事务。54 的票据属于当前会话，CAN 入队后还须收到对应物理发送完成事件。三个持久标记分别记录激活、已尝试启动和已确认。合法载荷、回复码与各时限见[升级协议](../../protocols/README.md#upgrade)。
+
+当前实现有两个边界条件：AT32 单发送槽忙时重发 54，第二次提交失败会撤销在途票据；最终锁内再次计算整包 CRC 时，标记写入可跨过票据截止。分析提交顺序时一并查看 [LoaderUpgrade_TxComplete](../../../loader/core/upgrade.c) 与 [LoaderImage_Activate](../../../shared/image/image_transfer.c)。
 
 | 中断或故障发生的位置 | 下次启动行为 |
 | --- | --- |
@@ -102,9 +116,7 @@ APP 首次启动属于试运行。只有健康状态持续满足要求，且输�
 
 ## Flash 与 RAM 分配
 
-下表是当前 G431 目标的**分区约定**，不是构建后的实际占用。地址来自
-[`shared/targets/vector_mini_st_g431.json`](../../../shared/targets/vector_mini_st_g431.json)；
-更换 MCU 时由目标配置和两端链接工程共同调整。
+两套配套工程均使用 Flash 前 128 KiB，目标 layout 分别为 G431 的 6 和 AT32F456 的 7。Flash 地址相同，MCU 身份、RAM 和链接输入按板型选择。[G431 清单](../../../shared/targets/vector_mini_st_g431.json) · [AT32 清单](../../../shared/targets/yg_esc_v1_at32f456.json)
 
 | 区域 | 地址 | 预留容量 | 用途和写入权限 |
 | --- | --- | ---: | --- |
@@ -112,42 +124,22 @@ APP 首次启动属于试运行。只有健康状态持续满足要求，且输�
 | APP 槽 | `0x08004000..0x0801BFFF` | 96 KiB | 唯一允许 Loader 擦写的固件区 |
 | 校准与用户参数 | `0x0801C000..0x0801F7FF` | 14 KiB | APP 按现有停机和校验规则保存；Loader 只读 |
 | 生产身份页 | `0x0801F800..0x0801FFFF` | 2 KiB | 保存电机 SN 和类型；普通 CAN 只读，生产 SWD 写 |
-| 普通 RAM | `0x20000000..0x20007FDF` | 32,736 B | APP 和 Loader 各自使用，跳转后不共享普通变量 |
-| 交接邮箱 | `0x20007FE0..0x20007FFF` | 32 B | 跨复位传递一次性进入 Loader 请求 |
+| G431 交接邮箱 | `0x20007FE0..0x20007FFF` | 32 B | 保留在普通 RAM 上界之后 |
+| AT32F456 交接邮箱 | `0x20016FE0..0x20016FFF` | 32 B | 链接脚本同时保留快代码执行区 |
 
-当前 schema14 参数记录为 2,288 B；14 KiB 参数区中还有 12,048 B 不属于记录。
-Flash 每页 2 KiB，该记录覆盖两个页：末页内余 1,808 B，另有五个完整可用页，共 10 KiB。
-末页余量不能作为独立擦除区使用。旧版第三页可能残留历史内容，并未自动清空。
-生产身份页另外保留，不计入这些余量。
+APP 在参数区起始处读写完整轴记录；生产身份位于独立页。具体记录长度、CRC 及兼容读取由[参数存储契约](../../../firmware/parameters/README.md#storage)维护。
 
 APP 槽内依次放启动向量、镜像描述符和代码。描述符还包含“已激活、已试运行、已确认”
 三个独立提交标记；它们与 APP 槽一起擦除，不额外占用参数页。CRC 校验时对这些会变化的
 字段按固定规则归一化，避免确认动作改变固件身份。标记只写一次，半写或 ECC 读取失败
 均拒绝启动。准确偏移、字节序和 CRC 规则见[升级协议与镜像格式](../../protocols/README.md#upgrade)。
 
-### 实际资源占用
-
-以下是 **2026-10-20 紧凑参数配套候选**（源码 `b7067cd8`）的实际占用，
-对应 Loader v2.1.0、APP v1.5.0。
-Flash 按链接器区域计；RAM 数字包含静态数据及链接器预留的栈/堆，但不代表运行时栈峰值。
-
-| 工程 | Flash 已用 / 分区 | RAM 已用 / 可用 | 当前余量 |
-| --- | ---: | ---: | --- |
-| Loader | 14,492 / 16,384 B | 4,344 / 32,736 B | Flash 尚余 1,892 B |
-| 配套 APP | 80,448 / 98,304 B | 18,576 / 32,736 B | Flash 尚余 17,856 B |
-
-本候选完整 release 验证通过；后续实机完成三次连续升级、下载静默和复位恢复，
-以及故障 APP 的看门狗救援与重新下载。各批次中止原因、逐项证据及未测项见
-[本轮优化记录](../../reports/2026-10/loader_storage_optimization_20261020.md)，原始固件和参数已经恢复。
-旧配套正常升级记录见[2026-10-20 实测记录](../../reports/2026-10/loader_layout6_upgrade_20261020.md)。
-历史 layout 5 升级结论见[旧包记录](../../reports/2026-09/loader_app_upgrade_bench_20260930.md)。
-
 ## 参数与生产权限
 
 | 数据 | 保存位置 | 普通 CAN 权限 | 生产权限 |
 | --- | --- | --- | --- |
 | 电机 SN、电机类型 | 独立生产身份页 | 可查询，不可改写 | 受控 SWD 工装写入 |
-| 电机 CAN ID | 现有参数记录 | ID3只读，无在线改址 | 使用受控完整参数流程，重启后装载 |
+| 电机 CAN ID | 现有参数记录 | GET_INFO 第 1 页上报活动节点 | 使用受控完整参数流程，重启后装载 |
 | 校准数据与电机模型 | 现有参数记录 | 按已定义接口和状态守卫处理 | 身份工装不改写 |
 | MCU UID、固件版本、镜像 CRC | 芯片或配套构建产物 | 可查询，不可通过参数命令改写 | 由芯片或构建决定 |
 
@@ -169,22 +161,4 @@ Flash；只写身份页，随后读回并核对保护区。失败时保持停机
 版本写入 APP 描述符，Loader 同时固化硬件修订号与自身版本；维护查询按这些镜像信息上报。
 它们不占用用户参数记录。当前硬件修订号为编译期指定，尚未从独立板卡记录自动识别。
 
-2026-10-20 已在本板验证从 APP 主动交接 Loader、下载、校验、激活和 APP 持久确认。
-实测修正了 READY 回复的队列读写位置；回复到达主机后，仍必须等待对应的真实发送完成
-才能交接。测试没有使能电机，结束后恢复原始固件和参数。
-同日[连续二十轮正常升级](../../reports/2026-10/loader_repeat20_20261020.md)全部通过，
-轮间不通过 SWD 重刷或人工复位帮助通过。
-
-真实断电、Flash ECC 注入、运行中 CAN 物理故障及栈高水位仍需分别验收；
-正常升级通过不能替代这些结果。原板 schema10 参数不会自动迁移；新候选提供带快照哈希核对的离线迁移。
-
-
-## 本轮紧凑参数候选
-
-APP v1.5.0 / Loader v2.1.0 删除退役齿槽表，参数仍单份，详见
-[schema14存储](../../../firmware/parameters/README.md#storage)。APP只接受schema14；
-Loader独立节点识别行为不在本轮范围。布局地址和升级期间不写参数的规则不变。
-
-Loader 改用较小的 C 运行库，未缩减栈或删除安全检查。前面的二十轮实测属于旧配套版本；
-新候选的资源、离线和实机结果分别记录在[优化计划](../../archive/plans/2026-10-20-loader-storage-optimize-v1.md)。
-升级客户端现在拆分发送、等待和重试耗时，发送统计包含外部调试检查，不能当作纯总线速度。
+双板的维护与验证证据按目标、镜像及日期记录。G431 历史资源占用与升级批次见[优化记录](../../reports/2026-10/loader_storage_optimization_20261020.md)，AT32 的配套使用与压力测试入口见[双板指南](../../guides/dual_board_loader.md)。

@@ -115,11 +115,11 @@ class Drive:
         if not (
             0.001 <= self.current_a <= 3
             and 0.001 <= self.frequency_hz <= 10
-            and 100 <= self.leg_ms <= 3000
+            and 700 <= self.leg_ms <= 3000
             and self.travel_deg > 0
         ):
             raise ValueError(
-                "应急模式限流 0.001～3 A，电频 0.001～10 Hz，单程 100～3000 ms，可用行程须大于零"
+                "应急模式限流 0.001～3 A，电频 0.001～10 Hz，单程 700～3000 ms，可用行程须大于零"
             )
 
 

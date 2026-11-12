@@ -27,7 +27,7 @@ from hardware_check import Drive, direction_results, empty_report, run_check, su
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.7.0"
+TITLE = "CAN FD 通信测试 v1.7.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -271,7 +271,7 @@ class CanTestWindow:
         for row in (
             (
                 ("ambient", "实测室温 °C（可空）"),
-                ("current", "驱动限流 A"),
+                ("current", "模式10相电流 A"),
                 ("frequency", "电频 Hz"),
             ),
             (
@@ -286,8 +286,8 @@ class CanTestWindow:
             for key, label in row:
                 ttk.Label(box, text=label).pack(side="left")
                 entry = ttk.Entry(box, width=7)
-                if key == "current":
-                    entry.insert(0, "3")
+                if key in ("current", "frequency", "leg"):
+                    entry.insert(0, {"current": "3", "frequency": "3", "leg": "1500"}[key])
                 entry.pack(side="left", padx=(3, 9))
                 self.check_fields[key] = entry
                 self.controls.append((entry, "normal"))
@@ -295,14 +295,18 @@ class CanTestWindow:
             check_tab,
             text="双向驱动前确认从起点两侧可用的输出轴行程。首次驱动填写已知计数，确认刚上电可填 0。",
         ).pack(anchor="w")
+        ttk.Label(
+            check_tab,
+            text="APP v1.8.1：稳定后按50ms均值验证双向趋势；单拍波动只作诊断。单程至少700ms。",
+        ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.0/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.1/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.0")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.1")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -374,7 +378,7 @@ class CanTestWindow:
         self.controls.append((compatibility, "normal"))
         ttk.Label(count_row, text="升级期间请暂停其他主站轮询。").pack(side="left")
         ttk.Label(
-            self.swd_tab, text="AT32F456 · Loader 2.3.3 + APP 1.7.0 · 默认 CAN FD 1M/5M"
+            self.swd_tab, text="AT32F456 · Loader 2.3.3 + APP 1.8.1 · 默认 CAN FD 1M/5M"
         ).pack(anchor="w")
         embedded = (
             Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "firmware" / "five-axis.hex"

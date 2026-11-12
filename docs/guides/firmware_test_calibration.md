@@ -1,10 +1,10 @@
 # AT32F456 固件烧录、测试与标定使用指南
 
-适用于 APP v1.8.0、Loader v2.3.3、CAN-Link-Test v1.7.0 和电机工装 v1.4.1。
+适用于 APP v1.8.1、Loader v2.3.3、CAN-Link-Test v1.7.1 和电机工装 v1.4.1。
 本包为 debug 开发验证包。当前连接的 PITCH 台架用于验证，其他轴没有本轮实机结论；
 动态角度检测的已知限制与本次结果以随包测试报告为准。
-本次[合并后复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)八项静态通过，
-旋转动态仍失败；包用于复现与调试，尚未取得完整功能验收。
+v1.8.0 的[历史复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)保留单拍判据的失败结论。
+v1.8.1 按整体趋势验收，当前结果以匹配版本的随包报告为准。
 
 ## 连接和节点
 
@@ -32,8 +32,8 @@ ISO FD+BRS、仲裁 1 Mbit/s、数据 5 Mbit/s，工具的“通道 1”对应 S
 | `firmware/app-package/` | CAN 升级包，包含 image.bin、manifest.bin、package.json，保持三者配套 |
 | `firmware/*.axf`、`*.map` | 与镜像匹配的调试符号和资源信息 |
 | `manifest.json`、`firmware/summary.json` | 文件 SHA-256、版本、目标、布局和构建来源 |
-| `CAN-Link-Test-v1.7.0.exe` | SWD 烧录、CAN 升级、通信与硬件功能检测 |
-| `Hardware-Check-v1.0.0.exe` | 独立命令行硬件检测，不依赖本机 Python |
+| `CAN-Link-Test-v1.7.1.exe` | SWD 烧录、CAN 升级、通信与硬件功能检测 |
+| `Hardware-Check-v1.0.1.exe` | 独立命令行硬件检测，不依赖本机 Python |
 | `YG-Motor-Commission-v1.4.1.exe` | 空板配参、标定和标定结果导出 |
 
 大包仅包含 Loader 和 APP 的实际加载段，**不包含参数、LUT 或生产身份**。
@@ -60,7 +60,8 @@ Loader 更新使用 SWD 大包。具体分区及恢复步骤见[双板 Loader](d
 4. 首次使用该 UID 时填写运动计数高水位；确认本次刚复位且没有运动目标可填 0。
    后续由工具按 UID 递增保存，不能运行中清零计数文件。
 5. 每方向至少预转 500 ms，且连续两个 50 ms 平均转速窗满足稳定条件后才验证轨迹。
-   中间零频保持并确认停稳，再反转。启动和反转瞬态不计入有效轨迹。
+   v1.8.1 取 50 ms 角度均值观察趋势，至少两个窗口确认位移和方向，单拍波动只作诊断。
+   明显折返、停滞及去回同向仍判异常。中间零频保持并确认停稳，再反转。
 6. 结束确认 STOP、轴空闲、无故障和实际关相，再依据现场观察填写电机及输出轴的
    去回方向。未观察、未稳定、行程不足或中止的项目保留“未测”，不能算通过。
 
@@ -79,7 +80,7 @@ uv run --extra maintenance python tools/run.py hardware_check --dll <ControlCANF
 
 `--observe` 在关相后输入实物去回方向，正/反分别用 `+`/`-`。命令参数中的温度、
 行程和计数必须按本次现场填写。原始 CAN 帧、板端统计和 STOP 结果一起留档。
-交付 EXE 的同一入口是 `Hardware-Check-v1.0.0.exe`，将上述命令的
+交付 EXE 的同一入口是 `Hardware-Check-v1.0.1.exe`，将上述命令的
 `uv run --extra maintenance python tools/run.py hardware_check` 替换为 EXE 路径，
 `--dll` 指向随包 `bin/ControlCANFD.dll`。
 
@@ -87,7 +88,7 @@ uv run --extra maintenance python tools/run.py hardware_check --dll <ControlCANF
 单程输出轴角度约为 `360 × 电频Hz × 单程秒 / (极对数 × 减速比)`。
 当前 14 极对、40:1 的台架，3 Hz、1500 ms 对应约 2.89°/程；实际提前中止时达不到
 该角度。改变电频、时长或电流用于对照，不代表可以改动检测限值；推荐至少留出
-1500 ms 单程时间，不能用不足 500 ms 的短段宣称已经稳定并完成轨迹验收。
+1500 ms 单程时间；工具允许 700～3000 ms，不能用不足 500 ms 的短段宣称完成验收。
 
 ## 标定
 

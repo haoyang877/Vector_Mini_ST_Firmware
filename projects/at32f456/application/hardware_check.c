@@ -70,6 +70,13 @@ typedef struct
 
 typedef struct
 {
+    AngleTrack raw;
+    float mean_turns;
+    uint32_t first_cycles, samples;
+} AngleWindow;
+
+typedef struct
+{
     ProtocolHardwareReport report;
     uint32_t previous_run, base_epoch, driven_epoch, stage_ms, last_cycles, samples, revision;
     uint16_t start_sequence;
@@ -80,8 +87,8 @@ typedef struct
     float min_v, max_v, temperature_c, jitter_turns[2];
     uint16_t hall_min[2], hall_max[2];
     LinearHall hall;
-    AngleTrack hall_rest, legs[2][2], settle[2], path[2];
-    float last_speed_turns_s;
+    AngleTrack hall_rest, legs[2][2], settle[2];
+    AngleWindow path[2];
     int first_sign;
     unsigned leg, settled_samples;
     uint32_t leg_samples[2];
@@ -272,14 +279,12 @@ static float hall_turns(const HardwareSample *sample)
 }
 
 /* 单圈角用相邻最短差展开；记录两种方向的最大逆行量，避免把返回原位误作静止。 */
-static bool track_angle(
-    AngleTrack *track, float turns, uint32_t cycles, float speed_turns_s, float margin_turns)
+static void track_angle(AngleTrack *track, float turns, uint32_t cycles)
 {
     if (!isfinite(turns))
     {
-        return false;
+        return;
     }
-    bool plausible = true;
     if (track->samples == 0U)
     {
         track->first_cycles = cycles;
@@ -295,8 +300,6 @@ static bool track_angle(
         {
             delta += 1.0f;
         }
-        float dt = (float)(cycles - track->last_cycles) / (float)AT32_CORE_HZ;
-        plausible = fabsf(delta) <= speed_turns_s * dt + margin_turns;
         track->travel_turns += delta;
         track->backward_turns =
             fmaxf(track->backward_turns, track->max_turns - track->travel_turns);
@@ -307,7 +310,37 @@ static bool track_angle(
     ++track->samples;
     track->last_turns = turns;
     track->last_cycles = cycles;
-    return plausible;
+}
+
+/* 原码先跨零展开，再用完整 50ms 均值更新趋势；返回 -1 无效、0 待窗、1 新趋势点。
+ * 原始单拍增量不再用作动态失败条件，raw 中仍保留原始轨迹供诊断。 */
+static int track_trend(AngleWindow *window, AngleTrack *trend, float turns, uint32_t cycles)
+{
+    if (!isfinite(turns))
+    {
+        return -1;
+    }
+    track_angle(&window->raw, turns, cycles);
+    if (window->samples == 0U)
+    {
+        window->first_cycles = cycles;
+    }
+    ++window->samples;
+    window->mean_turns += (window->raw.travel_turns - window->mean_turns) / (float)window->samples;
+    if (cycles - window->first_cycles < AT32_CORE_HZ / 20U)
+    {
+        return 0;
+    }
+    track_angle(trend, window->mean_turns, cycles);
+    window->mean_turns = 0.0f;
+    window->samples = 0U;
+    return 1;
+}
+
+/* 允许小范围来回波动；只有窗口趋势发生相对整段行程明显的折返才判异常。 */
+static float reversal_margin(const AngleTrack *trend, float static_margin)
+{
+    return fmaxf(static_margin, 0.2f * (trend->max_turns - trend->min_turns));
 }
 
 static void static_sample(const HardwareSample *sample)
@@ -355,7 +388,7 @@ static void static_sample(const HardwareSample *sample)
         }
         if (s_check.hall_calibrated && s_check.samples % (FOC_FREQ / 1000U) == 0U)
         {
-            (void)track_angle(&s_check.hall_rest, hall_turns(sample), sample->cycles, 0.0f, 1.0f);
+            track_angle(&s_check.hall_rest, hall_turns(sample), sample->cycles);
         }
     }
     ++s_check.samples;
@@ -449,7 +482,8 @@ static void finish_drive(MotorAxis *axis)
             float margin = s_check.jitter_turns[sensor];
             directions[leg] = measure_direction(track, margin);
             s_check.report.directions |= (uint8_t)(directions[leg] << (4U * sensor + 2U * leg));
-            if (track->backward_turns > margin && track->forward_turns > margin)
+            float reversal = reversal_margin(track, margin);
+            if (track->backward_turns > reversal && track->forward_turns > reversal)
             {
                 *item = FAIL;
             }
@@ -488,7 +522,7 @@ static void finish_drive(MotorAxis *axis)
 static bool rotation_settled(float rotor, uint32_t cycles, float frequency_hz, unsigned pole_pairs)
 {
     AngleTrack *warmup = &s_check.warmup;
-    (void)track_angle(warmup, rotor, cycles, 0.0f, 1.0f);
+    track_angle(warmup, rotor, cycles);
     uint32_t elapsed = cycles - warmup->first_cycles;
     if (elapsed < AT32_CORE_HZ / 20U)
     {
@@ -550,6 +584,12 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
     float hall = hall_tick && s_check.hall_calibrated ? hall_turns(sample) : NAN;
     if (sign == 0)
     {
+        if (s_check.warmup_frequency_hz != 0.0f)
+        {
+            memset(s_check.path, 0, sizeof(s_check.path));
+            memset(s_check.settle, 0, sizeof(s_check.settle));
+            s_check.settled_samples = 0U;
+        }
         s_check.warmup_frequency_hz = 0.0f;
         if (s_check.first_sign == 0)
         {
@@ -604,39 +644,24 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
             }
         }
     }
-    /* 稳定后才累计连续性与旋向；零频保持仍按原减速余量检查。 */
-    float speed = fminf(axis->configuration.application.speed_limit_rad_s / TWO_PI_F,
-                        2.0f * fabsf(sample->frequency_hz) /
-                            (float)axis->configuration.model.motor_pole_pairs);
-    float transition_speed = fmaxf(s_check.last_speed_turns_s, speed);
-    if (sign != 0)
+    /* 每个传感器独立观察 50ms 均值趋势，不对单拍速度或反向抖动判失败。 */
+    AngleTrack *tracks = sign == 0 ? s_check.settle : s_check.legs[s_check.leg];
+    int updated[2] = {track_trend(&s_check.path[0], &tracks[0], rotor, sample->cycles), 0};
+    if (hall_tick && s_check.hall_calibrated)
     {
-        s_check.last_speed_turns_s = speed;
+        updated[1] = track_trend(&s_check.path[1], &tracks[1], hall, sample->cycles);
     }
-    if (s_check.rotation_ready &&
-        !track_angle(
-            &s_check.path[0], rotor, sample->cycles, transition_speed, s_check.jitter_turns[0]))
+    for (unsigned sensor = 0U; sensor < 2U; ++sensor)
     {
-        items[ROTOR_DRIVE] = FAIL;
-    }
-    if (s_check.rotation_ready && hall_tick && s_check.hall_calibrated &&
-        !track_angle(&s_check.path[1],
-                     hall,
-                     sample->cycles,
-                     transition_speed / axis->configuration.preset->gear_ratio,
-                     s_check.jitter_turns[1]))
-    {
-        items[HALL_DRIVE] = FAIL;
+        if (updated[sensor] < 0)
+        {
+            items[ROTOR_DRIVE + sensor] = FAIL;
+        }
     }
     if (sign == 0)
     {
         if (s_check.first_sign != 0 && s_check.leg == 0U)
         {
-            (void)track_angle(&s_check.settle[0], rotor, sample->cycles, 0.0f, 1.0f);
-            if (hall_tick && s_check.hall_calibrated)
-            {
-                (void)track_angle(&s_check.settle[1], hall, sample->cycles, 0.0f, 1.0f);
-            }
             if (s_check.settle[0].max_turns - s_check.settle[0].min_turns >
                     s_check.jitter_turns[0] ||
                 s_check.settle[1].max_turns - s_check.settle[1].min_turns > s_check.jitter_turns[1])
@@ -644,19 +669,21 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
                 memset(s_check.settle, 0, sizeof(s_check.settle));
                 s_check.settled_samples = 0U;
             }
-            else
+            else if (updated[0] == 1 && s_check.settle[0].samples >= 2U &&
+                     (!s_check.hall_calibrated || s_check.settle[1].samples >= 2U))
             {
-                ++s_check.settled_samples;
+                s_check.settled_samples += FOC_FREQ / 20U;
             }
         }
     }
     else
     {
         ++s_check.leg_samples[s_check.leg];
-        AngleTrack *tracks = s_check.legs[s_check.leg];
+        float speed =
+            fabsf(sample->frequency_hz) / (float)axis->configuration.model.motor_pole_pairs;
         for (unsigned sensor = 0U; sensor < 2U; ++sensor)
         {
-            if (sensor == 1U && (!s_check.hall_calibrated || !hall_tick))
+            if (updated[sensor] != 1)
             {
                 continue;
             }
@@ -664,8 +691,11 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
             float margin = s_check.jitter_turns[sensor];
             float axis_speed =
                 sensor == 0U ? speed : speed / axis->configuration.preset->gear_ratio;
-            (void)track_angle(
-                track, sensor == 0U ? rotor : hall, sample->cycles, axis_speed, margin);
+            float elapsed_s = (float)(sample->cycles - track->last_progress) / (float)AT32_CORE_HZ;
+            if (track->moving && elapsed_s > 0.15f + 8.0f * margin / axis_speed)
+            {
+                items[ROTOR_DRIVE + sensor] = FAIL;
+            }
             if (track->samples == 1U)
             {
                 track->last_progress = sample->cycles;
@@ -674,17 +704,12 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
             {
                 /* 同一非零目标下，已经运动的轨迹长时间保持后再次跃进。慢轴按
                    此段速度和静态噪声拓宽观测时间，首次起动延迟单独处理。 */
-                float elapsed_s =
-                    (float)(sample->cycles - track->last_progress) / (float)AT32_CORE_HZ;
-                if (track->moving && elapsed_s > 0.15f + 8.0f * margin / axis_speed)
-                {
-                    items[ROTOR_DRIVE + sensor] = FAIL;
-                }
                 track->last_progress = sample->cycles;
                 track->progress_turns = track->travel_turns;
                 track->moving = true;
             }
-            if (track->backward_turns > margin && track->forward_turns > margin)
+            float reversal = reversal_margin(track, margin);
+            if (track->backward_turns > reversal && track->forward_turns > reversal)
             {
                 items[ROTOR_DRIVE + sensor] = FAIL;
             }
@@ -744,7 +769,7 @@ static void consume_sample(MotorAxis *axis, const HardwareSample *sample)
             return;
         }
         if (s_check.report.stage == DRIVING && !sample->powered && !sample->fault &&
-            s_check.leg_samples[0] >= FOC_FREQ / 20U && s_check.leg_samples[1] >= FOC_FREQ / 20U &&
+            s_check.leg_samples[0] >= FOC_FREQ / 10U && s_check.leg_samples[1] >= FOC_FREQ / 10U &&
             sample->stopped && sample->epoch == s_check.driven_epoch + 1U)
         {
             finish_drive(axis);

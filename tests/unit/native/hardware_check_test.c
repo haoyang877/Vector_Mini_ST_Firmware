@@ -14,6 +14,7 @@ static uint32_t s_ticks, s_cycles, s_frame, s_run, s_stops;
 static uint16_t s_seq;
 static float s_adc[10];
 static bool s_off = true;
+static int s_hall_noise;
 static const float s_pi2 = 6.28318530718f;
 
 uint32_t BspSystem_CycleCount(void)
@@ -83,6 +84,7 @@ static void begin(unsigned mode, int installation)
     static const MotorAxisHardware hardware = {.power = {.phases_disabled = phases_disabled}};
     s_off = true;
     s_stops = 0;
+    s_hall_noise = 0;
     s_axis = (MotorAxis){.hardware = &hardware};
     s_axis.configuration.preset = installation < 0 ? NULL : &s_preset;
     s_preset.has_linear_hall = installation == 1;
@@ -249,6 +251,9 @@ static void motion_sample(int32_t rotor, int32_t actual, int override)
     float phase = (float)actual / (2097152.0f * s_preset.gear_ratio) * s_pi2;
     s_axis.hall_samples[0].sin_counts = (uint16_t)lroundf(2048 - 1800 * sinf(phase));
     s_axis.hall_samples[0].cos_counts = (uint16_t)lroundf(2048 + 1800 * cosf(phase));
+    s_axis.hall_samples[0].sin_counts =
+        (uint16_t)(s_axis.hall_samples[0].sin_counts +
+                   (s_ticks / 20U % 2U ? s_hall_noise : -s_hall_noise));
     if (override >= 0)
     {
         s_axis.hall_samples[0].sin_counts = (uint16_t) override;
@@ -258,16 +263,17 @@ static void motion_sample(int32_t rotor, int32_t actual, int override)
 
 static void motion_cases(void)
 {
-    for (unsigned k = 0; k < 16; ++k)
+    for (unsigned k = 0; k < 20; ++k)
     {
         begin(2U, k == 4 ? 0 : 1);
         s_axis.output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
         s_axis.output_encoder.params.direction = k == 1 || k == 11 ? -1 : 1;
         s_axis.configuration.device.encoder.reverse = k == 1;
-        /* 正/反边界值在零频预备段测试，以免刻意跳码影响连续性判据。 */
+        /* 原码边界在零频预备段独立测试，不混入趋势位移。 */
         s_frame = frame(-2000, 0);
         window();
         assert(report().stage == 2);
+        s_hall_noise = k == 16 ? 8 : 0;
         start_motion(k == 5 ? 1 : 0);
         int32_t angle = -2000;
         int32_t rotor = angle;
@@ -296,20 +302,33 @@ static void motion_cases(void)
                 if (k != 12 || j < 12000U || j > 17550U)
                 {
                     int step = k == 15 && (j / 1000U) % 2U ? 60 : 24;
-                    angle += leg ? -step : step;
+                    if (k == 17 && j >= 13000U && j < 16500U)
+                    {
+                        step = -step;
+                    }
+                    angle += leg && k != 18 ? -step : step;
                 }
                 if (k != 2)
                 {
                     rotor = angle;
+                    if (k == 16)
+                    {
+                        rotor += j % 2U ? 40 : -40;
+                    }
                 }
                 if ((k == 3 && j == 12000U) || (k == 14 && j == 20U))
                 {
                     rotor += 10000;
                 }
                 motion_sample(rotor, angle, -1);
+                if (k == 19 && j == 12000U)
+                {
+                    s_frame ^= 1U;
+                    tick(true);
+                }
             }
             s_axis.motor.open_loop_frequency_hz = 0;
-            for (unsigned j = 0; j < 1200 && g_hardware_check_capture; ++j)
+            for (unsigned j = 0; j < 6000 && g_hardware_check_capture; ++j)
             {
                 if (k == 13 && j == 15)
                 {
@@ -318,7 +337,7 @@ static void motion_cases(void)
                 motion_sample(rotor, angle, -1);
             }
         }
-        if (k == 3 || k == 5 || k == 12 || k == 13)
+        if (k == 5 || k == 12 || k == 17 || k == 19)
         {
             ProtocolHardwareReport aborted = report();
             assert(aborted.stage == 5 && s_stops == (k == 5 ? 0U : 1U));
@@ -351,9 +370,10 @@ static void motion_cases(void)
             continue;
         }
         assert(r.stage == 4 && s_stops == 0U);
-        assert(r.items[8] == (k == 2 ? 0 : 1) && r.items[9] == (k == 4 ? 3 : (k == 11 ? 2 : 1)));
-        assert((r.directions & 15) == (k == 1 ? 6 : (k == 2 ? 15 : 9)));
-        assert((r.directions >> 4) == (k == 4 ? 0 : 9));
+        assert(r.items[8] == (k == 18 ? 2 : 1) &&
+               r.items[9] == (k == 4 ? 3 : (k == 11 || k == 18 ? 2 : 1)));
+        assert((r.directions & 15) == (k == 1 ? 6 : (k == 18 ? 5 : 9)));
+        assert((r.directions >> 4) == (k == 4 ? 0 : (k == 18 ? 5 : 9)));
     }
 }
 

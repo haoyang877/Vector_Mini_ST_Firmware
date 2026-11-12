@@ -163,7 +163,7 @@ class HardwareHostTest(unittest.TestCase):
 
     def check(self, fault="", drive=False, **kwargs):
         port = Port(fault)
-        config = hw.Drive(0.25, 2, 120, 5) if drive else None
+        config = hw.Drive(0.25, 2, 700, 5) if drive else None
         result = hw.run_check(
             port, 6, drive=config, previous=0, previous_target=0, counter_db=self.db, **kwargs
         )

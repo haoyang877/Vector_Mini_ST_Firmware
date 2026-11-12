@@ -323,11 +323,85 @@ static void motion_cases(void)
     }
 }
 
+/* 这两帧由实际主控编码器生成，按字节穿过生产 RX IRQ、前台及 TX 再交回主控。 */
+extern const uint8_t host_start[32], host_read[20];
+static ProtocolEndpoint s_endpoint;
+static BspCanFrame s_rx, s_tx;
+static bool s_rx_pending, s_tx_sent;
+
+bool BspCan_Receive(BspCanFrame *frame)
+{
+    if (!s_rx_pending)
+    {
+        return false;
+    }
+    s_rx_pending = false;
+    *frame = s_rx;
+    return true;
+}
+
+bool BspCan_TrySend(const BspCanFrame *frame)
+{
+    s_tx = *frame;
+    s_tx_sent = true;
+    return true;
+}
+
+static void service_frame(const uint8_t *wire, unsigned length, bool corrupt)
+{
+    s_rx = (BspCanFrame){.identifier = 0x0cef0602U,
+                         .length = (uint8_t)length,
+                         .extended = true,
+                         .fd = true,
+                         .bitrate_switch = true};
+    memcpy(s_rx.data, wire, length);
+    if (corrupt)
+    {
+        s_rx.data[16] ^= 1U;
+    }
+    s_rx_pending = true;
+    s_tx_sent = false;
+    Protocol_RxInterrupt(&s_endpoint);
+    Protocol_Process(&s_endpoint, BspSystem_TimeMs());
+}
+
+static void can_loopback(void)
+{
+    begin(1U, 1);
+    window();
+    assert(report().run_id == 1U && report().stage == 4U);
+    s_endpoint.hardware_check = s_check;
+    assert(Protocol_Init(&s_endpoint, 6U) && Protocol_Start(&s_endpoint));
+    service_frame(host_start, 32U, true);
+    assert(!s_tx_sent && report().run_id == 1U);
+    service_frame(host_start, 32U, false);
+    assert(s_tx_sent && report().run_id == 2U && report().stage == 1U && s_off);
+    for (unsigned i = 0; i < 2000U; ++i)
+    {
+        if (i == 500U)
+        {
+            service_frame(host_start, 32U, false);
+        }
+        s_adc[BSP_ADC_PHASE_CURRENT_A] = i % 2U ? 2058.0f : 2038.0f;
+        tick(true);
+    }
+    service_frame(host_read, 20U, false);
+    assert(s_tx_sent && s_tx.identifier == 0x0cef0206U && s_tx.length == 48U && s_off &&
+           s_stops == 0U);
+    printf("CAN_HW_REPORT ");
+    for (unsigned i = 0U; i < s_tx.length; ++i)
+    {
+        printf("%02x", s_tx.data[i]);
+    }
+    puts("");
+}
+
 int main(void)
 {
     s_check = HardwareCheck_Bind(&s_axis);
     assert(report().stage == 0 && report().run_id == 0);
     s_cycles = UINT32_MAX - 45000;
+    can_loopback();
     static_cases();
     for (unsigned age = 30; age <= 31; ++age)
     {

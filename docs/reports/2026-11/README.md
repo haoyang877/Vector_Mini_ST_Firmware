@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [J-Link重复烧录和版本展示](jlink_repeat_version_20261113.md)：同镜像重写、保留身份和板端版本，Release通过，未新增实机烧录。
+
 - [硬件检测方向诊断v1.10.2](hardware_direction_diagnostic_20261113.md)：显示去回方向和反向原因，Release通过，未新增实机运动。
 
 - [CAN FD故障解析/清除与节点6编码器诊断](canfd_fault_clear_encoder_20261113.md)：v1.10.1 Release通过，保留样本显示标定方向相反；未清错或主动转动。

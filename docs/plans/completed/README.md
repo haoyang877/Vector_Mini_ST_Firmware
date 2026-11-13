@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [J-Link流程与擦除提速](2026-11-13-jlink-workflow-speed.md)：v1.12.0初装入口简化、SWD提速、Release及打包；实际完整擦除计时未执行。
+
 - [ROLL及左右轮10圈标定候选](2026-11-13-ht-calibration-ten-turns.md)：离线实现、Release与打包完成，实机对照未执行。
 
 - [J-Link Flash擦除](2026-11-13-jlink-erase.md)：v1.11.0及Release通过，未执行实机擦除。

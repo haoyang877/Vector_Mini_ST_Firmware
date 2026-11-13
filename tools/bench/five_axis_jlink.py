@@ -645,6 +645,26 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                 stage,
                 versions=batch_versions(batch),
             )
+        if (
+            mode in ("jlink_identify", "jlink_flash")
+            and identity["node"] is not None
+            and settings.get("bus")
+        ):
+            # SWD识别不代表运行状态；单独读当前CAN身份，失败不改写SWD核验结果。
+            from can_motor_operations import read_device_status
+            from ports.controlcanfd import ControlCanFd
+
+            try:
+                dll = controlcan_dll_path(resource)
+                with (
+                    os.add_dll_directory(str(dll.parent)),
+                    ControlCanFd(dll, **settings["bus"]) as bus,
+                ):
+                    report["device_status"] = read_device_status(
+                        bus, identity["node"], identity["uid"]
+                    )
+            except (OSError, ValueError, TimeoutError, RuntimeError) as exc:
+                report["device_status_error"] = str(exc)
         report["success"] = True
     except Exception as exc:
         report["fatal"] = str(exc) or type(exc).__name__

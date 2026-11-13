@@ -24,11 +24,13 @@ from can_calibration_curves import (
 from can_motor_operations import (
     TraceBus,
     describe_faults,
+    read_device_status,
     run_angle_calibration,
     run_clear_fault,
     run_speed_control,
     speed_value,
 )
+from can_speed_plot import SpeedPlot
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
     PER_NODE,
@@ -44,7 +46,7 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.13.0"
+TITLE = "CAN FD 通信测试 v1.14.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -237,7 +239,22 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
     try:
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         dll = controlcan_dll_path(resource)
-        if settings["profile"] in ("motor_calibration", "motor_speed"):
+        if settings["profile"] == "device_status":
+            with (
+                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
+                os.add_dll_directory(str(dll.parent)),
+                ControlCanFd(dll, **settings["bus"]) as port,
+            ):
+                report = dict(
+                    profile="device_status",
+                    device=read_device_status(
+                        TraceBus(port, stream), settings["node"], settings["expected_uid"]
+                    ),
+                )
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        elif settings["profile"] in ("motor_calibration", "motor_speed"):
             parent = mp.parent_process()
 
             def operation_stopped():
@@ -404,8 +421,10 @@ class CanTestWindow:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title(TITLE)
-        self.root.minsize(820, 565)
-        self.root.geometry("1000x630")
+        width = min(1200, self.root.winfo_screenwidth() - 80)
+        height = min(900, self.root.winfo_screenheight() - 100)
+        self.root.minsize(min(1080, width), min(700, height))
+        self.root.geometry(f"{width}x{height}")
         self.process = None
         self.events = None
         self.commands = None
@@ -420,15 +439,32 @@ class CanTestWindow:
         self.current_motor = None
         self.known_motors = {}
         self.previous_node = 6
+        self.plot_identity = None
         self.first_fit_selected = False
         self.swd_busy = False
         self.scanning = False
         frame = ttk.Frame(root, padding=16)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="CAN FD 通信测试", font=("Microsoft YaHei UI", 17, "bold")).pack(
+        header = ttk.Frame(frame)
+        header.pack(fill="x")
+        connection = ttk.Frame(header)
+        connection.pack(side="left", fill="x", expand=True)
+        summary = ttk.LabelFrame(header, text="当前设备", padding=10)
+        summary.pack(side="right", fill="both", padx=(12, 0))
+        self.device_versions = tk.StringVar(value="APP：—    Loader：—")
+        self.device_state = tk.StringVar(value="状态：未读取")
+        self.device_checked = tk.StringVar(value="读取设备后显示实际版本与状态")
+        ttk.Label(summary, textvariable=self.device_versions).pack(anchor="w")
+        ttk.Label(summary, textvariable=self.device_state, wraplength=310).pack(anchor="w", pady=4)
+        ttk.Label(summary, textvariable=self.device_checked).pack(anchor="w")
+        self.status_refresh = ttk.Button(
+            summary, text="刷新状态", command=lambda: self.start(status_only=True)
+        )
+        self.status_refresh.pack(anchor="e", pady=(5, 0))
+        ttk.Label(connection, text="CAN FD 通信测试", font=("Microsoft YaHei UI", 17, "bold")).pack(
             anchor="w"
         )
-        top = ttk.Frame(frame)
+        top = ttk.Frame(connection)
         top.pack(fill="x", pady=(6, 12))
 
         def combo(parent, label, values, default, width):
@@ -447,7 +483,7 @@ class CanTestWindow:
             f"{role} · {model} · 节点 {node}": node
             for node, (role, model, _) in FIRST_FIT_AXES.items()
         }
-        motor_row = ttk.Frame(frame)
+        motor_row = ttk.Frame(connection)
         motor_row.pack(fill="x", pady=(0, 8))
         self.motor_axis = combo(
             motor_row,
@@ -468,7 +504,7 @@ class CanTestWindow:
         )
         self.clear_fault_button.pack(side="left", padx=8)
         self.current_motor_label = tk.StringVar(value="未识别；烧录后自动沿用轴类型和节点。")
-        ttk.Label(frame, textvariable=self.current_motor_label).pack(anchor="w", pady=(0, 6))
+        ttk.Label(connection, textvariable=self.current_motor_label).pack(anchor="w", pady=(0, 6))
         self.tabs = ttk.Notebook(frame)
         self.tabs.pack(fill="x")
         self.pages = {}
@@ -525,7 +561,7 @@ class CanTestWindow:
         ).pack(anchor="w")
         ttk.Label(
             check_tab,
-            text="APP v1.8.6：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
+            text="APP v1.8.7：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         calibration_tab = self.pages["calibration"]
@@ -594,13 +630,19 @@ class CanTestWindow:
             speed_tab,
             text="持续旋转直到点击停止；目标0为停转保持。断联或故障停机，电流限值和PI保持。",
         ).pack(anchor="w", pady=3)
+        self.speed_plot = SpeedPlot(speed_tab)
+        self.speed_plot.pack(fill="both", expand=True, pady=(6, 0))
+        ttk.Label(
+            speed_tab,
+            text="参考/反馈来自同一帧；速度模式无位置参考时显示缺失。原始点保存到speed.csv。",
+        ).pack(anchor="w")
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.6/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.7/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.5")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.7")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -891,6 +933,10 @@ class CanTestWindow:
             self.motor_fields["limit"].delete(0, "end")
             self.motor_fields["limit"].insert(0, str(AXIS_SPEED_LIMITS.get(node, 30)))
         self.current_motor = self.known_motors.get(node)
+        plot_identity = (node, self.current_motor.get("uid") if self.current_motor else None)
+        if plot_identity != self.plot_identity:
+            self.speed_plot.clear()
+            self.plot_identity = plot_identity
         if self.identity and self.identity["node"] not in (None, node):
             self.identity = None
         if (
@@ -917,12 +963,46 @@ class CanTestWindow:
         ):
             self.fill_query(node)
         self.previous_node = node
+        self.update_device_summary()
         self.update_controls()
+
+    def update_device_summary(self) -> None:
+        motor = self.current_motor or {}
+
+        def version(key):
+            value = motor.get(key)
+            return "—" if value is None else "未提供" if value == 0 else "v" + version_text(value)
+
+        self.device_versions.set(
+            f"APP：{version('app_version')}    Loader：{version('loader_version')}"
+        )
+        if motor.get("status_error"):
+            state = "读取失败；请刷新状态"
+        elif motor.get("role") == 2:
+            state = "Loader · 等待升级"
+        elif motor.get("state") is not None:
+            names = {3: "自检", 4: "标定", 5: "空闲", 6: "运行", 8: "故障"}
+            state = names.get(motor["state"], f"未知状态{motor['state']}")
+            state += f" · 模式{motor.get('mode', '—')} · {describe_faults(motor.get('faults', 0))}"
+        else:
+            state = "未读取"
+        self.device_state.set("状态：" + state)
+        stamp = motor.get("checked_at")
+        self.device_checked.set(
+            "最后读取 " + datetime.fromtimestamp(stamp).strftime("%H:%M:%S")
+            if stamp
+            else "点击刷新状态读取实际设备"
+        )
 
     def set_current_motor(self, node: int, uid: str, source: str, *, role=None, **metadata) -> None:
         if node not in FIRST_FIT_AXES:
             return
-        self.known_motors[node] = dict(metadata, node=node, uid=uid, source=source, role=role)
+        previous = self.known_motors.get(node, {})
+        if previous.get("uid") != uid:
+            previous = {}
+        self.known_motors[node] = dict(
+            previous, **metadata, node=node, uid=uid, source=source, role=role
+        )
         self.motor_axis.set(
             next(label for label, value in self.axis_choices.items() if value == node)
         )
@@ -984,6 +1064,9 @@ class CanTestWindow:
             state="normal"
             if not busy and self.current_motor and self.current_motor.get("role") == 1
             else "disabled"
+        )
+        self.status_refresh.configure(
+            state="normal" if not busy and self.current_motor else "disabled"
         )
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
         if current == "calibration":
@@ -1141,7 +1224,10 @@ class CanTestWindow:
         clear_fault=False,
         erase_scope=None,
         identify_only=False,
+        status_only=False,
     ) -> str:
+        if status_only:
+            return "device_status"
         if identify_only:
             return "jlink_identify"
         if erase_scope is not None:
@@ -1177,6 +1263,7 @@ class CanTestWindow:
         erase_scope=None,
         erase_confirmed=False,
         identify_only=False,
+        status_only=False,
     ) -> None:
         if self.process is not None:
             return
@@ -1186,6 +1273,7 @@ class CanTestWindow:
             clear_fault=clear_fault,
             erase_scope=erase_scope,
             identify_only=identify_only,
+            status_only=status_only,
         )
         swd = mode.startswith("jlink_")
         settings = {
@@ -1217,6 +1305,10 @@ class CanTestWindow:
                     else None,
                     "bus": settings["bus"],
                 }
+            elif mode == "device_status":
+                if not self.current_motor:
+                    raise ValueError("请先识别当前电机")
+                settings.update(node=self.current_node(), expected_uid=self.current_motor["uid"])
             elif mode == "clear_fault":
                 if not self.current_motor or self.current_motor.get("role") != 1:
                     raise ValueError("请先识别运行APP的当前电机")
@@ -1331,6 +1423,8 @@ class CanTestWindow:
                 self.upgrade_results[target["node"]].configure(text="排队中")
         self.process = job
         self.active_profile = mode
+        if mode == "motor_speed":
+            self.speed_plot.clear()
         self.report_dir = directory
         self.done = False
         self.bar["value"] = 0
@@ -1380,6 +1474,16 @@ class CanTestWindow:
                 self.motor_feedback.set(
                     f"电机轴：目标{msg['target_rad_s']:+.3f} rad/s，实际{msg['actual_rad_s']:+.3f} rad/s"
                 )
+                self.speed_plot.append(msg)
+                if self.current_motor:
+                    self.current_motor.update(
+                        state=msg["state"],
+                        mode=msg["mode"],
+                        faults=msg["faults"],
+                        checked_at=time.time(),
+                        status_error=None,
+                    )
+                    self.update_device_summary()
             elif tag == "upgrade_progress":
                 number, planned, percent = msg
                 self.bar["value"] = 100 * ((number - 1) + percent / 100) / planned
@@ -1429,6 +1533,25 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "device_status":
+            if "device" in r:
+                device = dict(r["device"])
+                node, uid, role = (device.pop(key) for key in ("node", "uid", "role"))
+                self.set_current_motor(
+                    node, uid, "CAN状态读取", role=role, status_error=None, **device
+                )
+                self.state.set("设备版本和状态已更新")
+            else:
+                if "UID" in r.get("fatal", ""):
+                    self.known_motors.pop(self.current_node(), None)
+                    self.identity = None
+                    self.select_current_motor()
+                elif self.current_motor:
+                    self.current_motor.update(status_error=r.get("fatal", "读取失败"))
+                self.update_device_summary()
+                self.state.set("设备状态读取失败")
+            self.show(r.get("fatal", self.device_versions.get() + "\n" + self.device_state.get()))
+            return
         if r["profile"] == "jlink_erase":
             self.identity = None
             self.first_fit_selected = False
@@ -1487,7 +1610,13 @@ class CanTestWindow:
                 self.identity = None
                 self.select_current_motor()
             if motor and motor["uid"] == r.get("uid") and "after" in r:
-                motor.update(state=r["after"]["state"], faults=r["after"]["faults"])
+                motor.update(
+                    state=r["after"]["state"],
+                    faults=r["after"]["faults"],
+                    mode=r["after"]["mode"],
+                    checked_at=time.time(),
+                    status_error=None,
+                )
                 self.select_current_motor()
                 if motor["node"] in self.upgrade_targets:
                     self.upgrade_targets[motor["node"]].update(motor)
@@ -1498,6 +1627,15 @@ class CanTestWindow:
             self.progress.set(f"{self.bar['value']:.0f}%")
             return
         if r["profile"] in ("motor_calibration", "motor_speed"):
+            if self.current_motor and self.current_motor["uid"] == r.get("uid"):
+                self.current_motor.update(
+                    {key: r[key] for key in ("app_version", "loader_version", "role") if key in r}
+                )
+                if r.get("final_status"):
+                    self.current_motor.update(
+                        r["final_status"], checked_at=time.time(), status_error=None
+                    )
+                self.update_device_summary()
             title = "角度标定" if r["profile"] == "motor_calibration" else "速度控制"
             status = (
                 "失败"
@@ -1613,7 +1751,9 @@ class CanTestWindow:
             }
             self.clear_upgrade_scan()
             self.upgrade_targets = {m["node"]: m for m in motors}
-            self.known_motors = {m["node"]: dict(m, source="CAN扫描") for m in motors}
+            self.known_motors = {
+                m["node"]: dict(m, source="CAN扫描", checked_at=time.time()) for m in motors
+            }
             if not r.get("cancelled") and not r.get("fatal"):
                 for n in self.upgrade_lights:
                     self.upgrade_lights[n].configure(text="● 未识别", foreground="#656565")
@@ -1751,11 +1891,23 @@ class CanTestWindow:
                             else "已跳过重启。"
                         )
                 if identity["node"] is not None:
+                    metadata = dict(r.get("device_status", {}))
+                    for key in ("node", "uid", "role"):
+                        metadata.pop(key, None)
+                    if versions:
+                        metadata.update(
+                            app_version=versions["app"], loader_version=versions["loader"]
+                        )
+                    if r.get("device_status_error"):
+                        metadata["status_error"] = r["device_status_error"]
                     self.set_current_motor(
                         identity["node"],
                         identity["uid"],
                         "J-Link识别" if r["profile"] == "jlink_identify" else "J-Link烧录",
-                        role=1 if r.get("app_started") else None,
+                        role=r.get("device_status", {}).get(
+                            "role", 1 if r.get("app_started") else None
+                        ),
+                        **metadata,
                     )
                 self.bar["value"] = 100
                 self.progress.set("100%")

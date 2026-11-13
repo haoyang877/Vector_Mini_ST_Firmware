@@ -24,6 +24,57 @@ STAGES = {
 }
 
 
+def read_device_status(bus, node: int, expected_uid: str) -> dict:
+    """读取实际版本和运行状态；身份不匹配时不沿用先前设备的数据。"""
+    link = Link(bus, node, timeout_s=0.5)
+    info = link.request(1, page=0)
+    identity = link.request(1, page=1)
+    if len(info) != 32 or info[:12].hex() != expected_uid:
+        raise ValueError("设备UID已改变，请重新识别")
+    if len(identity) != 32 or identity[21] != node or identity[22] not in (1, 2):
+        raise ValueError("设备身份页无效")
+    result = dict(
+        node=node,
+        uid=expected_uid,
+        app_version=int.from_bytes(info[20:24], "little"),
+        loader_version=int.from_bytes(info[24:28], "little"),
+        role=identity[22],
+        boot_state=identity[23],
+        checked_at=time.time(),
+    )
+    if identity[22] == 1:
+        status = link.status()
+        result.update(
+            state=status[43], mode=status[44], faults=int.from_bytes(status[4:8], "little")
+        )
+    return result
+
+
+def speed_feedback(status: bytes, target: float, elapsed_s: float) -> dict:
+    """按108有效位解码六路参考/反馈；无效哨兵不进入曲线和CSV数值列。"""
+    flags = int.from_bytes(status[24:26], "little")
+    row = dict(
+        elapsed_s=elapsed_s,
+        target_rad_s=target,
+        valid_bits=flags,
+        state=status[43],
+        mode=status[44],
+        faults=int.from_bytes(status[4:8], "little"),
+    )
+    for key, offset, bit, fmt in (
+        ("reference_position_rad", 8, 0, "i"),
+        ("position_rad", 12, 1, "i"),
+        ("reference_speed_rad_s", 16, 2, "i"),
+        ("actual_rad_s", 20, 3, "i"),
+        ("reference_iq_a", 30, 6, "h"),
+        ("iq_a", 32, 7, "h"),
+    ):
+        raw = struct.unpack_from("<" + fmt, status, offset)[0]
+        sentinel = -2147483648 if fmt == "i" else -32768
+        row[key] = raw / 1000 if flags & (1 << bit) and raw != sentinel else None
+    return row
+
+
 def describe_faults(bits: int) -> str:
     """按APP线路位解析类别；共享位不推断唯一内部故障，保留未知位。"""
     names = []
@@ -216,7 +267,13 @@ def _identify(link, report, feature):
         raise Rejected("所选节点未运行APP")
     if len(caps) != 16 or not int.from_bytes(caps[:4], "little") & (1 << feature):
         raise Rejected("固件未声明所选操作的能力")
-    report.update(uid=info[:12].hex(), app_version=int.from_bytes(info[20:24], "little"))
+    report.update(
+        uid=info[:12].hex(),
+        app_version=int.from_bytes(info[20:24], "little"),
+        loader_version=int.from_bytes(info[24:28], "little"),
+        role=1,
+        boot_state=identity[23],
+    )
     status = link.status()
     if status[4:8] != bytes(4) or status[43:] != bytes((5, 0)):
         report["initial_status"] = fault_snapshot(status)
@@ -235,6 +292,9 @@ def _stop(link, report):
             code = link.command(110)
             status = link.status()
             if code == 0 and status[43] in (5, 8) and status[44] == 0:
+                report["final_status"] = dict(
+                    state=status[43], mode=status[44], faults=int.from_bytes(status[4:8], "little")
+                )
                 report["stop_confirmed"] = True
                 report["stop_faults"] = int.from_bytes(status[4:8], "little")
                 if report["stop_faults"]:
@@ -441,9 +501,25 @@ def run_speed_control(
             progress(f"速度模式已使能 · 电机轴目标{target:g} rad/s")
 
         set_target(target)
+        collection_started = time.monotonic()
         with (out / "speed.csv").open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.writer(stream)
-            writer.writerow(("host_s", "target_rad_s", "actual_rad_s", "position_rad", "iq_a"))
+            columns = (
+                "host_s",
+                "elapsed_s",
+                "target_rad_s",
+                "reference_position_rad",
+                "position_rad",
+                "reference_speed_rad_s",
+                "actual_rad_s",
+                "reference_iq_a",
+                "iq_a",
+                "valid_bits",
+                "state",
+                "mode",
+                "faults",
+            )
+            writer = csv.DictWriter(stream, fieldnames=columns)
+            writer.writeheader()
             while not stopped():
                 link.command(118, struct.pack("<I", counters.lease()))
                 try:
@@ -461,13 +537,12 @@ def run_speed_control(
                     travel_deg
                 ):
                     raise Rejected("速度运动到达本次可用输出行程")
-                row = dict(
-                    target_rad_s=target,
-                    actual_rad_s=struct.unpack_from("<i", status, 20)[0] / 1000,
-                    position_rad=position,
-                    iq_a=struct.unpack_from("<h", status, 32)[0] / 1000 if flags & 128 else None,
-                )
-                writer.writerow((time.monotonic(), *row.values()))
+                now = time.monotonic()
+                row = speed_feedback(status, target, now - collection_started)
+                if row["actual_rad_s"] is None or row["position_rad"] is None:
+                    raise Rejected("速度反馈含无效位置或速度")
+                writer.writerow(dict(host_s=now, **row))
+                stream.flush()
                 report["samples"] += 1
                 report["last_feedback"] = row
                 feedback(row)

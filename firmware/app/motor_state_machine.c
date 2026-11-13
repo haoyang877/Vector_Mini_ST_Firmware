@@ -786,9 +786,9 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machi
         result = MOTOR_CONTROL_FAULT;
     }
     else if ((machine->maintenance_capture &&
-              calibration_type != MOTOR_CALIBRATION_PHASE_RESISTANCE) || machine->parameters_updating ||
-             machine->start_pending || machine->stop_pending || machine->starts_locked ||
-             !EncoderCalibration_IsIdle(machine->drive.calibration))
+              calibration_type != MOTOR_CALIBRATION_PHASE_RESISTANCE) ||
+             machine->parameters_updating || machine->start_pending || machine->stop_pending ||
+             machine->starts_locked || !EncoderCalibration_IsIdle(machine->drive.calibration))
     {
         result = MOTOR_CONTROL_BUSY;
     }

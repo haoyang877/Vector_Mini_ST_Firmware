@@ -444,8 +444,13 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual(row[3], "正常")
         self.assertIn("1.9050", row[1])
         self.assertIn("0.9525", row[2])
-        self.assertTrue(any(kind == 127 and payload[1:3] == bytes((1,3))
-                            for kind, _, payload in bus.sent if payload))
+        self.assertTrue(
+            any(
+                kind == 127 and payload[1:3] == bytes((1, 3))
+                for kind, _, payload in bus.sent
+                if payload
+            )
+        )
         report["resistance"].update(result=2, open_phases=2, open_lines=3)
         self.assertIn("B相回路缺相", hw.result_rows(report)[8][3])
         report["resistance"].update(result=3, open_phases=0, open_lines=0, low_phases=4)

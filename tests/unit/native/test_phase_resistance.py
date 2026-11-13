@@ -9,9 +9,14 @@ def main():
     run_c(
         args,
         "phase_resistance",
-        (ROOT / "tests/unit/native/phase_resistance_test.c").read_text(encoding="utf-8"),
+        (ROOT / "tests/unit/native/phase_resistance_test.c")
+        .read_text(encoding="utf-8")
+        .replace(
+            "/* PHASE_RESISTANCE_IMPLEMENTATION */",
+            (ROOT / "firmware/motor/calibration/phase_resistance.c").read_text(encoding="utf-8"),
+        ),
         2,
-        [ROOT / "firmware/motor/calibration/phase_resistance.c"],
+        [],
     )
 
 

@@ -60,12 +60,13 @@ void PhaseResistance_Init(PhaseResistance *state,
 #if defined(__clang__)
 __attribute__((minsize))
 #endif
-uint8_t PhaseResistance_Step(PhaseResistance *state,
-                             const float current_a[3],
-                             float bus_v,
-                             float turns,
-                             float period_s,
-                             float duty[3])
+uint8_t
+PhaseResistance_Step(PhaseResistance *state,
+                     const float current_a[3],
+                     float bus_v,
+                     float turns,
+                     float period_s,
+                     float duty[3])
 {
     unsigned line = state->excitation / 2U;
     uint8_t first = s_first[line], second = s_second[line];

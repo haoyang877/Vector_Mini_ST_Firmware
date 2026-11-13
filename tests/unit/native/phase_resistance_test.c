@@ -1,5 +1,5 @@
 /* 真实RL回路仿真；断相与固定器件压降独立于测量算法。 */
-#include "phase_resistance.h"
+/* PHASE_RESISTANCE_IMPLEMENTATION */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -47,6 +47,12 @@ static PhaseResistance simulate(float a, float b, float c, unsigned open, float 
 
 int main(void)
 {
+    /* 精确二进制边界验证50%与150%均包含，不能只验证中间值。 */
+    PhaseResistance edges = {.report = {.nominal_ohm = 2.0f, .line_ohm = {3.0f, 5.0f, 4.0f}}};
+    finish(&edges);
+    assert(edges.report.result == 1U && edges.report.phase_ohm[0] == 1.0f &&
+           edges.report.phase_ohm[2] == 3.0f);
+
     PhaseResistance normal = simulate(1.905f, 1.905f, 1.905f, 0U, 0.2f);
     printf("normal result=%u failure=%u A=%f B=%f C=%f\n",
            normal.report.result,

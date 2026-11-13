@@ -32,6 +32,8 @@ LR_IROM1 0x08000000 0x0001C000 {
     encoder_feedback.o (i.Encoder_GetCalibrationFlag)
     encoder_feedback.o (i.Encoder_GetMechPos)
     motor_current.o (i.MotorCurrentOffsets_Init)
+    ; 关相启动校零不占用正常控制热区，算法与采样量保持不变。
+    motor_current.o (i.MotorCurrentOffsets_Calibrate)
     motor_thermal.o (+RO)
     motor_thermal_config.o (+RO)
     mcu_temperature_sensing.o (+RO)

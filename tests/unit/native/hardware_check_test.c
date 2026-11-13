@@ -62,7 +62,7 @@ void MotorStateMachine_RequestStop(MotorStateMachine *machine)
 
 /* 模拟状态机受理；算法精度由独立RL测试覆盖。 */
 MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machine,
-                                                         MotorCalibrationType type)
+                                                        MotorCalibrationType type)
 {
     assert(type == MOTOR_CALIBRATION_PHASE_RESISTANCE);
     machine->state = MOTOR_STATE_CALIBRATION;
@@ -397,7 +397,7 @@ static void motion_cases(void)
 }
 
 /* 这两帧由实际主控编码器生成，按字节穿过生产 RX IRQ、前台及 TX 再交回主控。 */
-extern const uint8_t host_start[32], host_read[20], host_measure[32];
+extern const uint8_t host_start[32], host_read[20], host_measure[32], host_resistance[32];
 static ProtocolEndpoint s_endpoint;
 static BspCanFrame s_rx, s_tx;
 static bool s_rx_pending, s_tx_sent;
@@ -438,6 +438,21 @@ static void service_frame(const uint8_t *wire, unsigned length, bool corrupt)
     Protocol_Process(&s_endpoint, BspSystem_TimeMs());
 }
 
+/* 固定业务快照供新协议黄金向量验证，检测数据所有权另由resistance_cases覆盖。 */
+static ProtocolCode
+resistance_vector(void *context, uint32_t expected, ProtocolHardwareResistance *value)
+{
+    (void)context;
+    assert(expected == 2U);
+    *value = (ProtocolHardwareResistance){
+        .run_id = 2U,
+        .result = 3U,
+        .low_phases = 4U,
+        .valid = 63U,
+        .values = {1.905f, 1.905f, 1.905f, 0.2f, 3.81f, 2.105f, 2.105f}};
+    return PROTOCOL_RESULT_OK;
+}
+
 static void can_loopback(void)
 {
     begin(1U, 1);
@@ -475,6 +490,16 @@ static void can_loopback(void)
         printf("%02x", s_tx.data[i]);
     }
     puts("");
+    s_endpoint.hardware_check.resistance = resistance_vector;
+    service_frame(host_resistance, 32U, false);
+    assert(s_tx_sent && s_tx.length == 64U);
+    printf("CAN_RESISTANCE ");
+    for (unsigned i = 0U; i < s_tx.length; ++i)
+    {
+        printf("%02x", s_tx.data[i]);
+    }
+    puts("");
+    s_endpoint.hardware_check.resistance = s_check.resistance;
 }
 
 /* 合成有偏置/噪声的完整静态窗口，验证公开数值与判定采用同一批样本。 */
@@ -503,6 +528,12 @@ static void measurement_cases(void)
     assert(s_check.measure(&s_axis, 8, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
     assert(s_check.measure(&s_axis, 4, s_run - 1U, &m) == PROTOCOL_RESULT_DENIED);
     assert(s_check.measure(&s_axis, 11, s_run, &m) == PROTOCOL_RESULT_BAD_FIELD);
+    /* 后续标定/参数可以覆盖共享维护区，但旧数值必须保持同轮一致。 */
+    memset(&s_axis.calibration.storage, 0xA5, sizeof(s_axis.calibration.storage));
+    assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.samples == 2000 && m.values[0] == 2050 && m.values[1] == 4);
+    assert(s_check.measure(&s_axis, 4, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.values[0] == 27.5f && m.values[1] == 28.5f);
     begin(1U, 1);
     for (unsigned i = 0; i < 100U; ++i)
     {
@@ -531,10 +562,14 @@ static void resistance_cases(void)
         ProtocolHardwareResistance values;
         assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_DENIED);
         s_axis.calibration.resistance_epoch = s_axis.state_machine.epoch;
-        s_axis.calibration.workspace.resistance.report = (PhaseResistanceReport){
-            .result = (uint8_t)result, .nominal_ohm = 1.905f, .valid = 63U,
-            .phase_ohm = {1.905f,1.905f,1.905f}, .line_ohm = {3.81f,3.81f,3.81f},
-            .open_phases = result == 2U ? 2U : 0U, .low_phases = result == 3U ? 4U : 0U};
+        s_axis.calibration.workspace.resistance.report =
+            (PhaseResistanceReport){.result = (uint8_t)result,
+                                    .nominal_ohm = 1.905f,
+                                    .valid = 63U,
+                                    .phase_ohm = {1.905f, 1.905f, 1.905f},
+                                    .line_ohm = {3.81f, 3.81f, 3.81f},
+                                    .open_phases = result == 2U ? 2U : 0U,
+                                    .low_phases = result == 3U ? 4U : 0U};
         s_axis.state_machine.calibration_result = MOTOR_CALIBRATION_RESULT_COMPLETED;
         s_axis.state_machine.state = MOTOR_STATE_IDLE;
         ++s_axis.state_machine.epoch;
@@ -548,7 +583,7 @@ static void resistance_cases(void)
         }
         assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_OK);
         assert(values.result == result && values.values[1] == 1.905f);
-        assert(s_check.resistance(&s_axis, s_run-1U, &values) == PROTOCOL_RESULT_DENIED);
+        assert(s_check.resistance(&s_axis, s_run - 1U, &values) == PROTOCOL_RESULT_DENIED);
     }
     begin(3U, 1);
     window();

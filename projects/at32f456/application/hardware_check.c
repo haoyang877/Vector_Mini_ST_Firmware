@@ -138,8 +138,8 @@ static ProtocolCode handle_request(void *context,
         *report = s_report;
         return PROTOCOL_RESULT_OK;
     }
-    if (s_report.run_id != 0U && expected_run == s_previous_run &&
-        sequence == s_start_sequence && mode == s_mode)
+    if (s_report.run_id != 0U && expected_run == s_previous_run && sequence == s_start_sequence &&
+        mode == s_mode)
     {
         *report = s_report;
         return PROTOCOL_RESULT_ACCEPTED;
@@ -210,7 +210,8 @@ static void observe_start(void *context, uint8_t mode, uint16_t sequence)
 }
 
 /* 仅在采集停止后读取；所有数值来自当前轮，读取不改变检测判据和统计。 */
-static void read_noise(const HardwareCheckNoiseWindow *noise, uint32_t samples, float *mean, float *rms)
+static void
+read_noise(const HardwareCheckNoiseWindow *noise, uint32_t samples, float *mean, float *rms)
 {
     int64_t n = samples;
     int64_t sum = noise->sum;
@@ -220,9 +221,9 @@ static void read_noise(const HardwareCheckNoiseWindow *noise, uint32_t samples, 
 }
 
 static ProtocolCode build_measurement(void *context,
-                                     uint8_t item,
-                                     uint32_t expected_run,
-                                     ProtocolHardwareMeasurement *measurement)
+                                      uint8_t item,
+                                      uint32_t expected_run,
+                                      ProtocolHardwareMeasurement *measurement)
 {
     (void)context;
     if (item > 10U)
@@ -237,8 +238,8 @@ static ProtocolCode build_measurement(void *context,
     {
         return PROTOCOL_RESULT_BUSY;
     }
-    *measurement = (ProtocolHardwareMeasurement){.run_id = s_report.run_id,
-                                                 .values = {NAN, NAN, NAN, NAN}};
+    *measurement =
+        (ProtocolHardwareMeasurement){.run_id = s_report.run_id, .values = {NAN, NAN, NAN, NAN}};
     if (item <= IBUS || item == HALL_STATIC)
     {
         measurement->samples = s_state->static_samples;
@@ -332,7 +333,9 @@ static void freeze_measurements(void)
     }
 }
 
-static ProtocolCode read_measurement(void *context, uint8_t item, uint32_t expected_run,
+static ProtocolCode read_measurement(void *context,
+                                     uint8_t item,
+                                     uint32_t expected_run,
                                      ProtocolHardwareMeasurement *measurement)
 {
     (void)context;
@@ -340,9 +343,13 @@ static ProtocolCode read_measurement(void *context, uint8_t item, uint32_t expec
     {
         return PROTOCOL_RESULT_BAD_FIELD;
     }
-    if (g_hardware_check_capture || expected_run == 0U || expected_run != s_report.run_id)
+    if (expected_run == 0U || expected_run != s_report.run_id)
     {
         return PROTOCOL_RESULT_DENIED;
+    }
+    if (g_hardware_check_capture)
+    {
+        return PROTOCOL_RESULT_BUSY;
     }
     measurement->run_id = expected_run;
     measurement->samples = s_measurements.samples[item];
@@ -407,7 +414,8 @@ static void accumulate(HardwareCheckNoiseWindow *window, int32_t centered_q4)
     window->squares += centered_q4 * centered_q4;
 }
 
-static bool noise_passes(HardwareCheckNoiseWindow *window, int32_t rms_limit_counts, bool check_bias)
+static bool
+noise_passes(HardwareCheckNoiseWindow *window, int32_t rms_limit_counts, bool check_bias)
 {
     int64_t n = STATIC_SAMPLES;
     int64_t sum = window->sum;
@@ -467,8 +475,11 @@ static void track_angle(HardwareCheckAngleTrack *track, float turns, uint32_t cy
 
 /* 原码先跨零展开，再用完整 50ms 均值更新趋势；返回 -1 无效、0 待窗、1 新趋势点。
  * 原始单拍增量不再用作动态失败条件，raw 中仍保留原始轨迹供诊断。 */
-static int track_trend(
-    HardwareCheckAngleWindow *window, HardwareCheckAngleTrack *trend, float turns, uint32_t cycles, float static_margin)
+static int track_trend(HardwareCheckAngleWindow *window,
+                       HardwareCheckAngleTrack *trend,
+                       float turns,
+                       uint32_t cycles,
+                       float static_margin)
 {
     if (!isfinite(turns))
     {
@@ -811,9 +822,9 @@ static void drive_sample(MotorAxis *axis, const HardwareCheckSample *sample)
         if (!s_state->rotation_ready)
         {
             s_state->rotation_ready = rotation_settled(rotor,
-                                                      sample->cycles,
-                                                      sample->frequency_hz,
-                                                      axis->configuration.model.motor_pole_pairs);
+                                                       sample->cycles,
+                                                       sample->frequency_hz,
+                                                       axis->configuration.model.motor_pole_pairs);
             if (!s_state->rotation_ready)
             {
                 return;
@@ -843,7 +854,8 @@ static void drive_sample(MotorAxis *axis, const HardwareCheckSample *sample)
     {
         if (s_state->first_sign != 0 && s_state->leg == 0U)
         {
-            if (s_state->settle[0].max_turns - s_state->settle[0].min_turns > s_state->jitter_turns[0])
+            if (s_state->settle[0].max_turns - s_state->settle[0].min_turns >
+                s_state->jitter_turns[0])
             {
                 memset(s_state->settle, 0, sizeof(s_state->settle));
                 s_state->settled_samples = 0U;
@@ -894,7 +906,7 @@ static void drive_sample(MotorAxis *axis, const HardwareCheckSample *sample)
 static void consume_sample(MotorAxis *axis, const HardwareCheckSample *sample)
 {
     if (s_state->have_cycles && (sample->cycles - s_state->last_cycles > PERIOD_CYCLES * 3U / 2U ||
-                                sample->cycles == s_state->last_cycles))
+                                 sample->cycles == s_state->last_cycles))
     {
         end_check(axis, ABORTED);
         return;
@@ -1012,7 +1024,8 @@ void HardwareCheck_Process(MotorAxis *axis)
     BspSystem_MemoryBarrier();
     while (s_read != end && g_hardware_check_capture)
     {
-        HardwareCheckSample sample = axis->calibration.storage.hardware_check.queue[s_read % QUEUE_SIZE];
+        HardwareCheckSample sample =
+            axis->calibration.storage.hardware_check.queue[s_read % QUEUE_SIZE];
         BspSystem_MemoryBarrier();
         ++s_read;
         consume_sample(axis, &sample);

@@ -98,6 +98,10 @@ LR_APP 0x{app:08X} 0x{app_bytes:X}
         source = source.replace(
             ".ANY (+RW +ZI)", ".ANY (+RW)\n  }\n  ZI_IRAM1 +0 0x0000EFE0 {\n    .ANY (+ZI)"
         )
+        # 拆分RW与ZI后，48KiB上限必须检查最后的ZI，不能只检查RW头部。
+        source = source.replace(
+            "ScatterAssert(ImageLimit(RW_IRAM1)", "ScatterAssert(ImageLimit(ZI_IRAM1)"
+        )
         source = source.rstrip().rsplit("}", 1)[0] + (
             f"  ScatterAssert(ImageLimit(ZI_IRAM1) <= 0x{end:08X})\n"
             "  ER_IMAGE_TAIL AlignExpr(AlignExpr(AlignExpr(ImageLimit(ER_APP), 8) + "

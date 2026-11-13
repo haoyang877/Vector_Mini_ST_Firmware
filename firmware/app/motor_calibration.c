@@ -4,7 +4,7 @@
 #include <math.h>
 
 /* 低频使用的测量分支留在Flash，避免挤占正常控制快环SRAM。 */
-static __attribute__((noinline)) MotorTaskResult step_resistance(MotorCalibration *calibration)
+__attribute__((noinline)) static MotorTaskResult step_resistance(MotorCalibration *calibration)
 {
     PhaseResistance *test = &calibration->workspace.resistance;
     FocState *foc = calibration->drive.foc;
@@ -17,8 +17,7 @@ static __attribute__((noinline)) MotorTaskResult step_resistance(MotorCalibratio
                              calibration->drive.configuration->model.motor_d_inductance_h,
                              turns);
     }
-    float currents[3] = {
-        foc->phase_current_a.a, foc->phase_current_a.b, foc->phase_current_a.c};
+    float currents[3] = {foc->phase_current_a.a, foc->phase_current_a.b, foc->phase_current_a.c};
     float duty[3];
     uint8_t mask =
         PhaseResistance_Step(test, currents, foc->bus_voltage_v, turns, 1.0f / FOC_FREQ, duty);

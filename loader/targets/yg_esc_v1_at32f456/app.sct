@@ -33,6 +33,8 @@ LR_APP 0x08004000 0x18000 {
     encoder_feedback.o (i.Encoder_GetCalibrationFlag)
     encoder_feedback.o (i.Encoder_GetMechPos)
     motor_current.o (i.MotorCurrentOffsets_Init)
+    ; 关相启动校零不占用正常控制热区，算法与采样量保持不变。
+    motor_current.o (i.MotorCurrentOffsets_Calibrate)
     motor_thermal.o (+RO)
     motor_thermal_config.o (+RO)
     mcu_temperature_sensing.o (+RO)
@@ -90,7 +92,7 @@ LR_APP 0x08004000 0x18000 {
   ZI_IRAM1 +0 0x0000EFE0 {
     .ANY (+ZI)
   }
-  ScatterAssert(ImageLimit(RW_IRAM1) <= 0x2000BFE0)
+  ScatterAssert(ImageLimit(ZI_IRAM1) <= 0x2000BFE0)
   ScatterAssert(ImageLimit(ZI_IRAM1) <= 0x20016FE0)
   ER_IMAGE_TAIL AlignExpr(AlignExpr(AlignExpr(ImageLimit(ER_APP), 8) + ImageLength(ER_FAST), 8) + ImageLength(RW_IRAM1), 8) FIXED 0x8 { * (.app_image_tail) }
 }

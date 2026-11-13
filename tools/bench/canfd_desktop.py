@@ -3,6 +3,7 @@
 import csv
 import ctypes as C
 import json
+import math
 import multiprocessing as mp
 import os
 import queue
@@ -27,11 +28,56 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.7.2"
+TITLE = "CAN FD 通信测试 v1.7.3"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
 FD_LENGTHS = (*range(9), 12, 16, 20, 24, 32, 48, 64)
+
+
+def hardware_check_fields(fields: dict[str, str], driven: bool) -> dict:
+    """在打开适配器前解析检测输入；静态模式忽略拖动字段，空白必填项给出中文提示。"""
+    values = {}
+    for key, label, kind, required in (
+        ("current", "模式10相电流（A）", float, True),
+        ("frequency", "电频（Hz）", float, True),
+        ("leg", "单程时间（ms）", int, True),
+        ("travel", "两侧可用行程（输出轴角度，°）", float, True),
+        ("ambient", "实测室温（°C）", float, False),
+        ("lease", "上次续租计数", int, False),
+        ("target", "上次目标序号", int, False),
+    ):
+        if required and not driven:
+            continue
+        text = fields[key].strip()
+        if not text:
+            if required:
+                raise ValueError(f"双向测试前请填写{label}")
+            values[key] = None
+            continue
+        try:
+            values[key] = kind(text)
+        except ValueError:
+            unit = "整数" if kind is int else "数值"
+            raise ValueError(f"{label}须填写有效{unit}") from None
+        if kind is float and not math.isfinite(values[key]):
+            raise ValueError(f"{label}须为有限数值")
+    drive = None
+    if driven:
+        drive = tuple(values[key] for key in ("current", "frequency", "leg", "travel"))
+        Drive(*drive)
+    if values["ambient"] is not None and not 0 <= values["ambient"] <= 60:
+        raise ValueError("实测室温须在0～60 °C内")
+    if values["lease"] is not None and not 0 <= values["lease"] <= 0xFFFFFFFF:
+        raise ValueError("上次续租计数须在0～4294967295内")
+    if values["target"] is not None and not 0 <= values["target"] <= 65535:
+        raise ValueError("上次目标序号须在0～65535内")
+    return dict(
+        drive=drive,
+        ambient=values["ambient"],
+        last_lease=values["lease"],
+        last_target=values["target"],
+    )
 
 
 def upgrade_motor_status(motor):
@@ -276,7 +322,7 @@ class CanTestWindow:
             ),
             (
                 ("leg", "单程 ms"),
-                ("travel", "两侧可用行程 °"),
+                ("travel", "两侧可用行程 °（双向必填）"),
                 ("lease", "上次续租计数"),
                 ("target", "上次目标序号"),
             ),
@@ -642,21 +688,9 @@ class CanTestWindow:
                 }
             elif mode == "hardware_check":
                 fields = {key: entry.get().strip() for key, entry in self.check_fields.items()}
-                drive = None
-                if self.check_mode.get() == "静态和双向驱动":
-                    drive = (
-                        float(fields["current"]),
-                        float(fields["frequency"]),
-                        int(fields["leg"]),
-                        float(fields["travel"]),
-                    )
-                    Drive(*drive)
                 settings.update(
                     node=int(self.check_node.get()),
-                    drive=drive,
-                    ambient=float(fields["ambient"]) if fields["ambient"] else None,
-                    last_lease=int(fields["lease"]) if fields["lease"] else None,
-                    last_target=int(fields["target"]) if fields["target"] else None,
+                    **hardware_check_fields(fields, self.check_mode.get() == "静态和双向驱动"),
                 )
             elif mode == "can_scan":
                 self.upgrade_info.set("正在扫描当前通道…")

@@ -14,6 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from can_calibration_curves import (
+    ARCHIVE_TYPES,
+    calibration_archive_name,
+    export_calibration_curves,
+    model_directory_name,
+)
 from can_motor_operations import TraceBus, run_angle_calibration, run_speed_control, speed_value
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
@@ -29,7 +35,7 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.8.3"
+TITLE = "CAN FD 通信测试 v1.9.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -236,6 +242,19 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                         stopped=operation_stopped,
                         progress=lambda value: events.put(("stage", value)),
                     )
+                    report["archive"] = {
+                        "type": settings.get("archive_type"),
+                        "serial_number": settings.get("archive_serial"),
+                        "name": settings.get("archive_name"),
+                    }
+                    if report.get("passed") and report.get("stop_confirmed"):
+                        events.put(("stage", "标定已保存，正在只读回读补偿表并绘图"))
+                        try:
+                            report["curves"] = export_calibration_curves(
+                                bus, report, out, settings.get("archive_name", "")
+                            )
+                        except Exception as exc:
+                            report["curve_error"] = str(exc)
                 else:
                     report = run_speed_control(
                         bus,
@@ -356,6 +375,7 @@ class CanTestWindow:
         self.stop_signal = None
         self.report_dir = None
         self.close_pending = False
+        self.curve_path = None
         self.done = False
         self.controls = []
         self.identity = None
@@ -440,6 +460,14 @@ class CanTestWindow:
         self.calibration_node = combo(
             calibration_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "6", 3
         )
+        self.archive_type = combo(
+            calibration_row, "电机类型", tuple(ARCHIVE_TYPES.values()), "P轴电机", 12
+        )
+        ttk.Label(calibration_row, text="序列号").pack(side="left")
+        self.archive_serial = tk.StringVar(value="0001")
+        model_entry = ttk.Entry(calibration_row, textvariable=self.archive_serial, width=14)
+        model_entry.pack(side="left", padx=5)
+        self.controls.append((model_entry, "normal"))
         calibration_actions = ttk.Frame(calibration_tab)
         calibration_actions.pack(anchor="w", pady=8)
         for kind, label in ((1, "编码器 / Hall 角度标定并保存"), (2, "电角零位标定并保存")):
@@ -450,6 +478,10 @@ class CanTestWindow:
             )
             button.pack(side="left", padx=(0, 12))
             self.controls.append((button, "normal"))
+        self.curve_button = ttk.Button(
+            calibration_actions, text="查看本次曲线", command=self.show_calibration_curves
+        )
+        self.curve_button.pack(side="left")
         ttk.Label(
             calibration_tab,
             text="编码器/Hall角度沿用固件算法；减速轴自动联合电角零位。电机会旋转，完成后自动保存。",
@@ -457,6 +489,10 @@ class CanTestWindow:
         ttk.Label(
             calibration_tab,
             text="按实际票据和Flash修订确认结果；标定请求超时500 ms。点击停止可取消并确认关相。",
+        ).pack(anchor="w", pady=5)
+        ttk.Label(
+            calibration_tab,
+            text="成功后自动绘制1024点补偿曲线并保存PNG/CSV；补偿表需已连接的J-Link只读回读。",
         ).pack(anchor="w", pady=5)
         speed_tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(speed_tab, text="速度控制")
@@ -671,6 +707,11 @@ class CanTestWindow:
         )
         self.output.pack(fill="both", expand=True, pady=(8, 0))
         self.mode.trace_add("write", lambda *_: self.update_controls())
+        self.calibration_node.trace_add(
+            "write",
+            lambda *_: self.archive_type.set(ARCHIVE_TYPES[int(self.calibration_node.get())]),
+        )
+        self.archive_type.trace_add("write", self.select_archive_type)
         for var in (self.channel, self.nominal, self.data):
             var.trace_add("write", lambda *_: self.clear_upgrade_scan())
         self.tabs.bind("<<NotebookTabChanged>>", lambda _: self.update_controls())
@@ -753,6 +794,7 @@ class CanTestWindow:
                 state="normal" if (speed_active and key == "speed") or not busy else "disabled"
             )
         self.speed_update.configure(state="normal" if speed_active else "disabled")
+        self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
         if current == 5:
             self.start_button.pack_forget()
         elif not self.start_button.winfo_manager():
@@ -823,6 +865,44 @@ class CanTestWindow:
         except (ValueError, queue.Full) as exc:
             messagebox.showerror("速度目标未提交", str(exc) or "目标队列已满", parent=self.root)
 
+    def show_calibration_curves(self) -> None:
+        if self.curve_path is None:
+            return
+        path = self.curve_path
+        try:
+            picture = tk.PhotoImage(master=self.root, file=str(path))
+        except (OSError, tk.TclError) as exc:
+            messagebox.showerror("曲线无法显示", str(exc), parent=self.root)
+            return
+        window = tk.Toplevel(self.root)
+        window.title(f"标定补偿曲线 · {path.parent.name}")
+        window.curve_image = picture
+        width = min(picture.width(), self.root.winfo_screenwidth() - 100)
+        height = min(picture.height(), self.root.winfo_screenheight() - 180)
+        controls = ttk.Frame(window, padding=6)
+        controls.grid(row=0, column=0, sticky="ew")
+        ttk.Button(controls, text="打开PNG", command=lambda: os.startfile(path)).pack(side="left")
+        csv_path = path.with_suffix(".csv")
+        ttk.Button(controls, text="打开CSV", command=lambda: os.startfile(csv_path)).pack(
+            side="left"
+        )
+        canvas = tk.Canvas(window, width=width, height=height, background="white")
+        canvas.grid(row=1, column=0, sticky="nsew")
+        vertical = ttk.Scrollbar(window, orient="vertical", command=canvas.yview)
+        horizontal = ttk.Scrollbar(window, orient="horizontal", command=canvas.xview)
+        vertical.grid(row=1, column=1, sticky="ns")
+        horizontal.grid(row=2, column=0, sticky="ew")
+        canvas.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        canvas.create_image(0, 0, anchor="nw", image=picture)
+        canvas.configure(scrollregion=(0, 0, picture.width(), picture.height()))
+        window.rowconfigure(1, weight=1)
+        window.columnconfigure(0, weight=1)
+
+    def select_archive_type(self, *_args) -> None:
+        node = next(n for n, label in ARCHIVE_TYPES.items() if label == self.archive_type.get())
+        if self.calibration_node.get() != str(node):
+            self.calibration_node.set(str(node))
+
     def start(self, *, scan=False, bitrate_action=None, calibration_kind=1) -> None:
         if self.process is not None:
             return
@@ -865,7 +945,13 @@ class CanTestWindow:
                     ).get()
                 )
                 if mode == "motor_calibration":
+                    self.curve_path = None
                     settings["calibration_kind"] = calibration_kind
+                    settings["archive_type"] = self.archive_type.get()
+                    settings["archive_serial"] = self.archive_serial.get().strip()
+                    settings["archive_name"] = calibration_archive_name(
+                        settings["archive_type"], settings["archive_serial"]
+                    )
                 if mode == "motor_speed":
                     fields = {key: entry.get().strip() for key, entry in self.motor_fields.items()}
                     settings.update(motor_speed_fields(fields))
@@ -921,7 +1007,12 @@ class CanTestWindow:
                 if not 1 <= count <= 1000000 or not 1 <= rate <= 10000:
                     raise ValueError("每节点笔数需为 1 至 1,000,000，总笔/秒需为 1 至 10,000")
                 settings.update(nodes=nodes, count=count, rate=rate)
-            directory = Path.home() / "CAN-Link-Test" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            directory = Path.home() / "CAN-Link-Test"
+            if mode == "motor_calibration":
+                directory = (
+                    directory / "calibration" / model_directory_name(settings["archive_name"])
+                )
+            directory = directory / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             directory.mkdir(parents=True, exist_ok=False)
             context = mp.get_context("spawn")
             self.events = context.Queue()
@@ -1059,6 +1150,19 @@ class CanTestWindow:
                 lines.append(f"票据{r['ticket']}　阶段{r['phase']}　保存状态{r['effects']}")
             if "saved_revision" in r:
                 lines.append(f"Flash保存修订 {r['saved_revision']['saved_revision']}")
+            if r.get("curves"):
+                curves = r["curves"]
+                lines.append("补偿曲线已生成：angle-calibration.png / angle-calibration.csv")
+                lines.append("原始标定BIN、电机配置JSON及文件校验清单已保存。")
+                lines.append(f"补偿峰峰值（°）：{curves['peak_to_peak_deg']}")
+                if not curves["table_updated"]:
+                    lines.append("本次只更新电角零位；曲线为当前已保存LUT，并非本次重新扫表。")
+                self.curve_path = self.report_dir / curves["png"]
+                if not self.close_pending:
+                    self.show_calibration_curves()
+            if r.get("curve_error"):
+                self.curve_path = None
+                lines.append("标定已保存，但曲线未生成：" + r["curve_error"])
             if "samples" in r:
                 lines.append(
                     f"反馈{r['samples']}次，目标更新{r['updates']}次；速度曲线见speed.csv"
@@ -1077,6 +1181,8 @@ class CanTestWindow:
                 f" · {r['reply_timeout_ms']}ms应答异常" if r.get("communication_timeouts") else ""
             )
             self.state.set(title + status + reliability)
+            if r.get("curve_error"):
+                self.state.set(self.state.get() + " · 曲线未生成")
             self.show("\n".join(lines))
             self.bar["value"] = 100 if r.get("passed") else 0
             self.progress.set(f"{self.bar['value']:.0f}%")

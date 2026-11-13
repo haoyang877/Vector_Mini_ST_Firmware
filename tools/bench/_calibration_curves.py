@@ -11,20 +11,45 @@ def export_curves(record, axis, has_hall, uid, run):
     from matplotlib.ticker import MaxNLocator
 
     scale = 360.0 / 65536
-    curves = {"motor": [v * scale for v in struct.unpack_from("<1024h", record, 44)]}
+    raw = {"motor": struct.unpack_from("<1024h", record, 44)}
     if has_hall:
-        curves["hall"] = [-v * scale for v in struct.unpack_from("<1024h", record, 2320)]
+        raw["hall"] = struct.unpack_from("<1024h", record, 2320)
+    curves = {
+        key: [v * scale * (-1 if key == "hall" else 1) for v in values]
+        for key, values in raw.items()
+    }
 
     angles = [i * 360.0 / 1024 for i in range(1024)]
     csv_path = run / "angle-calibration.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["raw_angle_deg", *(f"{key}_raw_minus_corrected_deg" for key in curves)])
-        writer.writerows(zip(angles, *curves.values(), strict=True))
+        writer.writerow(
+            [
+                "table_index",
+                "raw_angle_deg",
+                *(
+                    field
+                    for key in curves
+                    for field in (f"{key}_lut_q15", f"{key}_raw_minus_corrected_deg")
+                ),
+            ]
+        )
+        for index, angle in enumerate(angles):
+            writer.writerow(
+                [
+                    index,
+                    angle,
+                    *(value for key in curves for value in (raw[key][index], curves[key][index])),
+                ]
+            )
 
     figure = Figure(figsize=(9, 2.2 + 2.6 * len(curves)), layout="constrained")
     canvas = FigureCanvasAgg(figure)
-    figure.suptitle(f"{axis.model}   /   0x{axis.node:02X}   /   {uid.hex().upper()}", fontsize=15)
+    figure.suptitle(
+        f"{axis.model}   /   0x{axis.node:02X}   /   {uid.hex().upper()}",
+        fontsize=15,
+        fontfamily=["Microsoft YaHei", "DejaVu Sans"],
+    )
     spans = {}
     for i, (key, values) in enumerate(curves.items(), 1):
         spans[key] = max(values) - min(values)

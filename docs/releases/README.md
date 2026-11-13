@@ -1,5 +1,7 @@
 # 历史交付与候选记录
 
+- [CAN-Link-Test v1.10.2](can-link-test-v1.10.2-20261113.md)：硬件检测明确显示命令/编码器反向原因。
+
 - [CAN-Link-Test v1.10.1](can-link-test-v1.10.1-20261113.md)：故障类型、清除按钮及状态确认，节点6只读诊断。
 
 - [CAN-Link-Test v1.10.0](can-link-test-v1.10.0-20261113.md)：共用电机选择、六页重排，APP1.8.4未改。

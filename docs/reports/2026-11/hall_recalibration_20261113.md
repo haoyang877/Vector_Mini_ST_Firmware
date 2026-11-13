@@ -82,5 +82,9 @@ Ki=3226.220703 不变。整片比较确认只有16 KiB参数分区变化，其�
 没有源码、协议、存储 ABI 或发布包变更，原 v1.8.1 debug 包保持原哈希。
 `outputs/runs/hall-recalibration-docs-20261113/summary.json` 的 quick 档通过，
 文档链接检查与 `git diff --check` 通过。硬件结果以本报告和本轮原始记录为准。
+随后在干净提交 `0b7585c8` 上运行
+`outputs/runs/hall-recalibration-release-20261113/summary.json`，release 档通过，
+全部离线检查及六个 Keil 目标零错误、零警告；AT32F456 APP 仍为94360 B、
+CRC32 `b814fdd0`。该构建未接触硬件，没有替换本轮实测镜像或原 debug 交付包。
 当前保留第二次标定结果及标定前回退备份。最后确认关相、CPU运行、Flash无额外
 改写。剩余限制见[HWCHECK-001](../../plans/tech-debt-tracker.md)。

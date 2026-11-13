@@ -40,10 +40,11 @@ class Rejected(RuntimeError):
 class Link:
     """单节点串行往返。忽略 CRC、地址、命令、序号不匹配的数据。"""
 
-    def __init__(self, bus, node):
+    def __init__(self, bus, node, *, timeout_s=0.050):
         if not 1 <= node <= 254 or node == 2:
             raise ValueError("请选择与主站 2 不同的单播节点")
         self.bus, self.node = bus, node
+        self.timeout_s = timeout_s
         self.sequence = secrets.randbelow(65535)
         self.timeouts = {}
         self.status_busy_replies = 0
@@ -55,7 +56,7 @@ class Link:
         if page is not None:
             payload = struct.pack("<IIHH", 0, sequence, page, 0)
         self.bus.send(*encode_frames(self.node, kind, payload, sequence)[0])
-        deadline = time.monotonic() + 0.050
+        deadline = time.monotonic() + self.timeout_s
         while (remaining := deadline - time.monotonic()) > 0:
             frame = self.bus.receive(remaining)
             if frame is None:

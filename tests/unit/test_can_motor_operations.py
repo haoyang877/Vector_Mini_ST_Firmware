@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_motor_operations as ops
 import canfd_desktop as desktop
+import hardware_check as hardware
 from canfd_desktop import motor_speed_fields
 
 
@@ -141,9 +142,28 @@ class MotorOperationsTests(unittest.TestCase):
 
     def test_calibration_requires_completed_saved_ticket_and_revision(self):
         report = ops.run_angle_calibration(None, 6)
+        ops.Link.assert_called_once_with(None, 6, timeout_s=0.5)
+        self.assertEqual(report["reply_timeout_ms"], 500)
         self.assertTrue(report["passed"] and report["stop_confirmed"])
         self.assertEqual((report["phase"], report["effects"]), (2, 2))
         self.assertTrue(any(kind == 123 for kind, *_ in self.endpoint.requests))
+
+    def test_calibration_timeout_does_not_change_default_link_deadline(self):
+        class SilentPort:
+            def send(self, *_):
+                pass
+
+            def receive(self, timeout):
+                self.timeout = timeout
+                return None
+
+        for timeout in (0.05, 0.5):
+            port = SilentPort()
+            link = hardware.Link(port, 6, **({"timeout_s": timeout} if timeout == 0.5 else {}))
+            with self.assertRaises(TimeoutError):
+                link.request(161, struct.pack("<I", 7))
+            self.assertAlmostEqual(port.timeout, timeout, delta=0.01)
+            self.assertEqual(link.timeouts, {161: 1})
 
     def test_unknown_start_is_not_replayed_and_stops(self):
         self.endpoint.fault = "cal_ack"

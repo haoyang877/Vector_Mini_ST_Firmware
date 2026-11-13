@@ -142,7 +142,7 @@ def _job(link, ticket, expected_kind, report):
         except TimeoutError:
             if attempt == 2:
                 raise
-            # Flash保存可能暂停前台；只重查同一票据，保留每次50 ms超时。
+            # Flash保存可能暂停前台；只重查同一票据，保留每次超时。
             report["job_status_retries"] = report.get("job_status_retries", 0) + 1
             time.sleep(0.1)
     if len(data) != JOB.size:
@@ -162,8 +162,10 @@ def run_angle_calibration(
     progress: Callable[[str], None] = lambda _: None,
 ) -> dict:
     """执行既有角度或电零位任务，完成和保存回读匹配才成功；未知启动或取消收敛到STOP。"""
-    link = Link(bus, node)
-    report = dict(profile="motor_calibration", node=node, passed=False, cancelled=False)
+    link = Link(bus, node, timeout_s=0.5)
+    report = dict(
+        profile="motor_calibration", node=node, passed=False, cancelled=False, reply_timeout_ms=500
+    )
     started = False
     try:
         if kind not in (1, 2):
@@ -252,7 +254,9 @@ def run_speed_control(
 ) -> dict:
     """保持模式2直到停止；目标队列、续租与反馈同线程串行，异常不恢复运动。"""
     link = Link(bus, node)
-    report = dict(profile="motor_speed", node=node, passed=False, samples=0, updates=0)
+    report = dict(
+        profile="motor_speed", node=node, passed=False, samples=0, updates=0, reply_timeout_ms=50
+    )
     started = False
     try:
         target = speed_value(str(target))

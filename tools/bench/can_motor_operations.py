@@ -5,9 +5,12 @@ import math
 import queue
 import struct
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, TextIO
 
 from hardware_check import COUNTER_DB, Link, Rejected, reserve_counters
+from ports.controlcanfd import ControlCanFd
 
 JOB = struct.Struct("<HHIHBB")
 STAGES = {
@@ -35,16 +38,16 @@ def speed_value(text: str) -> float:
 class TraceBus:
     """原始帧流式写盘，长期速度会话不在内存累积报文。"""
 
-    def __init__(self, bus, stream):
+    def __init__(self, bus: ControlCanFd, stream: TextIO) -> None:
         self.bus = bus
         self.writer = csv.writer(stream)
         self.writer.writerow(("host_s", "direction", "can_id", "wire_hex"))
 
-    def send(self, identifier, data):
+    def send(self, identifier: int, data: bytes) -> None:
         self.writer.writerow((time.monotonic(), "tx", hex(identifier), data.hex()))
         self.bus.send(identifier, data)
 
-    def receive(self, timeout):
+    def receive(self, timeout: float) -> tuple[int, bytes] | None:
         frame = self.bus.receive(timeout)
         if frame:
             self.writer.writerow((time.monotonic(), "rx", hex(frame[0]), frame[1].hex()))
@@ -54,12 +57,12 @@ class TraceBus:
 class MotionCounters:
     """分别补充UID预留的续租/目标号，续租补块不消耗目标号的半圈窗口。"""
 
-    def __init__(self, path, uid, previous, target):
+    def __init__(self, path: Path, uid: str, previous: int | None, target: int | None) -> None:
         self.path, self.uid = path, uid
         self.lease_value, self.target_value = reserve_counters(path, uid, previous, target)
         self.leases_left, self.targets_left = 512, 16
 
-    def lease(self):
+    def lease(self) -> int:
         while True:
             if not self.leases_left:
                 self.lease_value, _ = reserve_counters(
@@ -71,7 +74,7 @@ class MotionCounters:
             if self.lease_value:
                 return self.lease_value
 
-    def target(self):
+    def target(self) -> int:
         if not self.targets_left:
             _, self.target_value = reserve_counters(
                 self.path, self.uid, None, None, lease_count=0, target_count=16
@@ -141,7 +144,14 @@ def _job(link, ticket, expected_kind):
     return dict(ticket=current, kind=kind, phase=phase, effects=effects, detail=detail)
 
 
-def run_angle_calibration(bus, node, *, kind=1, stopped=lambda: False, progress=lambda _: None):
+def run_angle_calibration(
+    bus: ControlCanFd | TraceBus,
+    node: int,
+    *,
+    kind: int = 1,
+    stopped: Callable[[], bool] = lambda: False,
+    progress: Callable[[str], None] = lambda _: None,
+) -> dict:
     """执行既有角度或电零位任务，完成和保存回读匹配才成功；未知启动或取消收敛到STOP。"""
     link = Link(bus, node)
     report = dict(profile="motor_calibration", node=node, passed=False, cancelled=False)
@@ -216,20 +226,20 @@ def run_angle_calibration(bus, node, *, kind=1, stopped=lambda: False, progress=
 
 
 def run_speed_control(
-    bus,
-    node,
-    target,
-    travel_deg,
-    commands,
+    bus: ControlCanFd | TraceBus,
+    node: int,
+    target: float,
+    travel_deg: float,
+    commands: Any,
     out: Path,
     *,
-    previous=0,
-    previous_target=0,
-    counter_db=COUNTER_DB,
-    stopped=lambda: False,
-    progress=lambda _: None,
-    feedback=lambda _: None,
-):
+    previous: int | None = 0,
+    previous_target: int | None = 0,
+    counter_db: Path = COUNTER_DB,
+    stopped: Callable[[], bool] = lambda: False,
+    progress: Callable[[str], None] = lambda _: None,
+    feedback: Callable[[dict], None] = lambda _: None,
+) -> dict:
     """保持模式2直到停止；目标队列、续租与反馈同线程串行，异常不恢复运动。"""
     link = Link(bus, node)
     report = dict(profile="motor_speed", node=node, passed=False, samples=0, updates=0)

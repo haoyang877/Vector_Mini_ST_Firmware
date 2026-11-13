@@ -354,7 +354,9 @@ static yg_protocol_result_t handle_hardware_check(ProtocolEndpoint *endpoint,
     }
     ProtocolResponse *reply = &exchange->reply;
     ProtocolHardwareReport report;
+    ProtocolHardwareMeasurement measurement;
     const uint8_t *data = request->payload;
+    bool read_measurement = request->payload_length == 8U && data[1] == 2U;
     ProtocolCode code;
     if (request->source_node != PROTOCOL_MASTER_ID)
     {
@@ -363,6 +365,24 @@ static yg_protocol_result_t handle_hardware_check(ProtocolEndpoint *endpoint,
     else if (request->payload_length != 0U && request->payload_length != 8U)
     {
         code = PROTOCOL_RESULT_BAD_LENGTH;
+    }
+    else if (read_measurement)
+    {
+        if (data[0] != PROTOCOL_HARDWARE_CHECK_VERSION || data[2] > 10U || data[3] != 0U)
+        {
+            code = PROTOCOL_RESULT_BAD_FIELD;
+        }
+        else if (endpoint->hardware_check.measure == NULL)
+        {
+            code = PROTOCOL_RESULT_UNSUPPORTED;
+        }
+        else
+        {
+            code = endpoint->hardware_check.measure(endpoint->hardware_check.context,
+                                                    data[2],
+                                                    YgProtocol_ReadU32Le(data + 4U),
+                                                    &measurement);
+        }
     }
     else if (request->payload_length == 8U &&
              (data[0] != PROTOCOL_HARDWARE_CHECK_VERSION || data[1] != 1U ||
@@ -380,7 +400,23 @@ static yg_protocol_result_t handle_hardware_check(ProtocolEndpoint *endpoint,
                                                &report);
     }
     Protocol_WriteResult(reply, code, 0U);
-    if (code == PROTOCOL_RESULT_OK || code == PROTOCOL_RESULT_ACCEPTED)
+    if (code == PROTOCOL_RESULT_OK && read_measurement)
+    {
+        reply->data[4] = PROTOCOL_HARDWARE_CHECK_VERSION;
+        reply->data[5] = data[2];
+        reply->data[6] = measurement.valid;
+        reply->data[7] = 0U;
+        YgProtocol_WriteU32Le(reply->data + 8U, measurement.run_id);
+        YgProtocol_WriteU32Le(reply->data + 12U, measurement.samples);
+        for (unsigned i = 0U; i < 4U; ++i)
+        {
+            uint32_t bits;
+            memcpy(&bits, &measurement.values[i], sizeof(bits));
+            YgProtocol_WriteU32Le(reply->data + 16U + i * 4U, bits);
+        }
+        reply->length = 32U;
+    }
+    else if (code == PROTOCOL_RESULT_OK || code == PROTOCOL_RESULT_ACCEPTED)
     {
         reply->data[4] = PROTOCOL_HARDWARE_CHECK_VERSION;
         reply->data[5] = report.stage;

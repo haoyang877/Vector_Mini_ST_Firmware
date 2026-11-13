@@ -1,5 +1,7 @@
 # 历史交付与候选记录
 
+- [APP1.8.8 / 工具1.15.0](hardware-values-app-v1.8.8-20261113.md)：硬件测试实测数值及ROLL运行PI统一。
+
 - [CAN-Link-Test v1.14.0](can-link-test-v1.14.0-20261113.md)：设备版本/状态摘要和六路参考/反馈实时曲线，只改上位机。
 
 - [APP1.8.7 ROLL标定候选](at32f456-roll-calibration-v1.8.7-20261113.md)：ROLL标定PI与左右轮一致，保留5 A电流。

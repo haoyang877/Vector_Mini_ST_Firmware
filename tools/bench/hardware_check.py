@@ -118,6 +118,29 @@ class Link:
             directions=data[20],
         )
 
+    def measurement(self, item: int, run_id: int) -> dict:
+        """读取已停止采集的同轮实测页，缺失值保留为None。"""
+        data = self.request(127, struct.pack("<4BI", 2, 2, item, 0, run_id))
+        if len(data) == 4:
+            code, detail = struct.unpack("<HH", data)
+            raise Rejected(f"数值页{item}拒绝，result={code} detail={detail}")
+        if (
+            len(data) != 32
+            or data[:4] != bytes(4)
+            or data[4:6] != bytes((2, item))
+            or data[6] & ~15
+            or data[7] != 0
+            or int.from_bytes(data[8:12], "little") != run_id
+        ):
+            raise ValueError(f"数值页{item}格式或测试轮次不符")
+        values = struct.unpack_from("<4f", data, 16)
+        if any(data[6] & (1 << i) and not math.isfinite(v) for i, v in enumerate(values)):
+            raise ValueError(f"数值页{item}包含非有限有效值")
+        return {
+            "samples": int.from_bytes(data[12:16], "little"),
+            "values": [v if data[6] & (1 << i) else None for i, v in enumerate(values)],
+        }
+
 
 @dataclass
 class Drive:
@@ -482,6 +505,7 @@ def run_check(
             raise ValueError("能力页长度错误")
         features, modes = struct.unpack_from("<IH", caps)
         report["supported"] = bool(features & (1 << 19))
+        report["measurements_supported"] = bool(features & (1 << 20))
         if not report["supported"]:
             raise Rejected("该 APP 未提供硬件功能检测")
         if ambient is not None and (not math.isfinite(ambient) or not 0 <= ambient <= 60):
@@ -545,6 +569,17 @@ def run_check(
                 refresh()
             except (Rejected, ValueError, TimeoutError, OSError):
                 pass
+    report["measurements"] = {}
+    if not report.get("measurements_supported"):
+        report["measurement_note"] = "当前固件未提供测试数值，判定结果保留"
+    elif report["stage"] not in (4, 5) or (drive and not report.get("stop_confirmed")):
+        report["measurement_note"] = "本轮尚未结束或关相未确认，未读取数值"
+    else:
+        try:
+            for item in range(11):
+                report["measurements"][str(item)] = link.measurement(item, active_run)
+        except (Rejected, ValueError, TimeoutError, OSError) as exc:
+            report["measurement_note"] = f"测试数值读取不完整：{exc}"
     report["communication_timeouts"] = link.timeouts.copy()
     report["communication_reliability_passed"] = not link.timeouts
     report["status_busy_replies"] = link.status_busy_replies
@@ -552,16 +587,76 @@ def run_check(
     return report
 
 
+def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
+    """投影本轮测量和原判据供GUI与CLI共用，不重新判定通过状态。"""
+    limits = (
+        "RMS <10 cnt；偏置偏差 <300 cnt",
+        "RMS <10 cnt；偏置偏差 <300 cnt",
+        "RMS <10 cnt；偏置偏差 <300 cnt",
+        "RMS <50 cnt；偏置偏差 <300 cnt",
+        "全程 27～29 V（含边界）",
+        "0～60 °C；有效且不超过30 ms",
+        "峰峰角 <0.01°；帧有效",
+        "sin/cos RMS 均 <10 cnt",
+        "去回符合命令方向；同向趋势 ≥2/3",
+        "去回方向相反；同向趋势 ≥2/3；原码95～4000",
+    )
+    rows = []
+    measurements = report.get("measurements", {})
+    for item, name in enumerate(ITEMS):
+        page = measurements.get(str(item), {})
+        values = page.get("values", [None] * 4)
+        state = report["items"][name]
+
+        def value(index: int, digits: int = 2, suffix: str = "", measured_values=values) -> str:
+            v = measured_values[index]
+            return "—" if v is None else f"{v:.{digits}f}{suffix}"
+
+        measured = "未采集" if report.get("measurements_supported") else "固件未提供数值"
+        if state == "未装":
+            measured = "未装"
+        elif any(v is not None for v in values):
+            if item <= 3:
+                measured = f"均值 {value(0)}；RMS {value(1)} cnt"
+            elif item == 4:
+                measured = f"最低 {value(0)}；最高 {value(1)} V；越界 {value(2, 0)}/{page.get('samples', 0)}"
+                if values[3]:
+                    measured += f"；无效 {value(3, 0)}"
+            elif item == 5:
+                measured = f"最近 {value(0)}；范围 {value(1)}～{value(2)} °C"
+            elif item == 6:
+                measured = f"峰峰角 {value(0, 5)}°"
+            elif item == 7:
+                measured = (
+                    f"sin 均值{value(0)} / RMS{value(1)}；cos 均值{value(2)} / RMS{value(3)} cnt"
+                )
+            else:
+                ratios = ["—" if v is None else f"{v * 100:.1f}%" for v in values[2:]]
+                measured = f"去程 {value(0, 3)}° ({ratios[0]})；回程 {value(1, 3)}° ({ratios[1]})"
+        if item == 9 and state != "未装":
+            raw = measurements.get("10", {}).get("values", [None] * 4)
+            if all(v is not None for v in raw):
+                measured += (
+                    f"；原码 sin {raw[0]:.0f}～{raw[1]:.0f} / cos {raw[2]:.0f}～{raw[3]:.0f}"
+                )
+        if page.get("samples", 0) > 0 and state == "未测":
+            measured += "（部分采样，未完成判定）"
+        rows.append((name, measured, limits[item], state))
+    return rows
+
+
 def summarize(report):
     lines = [f"节点 {report['node']}　通信{report['communication']}　{STAGES[report['stage']]}"]
-    for name, state in report["items"].items():
-        lines.append(f"{name}　{state}")
+    for name, measured, limit, state in result_rows(report):
+        lines.append(f"{name}　{state}　{measured}　判据：{limit}")
         if name == "电机角动态" and report.get("motor_direction"):
             direction = report["motor_direction"]
             lines.append(f"  {direction['reason']}")
             lines.append(f"  {direction['detail']}")
     if "motor_temperature_c" in report:
-        lines.append("电机 NTC 实测 %.2f °C" % report["motor_temperature_c"])
+        lines.append("结束后NTC读取 %.2f °C（独立于测试窗口）" % report["motor_temperature_c"])
+    if report.get("measurement_note"):
+        lines.append(report["measurement_note"])
     if "stop_confirmed" in report:
         lines.append("关相已确认" if report["stop_confirmed"] else "关相待现场确认")
     if report.get("communication_reliability_passed") is False:

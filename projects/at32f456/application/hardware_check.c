@@ -79,13 +79,16 @@ typedef struct
 typedef struct
 {
     ProtocolHardwareReport report;
-    uint32_t previous_run, base_epoch, driven_epoch, stage_ms, last_cycles, samples, revision;
+    uint32_t previous_run, base_epoch, driven_epoch, stage_ms, last_cycles, revision;
+    uint32_t static_samples, drive_samples, voltage_samples, temperature_samples;
+    uint32_t voltage_outside_samples, voltage_invalid_samples;
     uint16_t start_sequence;
     uint8_t mode, ntc_window;
     bool hall_installed, hall_calibrated, seen_frame, have_cycles;
     int32_t last_rotor, rotor_travel, rotor_min, rotor_max;
     NoiseWindow noise[6];
-    float min_v, max_v, temperature_c, jitter_turns[2];
+    float min_v, max_v, temperature_c, minimum_temperature_c, maximum_temperature_c;
+    float jitter_turns[2];
     uint16_t hall_min[2], hall_max[2];
     LinearHall hall;
     AngleTrack hall_rest, legs[2][2], settle[2];
@@ -195,6 +198,8 @@ static ProtocolCode handle_request(void *context,
     s_check.ntc_window = PASS;
     s_check.min_v = INFINITY;
     s_check.max_v = -INFINITY;
+    s_check.minimum_temperature_c = INFINITY;
+    s_check.maximum_temperature_c = -INFINITY;
     s_check.hall_min[0] = s_check.hall_min[1] = UINT16_MAX;
     s_check.hall_installed = MotorAxisPreset_HasLinearHall(axis->configuration.preset);
     if (s_check.hall_installed)
@@ -230,10 +235,123 @@ static void observe_start(void *context, uint8_t mode, uint16_t sequence)
     }
 }
 
+/* 仅在采集停止后读取；所有数值来自当前轮，读取不改变检测判据和统计。 */
+static void read_noise(const NoiseWindow *noise, uint32_t samples, float *mean, float *rms)
+{
+    int64_t n = samples;
+    int64_t sum = noise->sum;
+    int64_t variance = n * noise->squares - sum * sum;
+    *mean = 2048.0f + (float)sum / (4.0f * (float)n);
+    *rms = sqrtf((float)variance) / (4.0f * (float)n);
+}
+
+static ProtocolCode read_measurement(void *context,
+                                     uint8_t item,
+                                     uint32_t expected_run,
+                                     ProtocolHardwareMeasurement *measurement)
+{
+    (void)context;
+    if (item > 10U)
+    {
+        return PROTOCOL_RESULT_BAD_FIELD;
+    }
+    if (expected_run == 0U || expected_run != s_check.report.run_id)
+    {
+        return PROTOCOL_RESULT_DENIED;
+    }
+    if (g_hardware_check_capture)
+    {
+        return PROTOCOL_RESULT_BUSY;
+    }
+    *measurement = (ProtocolHardwareMeasurement){.run_id = s_check.report.run_id,
+                                                 .values = {NAN, NAN, NAN, NAN}};
+    if (item <= IBUS || item == HALL_STATIC)
+    {
+        measurement->samples = s_check.static_samples;
+        if (s_check.static_samples != 0U && (item <= IBUS || s_check.hall_installed))
+        {
+            unsigned channel = item <= IBUS ? item : 4U;
+            read_noise(&s_check.noise[channel],
+                       s_check.static_samples,
+                       &measurement->values[0],
+                       &measurement->values[1]);
+            if (item == HALL_STATIC)
+            {
+                read_noise(&s_check.noise[5],
+                           s_check.static_samples,
+                           &measurement->values[2],
+                           &measurement->values[3]);
+            }
+        }
+    }
+    else if (item == VBUS && s_check.voltage_samples != 0U)
+    {
+        measurement->samples = s_check.voltage_samples;
+        measurement->values[0] = s_check.min_v;
+        measurement->values[1] = s_check.max_v;
+        measurement->values[2] = (float)s_check.voltage_outside_samples;
+        measurement->values[3] = (float)s_check.voltage_invalid_samples;
+    }
+    else if (item == NTC && s_check.temperature_samples != 0U)
+    {
+        measurement->samples = s_check.temperature_samples;
+        measurement->values[0] = s_check.temperature_c;
+        measurement->values[1] = s_check.minimum_temperature_c;
+        measurement->values[2] = s_check.maximum_temperature_c;
+    }
+    else if (item == ROTOR_STATIC && s_check.static_samples != 0U && s_check.seen_frame)
+    {
+        measurement->samples = s_check.static_samples;
+        measurement->values[0] =
+            (float)(s_check.rotor_max - s_check.rotor_min) * 360.0f / ROTOR_COUNTS;
+    }
+    else if (item == ROTOR_DRIVE || (item == HALL_DRIVE && s_check.hall_calibrated))
+    {
+        for (unsigned leg = 0U; leg < 2U; ++leg)
+        {
+            const AngleTrack *track = &s_check.legs[leg][item - ROTOR_DRIVE];
+            measurement->samples += track->samples;
+            if (track->samples != 0U)
+            {
+                measurement->values[leg] = track->travel_turns * 360.0f;
+            }
+            uint32_t windows = track->forward_windows + track->backward_windows;
+            if (windows != 0U)
+            {
+                uint32_t agreed =
+                    track->travel_turns > 0.0f ? track->forward_windows : track->backward_windows;
+                measurement->values[leg + 2U] = (float)agreed / (float)windows;
+            }
+        }
+    }
+    else if (item == 10U && s_check.hall_installed && s_check.hall_min[0] != UINT16_MAX)
+    {
+        measurement->samples = s_check.drive_samples;
+        measurement->values[0] = (float)s_check.hall_min[0];
+        measurement->values[1] = (float)s_check.hall_max[0];
+        measurement->values[2] = (float)s_check.hall_min[1];
+        measurement->values[3] = (float)s_check.hall_max[1];
+    }
+    for (unsigned i = 0U; i < 4U; ++i)
+    {
+        if (isfinite(measurement->values[i]))
+        {
+            measurement->valid |= (uint8_t)(1U << i);
+        }
+        else
+        {
+            measurement->values[i] = 0.0f;
+        }
+    }
+    return PROTOCOL_RESULT_OK;
+}
+
 ProtocolHardwareCheck HardwareCheck_Bind(MotorAxis *axis)
 {
-    return (ProtocolHardwareCheck){
-        .context = axis, .handle = handle_request, .started = observe_start};
+    return (ProtocolHardwareCheck){.context = axis,
+                                   .handle = handle_request,
+                                   .started = observe_start,
+                                   .measure = read_measurement};
 }
 
 /* MT6835 连续读：从 ANGLE[20] 到 STATUS[0] 的三个字节，CRC-8 0x07，初值 0。 */
@@ -364,7 +482,7 @@ static void static_sample(const HardwareSample *sample)
     {
         s_check.seen_frame = true;
     }
-    if (s_check.samples != 0U)
+    if (s_check.static_samples != 0U)
     {
         int32_t delta = angle - s_check.last_rotor;
         if (delta > ROTOR_COUNTS / 2)
@@ -392,12 +510,12 @@ static void static_sample(const HardwareSample *sample)
         {
             accumulate(&s_check.noise[4U + i], 4 * ((int32_t)sample->hall[i] - 2048));
         }
-        if (s_check.hall_calibrated && s_check.samples % (FOC_FREQ / 1000U) == 0U)
+        if (s_check.hall_calibrated && s_check.static_samples % (FOC_FREQ / 1000U) == 0U)
         {
             track_angle(&s_check.hall_rest, hall_turns(sample), sample->cycles);
         }
     }
-    ++s_check.samples;
+    ++s_check.static_samples;
 }
 
 static uint8_t temperature_result(const MotorAxis *axis)
@@ -407,6 +525,12 @@ static uint8_t temperature_result(const MotorAxis *axis)
     uint32_t now = BspSystem_TimeMs();
     BspSystem_ExitControlCritical(saved);
     s_check.temperature_c = temperature.celsius;
+    if (isfinite(temperature.celsius))
+    {
+        s_check.minimum_temperature_c = fminf(s_check.minimum_temperature_c, temperature.celsius);
+        s_check.maximum_temperature_c = fmaxf(s_check.maximum_temperature_c, temperature.celsius);
+        ++s_check.temperature_samples;
+    }
     if (!temperature.valid || !isfinite(temperature.celsius) || now - temperature.sample_ms > 30U)
     {
         return FAIL;
@@ -577,7 +701,7 @@ static void drive_sample(MotorAxis *axis, const HardwareSample *sample)
         return;
     }
     int sign = (sample->frequency_hz > 0.0f) - (sample->frequency_hz < 0.0f);
-    bool hall_tick = s_check.samples++ % (FOC_FREQ / 1000U) == 0U;
+    bool hall_tick = s_check.drive_samples++ % (FOC_FREQ / 1000U) == 0U;
     float rotor = (float)(sample->frame >> 11U) / ROTOR_COUNTS;
     if (axis->configuration.device.encoder.reverse != 0U)
     {
@@ -727,11 +851,17 @@ static void consume_sample(MotorAxis *axis, const HardwareSample *sample)
     }
     s_check.last_cycles = sample->cycles;
     s_check.have_cycles = true;
+    ++s_check.voltage_samples;
     s_check.min_v = fminf(s_check.min_v, sample->voltage_v);
     s_check.max_v = fmaxf(s_check.max_v, sample->voltage_v);
     bool supply_ok = sample->voltage_v >= 27.0f && sample->voltage_v <= 29.0f;
     if (!supply_ok)
     {
+        ++s_check.voltage_outside_samples;
+        if (!isfinite(sample->voltage_v))
+        {
+            ++s_check.voltage_invalid_samples;
+        }
         s_check.report.items[VBUS] = FAIL;
     }
     if (s_check.report.stage == STATIC)
@@ -742,7 +872,7 @@ static void consume_sample(MotorAxis *axis, const HardwareSample *sample)
             return;
         }
         static_sample(sample);
-        if (s_check.samples == STATIC_SAMPLES)
+        if (s_check.static_samples == STATIC_SAMPLES)
         {
             finish_static(axis);
         }

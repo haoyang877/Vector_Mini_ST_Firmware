@@ -27,6 +27,11 @@ static inline At32CanTiming At32Can_BitTiming(uint8_t profile)
     uint32_t tail_divisor = nominal_kbps == 500U && data_kbps >= 3000U ? 5U : 4U;
     uint32_t rounding = (tail_divisor - 1U) / 2U;
     uint8_t nominal_seg2 = (uint8_t)((nominal_tq + rounding) / tail_divisor);
+    /* 1M/5M 仲裁段按适配器的 80% 采样点切换 BRS；数据段仍为 75%。 */
+    if (nominal_kbps == 1000U && data_kbps == 5000U)
+    {
+        nominal_seg2 = (uint8_t)(nominal_tq / 5U);
+    }
     uint8_t data_seg2 = (uint8_t)((data_tq + rounding) / tail_divisor);
     uint8_t data_seg1 = (uint8_t)(data_tq - data_seg2);
     return (At32CanTiming){(uint16_t)(nominal_tq - nominal_seg2),

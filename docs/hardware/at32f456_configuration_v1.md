@@ -36,7 +36,7 @@
 输入 SDK 的 `wk_can.c` 使用 PCLK 和整数分频/整数段长，厂商公式为
 `bitrate = can_clock / (divider * (segment1 + segment2))`。
 输入 SDK 的 192 MHz PCLK 配 144+48 和 36+12 TQ，分别得到 1 Mbit/s 和 4 Mbit/s。
-板级实现使用 180 MHz CAN 时钟。默认 1M/5M 时预分频为 1，仲裁段 135+45 TQ，数据段 27+9 TQ，两段采样点均为 75%，发送延迟补偿偏移为 28 TQ。APP 和 Loader 共用[位时序定义](../../shared/targets/at32f456_can_timing.h)。其余档位及寄存器期望值见[协议黄金向量](../../tests/fixtures/protocol/at32f456_can_bitrate_v1.json)。
+板级实现使用 180 MHz CAN 时钟。APP v1.8.2 / Loader v2.3.4 起，默认 1M/5M 时预分频为1，仲裁段144+36 TQ（80%），数据段27+9 TQ（75%），发送延迟补偿偏移28 TQ。仲裁采样点修复本台架 BRS 切换时的发送位错误；此前75%配置仍可能查询成功，但不能据此认定首答可靠。APP 和 Loader 共用[位时序定义](../../shared/targets/at32f456_can_timing.h)。其他11档不变，寄存器期望值见[协议黄金向量](../../tests/fixtures/protocol/at32f456_can_bitrate_v1.json)。升级需同步两镜像；仅更新APP不会修复旧Loader的位时序。线路协议、速率档位编码和参数ABI不变。
 
 仲裁 500K 配数据 3M、4M 或 5M 时，两段采样点取最接近 80% 的时间量子。USB-CAN 适配器的 500K 仲裁预设为 80%，在 BRS 切换时需要匹配该位置。寄存器值按实际 CAN 时钟、分频和段长计算。
 

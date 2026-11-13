@@ -28,11 +28,22 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.7.3"
+TITLE = "CAN FD 通信测试 v1.7.4"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
 FD_LENGTHS = (*range(9), 12, 16, 20, 24, 32, 48, 64)
+CHECK_DEFAULTS = {
+    "node": "6",
+    "mode": "静态和双向驱动",
+    "ambient": "20",
+    "current": "3",
+    "frequency": "3",
+    "leg": "1500",
+    "travel": "360",
+    "lease": "0",
+    "target": "0",
+}
 
 
 def hardware_check_fields(fields: dict[str, str], driven: bool) -> dict:
@@ -309,9 +320,11 @@ class CanTestWindow:
         self.tabs.add(check_tab, text="硬件功能检测")
         check_row = ttk.Frame(check_tab)
         check_row.pack(anchor="w")
-        self.check_node = combo(check_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "3", 3)
+        self.check_node = combo(
+            check_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), CHECK_DEFAULTS["node"], 3
+        )
         self.check_mode = combo(
-            check_row, "检测方式", ("关相静态", "静态和双向驱动"), "关相静态", 14
+            check_row, "检测方式", ("关相静态", "静态和双向驱动"), CHECK_DEFAULTS["mode"], 14
         )
         self.check_fields = {}
         for row in (
@@ -332,8 +345,7 @@ class CanTestWindow:
             for key, label in row:
                 ttk.Label(box, text=label).pack(side="left")
                 entry = ttk.Entry(box, width=7)
-                if key in ("current", "frequency", "leg"):
-                    entry.insert(0, {"current": "3", "frequency": "3", "leg": "1500"}[key])
+                entry.insert(0, CHECK_DEFAULTS[key])
                 entry.pack(side="left", padx=(3, 9))
                 self.check_fields[key] = entry
                 self.controls.append((entry, "normal"))

@@ -1,5 +1,7 @@
 # 历史交付与候选记录
 
+- [CAN-Link-Test v1.10.0](can-link-test-v1.10.0-20261113.md)：共用电机选择、六页重排，APP1.8.4未改。
+
 - [APP1.8.4 / CAN-Link-Test1.9.3](can-link-test-v1.9.3-app-v1.8.4-20261113.md)：YAW标定减振、J-Link复位捕获清理及配套数据包。
 
 - [CAN-Link-Test v1.9.2](can-link-test-v1.9.2-20261113.md)：标定曲线、Hall原始波形和双编号归档，配套APP1.8.3不变。

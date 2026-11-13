@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [CAN FD 共用电机选择与页面顺序](2026-11-13-canfd-shared-motor-navigation.md)：v1.10.0、Release和窗口验证通过。
+
 - [YAW新电机标定抖动诊断](2026-11-13-new-motor-calibration-diagnosis.md) — Kp单变量对照与APP1.8.4复测通过，GUI1.9.3及原始数据包已交付。
 
 - [CAN FD 标定曲线与双编号归档](2026-11-13-canfd-calibration-curves.md) — v1.9.2补偿/零位/极值/原码图及参数归档；节点6采集、原生Tk图窗、Release和发布包校验通过。

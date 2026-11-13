@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [CAN FD v1.10.0共用电机与页面顺序](canfd_shared_motor_20261113.md)：共享身份、六页重排、Release与窗口验证。
+
 - [YAW标定观测器闭环抖动](yaw_calibration_oscillation_20261113.md)：确认标定Kp过大，速度标准差下降88.8%；正式版保存/关相与参数保留通过。
 
 - [CAN FD v1.9.2标定曲线与原码](canfd_calibration_curves_20261113.md)：独立样机/测试号、63,394点原码、零位/相位/极值与配置保存；保留桌面点选及其他型号未测范围。

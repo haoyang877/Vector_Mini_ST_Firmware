@@ -1,6 +1,6 @@
 # AT32F456 固件烧录、测试与标定使用指南
 
-适用于 APP v1.8.4、Loader v2.3.4、CAN-Link-Test v1.11.0 和电机工装 v1.4.3。
+适用于 APP v1.8.5候选、Loader v2.3.4、CAN-Link-Test v1.11.1 和电机工装 v1.4.3。
 本包为 debug 开发验证包。当前连接的 PITCH 台架用于验证，其他轴没有本轮实机结论；
 动态角度检测的已知限制与本次结果以随包测试报告为准。
 v1.8.0 的[历史复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)保留单拍判据的失败结论。
@@ -35,7 +35,7 @@ ISO FD+BRS、仲裁 1 Mbit/s、数据 5 Mbit/s，工具的“通道 1”对应 S
 | `firmware/app-package/` | CAN 升级包，包含 image.bin、manifest.bin、package.json，保持三者配套 |
 | `firmware/*.axf`、`*.map` | 与镜像匹配的调试符号和资源信息 |
 | `manifest.json`、`firmware/summary.json` | 文件 SHA-256、版本、目标、布局和构建来源 |
-| `CAN-Link-Test-v1.11.0.exe` | 共用电机、重复烧录/版本回读、Flash擦除、故障/方向诊断、CAN升级、检测与标定 |
+| `CAN-Link-Test-v1.11.1.exe` | APP1.8.5候选、共用电机、Flash擦除、故障/方向诊断、CAN升级、检测与标定 |
 | `Hardware-Check-v1.0.1.exe` | 独立命令行硬件检测，不依赖本机 Python |
 | `YG-Motor-Commission-v1.4.3.exe` | 空板配参、标定和标定结果导出 |
 
@@ -78,6 +78,9 @@ CAN 更新只写 APP 槽：在“升级压测”中核对顶部当前电机，�
 Loader 更新使用 SWD 大包。具体分区及恢复步骤见[双板 Loader](dual_board_loader.md)。
 
 ## 硬件功能检测
+
+APP1.8.5仅将左右轮和ROLL的编码器LUT采样改为10圈，其余轴保持100圈。
+具体流程见[标定流程](calibration_process.md)；约8秒为估计，本候选仍需实机精度及耗时对照。
 
 CAN直接标定和速度控制分别使用“角度标定”“速度控制”页，操作见
 [该页指南](canfd_motor_operations.md)，不需要为此重新烧录当前固件。

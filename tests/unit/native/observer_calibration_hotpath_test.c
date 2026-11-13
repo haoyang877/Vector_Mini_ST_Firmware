@@ -466,7 +466,7 @@ sample_motion(const CalibrationMotion *motion, FluxObserverState *observer, Enco
 /* 模拟每圈8192拍，额外留出启动、构表和停止时间。 */
 #define LUT_FLOW_MAX_TICKS (SENSORLESS_ENCODER_CALIB_MECH_TURNS * 8192U + 200000U)
 
-static void check_lut_flow(const CalibrationMotion *motion)
+static void check_lut_flow(const CalibrationMotion *motion, uint16_t turns)
 {
     MotorConfiguration configuration = {0};
     FocState foc = {0};
@@ -475,6 +475,15 @@ static void check_lut_flow(const CalibrationMotion *motion)
     FluxObserverState observer = {.electrical_position_rad = motion->initial_position_rad};
     SensorlessStartupState startup = {0};
     EncoderCalibrationWorkspace workspace;
+    const MotorAxisPreset preset = {
+        .startup = &SensorlessStartup_EncoderCalibConfig,
+        .calibration_speed_rad_s = SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S,
+        .calibration_mechanical_turns = turns,
+    };
+    if (turns != 0U)
+    {
+        configuration.preset = &preset;
+    }
     configuration.model.motor_pole_pairs = motion->pole_pairs;
     configuration.model.motor_phase_resistance_ohm = 0.1f;
     configuration.model.motor_d_inductance_h = 0.0002f;
@@ -543,10 +552,15 @@ static void check_lut_flow(const CalibrationMotion *motion)
         trace_word((uint16_t)configuration.device.encoder.linearization_lut_q15[i]);
     }
     simulate_motion = false;
-    printf("PASS LUT flow: poles=%ld residual=%ld ticks=%u\n",
+    printf("PASS LUT flow: poles=%ld residual=%ld ticks=%u turns=%u\n",
            (long)motion->pole_pairs,
            (long)peak_residual_q15,
-           ticks);
+           ticks,
+           calibration_turns(&configuration));
+    if (turns == 10U)
+    {
+        assert(ticks < 200000U);
+    }
 }
 
 static void check_flow(void)
@@ -558,7 +572,8 @@ static void check_flow(void)
     };
     for (unsigned i = 0U; i < sizeof(motions) / sizeof(motions[0]); ++i)
     {
-        check_lut_flow(&motions[i]);
+        check_lut_flow(&motions[i], 0U);
+        check_lut_flow(&motions[i], 10U);
     }
 
     /* 电零位覆盖斜坡、环形均值和完成后的重入与取消。 */

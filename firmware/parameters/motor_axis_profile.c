@@ -94,7 +94,8 @@ static const SensorlessStartupConfig s_yq_start =
      2.0f,                                                                                         \
      CONFIG_TWO_PI / 12.0f,                                                                        \
      .gear_ratio = YQ_JOINT_GEAR_RATIO,                                                            \
-     .has_linear_hall = true}
+     .has_linear_hall = true,                                                                      \
+     .calibration_mechanical_turns = SENSORLESS_ENCODER_CALIB_MECH_TURNS}
 
 static const MotorAxisPreset s_presets[] = {
     {0x03,
@@ -109,7 +110,8 @@ static const MotorAxisPreset s_presets[] = {
      0.0f,
      0.0f,
      .gear_ratio = 1.0f,
-     .has_linear_hall = false},
+     .has_linear_hall = false,
+     .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
     {0x04,
      MOTOR_JOINT_WHEEL_RIGHT,
      HT8115_MODEL_NAME,
@@ -122,7 +124,8 @@ static const MotorAxisPreset s_presets[] = {
      0.0f,
      0.0f,
      .gear_ratio = 1.0f,
-     .has_linear_hall = false},
+     .has_linear_hall = false,
+     .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
     {0x05,
      MOTOR_JOINT_ROLL,
      HT8115_MODEL_NAME,
@@ -135,7 +138,8 @@ static const MotorAxisPreset s_presets[] = {
      2.0f,
      CONFIG_TWO_PI * (150.0f / 360.0f),
      .gear_ratio = 1.0f,
-     .has_linear_hall = false},
+     .has_linear_hall = false,
+     .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
     YQ5740_AXIS(0x06, MOTOR_JOINT_PITCH),
     {0x07,
      MOTOR_JOINT_YAW,
@@ -155,7 +159,8 @@ static const MotorAxisPreset s_presets[] = {
      2.0f,
      CONFIG_TWO_PI / 2.0f,
      .gear_ratio = YQ_JOINT_GEAR_RATIO,
-     .has_linear_hall = true},
+     .has_linear_hall = true,
+     .calibration_mechanical_turns = SENSORLESS_ENCODER_CALIB_MECH_TURNS},
     YQ5740_AXIS(0x08, MOTOR_JOINT_LIFT),
 };
 

@@ -175,6 +175,7 @@ int main(void) {
     }
     for (unsigned node = 3; node <= 8; ++node) {
         const MotorAxisPreset *preset = MotorAxisProfile_ForNode(node);
+        assert(preset->calibration_mechanical_turns == (node <= 5 ? 10U : 100U));
         cfg = preset->startup;
         setup();
         configuration.preset = preset;

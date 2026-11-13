@@ -71,6 +71,7 @@ typedef struct
     float output_travel_limit_rad;
     float gear_ratio; /* 每输出轴一圈的电机轴圈数。 */
     bool has_linear_hall;
+    uint16_t calibration_mechanical_turns; /* LUT采样机械圈数；零使用通用回退值。 */
 } MotorAxisPreset;
 
 /**

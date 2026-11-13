@@ -242,6 +242,13 @@ static float calibration_speed(const MotorConfiguration *config)
                                   : SENSORLESS_ENCODER_CALIB_SPEED_MEC_RAD_S;
 }
 
+static uint32_t calibration_turns(const MotorConfiguration *config)
+{
+    return config->preset != NULL && config->preset->calibration_mechanical_turns != 0U
+               ? config->preset->calibration_mechanical_turns
+               : SENSORLESS_ENCODER_CALIB_MECH_TURNS;
+}
+
 static bool speed_is_stable(const EncoderCalibrationControl *drive)
 {
     float tolerance_rad_s =
@@ -367,6 +374,7 @@ static MotorTaskResult step_measure(EncoderCalibrationSession *session,
     case CS_OBS_SAMPLE_CW:
     {
         EncoderCalibrationSamplingState *sampling = &session->lut.stage.sampling;
+        uint32_t turns = calibration_turns(drive->configuration);
         if (!tracks_epoch(drive, sampling->position_epoch))
         {
             return fail_lut(session, drive, MOTOR_FAULT_SENSORLESS);
@@ -381,12 +389,11 @@ static MotorTaskResult step_measure(EncoderCalibrationSession *session,
         {
             return fail_lut(session, drive, MOTOR_FAULT_ENCODER);
         }
-        if (sampling->motor_travel_q15 >=
-            (int32_t)(SENSORLESS_ENCODER_CALIB_MECH_TURNS * ENCODER_Q15_CPR))
+        if (sampling->motor_travel_q15 >= (int32_t)(turns * ENCODER_Q15_CPR))
         {
             /* 整圈处的观测器参考应回到相同电角相位，丢失电周期的参考不能写表。 */
-            float expected_rad = (float)SENSORLESS_ENCODER_CALIB_MECH_TURNS *
-                                 (_2PI * (float)drive->configuration->model.motor_pole_pairs);
+            float expected_rad =
+                (float)turns * (_2PI * (float)drive->configuration->model.motor_pole_pairs);
             if (!(Math_Abs(sample.elec_pos_rad - sampling->start_elec_rad - expected_rad) <= _PI))
             {
                 return fail_lut(session, drive, MOTOR_FAULT_SENSORLESS);

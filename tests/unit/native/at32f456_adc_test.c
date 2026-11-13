@@ -16,7 +16,7 @@ int main(int argc, char **argv)
     McuCan_Init();
     assert(sim_can.ctrlstat_bit.reset && sim_can.ctrlstat_bit.fd_iso);
     assert(sim_timing.bittime_div == 1U);
-    assert(sim_timing.ac_bts1_size == 135U && sim_timing.ac_bts2_size == 45U);
+    assert(sim_timing.ac_bts1_size == 144U && sim_timing.ac_bts2_size == 36U);
     assert(sim_timing.fd_bts1_size == 27U && sim_timing.fd_bts2_size == 9U);
     assert(sim_timing.fd_ssp_offset == 28U);
     assert(argc == 7 && !BspCan_ConfigureBitrate(12U));

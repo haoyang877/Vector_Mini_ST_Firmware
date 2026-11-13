@@ -27,6 +27,7 @@ class Endpoint:
         self.cal_kind = 1
         self.fault = ""
         self.status_losses = 0
+        self.speed_limit = 4000
 
     def status(self):
         data = bytearray(45)
@@ -70,7 +71,7 @@ class Endpoint:
         if kind == 2:
             return struct.pack(
                 "<I6H",
-                (1 << 13) | (0 if self.fault == "capability" else 1 << 15),
+                (1 << 13) | (1 << 14) | (0 if self.fault == "capability" else 1 << 15),
                 4,
                 64,
                 46,
@@ -81,7 +82,7 @@ class Endpoint:
         if kind in (120, 123):
             identifier = payload[0]
             saved_revision = self.revision + (self.fault == "saved_revision" and kind == 123)
-            value = {0: self.revision, 1: 4000, 2: 3000}[identifier]
+            value = {0: self.revision, 1: self.speed_limit, 2: 3000}[identifier]
             return struct.pack(
                 "<HHBBHIII",
                 0,
@@ -98,6 +99,18 @@ class Endpoint:
             data[4] = 1
             struct.pack_into("<i", data, 24, 40000)
             return bytes(data)
+        if kind == 121:
+            identifier, value_type, size, zero, revision, value = struct.unpack("<4BIi", payload)
+            if (identifier, value_type, size, zero, revision) != (1, 1, 4, 0, self.revision):
+                raise ValueError("速度上限写入字段错误")
+            if self.fault == "limit_denied":
+                return struct.pack("<HH", 11, 4)
+            self.speed_limit = value
+            self.revision += 1
+            if self.fault == "limit_ack":
+                self.timeouts[121] = 1
+                raise TimeoutError("limit ACK lost")
+            return struct.pack("<HHBBHIII", 0, 0, 1, 1, 3, value, self.revision, 1)
         if kind == 160:
             self.cal_kind = struct.unpack("<HH", payload)[0]
             self.starts += 1
@@ -232,7 +245,7 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertEqual(self.endpoint.commands, [])
 
-    def speed_run(self, targets=(), fault=""):
+    def speed_run(self, targets=(), fault="", speed_limit=None):
         self.endpoint.fault = fault
         commands, samples = queue.Queue(), []
         for target in targets:
@@ -247,10 +260,28 @@ class MotorOperationsTests(unittest.TestCase):
                 commands,
                 out,
                 counter_db=out / "counter.db",
+                speed_limit=speed_limit,
                 stopped=lambda: len(samples) >= 2,
                 feedback=samples.append,
             )
         return report, samples
+
+    def test_speed_limit_write_readback_then_enable(self):
+        report, samples = self.speed_run((5, -5), speed_limit=30)
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["speed_limit_rad_s"], 30)
+        self.assertEqual([s["actual_rad_s"] for s in samples], [5, -5])
+        self.assertEqual(sum(k == 121 for k, *_ in self.endpoint.requests), 1)
+        self.assertTrue(report["enable_attempted"])
+
+    def test_speed_limit_denied_or_ack_lost_never_enables_or_replays(self):
+        for fault in ("limit_denied", "limit_ack"):
+            with self.subTest(fault=fault):
+                self.endpoint.__init__()
+                report, _ = self.speed_run(fault=fault, speed_limit=30)
+                self.assertFalse(report["passed"] or report["enable_attempted"])
+                self.assertEqual(self.endpoint.commands, [])
+                self.assertEqual(sum(k == 121 for k, *_ in self.endpoint.requests), 1)
 
     def test_speed_enable_updates_both_signs_renews_and_stops(self):
         report, samples = self.speed_run((1.2345, -1))

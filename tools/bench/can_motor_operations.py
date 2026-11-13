@@ -96,6 +96,27 @@ def _scalar(link, identifier, *, saved=False):
     }
 
 
+def _speed_limit(link, requested, report):
+    current = _scalar(link, 1)
+    if requested is None:
+        return current["value"] / 1000
+    requested = speed_value(str(requested))
+    if requested < 0.001:
+        raise ValueError("速度上限至少为0.001 rad/s")
+    raw = math.floor(requested * 1000 + 0.5)
+    report["requested_speed_limit_rad_s"] = raw / 1000
+    if raw != current["value"]:
+        data = link.request(121, struct.pack("<4BIi", 1, 1, 4, 0, current["revision"], raw))
+        if len(data) != 20 or data[:6] != b"\0\0\0\0\x01\x01":
+            detail = struct.unpack_from("<HH", data) if len(data) >= 4 else None
+            raise Rejected(f"速度上限写入被拒绝：{detail}；请核对板端轴配置包络")
+        current = _scalar(link, 1)
+        if current["value"] != raw:
+            raise Rejected("速度上限写入后回读不匹配，未使能")
+    report["speed_limit_revision"] = current["revision"]
+    return current["value"] / 1000
+
+
 def _identify(link, report, feature):
     info = link.request(1, page=0)
     identity = link.request(1, page=1)
@@ -248,6 +269,7 @@ def run_speed_control(
     previous: int | None = 0,
     previous_target: int | None = 0,
     counter_db: Path = COUNTER_DB,
+    speed_limit: float | None = None,
     stopped: Callable[[], bool] = lambda: False,
     progress: Callable[[str], None] = lambda _: None,
     feedback: Callable[[dict], None] = lambda _: None,
@@ -255,7 +277,13 @@ def run_speed_control(
     """保持模式2直到停止；目标队列、续租与反馈同线程串行，异常不恢复运动。"""
     link = Link(bus, node)
     report = dict(
-        profile="motor_speed", node=node, passed=False, samples=0, updates=0, reply_timeout_ms=50
+        profile="motor_speed",
+        node=node,
+        passed=False,
+        samples=0,
+        updates=0,
+        reply_timeout_ms=50,
+        enable_attempted=False,
     )
     started = False
     try:
@@ -266,6 +294,8 @@ def run_speed_control(
         if not int.from_bytes(caps[4:6], "little") & (1 << 2):
             raise Rejected("固件不支持速度闭环模式2")
         limit = _scalar(link, 1)["value"] / 1000
+        if speed_limit is not None:
+            limit = speed_value(str(speed_limit))
         report["current_limit_a"] = _scalar(link, 2)["value"] / 1000
         geometry = link.request(126)
         if len(geometry) != 32 or geometry[:6] != b"\0\0\0\0\x01\0":
@@ -276,12 +306,20 @@ def run_speed_control(
         report.update(speed_limit_rad_s=limit, gear_ratio=ratio)
         if abs(target) > limit:
             raise ValueError(f"目标速度超出板端限值±{limit:g} rad/s")
+        if stopped():
+            report["cancelled"] = True
+            return report
+        if speed_limit is not None and not int.from_bytes(caps[:4], "little") & (1 << 14):
+            raise Rejected("固件未声明速度参数配置能力")
+        limit = _speed_limit(link, speed_limit, report)
+        report["speed_limit_rad_s"] = limit
         counters = MotionCounters(counter_db, report["uid"], previous, previous_target)
         origin = struct.unpack_from("<i", status, 12)[0] / 1000
         if stopped():
             report["cancelled"] = True
             return report
         started = True
+        report["enable_attempted"] = True
         link.command(117, bytes((2, 0, 0, 0)))
         deadline = time.monotonic() + 0.25
         while True:

@@ -64,6 +64,12 @@ def motor_speed_fields(fields: dict[str, str]) -> dict:
     if travel <= 0:
         raise ValueError("两侧可用输出行程须大于零")
     result = dict(speed=speed_value(fields["speed"]), travel=travel)
+    limit = speed_value(fields.get("limit", "30"))
+    if limit < 0.001:
+        raise ValueError("速度上限至少为0.001 rad/s")
+    if abs(result["speed"]) > limit:
+        raise ValueError(f"目标速度超出本次速度上限±{limit:g} rad/s")
+    result["speed_limit"] = limit
     for key, label, upper in (
         ("lease", "首次续租计数", 0xFFFFFFFF),
         ("target", "首次目标序号", 65535),
@@ -240,6 +246,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                         out,
                         previous=settings["last_lease"],
                         previous_target=settings["last_target"],
+                        speed_limit=settings.get("speed_limit"),
                         stopped=operation_stopped,
                         progress=lambda value: events.put(("stage", value)),
                         feedback=lambda value: events.put(("motor_feedback", value)),
@@ -456,15 +463,19 @@ class CanTestWindow:
         speed_row = ttk.Frame(speed_tab)
         speed_row.pack(anchor="w", pady=5)
         self.speed_node = combo(speed_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "6", 3)
-        motor_values = ttk.Frame(speed_tab)
-        motor_values.pack(anchor="w", pady=5)
         self.motor_fields = {}
-        for key, label, default in (
-            ("speed", "电机轴目标速度 rad/s", "0"),
-            ("travel", "两侧可用输出行程 °", "360"),
-            ("lease", "首次续租计数", "0"),
-            ("target", "首次目标序号", "0"),
+        for index, (key, label, default) in enumerate(
+            (
+                ("speed", "电机轴目标速度 rad/s", "0"),
+                ("limit", "速度上限 rad/s", "30"),
+                ("travel", "两侧可用输出行程 °", "360"),
+                ("lease", "首次续租计数", "0"),
+                ("target", "首次目标序号", "0"),
+            )
         ):
+            if index in (0, 3):
+                motor_values = ttk.Frame(speed_tab)
+                motor_values.pack(anchor="w", pady=5)
             ttk.Label(motor_values, text=label).pack(side="left")
             entry = ttk.Entry(motor_values, width=8)
             entry.insert(0, default)
@@ -477,7 +488,7 @@ class CanTestWindow:
         ttk.Label(speed_tab, textvariable=self.motor_feedback).pack(anchor="w", pady=5)
         ttk.Label(
             speed_tab,
-            text="速度控制沿用板端速度/电流限值和PI；已有UID的计数由本机持续保存，断联后停止。",
+            text="使能前应用速度上限到RAM，不自动保存Flash；保持电流限值和PI，断联后停止。",
         ).pack(anchor="w", pady=3)
         self.builtin_package = (
             self.resource / "can-app"
@@ -1050,7 +1061,10 @@ class CanTestWindow:
                 lines.append(f"Flash保存修订 {r['saved_revision']['saved_revision']}")
             if "samples" in r:
                 lines.append(f"反馈{r['samples']}次，目标更新{r['updates']}次；速度曲线见speed.csv")
-            lines.append("已确认关相" if r.get("stop_confirmed") else "未取得关相确认")
+            if r["profile"] == "motor_speed" and r.get("enable_attempted") is False:
+                lines.append("未发送使能命令，本次未启动电机")
+            else:
+                lines.append("已确认关相" if r.get("stop_confirmed") else "未取得关相确认")
             if r.get("fatal"):
                 lines.append(r["fatal"])
             if r.get("communication_timeouts"):

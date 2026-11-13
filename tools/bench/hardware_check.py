@@ -329,6 +329,19 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
                 if remaining <= 0:
                     break
                 time.sleep(min(0.040, remaining))
+    except Rejected as exc:
+        # STOP会改变阶段；先读取拒绝时的板端报告，避免将主动保护误报为续租根因。
+        try:
+            refresh()
+        except (Rejected, ValueError, TimeoutError, OSError):
+            pass
+        if report["stage"] == 5:
+            failed = [name for name, state in zip(ITEMS, report["board_items"]) if state == 2]
+            if failed:
+                report["board_abort_items"] = failed
+                report["drive_command_error"] = str(exc)
+                raise Rejected(f"板端已中止，异常项：{'、'.join(failed)}；{exc}") from exc
+        raise
     finally:
         confirm_stop(link, report)
 

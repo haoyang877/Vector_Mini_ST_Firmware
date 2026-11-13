@@ -29,7 +29,7 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.8.1"
+TITLE = "CAN FD 通信测试 v1.8.2"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -281,7 +281,12 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
             )
         elif settings["profile"] == "hardware_check":
-            with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **settings["bus"]) as bus:
+            with (
+                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
+                os.add_dll_directory(str(dll.parent)),
+                ControlCanFd(dll, **settings["bus"]) as port,
+            ):
+                bus = TraceBus(port, stream)
                 report = run_check(
                     bus,
                     settings["node"],

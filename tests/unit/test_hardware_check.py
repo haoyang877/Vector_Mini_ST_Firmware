@@ -76,6 +76,8 @@ class Port:
                 items[5] = 0
             if self.mode == 2 and self.stage == 4:
                 items[8:] = [1, 1]
+            if self.fault == "hallabort" and self.stage == 5:
+                items[9] = 2
             reply = struct.pack(
                 "<HHBBI10BB",
                 int(bool(payload)),
@@ -124,6 +126,10 @@ class Port:
             count = int.from_bytes(payload, "little")
             assert self.running and count > self.previous_lease
             self.previous_lease = count
+            if self.fault in ("hallabort", "leaserejected"):
+                if self.fault == "hallabort":
+                    self.running, self.stage = False, 5
+                reply = b"\x05\0\0\0"
             if self.fault == "linkloss":
                 return
             if self.fault == "leaseackloss" and not self.lost_lease_ack:
@@ -247,6 +253,26 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual((r["communication"], r["stage"], r["stop_confirmed"]), ("正常", 4, True))
         self.assertIn(117, [kind for kind, _, _ in bus.sent])
         self.assertGreater(bus.previous_lease, 3)
+
+    def test_board_abort_precedes_lease_rejection(self):
+        report, bus = self.check("hallabort", True)
+        self.assertEqual(report["board_abort_items"], ["霍尔动态"])
+        self.assertIn("板端已中止，异常项：霍尔动态", report["note"])
+        self.assertIn("Type 118 拒绝", report["drive_command_error"])
+        self.assertEqual(report["items"]["电机角动态"], "未测")
+        self.assertTrue(report["stop_confirmed"])
+        kinds = [kind for kind, _, _ in bus.sent]
+        self.assertEqual(kinds.count(117), 1)
+        self.assertEqual(kinds.count(118), 1)
+        rejected = kinds.index(118)
+        self.assertLess(kinds.index(127, rejected), kinds.index(110, rejected))
+
+    def test_lease_rejection_while_driving_is_not_hardware_abort(self):
+        report, bus = self.check("leaserejected", True)
+        self.assertNotIn("board_abort_items", report)
+        self.assertEqual(report["note"], "Type 118 拒绝，result=5 detail=0")
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(sum(kind == 117 for kind, *_ in bus.sent), 1)
 
     def test_lost_lease_ack_completes_checks_without_hiding_timeout(self):
         r, bus = self.check("leaseackloss", True)

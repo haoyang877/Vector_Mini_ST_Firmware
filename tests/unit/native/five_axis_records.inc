@@ -127,8 +127,28 @@ int main(void)
             assert(Param_CreateAxis(node, -1, 1, output_limit * ratio, &heat, &full));
             assert(!Param_CreateAxis(node, -1, 1, (output_limit + 0.001f) * ratio, &heat, &full));
         }
-        assert(configuration.application.speed_kp == (wheel ? .05f : ht ? .5f : .048f));
-        assert(configuration.application.speed_ki == (node == 5 ? 1.f : .5f));
+        assert(configuration.application.speed_kp == (ht ? .05f : .048f));
+        assert(configuration.application.speed_ki == .5f);
+        if (node == 5)
+        {
+            InterfaceParam old = record;
+            old.speed_kp = .5f;
+            old.speed_ki = 1.f;
+            old.record_crc32 = Param_RecordCrc(&old);
+            InterfaceParam unchanged = old;
+            MotorConfiguration migrated;
+            Param_Download(&old, sizeof(old), &migrated);
+            assert(migrated.application.speed_kp == .05f && migrated.application.speed_ki == .5f);
+            assert(migrated.configuration_confirmed && migrated.device.encoder.calib_flag == ENC_CALIB_ALL);
+            assert(migrated.device.encoder.linearization_lut_q15[71] == -42);
+            assert(migrated.model.calibration_current_a == 5.f);
+            assert(memcmp(&old, &unchanged, sizeof(old)) == 0);
+            old.speed_kp = .02f;
+            old.speed_ki = .2f;
+            old.record_crc32 = Param_RecordCrc(&old);
+            Param_Download(&old, sizeof(old), &migrated);
+            assert(migrated.application.speed_kp == .02f && migrated.application.speed_ki == .2f);
+        }
         /* 标定使用独立增益；调整标定PI不能改动运行速度PI。 */
         assert(p->startup->speed_kp == (ht ? .05f : .012f));
         assert(p->startup->speed_ki == .5f);

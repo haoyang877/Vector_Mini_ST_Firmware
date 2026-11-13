@@ -21,4 +21,8 @@ APP1.8.6 / CAN-Link-Test1.13.0：速度页默认目标3 rad/s，取消原360°�
 原始数据：`outputs/continuous-speed-20261113/cold-open-can.json`和`cold-open-frames.csv`。
 这没有复现首次烧录场景，不能证明历史故障的底层原因，也不代表新固件实机通过。
 未自动烧录、擦除或启相；持续旋转及新上限的实机复测留给当前台架验证。
-最终Release和交付哈希在打包完成后登记。
+最终Release全部通过：`outputs/runs/continuous-speed-release-v1.13.0-20261113/summary.json`。
+源码`a396550dfb5b882b4f4a302f3976e162741b284a`，296项单元测试、21项集成测试及全部原生测试通过，
+Keil构建和发布清单通过；hardware_contacted=false。硬件只读证据另列，不能替代新固件实机。
+初次发布检查曾因已有用户文档修改而拒绝发布；原修改已独立备份，干净工作树重跑通过。
+包内SHA-256及ZIP CRC核验通过，详见[交付记录](../../releases/can-link-test-v1.13.0-20261113.md)。

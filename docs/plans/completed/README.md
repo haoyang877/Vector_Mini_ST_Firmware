@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [持续速度与30/300限速](2026-11-13-continuous-speed-limits.md)：APP1.8.6/工具1.13.0，Release及打包通过；实机首次烧录与高速测试未执行。
+
 - [J-Link流程与擦除提速](2026-11-13-jlink-workflow-speed.md)：v1.12.0初装入口简化、SWD提速、Release及打包；实际完整擦除计时未执行。
 
 - [ROLL及左右轮10圈标定候选](2026-11-13-ht-calibration-ten-turns.md)：离线实现、Release与打包完成，实机对照未执行。

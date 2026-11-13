@@ -518,6 +518,8 @@ def run_check(
         if len(info) == 4:
             raise Rejected("设备忙，已确认通信")
         report["uid"] = info[:12].hex()
+        report["app_version"] = int.from_bytes(info[20:24], "little")
+        report["test_currents_a"] = [1.0, 2.0] if report["app_version"] >= 0x01080C else [0.5, 1.0]
         identity = link.request(1, page=1)
         if identity == b"\x06\0\0\0":
             raise Rejected("身份页忙")
@@ -567,7 +569,8 @@ def run_check(
             time.sleep(0.012)
             refresh()
         if drive and report["stage"] == 6:
-            progress("相电阻：AB/BC/CA 正反向 1A / 2A 测量")
+            currents = " / ".join(f"{value:g}A" for value in report["test_currents_a"])
+            progress(f"相电阻：AB/BC/CA 正反向 {currents} 测量")
             deadline = time.monotonic() + 27
             while report["stage"] == 6:
                 if stopped() or time.monotonic() > deadline:
@@ -695,10 +698,11 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
             measured += "（部分采样，未完成判定）"
         rows.append((name, measured, limits[item], state))
     resistance = report.get("resistance")
-    measured, limit, state = "未测", "标称相电阻的50%～150%（含边界）；1A/2A", "未测"
+    currents = "/".join(f"{value:g}A" for value in report.get("test_currents_a", (1.0, 2.0)))
+    measured, limit, state = "未测", f"标称相电阻的50%～150%（含边界）；{currents}", "未测"
     if resistance:
         nominal = resistance["nominal_ohm"]
-        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；1A/2A"
+        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；{currents}"
 
         def values(names, readings):
             return " / ".join(

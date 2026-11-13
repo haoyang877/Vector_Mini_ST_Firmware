@@ -24,7 +24,8 @@ def response(node, kind, seq, data):
 
 
 class Port:
-    def __init__(self, fault="", measurements=False):
+    def __init__(self, fault="", measurements=False, version=0x01080C):
+        self.version = version
         self.measurements = measurements
         self.fault = fault
         self.pending = []
@@ -54,6 +55,8 @@ class Port:
                 reply[20:23] = bytes((1, node, 2 if self.fault == "loader" else 1))
                 if self.fault == "unprovisioned":
                     reply[20] = 0
+            if not page:
+                struct.pack_into("<I", reply, 20, self.version)
             if self.fault == "busy":
                 reply = b"\x06\0\0\0"
         elif kind == 2:
@@ -234,6 +237,15 @@ class HardwareHostTest(unittest.TestCase):
             port, 6, drive=config, previous=0, previous_target=0, counter_db=self.db, **kwargs
         )
         return result, port
+
+    def test_current_labels_follow_device_firmware(self):
+        for version, currents, label in (
+            (0x01080B, [0.5, 1.0], "0.5A/1A"),
+            (0x01080C, [1.0, 2.0], "1A/2A"),
+        ):
+            report = hw.run_check(Port(version=version), 6)
+            self.assertEqual(report["test_currents_a"], currents)
+            self.assertIn(label, hw.result_rows(report)[8][2])
 
     def test_measurement_pages_preserve_results_and_render_values(self):
         port = Port(measurements=True)

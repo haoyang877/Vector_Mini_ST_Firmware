@@ -54,3 +54,5 @@
 - [相电阻检测测试包APP1.8.9](phase-resistance-app-v1.8.9-20261113.md)
 
 - [自由转子相电阻测试包APP1.8.11](phase-resistance-app-v1.8.11-20261113.md)
+
+- [相电阻1A/2A测试包APP1.8.12](phase-resistance-app-v1.8.12-20261113.md)

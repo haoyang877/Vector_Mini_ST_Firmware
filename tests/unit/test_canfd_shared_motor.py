@@ -163,7 +163,7 @@ class SharedMotorTests(unittest.TestCase):
         w = self.window
         self.assertEqual(
             [w.tabs.tab(tab, "text") for tab in w.tabs.tabs()],
-            ["J-Link 烧录", "硬件测试", "通信测试", "角度标定", "升级压测", "速度控制"],
+            ["J-Link 烧录", "硬件测试", "通信测试", "角度标定", "升级压测", "速度控制", "参数读写"],
         )
         expected = dict(
             jlink="jlink_flash",
@@ -172,6 +172,7 @@ class SharedMotorTests(unittest.TestCase):
             calibration="motor_calibration",
             upgrade="can_upgrade",
             speed="motor_speed",
+            parameters="parameters",
         )
         for page, mode in expected.items():
             w.tabs.select(w.pages[page])
@@ -336,6 +337,55 @@ class SharedMotorTests(unittest.TestCase):
         self.assertEqual(settings["speed"], 3)
         self.assertEqual(settings["speed_limit"], 300)
         self.assertIsNone(settings["travel"])
+
+    def test_speed_actions_move_and_counters_remain_automatic(self):
+        w = self.window
+        self.bind(6)
+        self.assertEqual(set(w.motor_fields), {"speed", "limit"})
+        w.tabs.select(w.pages["speed"])
+        w.update_controls()
+        self.assertEqual(w.start_button.winfo_manager(), "")
+        self.assertEqual(w.stop_button.winfo_manager(), "")
+        self.assertEqual(w.speed_start.winfo_manager(), "pack")
+        settings = self.capture_start("speed")
+        self.assertEqual((settings["last_lease"], settings["last_target"]), (0, 0))
+        w.process = None
+        w.update_controls()
+        w.tabs.select(w.pages["hardware"])
+        w.update_controls()
+        self.assertEqual(w.start_button.winfo_manager(), "pack")
+
+    def test_parameter_snapshot_edit_and_changed_uid(self):
+        w = self.window
+        self.bind(6)
+        rows = {i: dict(raw=1000, access=3) for i in (11, 12, 13, 14)}
+        report = dict(
+            profile="parameters",
+            action="read",
+            group="current",
+            node=6,
+            uid=self.uid,
+            passed=True,
+            revision=7,
+            rows=rows,
+        )
+        w.display_report(report)
+        entry = w.parameter_page.entries[11]
+        entry.delete(0, "end")
+        entry.insert(0, "1.5")
+        settings = self.capture_start("parameters", parameter_action=("current", True))
+        self.assertEqual(settings["changes"], {11: 1500})
+        self.assertEqual(settings["snapshot"]["revision"], 7)
+        w.process = None
+        w.set_current_motor(6, "02" * 12, "换板", role=1)
+        self.assertFalse(w.parameter_page.snapshots)
+        self.assertEqual(entry.get(), "")
+
+    def test_parameter_adapter_failure_invalidates_snapshot_without_crashing(self):
+        self.bind(6)
+        self.window.display_report(dict(profile="parameters", fatal="未找到USB CAN"))
+        self.assertFalse(self.window.parameter_page.snapshots)
+        self.assertIn("未找到USB CAN", self.window.parameter_page.message.get())
 
     def test_query_and_single_upgrade_need_no_page_selection(self):
         self.bind()

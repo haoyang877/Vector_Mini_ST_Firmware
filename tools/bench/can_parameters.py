@@ -86,6 +86,8 @@ def encode_value(identifier: int, text: str) -> int:
         raise ValueError(f"参数 {identifier} 须为有效数值") from None
     if not value.is_finite():
         raise ValueError(f"参数 {identifier} 须为有限数值")
+    if spec["value_type"] == 2 and value != value.to_integral_value():
+        raise ValueError(f"参数 {identifier} 须为整数")
     if ("minimum" in spec and value < Decimal(str(spec["minimum"]))) or (
         "maximum" in spec and value > Decimal(str(spec["maximum"]))
     ):

@@ -56,7 +56,10 @@ class ParameterPage(ttk.Frame):
                 )
                 entry = self.entries[identifier] = ttk.Entry(panel, width=16, state="readonly")
                 entry.grid(row=row, column=1, sticky="ew", padx=8, pady=2)
-                ttk.Label(panel, text=spec["unit"]).grid(row=row, column=2, sticky="w")
+                unit = {"pole_pairs": "对", "encoder_q15_counts": "Q15", "bool": "0 / 1"}.get(
+                    spec["unit"], spec["unit"]
+                )
+                ttk.Label(panel, text=unit).grid(row=row, column=2, sticky="w")
 
     def reset(self, identity: tuple | None) -> None:
         if identity == self.identity:
@@ -103,7 +106,7 @@ class ParameterPage(ttk.Frame):
 
     def display(self, report: dict) -> None:
         """保存后其他组修订缓存失效；失败保留编辑文本但要求重新读取。"""
-        if report["action"] == "save":
+        if report.get("action") == "save" or "group" not in report:
             self.snapshots.clear()
         if report.get("passed"):
             group = report["group"]
@@ -119,6 +122,6 @@ class ParameterPage(ttk.Frame):
             action = "已保存并回读验证" if report["action"] == "save" else "已读取"
             self.message.set(f"{GROUPS[group][0]}{action} · 活动修订 {report['revision']}")
         else:
-            self.snapshots.pop(report["group"], None)
+            self.snapshots.pop(report.get("group"), None)
             self.message.set(report.get("fatal", "参数操作失败") + "；请重新读取。")
         self.update_controls(self.busy, self.available)

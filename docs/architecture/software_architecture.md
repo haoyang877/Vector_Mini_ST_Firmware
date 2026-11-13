@@ -155,3 +155,7 @@ G431 的 Loader 端口用 RX 中断和环形队列接收，跟踪三个发送槽
 | 启动或绑定顺序 | 双板各自的独立与配套 APP 均可初始化；失败分支关相，独立 APP 不注册升级服务 | [编排用例](../../tests/unit/native/test_app_orchestration.py) |
 | 轴对象或外环交接 | 两个模拟实例分别绑定 PWM 和记录槽；状态、输出及标定写入只归各自实例；过时代际无法恢复旧输出 | [实例隔离](../../tests/unit/native/test_app_instances.py)、[状态机用例](../../tests/unit/native/test_run_state.py) |
 | Loader 端口或链接输入 | 错误票据、链路故障、越界写入被拒绝；镜像、参数区和身份页边界与对应工程一致 | [G431 运行时模型](../../tests/unit/native/test_loader_runtime.py)、[AT32 端口模型](../../tests/unit/native/test_at32_loader.py) |
+
+### 相电阻与硬件测量存储（2026-11-13）
+
+硬件检测统计及队列借用MotorCalibration.storage.hardware_check；同轮相电阻任务使用独立的workspace.resistance，两个区不重叠。maintenance_capture阻止外部标定和记录编码，内部PHASE_RESISTANCE允许使用既有功率生命周期。检测结束先将全部实测页冻结到紧凑缓存，再释放维护区；后续参数或LUT操作不得改变已完成报告。

@@ -21,7 +21,7 @@ from _calibration_curves import export_curves
 from ports.controlcanfd import ControlCanFd
 from upgrade_client import UpgradeClient
 
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 PARAMETER_VERSION = "1.2.0"
 TOOL_NAME = f"YG-Motor-Commission-v{VERSION}"
 GENERATOR_NAME = f"axis-record-v{PARAMETER_VERSION}.exe"

@@ -1,12 +1,12 @@
-# YG 电机工装 v1.4.2（Windows x64）
+# YG 电机工装 v1.4.3（Windows x64）
 
-解压整个 ZIP 到可写目录，双击 `YG-Motor-Commission-v1.4.2.exe`。随包提供 AT32F456 的 Loader + APP、参数生成器、USB-CAN FD 接口库和运行库。工位需要 SEGGER J-Link 软件及 USB 驱动、USBCANFD-200U 适配器驱动。退出占用同一适配器或探针的调试软件，连接 SWD 和 CAN FD（默认物理通道 1，1 Mbit/s / 5 Mbit/s）。
+解压整个 ZIP 到可写目录，双击 `YG-Motor-Commission-v1.4.3.exe`。随包提供 AT32F456 的 Loader + APP、参数生成器、USB-CAN FD 接口库和运行库。工位需要 SEGGER J-Link 软件及 USB 驱动、USBCANFD-200U 适配器驱动。退出占用同一适配器或探针的调试软件，连接 SWD 和 CAN FD（默认物理通道 1，1 Mbit/s / 5 Mbit/s）。
 
 ## 交付文件
 
 | 项目 | 文件名或位置 |
 |---|---|
-| Windows 烧录工具 | `YG-Motor-Commission-v1.4.2.exe`，文件属性和 `--version` 均显示工具版本 |
+| Windows 烧录工具 | `YG-Motor-Commission-v1.4.3.exe`，文件属性和 `--version` 均显示工具版本 |
 | 固件大包 | `firmware/YG2026-ESC-FULL-AT32F456CC-debug-LOADER-v2.3.3-APP-v1.8.1-20261113.hex` |
 | 六轴同向初装预设 | `parameters/` 下每轴一份，文件名含轴名、型号、节点和参数版本，如 `YG-Params-PITCH-YQ-5740-0x06-v1.2.0-preset.bin` |
 
@@ -30,10 +30,10 @@ Windows 多层解压目录支持长路径。若需沿用其他目录的安装备
 在解压目录的 PowerShell 中运行：
 
 ```powershell
-.\YG-Motor-Commission-v1.4.2.exe --check
-.\YG-Motor-Commission-v1.4.2.exe --operation full --axis pitch --speed 30
-.\YG-Motor-Commission-v1.4.2.exe --operation calibrate --axis pitch
-.\YG-Motor-Commission-v1.4.2.exe --export-curves "上一次标定目录\result.json"
+.\YG-Motor-Commission-v1.4.3.exe --check
+.\YG-Motor-Commission-v1.4.3.exe --operation full --axis pitch --speed 30
+.\YG-Motor-Commission-v1.4.3.exe --operation calibrate --axis pitch
+.\YG-Motor-Commission-v1.4.3.exe --export-curves "上一次标定目录\result.json"
 ```
 
 第二条示例适用于同向的 PITCH 台架样机。`--channel 2` 切换到 CAN 第二物理通道，`--probe` 可选择探针序号。`--check` 完全离线，校验大包与 AXF 并实际生成六轴的同向记录并与包内参数逐字节比较。其余选项见 `--help`。

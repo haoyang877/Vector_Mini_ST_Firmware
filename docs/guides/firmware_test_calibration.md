@@ -1,6 +1,6 @@
 # AT32F456 固件烧录、测试与标定使用指南
 
-适用于 APP v1.8.2、Loader v2.3.4、CAN-Link-Test v1.8.2 和电机工装 v1.4.3。
+适用于 APP v1.8.3、Loader v2.3.4、CAN-Link-Test v1.8.3 和电机工装 v1.4.3。
 本包为 debug 开发验证包。当前连接的 PITCH 台架用于验证，其他轴没有本轮实机结论；
 动态角度检测的已知限制与本次结果以随包测试报告为准。
 v1.8.0 的[历史复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)保留单拍判据的失败结论。
@@ -35,7 +35,7 @@ ISO FD+BRS、仲裁 1 Mbit/s、数据 5 Mbit/s，工具的“通道 1”对应 S
 | `firmware/app-package/` | CAN 升级包，包含 image.bin、manifest.bin、package.json，保持三者配套 |
 | `firmware/*.axf`、`*.map` | 与镜像匹配的调试符号和资源信息 |
 | `manifest.json`、`firmware/summary.json` | 文件 SHA-256、版本、目标、布局和构建来源 |
-| `CAN-Link-Test-v1.8.2.exe` | SWD烧录、CAN升级、硬件检测、独立角度标定和速度控制页 |
+| `CAN-Link-Test-v1.8.3.exe` | SWD烧录、CAN升级、硬件检测、独立角度标定和速度控制页 |
 | `Hardware-Check-v1.0.1.exe` | 独立命令行硬件检测，不依赖本机 Python |
 | `YG-Motor-Commission-v1.4.3.exe` | 空板配参、标定和标定结果导出 |
 

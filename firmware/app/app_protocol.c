@@ -122,7 +122,7 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
     }
     MotorTarget target = {.mode = (uint16_t)mode,
                           .position_rad = request->position_mrad * 0.001f,
-                          .speed_rad_s = request->speed_mrad_s * 0.001f,
+                          .speed_rad_s = request->speed_mrad_s / 1000.0f,
                           .iq_a = request->iq_mA / 1000.0f,
                           .vq_v = request->v_q_mV * 0.001f,
                           .frequency_hz = request->electrical_frequency_mHz * 0.001f,

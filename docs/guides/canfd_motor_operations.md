@@ -1,7 +1,7 @@
 # CAN FD 上位机角度标定与速度控制
 
-适用：CAN-Link-Test v1.8.2，使用现有APP的160/161/162标定票据、117/116/118运动会话。
-当前台架固件仍为APP v1.8.2 / Loader v2.3.4。此功能只使用CAN，不依赖J-Link。
+适用：CAN-Link-Test v1.8.3，使用现有APP的160/161/162标定票据、117/116/118运动会话。
+当前台架固件为APP v1.8.3 / Loader v2.3.4。此功能只使用CAN，不依赖J-Link。
 接线、1M/5M和节点选择见[大包、测试与标定指南](firmware_test_calibration.md)。
 
 ## 角度标定

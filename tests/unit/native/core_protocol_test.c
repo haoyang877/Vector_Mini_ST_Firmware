@@ -223,6 +223,18 @@ static void test_target_mode_mapping(void)
         endpoint.motor.target(endpoint.motor.context, &request, &reply);
         assert(reply.status == PROTOCOL_OK && last_target.iq_a == s_current_a[i]);
     }
+    /* 速度与参数服务采用同一毫弧度缩放；精确上限不能被舍入到范围外。 */
+    static const int32_t s_speed_mrad_s[] = {30000, -30000, 29999, -29999, 30001, -30001};
+    static const float s_speed_rad_s[] = {30.0f, -30.0f, 29.999f, -29.999f, 30.001f, -30.001f};
+    for (unsigned i = 0U; i < 6U; ++i)
+    {
+        ProtocolCommand speed = {.mode = 2U,
+                                 .sequence = (uint16_t)(adapter.last_target.sequence + 1U),
+                                 .speed_mrad_s = s_speed_mrad_s[i]};
+        endpoint.motor.target(endpoint.motor.context, &speed, &reply);
+        assert(reply.status == PROTOCOL_OK && last_target.speed_rad_s == s_speed_rad_s[i]);
+        assert((last_target.speed_rad_s >= -30.0f && last_target.speed_rad_s <= 30.0f) == (i < 4U));
+    }
     unsigned calls_before = target_calls;
     ProtocolCommand request = {.mode = 0U, .sequence = 7U};
     endpoint.motor.target(endpoint.motor.context, &request, &reply);

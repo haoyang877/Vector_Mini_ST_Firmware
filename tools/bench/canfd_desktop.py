@@ -32,11 +32,11 @@ from five_axis_can_stability import (
     run_queries,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
-from hardware_check import Drive, empty_report, run_check, summarize
+from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.9.3"
+TITLE = "CAN FD 通信测试 v1.10.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -218,6 +218,14 @@ def desktop_uids(resource, log_root):
     return uids
 
 
+def check_current_motor(bus, settings: dict) -> None:
+    """启相前核对共用选择绑定的UID，换板后要求重新识别。"""
+    if settings.get("expected_uid"):
+        info = Link(bus, settings["node"], timeout_s=0.5).request(1, page=0)
+        if len(info) != 32 or info[:12].hex() != settings["expected_uid"]:
+            raise ValueError("当前节点的电机UID已改变，请重新扫描识别")
+
+
 def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
     """子进程入口。适配器和日志释放之后才通知界面结束。"""
     try:
@@ -235,6 +243,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 ControlCanFd(dll, **settings["bus"]) as port,
             ):
                 bus = TraceBus(port, stream)
+                check_current_motor(bus, settings)
                 if settings["profile"] == "motor_calibration":
                     capture = HallRawCapture(out)
                     try:
@@ -318,6 +327,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 ControlCanFd(dll, **settings["bus"]) as port,
             ):
                 bus = TraceBus(port, stream)
+                check_current_motor(bus, settings)
                 report = run_check(
                     bus,
                     settings["node"],
@@ -339,6 +349,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 (resource / "five_axis_can_stability.json").read_text(encoding="utf-8")
             )
             uids = desktop_uids(resource, out.parent)
+            uids.update(settings.get("node_uids", {}))
             run_queries(
                 dll,
                 out,
@@ -384,6 +395,10 @@ class CanTestWindow:
         self.done = False
         self.controls = []
         self.identity = None
+        self.current_motor = None
+        self.known_motors = {}
+        self.previous_node = 6
+        self.first_fit_selected = False
         self.swd_busy = False
         self.scanning = False
         frame = ttk.Frame(root, padding=16)
@@ -406,23 +421,52 @@ class CanTestWindow:
         self.nominal = combo(top, "仲裁段", ("500K", "1M"), "1M", 6)
         self.data = combo(top, "数据段", tuple(RATES), "5M", 6)
         ttk.Label(top, text="ISO FD + BRS").pack(side="left")
+        self.axis_choices = {
+            f"{role} · {model} · 节点 {node}": node
+            for node, (role, model, _) in FIRST_FIT_AXES.items()
+        }
+        motor_row = ttk.Frame(frame)
+        motor_row.pack(fill="x", pady=(0, 8))
+        self.motor_axis = combo(
+            motor_row,
+            "当前电机",
+            tuple(self.axis_choices),
+            next(label for label, node in self.axis_choices.items() if node == 6),
+            28,
+        )
+        self.motor_selector = next(
+            child for child in motor_row.winfo_children() if isinstance(child, ttk.Combobox)
+        )
+        self.motor_selector.bind("<<ComboboxSelected>>", self.select_first_fit)
+        scan_motor = ttk.Button(motor_row, text="扫描识别", command=lambda: self.start(scan=True))
+        scan_motor.pack(side="left")
+        self.controls.append((scan_motor, "normal"))
+        self.current_motor_label = tk.StringVar(value="未识别；烧录后自动沿用轴类型和节点。")
+        ttk.Label(frame, textvariable=self.current_motor_label).pack(anchor="w", pady=(0, 6))
         self.tabs = ttk.Notebook(frame)
         self.tabs.pack(fill="x")
-        self.query_tab = ttk.Frame(self.tabs, padding=10)
-        self.raw_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(self.query_tab, text="通信压测")
-        self.tabs.add(self.raw_tab, text="协议发送")
-        self.swd_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(self.swd_tab, text="J-Link 烧录")
-        upgrade_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(upgrade_tab, text="CAN 升级与参数")
-        check_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(check_tab, text="硬件功能检测")
+        self.pages = {}
+        for key, title in (
+            ("jlink", "J-Link 烧录"),
+            ("hardware", "硬件测试"),
+            ("communication", "通信测试"),
+            ("calibration", "角度标定"),
+            ("upgrade", "升级压测"),
+            ("speed", "速度控制"),
+        ):
+            page = self.pages[key] = ttk.Frame(self.tabs, padding=10)
+            self.tabs.add(page, text=title)
+        self.swd_tab = self.pages["jlink"]
+        check_tab = self.pages["hardware"]
+        upgrade_tab = self.pages["upgrade"]
+        self.communication_tabs = ttk.Notebook(self.pages["communication"])
+        self.communication_tabs.pack(fill="both", expand=True)
+        self.query_tab = ttk.Frame(self.communication_tabs, padding=10)
+        self.raw_tab = ttk.Frame(self.communication_tabs, padding=10)
+        self.communication_tabs.add(self.query_tab, text="通信压测")
+        self.communication_tabs.add(self.raw_tab, text="协议发送")
         check_row = ttk.Frame(check_tab)
         check_row.pack(anchor="w")
-        self.check_node = combo(
-            check_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), CHECK_DEFAULTS["node"], 3
-        )
         self.check_mode = combo(
             check_row, "检测方式", ("关相静态", "静态和双向驱动"), CHECK_DEFAULTS["mode"], 14
         )
@@ -458,16 +502,9 @@ class CanTestWindow:
             text="APP v1.8.4：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-        calibration_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(calibration_tab, text="角度标定")
+        calibration_tab = self.pages["calibration"]
         calibration_row = ttk.Frame(calibration_tab)
         calibration_row.pack(anchor="w", pady=5)
-        self.calibration_node = combo(
-            calibration_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "6", 3
-        )
-        self.archive_type = combo(
-            calibration_row, "电机类型", tuple(ARCHIVE_TYPES.values()), "P轴电机", 12
-        )
         ttk.Label(calibration_row, text="样机序列号").pack(side="left")
         self.archive_serial = tk.StringVar(value="0001")
         model_entry = ttk.Entry(calibration_row, textvariable=self.archive_serial, width=14)
@@ -504,11 +541,7 @@ class CanTestWindow:
             calibration_tab,
             text="连接J-Link可采集Hall原码，并绘制补偿表、零位、对齐角和两路极值；保存PNG/CSV。",
         ).pack(anchor="w", pady=5)
-        speed_tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(speed_tab, text="速度控制")
-        speed_row = ttk.Frame(speed_tab)
-        speed_row.pack(anchor="w", pady=5)
-        self.speed_node = combo(speed_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "6", 3)
+        speed_tab = self.pages["speed"]
         self.motor_fields = {}
         for index, (key, label, default) in enumerate(
             (
@@ -557,7 +590,15 @@ class CanTestWindow:
         scan = ttk.Button(axis_row, text="扫描在线电机", command=lambda: self.start(scan=True))
         scan.pack(side="left", padx=(0, 8))
         self.controls.append((scan, "normal"))
-        self.upgrade_info = tk.StringVar(value="请扫描当前通道上的五轴电机（节点 3–7）。")
+        self.batch_upgrade = tk.BooleanVar(value=False)
+        batch_upgrade = ttk.Checkbutton(
+            axis_row, text="批量升级", variable=self.batch_upgrade, command=self.update_controls
+        )
+        batch_upgrade.pack(side="left", padx=5)
+        self.controls.append((batch_upgrade, "normal"))
+        self.upgrade_info = tk.StringVar(
+            value="默认使用顶部当前电机；多台操作请扫描后启用批量升级。"
+        )
         ttk.Label(axis_row, textvariable=self.upgrade_info).pack(side="left")
         grid = ttk.Frame(upgrade_tab)
         grid.pack(fill="x", pady=(0, 5))
@@ -643,24 +684,25 @@ class CanTestWindow:
         setup_row.pack(anchor="w", pady=4)
         self.rescan = ttk.Button(setup_row, text="重新识别", command=self.identify_again)
         self.rescan.pack(side="left")
-        self.axis_choices = {
-            f"{role} · {model} · 节点 {node}": node
-            for node, (role, model, _) in FIRST_FIT_AXES.items()
-        }
-        self.new_axis = ttk.Combobox(
-            setup_row, values=tuple(self.axis_choices), width=28, state="disabled"
+        ttk.Label(setup_row, text="空白板初装：在顶部选择实际电机类型一次。").pack(
+            side="left", padx=8
         )
-        self.new_axis.pack(side="left", padx=8)
-        self.new_axis.bind("<<ComboboxSelected>>", lambda _: self.update_controls())
-        axes = ttk.LabelFrame(self.query_tab, text="查询节点", padding=7)
-        axes.pack(fill="x")
+        self.batch_query = tk.BooleanVar(value=False)
+        batch_query = ttk.Checkbutton(
+            self.query_tab, text="多轴查询", variable=self.batch_query, command=self.update_controls
+        )
+        batch_query.pack(anchor="w")
+        self.controls.append((batch_query, "normal"))
+        self.query_axes = ttk.LabelFrame(self.query_tab, text="批量查询节点", padding=7)
         self.nodes = {}
         for node, label in AXES.items():
             self.nodes[node] = tk.BooleanVar(value=node != 8)
-            w = ttk.Checkbutton(axes, text=f"{label} 0x{node:02X}", variable=self.nodes[node])
+            w = ttk.Checkbutton(
+                self.query_axes, text=f"{label} 0x{node:02X}", variable=self.nodes[node]
+            )
             w.pack(side="left", padx=4)
             self.controls.append((w, "normal"))
-        options = ttk.Frame(self.query_tab)
+        options = self.query_options = ttk.Frame(self.query_tab)
         options.pack(fill="x", pady=(14, 5))
         self.mode = combo(options, "测试模式", tuple(MODES), "常规查询", 15)
         self.count = tk.StringVar(value="1000")
@@ -689,10 +731,11 @@ class CanTestWindow:
         samples = ttk.Frame(self.raw_tab)
         samples.grid(row=3, columnspan=2, sticky="w", pady=4)
         ttk.Label(samples, text="状态查询示例").pack(side="left")
-        for node, label in AXES.items():
-            w = ttk.Button(samples, text=label, width=6, command=lambda n=node: self.fill_query(n))
-            w.pack(side="left", padx=1)
-            self.controls.append((w, "normal"))
+        w = ttk.Button(
+            samples, text="填入当前电机", command=lambda: self.fill_query(self.current_node())
+        )
+        w.pack(side="left", padx=1)
+        self.controls.append((w, "normal"))
         self.fill_query(6)
         bar = ttk.Frame(frame)
         bar.pack(fill="x", pady=(12, 5))
@@ -717,14 +760,11 @@ class CanTestWindow:
         )
         self.output.pack(fill="both", expand=True, pady=(8, 0))
         self.mode.trace_add("write", lambda *_: self.update_controls())
-        self.calibration_node.trace_add(
-            "write",
-            lambda *_: self.archive_type.set(ARCHIVE_TYPES[int(self.calibration_node.get())]),
-        )
-        self.archive_type.trace_add("write", self.select_archive_type)
+        self.motor_axis.trace_add("write", self.select_current_motor)
         for var in (self.channel, self.nominal, self.data):
-            var.trace_add("write", lambda *_: self.clear_upgrade_scan())
+            var.trace_add("write", self.connection_changed)
         self.tabs.bind("<<NotebookTabChanged>>", lambda _: self.update_controls())
+        self.communication_tabs.bind("<<NotebookTabChanged>>", lambda _: self.update_controls())
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.update_controls()
 
@@ -754,7 +794,7 @@ class CanTestWindow:
             self.upgrade_lights[node].configure(text="● 未扫描", foreground="#656565")
             for labels in (self.upgrade_details, self.upgrade_uids, self.upgrade_results):
                 labels[node].configure(text="—")
-        self.upgrade_info.set("请扫描当前通道上的五轴电机（节点 3–7）。")
+        self.upgrade_info.set("默认使用顶部当前电机；多台操作请扫描后启用批量升级。")
         self.update_controls()
 
     def show_online_motor(self, motor):
@@ -769,9 +809,68 @@ class CanTestWindow:
 
     def identify_again(self) -> None:
         self.identity = None
-        self.new_axis.set("")
+        self.first_fit_selected = False
+        self.known_motors.clear()
+        self.select_current_motor()
         self.motor_label.set("识别当前连接的电机。")
+        self.tabs.select(self.swd_tab)
         self.start()
+
+    def current_page(self) -> str:
+        return next(key for key, page in self.pages.items() if str(page) == self.tabs.select())
+
+    def current_node(self) -> int:
+        return self.axis_choices[self.motor_axis.get()]
+
+    def select_first_fit(self, _event=None) -> None:
+        if self.identity and self.identity["node"] is None:
+            self.first_fit_selected = True
+        self.update_controls()
+
+    def select_current_motor(self, *_args) -> None:
+        node = self.current_node()
+        self.current_motor = self.known_motors.get(node)
+        if self.identity and self.identity["node"] not in (None, node):
+            self.identity = None
+        if (
+            self.identity
+            and self.current_motor
+            and self.identity["uid"] != self.current_motor["uid"]
+        ):
+            self.identity = None
+        if self.current_motor:
+            self.current_motor_label.set(
+                f"UID {self.current_motor['uid']}　来源：{self.current_motor['source']}"
+            )
+        else:
+            self.current_motor_label.set("当前轴尚未识别；可先烧录或点击扫描识别。")
+        old_ident, old_body = encode_frames(self.previous_node, 108, b"", 1)[0]
+        if (
+            self.identifier.get() == f"0x{old_ident:08X}"
+            and self.payload.get() == old_body.hex(" ").upper()
+        ):
+            self.fill_query(node)
+        self.previous_node = node
+        self.update_controls()
+
+    def set_current_motor(self, node: int, uid: str, source: str, *, role=None, **metadata) -> None:
+        if node not in FIRST_FIT_AXES:
+            return
+        self.known_motors[node] = dict(metadata, node=node, uid=uid, source=source, role=role)
+        self.motor_axis.set(
+            next(label for label, value in self.axis_choices.items() if value == node)
+        )
+
+    def connection_changed(self, *_args) -> None:
+        self.known_motors.clear()
+        self.identity = None
+        self.select_current_motor()
+        self.clear_upgrade_scan()
+
+    def selected_upgrade_motors(self) -> list[dict]:
+        if self.batch_upgrade.get():
+            return [m for n, m in self.upgrade_targets.items() if self.upgrade_selected[n].get()]
+        return [self.current_motor] if self.current_motor else []
 
     def fill_query(self, node: int) -> None:
         ident, body = encode_frames(node, 108, b"", 1)[0]
@@ -781,23 +880,34 @@ class CanTestWindow:
     def update_controls(self) -> None:
         busy = self.process is not None
         mode = MODES[self.mode.get()]
-        current = self.tabs.index("current")
-        swd = current == 2
+        current = self.current_page()
+        swd = current == "jlink"
         for control, state in self.controls:
             control.configure(state="disabled" if busy else state)
         for entry in self.entries:
             entry.configure(state="normal" if not busy and mode == "fixed" else "disabled")
         for index in range(len(self.tabs.tabs())):
-            self.tabs.tab(index, state="disabled" if busy and index != current else "normal")
-        action = (
-            "开始测试",
-            "发送一帧",
-            "识别电机",
-            "开始 CAN 升级",
-            "开始硬件功能检测",
-            "开始角度标定并保存",
-            "使能速度控制",
-        )[current]
+            self.tabs.tab(
+                index,
+                state="disabled"
+                if busy and self.tabs.tabs()[index] != self.tabs.select()
+                else "normal",
+            )
+        for tab in self.communication_tabs.tabs():
+            self.communication_tabs.tab(
+                tab,
+                state="disabled" if busy and tab != self.communication_tabs.select() else "normal",
+            )
+        action = {
+            "communication": "发送一帧"
+            if self.communication_tabs.select() == str(self.raw_tab)
+            else "开始通信测试",
+            "jlink": "识别电机",
+            "upgrade": "开始 CAN 升级",
+            "hardware": "开始硬件功能检测",
+            "calibration": "开始角度标定并保存",
+            "speed": "使能速度控制",
+        }[current]
         speed_active = busy and self.active_profile == "motor_speed"
         for key, entry in self.motor_fields.items():
             entry.configure(
@@ -805,44 +915,45 @@ class CanTestWindow:
             )
         self.speed_update.configure(state="normal" if speed_active else "disabled")
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
-        if current == 5:
+        if current == "calibration":
             self.start_button.pack_forget()
         elif not self.start_button.winfo_manager():
             self.start_button.pack(side="left", before=self.stop_button)
         for node, check in self.upgrade_checks.items():
             check.configure(
-                state="normal" if node in self.upgrade_targets and not busy else "disabled"
+                state="normal"
+                if self.batch_upgrade.get() and node in self.upgrade_targets and not busy
+                else "disabled"
             )
-        selected_motors = [
-            m for n, m in self.upgrade_targets.items() if self.upgrade_selected[n].get()
-        ]
+        if self.batch_query.get():
+            self.query_axes.pack(fill="x", before=self.query_options)
+        else:
+            self.query_axes.pack_forget()
+        selected_motors = self.selected_upgrade_motors()
         selected = len(selected_motors)
         bitrate_state = (
             "normal"
-            if not busy and selected and all(m["role"] == 1 for m in selected_motors)
+            if not busy and selected and all(m.get("role") == 1 for m in selected_motors)
             else "disabled"
         )
         self.bitrate_read.configure(state=bitrate_state)
         self.bitrate_save.configure(state=bitrate_state)
-        if current == 3 and selected:
+        if current == "upgrade" and selected:
             action = f"开始升级（{selected} 台）"
         blank = self.identity is not None and self.identity["node"] is None
-        self.new_axis.configure(
-            state="readonly"
-            if blank and not busy and "resume_node" not in self.identity
-            else "disabled"
-        )
+        if blank and "resume_node" in self.identity:
+            self.motor_selector.configure(state="disabled")
         if swd and self.identity:
             action = "按所选型号初装" if blank else f"烧录节点 {self.identity['node']}"
         self.start_button.configure(
             text=action,
             state="disabled"
             if busy
-            or (current == 3 and not selected)
+            or (current == "upgrade" and not selected)
             or (
                 swd
                 and self.identity
-                and (not self.hex_path or (blank and self.new_axis.get() not in self.axis_choices))
+                and (not self.hex_path or (blank and not self.first_fit_selected))
             )
             else "normal",
         )
@@ -917,23 +1028,30 @@ class CanTestWindow:
         window.rowconfigure(1, weight=1)
         window.columnconfigure(0, weight=1)
 
-    def select_archive_type(self, *_args) -> None:
-        node = next(n for n, label in ARCHIVE_TYPES.items() if label == self.archive_type.get())
-        if self.calibration_node.get() != str(node):
-            self.calibration_node.set(str(node))
+    def operation_mode(self, *, scan=False, bitrate_action=None) -> str:
+        if scan:
+            return "can_scan"
+        if bitrate_action:
+            return "can_bitrate"
+        page = self.current_page()
+        if page == "communication":
+            return (
+                "manual"
+                if self.communication_tabs.select() == str(self.raw_tab)
+                else MODES[self.mode.get()]
+            )
+        return {
+            "jlink": "jlink_flash" if self.identity else "jlink_identify",
+            "upgrade": "can_upgrade",
+            "hardware": "hardware_check",
+            "calibration": "motor_calibration",
+            "speed": "motor_speed",
+        }[page]
 
     def start(self, *, scan=False, bitrate_action=None, calibration_kind=1) -> None:
         if self.process is not None:
             return
-        mode = (
-            MODES[self.mode.get()],
-            "manual",
-            "jlink_flash" if self.identity else "jlink_identify",
-            "can_bitrate" if bitrate_action else "can_scan" if scan else "can_upgrade",
-            "hardware_check",
-            "motor_calibration",
-            "motor_speed",
-        )[self.tabs.index("current")]
+        mode = self.operation_mode(scan=scan, bitrate_action=bitrate_action)
         swd = mode.startswith("jlink_")
         settings = {
             "profile": mode,
@@ -952,30 +1070,34 @@ class CanTestWindow:
                     "identity": self.identity,
                     "hex": str(self.hex_path or ""),
                     "restart_after_flash": self.restart_after_flash.get(),
-                    "first_fit_node": self.axis_choices.get(self.new_axis.get())
-                    if self.identity and self.identity["node"] is None
+                    "first_fit_node": self.current_node()
+                    if self.identity and self.identity["node"] is None and self.first_fit_selected
                     else None,
                     "bus": settings["bus"],
                 }
             elif mode in ("motor_calibration", "motor_speed"):
-                settings["node"] = int(
-                    (
-                        self.calibration_node if mode == "motor_calibration" else self.speed_node
-                    ).get()
-                )
+                if not self.current_motor:
+                    raise ValueError("请先烧录或扫描识别当前电机")
+                settings["node"] = self.current_node()
+                settings["expected_uid"] = self.current_motor["uid"] if self.current_motor else None
                 if mode == "motor_calibration":
                     self.curve_path = None
                     settings["calibration_kind"] = calibration_kind
                     settings["archive"] = calibration_archive(
-                        self.archive_type.get(), self.archive_serial.get(), self.test_serial.get()
+                        ARCHIVE_TYPES[self.current_node()],
+                        self.archive_serial.get(),
+                        self.test_serial.get(),
                     )
                 if mode == "motor_speed":
                     fields = {key: entry.get().strip() for key, entry in self.motor_fields.items()}
                     settings.update(motor_speed_fields(fields))
             elif mode == "hardware_check":
+                if not self.current_motor:
+                    raise ValueError("请先烧录或扫描识别当前电机")
                 fields = {key: entry.get().strip() for key, entry in self.check_fields.items()}
                 settings.update(
-                    node=int(self.check_node.get()),
+                    node=self.current_node(),
+                    expected_uid=self.current_motor["uid"] if self.current_motor else None,
                     **hardware_check_fields(fields, self.check_mode.get() == "静态和双向驱动"),
                 )
             elif mode == "can_scan":
@@ -983,8 +1105,8 @@ class CanTestWindow:
             elif mode in ("can_upgrade", "can_bitrate"):
                 targets = [
                     {"node": n, "uid": m["uid"]}
-                    for n, m in self.upgrade_targets.items()
-                    if self.upgrade_selected[n].get()
+                    for m in self.selected_upgrade_motors()
+                    for n in (m["node"],)
                 ]
                 if not targets:
                     raise ValueError("请先扫描并勾选在线电机")
@@ -1010,7 +1132,13 @@ class CanTestWindow:
             elif mode == "manual":
                 settings["frame"] = parse_raw(self.identifier.get(), self.payload.get())
             else:
-                nodes = [n for n, selected in self.nodes.items() if selected.get()]
+                nodes = (
+                    [3, 4, 5, 6, 7]
+                    if mode == "acceptance"
+                    else [n for n, selected in self.nodes.items() if selected.get()]
+                    if self.batch_query.get()
+                    else [self.current_node()]
+                )
                 if not nodes:
                     raise ValueError("请至少选择一个查询节点")
                 if mode == "acceptance" and (
@@ -1024,6 +1152,7 @@ class CanTestWindow:
                 if not 1 <= count <= 1000000 or not 1 <= rate <= 10000:
                     raise ValueError("每节点笔数需为 1 至 1,000,000，总笔/秒需为 1 至 10,000")
                 settings.update(nodes=nodes, count=count, rate=rate)
+                settings["node_uids"] = {n: m["uid"] for n, m in self.known_motors.items()}
             directory = Path.home() / "CAN-Link-Test"
             if mode == "motor_calibration":
                 directory = (
@@ -1133,8 +1262,10 @@ class CanTestWindow:
         self.active_profile = None
         if not self.done:
             self.identity = None
+            self.known_motors.clear()
+            self.select_current_motor()
             self.motor_label.set("请重新识别电机。")
-            if self.tabs.index("current") == 3:
+            if self.current_page() == "upgrade":
                 if self.scanning:
                     self.clear_upgrade_scan()
                 else:
@@ -1265,6 +1396,7 @@ class CanTestWindow:
             }
             self.clear_upgrade_scan()
             self.upgrade_targets = {m["node"]: m for m in motors}
+            self.known_motors = {m["node"]: dict(m, source="CAN扫描") for m in motors}
             if not r.get("cancelled") and not r.get("fatal"):
                 for n in self.upgrade_lights:
                     self.upgrade_lights[n].configure(text="● 未识别", foreground="#656565")
@@ -1272,11 +1404,19 @@ class CanTestWindow:
                 n = motor["node"]
                 self.show_online_motor(motor)
                 self.upgrade_selected[n].set(len(motors) == 1 or previous.get(n) == motor["uid"])
+            if len(motors) == 1:
+                self.motor_axis.set(
+                    next(label for label, n in self.axis_choices.items() if n == motors[0]["node"])
+                )
+            else:
+                self.select_current_motor()
             status = "扫描已停止" if r.get("cancelled") else f"发现 {len(motors)} 台在线电机"
             if r.get("fatal"):
                 status = "扫描失败"
             self.state.set(status)
-            self.upgrade_info.set(f"{datetime.now():%H:%M:%S} 扫描 · {status}。可勾选多台。")
+            self.upgrade_info.set(
+                f"{datetime.now():%H:%M:%S} 扫描 · {status}。默认当前电机，批量模式可勾选多台。"
+            )
             lines = [
                 f"{AXES[n]} · 节点 {n}　{upgrade_motor_status(motor)}　UID {motor['uid']}"
                 for n, motor in self.upgrade_targets.items()
@@ -1288,12 +1428,13 @@ class CanTestWindow:
         if r["profile"] == "can_upgrade":
             for key, result in r.get("motors", {}).items():
                 n = int(key)
-                motor = self.upgrade_targets.get(n)
+                motor = self.upgrade_targets.get(n) or self.known_motors.get(n)
                 if motor is None or motor["uid"] != result["uid"]:
                     continue
                 progress = f"{result['passed']}/{r['rounds_per_motor']} 次通过"
                 if result.get("identity_changed_or_missing"):
-                    del self.upgrade_targets[n]
+                    self.upgrade_targets.pop(n, None)
+                    self.known_motors.pop(n, None)
                     self.upgrade_selected[n].set(False)
                     self.upgrade_lights[n].configure(text="● 待识别", foreground="#995900")
                     self.upgrade_details[n].configure(text="地址或 UID 需重新扫描")
@@ -1302,6 +1443,7 @@ class CanTestWindow:
                     self.upgrade_lights[n].configure(text="● 待复核", foreground="#995900")
                 elif result["passed"]:
                     motor.update(role=1, boot_state=1, app_version=r["version"], state=None)
+                    self.known_motors[n] = dict(motor, source="CAN升级")
                     self.show_online_motor(motor)
                 if result["failed"]:
                     progress += " · 失败"
@@ -1321,10 +1463,13 @@ class CanTestWindow:
             self.output.insert("end", f"\n逐轮记录　{self.report_dir}")
             self.output.see("end")
             self.output.configure(state="disabled")
+            self.select_current_motor()
             return
         if r["profile"].startswith("jlink_"):
             self.identity = None
-            self.new_axis.set("")
+            self.first_fit_selected = False
+            self.known_motors.clear()
+            self.select_current_motor()
             if r.get("success"):
                 identity = r["identity"]
                 name = (
@@ -1338,9 +1483,14 @@ class CanTestWindow:
                     if identity["node"] is None:
                         detail += "　请选择与实物相符的轴和型号。"
                         if "resume_node" in identity:
-                            self.new_axis.current(
-                                list(self.axis_choices.values()).index(identity["resume_node"])
+                            self.motor_axis.set(
+                                next(
+                                    label
+                                    for label, n in self.axis_choices.items()
+                                    if n == identity["resume_node"]
+                                )
                             )
+                            self.first_fit_selected = True
                             detail = (
                                 f"节点 {identity['resume_node']} 初装待恢复　UID {identity['uid']}"
                             )
@@ -1364,6 +1514,13 @@ class CanTestWindow:
                             if r.get("cpu_halted")
                             else "已跳过重启。"
                         )
+                if identity["node"] is not None:
+                    self.set_current_motor(
+                        identity["node"],
+                        identity["uid"],
+                        "J-Link识别" if r["profile"] == "jlink_identify" else "J-Link烧录",
+                        role=1 if r.get("app_started") else None,
+                    )
                 self.bar["value"] = 100
                 self.progress.set("100%")
             else:

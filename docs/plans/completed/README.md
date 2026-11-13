@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [CAN FD 标定曲线与双编号归档](2026-11-13-canfd-calibration-curves.md) — v1.9.2补偿/零位/极值/原码图及参数归档；节点6采集、原生Tk图窗、Release和发布包校验通过。
+
 - [速度目标精确边界](2026-11-13-speed-target-boundary.md) — APP/GUI v1.8.3，±30目标受理和±30.001拒绝实测通过；原角区Hall诊断保留。
 
 - [硬件检测中止与速度上限配置](2026-11-13-hardware-abort-report.md) — GUI v1.8.2区分板端中止与命令拒绝，默认30 rad/s可配置；节点6参数回读、±5 rad/s及Release通过，Hall异常保留。

@@ -124,3 +124,7 @@ Loader 先确认复位原因、功率关闭及链路条件。看门狗复位、�
 | 首次启动已写尝试标记，确认前复位 | 不重复试运行。只有重新下载或满足已确认镜像的启动条件才能启动。 |
 
 电机事件与抢占见[状态集成用例](../../tests/unit/native/motor_state_machine_integration_test.c)，掉电与标记组合见[Loader 内存用例](../../tests/unit/loader_upgrade_test.c)。
+
+## 相电阻检查（2026-11-13，实施中）
+
+完整硬件检测新增内部标定类型 PHASE_RESISTANCE。与其他有功率标定共用准入、ADC启相、STOP和故障关断；仅本检查允许BSP在零电流时选择AB、BC、CA双相，第三相上下桥均关闭。快环工作区归MotorCalibration；完成直接关相退出，不发布LUT、不写Flash。检查结果由板级检测在终态复制，失败不得进入动态。

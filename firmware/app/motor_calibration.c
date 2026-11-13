@@ -3,8 +3,39 @@
 #include "motor_fault.h"
 #include <math.h>
 
+/* 低频使用的测量分支留在Flash，避免挤占正常控制快环SRAM。 */
+static __attribute__((noinline)) MotorTaskResult step_resistance(MotorCalibration *calibration)
+{
+    PhaseResistance *test = &calibration->workspace.resistance;
+    FocState *foc = calibration->drive.foc;
+    float turns = (float)calibration->drive.encoder->linearized_q15 / 65536.0f;
+    if (calibration->resistance_epoch != calibration->state_machine->epoch)
+    {
+        calibration->resistance_epoch = calibration->state_machine->epoch;
+        PhaseResistance_Init(test,
+                             calibration->drive.configuration->model.motor_phase_resistance_ohm,
+                             calibration->drive.configuration->model.motor_d_inductance_h,
+                             turns);
+    }
+    float currents[3] = {
+        foc->phase_current_a.a, foc->phase_current_a.b, foc->phase_current_a.c};
+    float duty[3];
+    uint8_t mask =
+        PhaseResistance_Step(test, currents, foc->bus_voltage_v, turns, 1.0f / FOC_FREQ, duty);
+    const MotorPowerOutput *power = calibration->state_machine->drive.power;
+    power->select_phases(mask);
+    power->set_duty(duty[0], duty[1], duty[2]);
+    return (MotorTaskResult){test->done ? MOTOR_TASK_COMPLETED : MOTOR_TASK_RUNNING,
+                             MOTOR_FAULT_NONE};
+}
+
 MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
 {
+    if (MotorStateMachine_GetCalibrationType(calibration->state_machine) ==
+        MOTOR_CALIBRATION_PHASE_RESISTANCE)
+    {
+        return step_resistance(calibration);
+    }
     const float motor_limit_rad_s =
         MOTOR_CALIBRATION_OUTPUT_SPEED_LIMIT_RAD_S * calibration->output->params.gear_ratio;
     const float measured_rad_s = Encoder_GetMechVel(calibration->drive.encoder);

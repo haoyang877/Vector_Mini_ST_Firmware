@@ -59,7 +59,8 @@ typedef enum
     MOTOR_CALIBRATION_ENCODER_LINEARIZATION,
     MOTOR_CALIBRATION_ELECTRICAL_ZERO,
     MOTOR_CALIBRATION_MECHANICAL_ZERO,
-    MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO /* 联合标定的电零位阶段，不接受外部请求。 */
+    MOTOR_CALIBRATION_PHASE_RESISTANCE = 5,
+    MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO = 4 /* 联合标定的电零位阶段，不接受外部请求。 */
 } MotorCalibrationType;
 
 /** @brief 状态机保存的真实标定终态；成功只在实际保存后的COMPLETE发布。 */
@@ -126,6 +127,7 @@ typedef struct
     void (*disable)(void);
     bool (*phases_disabled)(void);
     void (*set_duty)(float phase_a, float phase_b, float phase_c);
+    void (*select_phases)(uint8_t mask);
 } MotorPowerOutput;
 
 /** @brief 状态机借用的轴对象；其寿命覆盖本实例。 */

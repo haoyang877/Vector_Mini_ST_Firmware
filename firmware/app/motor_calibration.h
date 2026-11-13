@@ -6,6 +6,7 @@
 #include "bsp_flash.h"
 #include "parameter_record.h"
 #include "parameter_values.h"
+#include "phase_resistance.h"
 
 /** @brief 单轴标定的候选与工作区；绑定的活动对象在整个会话内有效。 */
 typedef struct
@@ -21,11 +22,13 @@ typedef struct
     /* 前台登记待发布 LUT 的会话，ADC 在下一拍安装并确认。零值无请求。 */
     volatile uint32_t lut_request_epoch, lut_published_epoch;
     EncoderCalibrationSession session;
+    uint32_t resistance_epoch;
     /* 标定与关相参数维护互斥，复用工作区避免大配置占用中断栈。 */
     union
     {
         EncoderCalibrationWorkspace encoder;
         MotorConfiguration parameters;
+        PhaseResistance resistance;
     } workspace;
 #if BSP_ENABLED_LINEAR_HALL
     LinearHallCalibration hall_sweep;

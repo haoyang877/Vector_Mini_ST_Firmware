@@ -20,7 +20,8 @@ enum
     ARMED,
     DRIVING,
     DONE,
-    ABORTED
+    ABORTED,
+    RESISTANCE
 };
 enum
 {
@@ -79,6 +80,8 @@ typedef struct
 typedef struct
 {
     ProtocolHardwareReport report;
+    PhaseResistanceReport resistance;
+    uint32_t resistance_epoch;
     uint32_t previous_run, base_epoch, driven_epoch, stage_ms, last_cycles, revision;
     uint32_t static_samples, drive_samples, voltage_samples, temperature_samples;
     uint32_t voltage_outside_samples, voltage_invalid_samples;
@@ -150,8 +153,17 @@ void HardwareCheck_CaptureFast(const MotorAxis *axis)
 
 static void end_check(MotorAxis *axis, uint8_t stage)
 {
+    if (s_check.report.stage == RESISTANCE && stage == ABORTED && s_check.resistance.failure == 0U)
+    {
+        s_check.resistance.failure = s_check.report.items[VBUS] == FAIL ? 7U : 5U;
+    }
     g_hardware_check_capture = false;
     s_check.report.stage = stage;
+    if (s_check.resistance_epoch != 0U && axis->state_machine.epoch == s_check.resistance_epoch &&
+        !MotorStateMachine_IsStopped(&axis->state_machine))
+    {
+        MotorStateMachine_RequestStop(&axis->state_machine);
+    }
     if (s_check.driven_epoch != 0U && axis->state_machine.epoch == s_check.driven_epoch &&
         !MotorStateMachine_IsStopped(&axis->state_machine))
     {
@@ -346,12 +358,40 @@ static ProtocolCode read_measurement(void *context,
     return PROTOCOL_RESULT_OK;
 }
 
+static ProtocolCode
+read_resistance(void *context, uint32_t expected_run, ProtocolHardwareResistance *measurement)
+{
+    (void)context;
+    if (g_hardware_check_capture || expected_run == 0U || expected_run != s_check.report.run_id ||
+        s_check.mode != 3U)
+    {
+        return PROTOCOL_RESULT_DENIED;
+    }
+    const PhaseResistanceReport *result = &s_check.resistance;
+    *measurement = (ProtocolHardwareResistance){.run_id = expected_run,
+                                                .result = result->result,
+                                                .open_phases = result->open_phases,
+                                                .low_phases = result->low_phases,
+                                                .high_phases = result->high_phases,
+                                                .open_lines = result->open_lines,
+                                                .failure = result->failure,
+                                                .valid = result->valid};
+    measurement->values[0] = result->nominal_ohm;
+    for (unsigned i = 0U; i < 3U; ++i)
+    {
+        measurement->values[1U + i] = result->phase_ohm[i];
+        measurement->values[4U + i] = result->line_ohm[i];
+    }
+    return PROTOCOL_RESULT_OK;
+}
+
 ProtocolHardwareCheck HardwareCheck_Bind(MotorAxis *axis)
 {
     return (ProtocolHardwareCheck){.context = axis,
                                    .handle = handle_request,
                                    .started = observe_start,
-                                   .measure = read_measurement};
+                                   .measure = read_measurement,
+                                   .resistance = read_resistance};
 }
 
 /* MT6835 连续读：从 ANGLE[20] 到 STATUS[0] 的三个字节，CRC-8 0x07，初值 0。 */
@@ -568,7 +608,7 @@ static void finish_static(MotorAxis *axis)
     items[NTC] = s_check.ntc_window;
     if (s_check.mode == 1U || items[NTC] != PASS)
     {
-        end_check(axis, items[NTC] == UNTESTED || s_check.mode == 2U ? ABORTED : DONE);
+        end_check(axis, items[NTC] == UNTESTED || s_check.mode != 1U ? ABORTED : DONE);
         return;
     }
     for (unsigned i = IA; i <= HALL_STATIC; ++i)
@@ -579,7 +619,23 @@ static void finish_static(MotorAxis *axis)
             return;
         }
     }
-    s_check.report.stage = ARMED;
+    if (s_check.mode == 3U)
+    {
+        s_check.resistance.nominal_ohm = axis->configuration.model.motor_phase_resistance_ohm;
+        if (MotorStateMachine_RequestCalibration(
+                &axis->state_machine, MOTOR_CALIBRATION_PHASE_RESISTANCE) != MOTOR_CONTROL_ACCEPTED)
+        {
+            s_check.resistance.failure = 8U;
+            end_check(axis, ABORTED);
+            return;
+        }
+        s_check.resistance_epoch = axis->state_machine.epoch;
+        s_check.report.stage = RESISTANCE;
+    }
+    else
+    {
+        s_check.report.stage = ARMED;
+    }
     s_check.stage_ms = BspSystem_TimeMs();
 }
 
@@ -883,6 +939,10 @@ static void consume_sample(MotorAxis *axis, const HardwareSample *sample)
         end_check(axis, ABORTED);
         return;
     }
+    if (s_check.report.stage == RESISTANCE)
+    {
+        return;
+    }
     if (s_check.report.stage == ARMED && !sample->powered && sample->epoch == s_check.base_epoch)
     {
         return;
@@ -928,7 +988,8 @@ void HardwareCheck_Process(MotorAxis *axis)
     }
     uint32_t now = BspSystem_TimeMs();
     uint8_t stage = s_check.report.stage;
-    uint32_t timeout_ms = stage == STATIC ? 500U : (stage == ARMED ? 3000U : 8000U);
+    uint32_t timeout_ms =
+        stage == STATIC ? 500U : (stage == ARMED ? 3000U : (stage == RESISTANCE ? 2000U : 8000U));
     if (s_overrun || axis->parameters.revision != s_check.revision ||
         now - s_check.stage_ms > timeout_ms)
     {
@@ -961,5 +1022,28 @@ void HardwareCheck_Process(MotorAxis *axis)
         BspSystem_MemoryBarrier();
         ++s_read;
         consume_sample(axis, &sample);
+    }
+    if (g_hardware_check_capture && s_check.report.stage == RESISTANCE &&
+        MotorStateMachine_IsStopped(&axis->state_machine))
+    {
+        if (axis->calibration.resistance_epoch == s_check.resistance_epoch)
+        {
+            s_check.resistance = axis->calibration.workspace.resistance.report;
+        }
+        if (axis->state_machine.calibration_result_epoch != s_check.resistance_epoch ||
+            axis->state_machine.calibration_result != MOTOR_CALIBRATION_RESULT_COMPLETED)
+        {
+            s_check.resistance.failure = 5U;
+        }
+        if (s_check.resistance.result != 1U || s_check.resistance.failure != 0U)
+        {
+            end_check(axis, ABORTED);
+        }
+        else
+        {
+            s_check.base_epoch = axis->state_machine.epoch;
+            s_check.report.stage = ARMED;
+            s_check.stage_ms = BspSystem_TimeMs();
+        }
     }
 }

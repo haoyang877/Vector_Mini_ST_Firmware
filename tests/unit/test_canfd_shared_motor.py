@@ -129,8 +129,8 @@ class SharedMotorTests(unittest.TestCase):
             self.window.hardware_table.item(i, "values")
             for i in self.window.hardware_table.get_children()
         ]
-        self.assertEqual(rows[8][0], "电机角动态")
-        self.assertEqual(rows[8][3], "异常")
+        self.assertEqual(rows[9][0], "电机角动态")
+        self.assertEqual(rows[9][3], "异常")
         text = self.window.hardware_result_note.get()
         self.assertIn("正向命令→编码器反转", text)
         self.assertIn("反向命令→编码器正转", text)
@@ -149,13 +149,13 @@ class SharedMotorTests(unittest.TestCase):
             self.window.hardware_table.item(i, "values")
             for i in self.window.hardware_table.get_children()
         ]
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 11)
         self.assertIn("2050.00", rows[0][1])
         self.assertIn("RMS <10", rows[0][2])
         self.assertIn("26.99", rows[4][1])
         self.assertIn("1/2000", rows[4][1])
-        self.assertEqual(rows[8][1], "未采集")
-        self.assertEqual(rows[9][1], "未装")
+        self.assertEqual(rows[9][1], "未采集")
+        self.assertEqual(rows[10][1], "未装")
         self.window.show("下一项任务")
         self.assertEqual(self.window.hardware_results.winfo_manager(), "")
 

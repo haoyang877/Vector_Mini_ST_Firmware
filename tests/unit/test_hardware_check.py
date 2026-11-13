@@ -59,7 +59,7 @@ class Port:
         elif kind == 2:
             reply = struct.pack(
                 "<I6H",
-                0 if self.fault == "legacy" else 0xFFD00 | (int(self.measurements) << 20),
+                0 if self.fault == "legacy" else 0x2FFD00 | (int(self.measurements) << 20),
                 0x64E,
                 64,
                 46,
@@ -68,6 +68,30 @@ class Port:
                 500,
             )
         elif kind == 127:
+            if payload and payload[1] == 3:
+                reply = struct.pack(
+                    "<HH4BI4B7f",
+                    0,
+                    0,
+                    2,
+                    1,
+                    0,
+                    0,
+                    self.run,
+                    0,
+                    0,
+                    0,
+                    63,
+                    1.905,
+                    1.905,
+                    1.905,
+                    1.905,
+                    3.81,
+                    3.81,
+                    3.81,
+                )
+                self.pending.append(response(node, kind, seq, reply))
+                return
             if payload and payload[1] == 2:
                 _, _, item, _, expected = struct.unpack("<4BI", payload)
                 assert not self.running and expected == self.run
@@ -91,11 +115,11 @@ class Port:
                     if self.fault == "start127loss":
                         return
             elif self.stage == 1:
-                self.stage = (2 if self.mode == 2 else 4) if self.fault != "hot" else 5
+                self.stage = (2 if self.mode == 3 else 4) if self.fault != "hot" else 5
             items = [1] * 8 + [0, 0] if self.stage in (2, 3, 4, 5) else [0] * 10
             if self.fault == "hot" and self.stage == 5:
                 items[5] = 0
-            if self.mode == 2 and self.stage == 4:
+            if self.mode == 3 and self.stage == 4:
                 items[8:] = [1, 1]
                 if self.fault == "reversed":
                     items[8] = 2
@@ -414,17 +438,29 @@ class HardwareHostTest(unittest.TestCase):
         self.assertTrue(r["communication_reliability_passed"])
         self.assertEqual(sum(kind == 117 for kind, _, _ in bus.sent), 1)
 
+    def test_resistance_values_and_fault_details(self):
+        report, bus = self.check("", True)
+        row = next(row for row in hw.result_rows(report) if row[0] == "相电阻")
+        self.assertEqual(row[3], "正常")
+        self.assertIn("1.9050", row[1])
+        self.assertIn("0.9525", row[2])
+        self.assertTrue(any(kind == 127 and payload[1:3] == bytes((1,3))
+                            for kind, _, payload in bus.sent if payload))
+        report["resistance"].update(result=2, open_phases=2, open_lines=3)
+        self.assertIn("B相回路缺相", hw.result_rows(report)[8][3])
+        report["resistance"].update(result=3, open_phases=0, open_lines=0, low_phases=4)
+        self.assertIn("C相电阻异常小", hw.result_rows(report)[8][3])
+        report["resistance"].update(result=0, low_phases=0, high_phases=1, failure=10)
+        self.assertIn("A相电阻偏高", hw.result_rows(report)[8][3])
+
     def test_stop_paths(self):
         for fault in ("startloss", "linkloss", "travel", "stoploss", "pendingstop", "denied"):
             with self.subTest(fault=fault):
                 r, bus = self.check(fault, True)
                 self.assertTrue(r["note"])
                 self.assertIn(117, [k for k, _, _ in bus.sent])
-                if fault == "denied":
-                    self.assertNotIn(110, [k for k, _, _ in bus.sent])
-                else:
-                    self.assertIn(110, [k for k, _, _ in bus.sent])
-                    self.assertEqual(r["stop_confirmed"], fault not in ("stoploss", "pendingstop"))
+                self.assertIn(110, [k for k, _, _ in bus.sent])
+                self.assertEqual(r["stop_confirmed"], fault not in ("stoploss", "pendingstop"))
                 if fault == "pendingstop":
                     self.assertEqual(r["communication"], "正常")
                 if fault in ("linkloss", "startloss", "stoploss"):

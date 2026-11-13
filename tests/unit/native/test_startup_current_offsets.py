@@ -47,6 +47,7 @@ def main() -> None:
         "MotorAxis_OuterTick",
     ):
         production += function_source(axis, name)
+    production += function_source(calibration, "step_resistance")
     production += function_source(calibration, "MotorCalibration_StepFast")
     production += (
         "\n#if BSP_ENABLED_LINEAR_HALL\n"
@@ -84,6 +85,7 @@ def main() -> None:
                 f"-DBSP_BOARD={board}",
                 str(source),
                 str(ROOT / "firmware/motor/control/pi_controller.c"),
+                str(ROOT / "firmware/motor/calibration/phase_resistance.c"),
                 str(ROOT / "firmware/motor/math/control_math.c"),
                 str(ROOT / "firmware/motor/feedback/linear_hall.c"),
                 str(ROOT / "firmware/motor/feedback/output_encoder.c"),

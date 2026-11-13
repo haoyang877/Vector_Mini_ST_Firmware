@@ -29,7 +29,7 @@ ITEMS = (
     "霍尔动态",
 )
 STATES = ("未测", "正常", "异常", "未装")
-STAGES = ("未开始", "静态采样", "待驱动", "驱动中", "结束", "中止")
+STAGES = ("未开始", "静态采样", "待驱动", "驱动中", "结束", "中止", "相电阻测量")
 COUNTER_DB = Path.home() / "CAN-Link-Test" / "hardware-check.sqlite3"
 
 
@@ -140,6 +140,36 @@ class Link:
             "samples": int.from_bytes(data[12:16], "little"),
             "values": [v if data[6] & (1 << i) else None for i, v in enumerate(values)],
         }
+
+    def resistance(self, run_id: int) -> dict:
+        """读取相电阻终态；有效位外的值保持缺失。"""
+        data = self.request(127, struct.pack("<4BI", 2, 3, 0, 0, run_id))
+        if len(data) == 4:
+            raise Rejected("相电阻结果读取被拒绝")
+        if (
+            len(data) != 44
+            or data[:5] != bytes((0, 0, 0, 0, 2))
+            or int.from_bytes(data[8:12], "little") != run_id
+            or data[5] > 3
+            or data[14] > 10
+            or data[15] & ~63
+            or any(data[i] & ~7 for i in (6, 7, 12, 13))
+        ):
+            raise ValueError("相电阻结果格式或轮次无效")
+        values = struct.unpack_from("<7f", data, 16)
+        if not all(math.isfinite(v) for v in values) or values[0] < 0:
+            raise ValueError("相电阻结果包含无效数值")
+        return dict(
+            result=data[5],
+            open_phases=data[6],
+            low_phases=data[7],
+            high_phases=data[12],
+            open_lines=data[13],
+            failure=data[14],
+            nominal_ohm=values[0],
+            phase_ohm=[v if data[15] & (1 << i) else None for i, v in enumerate(values[1:4])],
+            line_ohm=[v if data[15] & (8 << i) else None for i, v in enumerate(values[4:])],
+        )
 
 
 @dataclass
@@ -506,6 +536,9 @@ def run_check(
         features, modes = struct.unpack_from("<IH", caps)
         report["supported"] = bool(features & (1 << 19))
         report["measurements_supported"] = bool(features & (1 << 20))
+        report["resistance_supported"] = bool(features & (1 << 21))
+        if drive and not report["resistance_supported"]:
+            raise Rejected("完整检测需要支持相电阻检查的新固件，请先升级")
         if not report["supported"]:
             raise Rejected("该 APP 未提供硬件功能检测")
         if ambient is not None and (not math.isfinite(ambient) or not 0 <= ambient <= 60):
@@ -515,7 +548,7 @@ def run_check(
         previous_run = link.board()["run_id"]
         if stopped():
             raise Rejected("操作员停止")
-        start = struct.pack("<4BI", 2, 1, 2 if drive else 1, 0, previous_run)
+        start = struct.pack("<4BI", 2, 1, 3 if drive else 1, 0, previous_run)
         start_seq = (link.sequence + 1) & 65535
         link.sequence = start_seq
         try:
@@ -533,6 +566,14 @@ def run_check(
                 raise Rejected("静态采集已取消或超时")
             time.sleep(0.012)
             refresh()
+        if drive and report["stage"] == 6:
+            progress("相电阻：AB/BC/CA 正反向 0.5A / 1A 测量")
+            deadline = time.monotonic() + 3
+            while report["stage"] == 6:
+                if stopped() or time.monotonic() > deadline:
+                    raise Rejected("相电阻测量已取消或超时")
+                time.sleep(0.012)
+                refresh()
         if drive and report["stage"] == 2:
             if stopped():
                 raise Rejected("操作员停止")
@@ -569,6 +610,17 @@ def run_check(
                 refresh()
             except (Rejected, ValueError, TimeoutError, OSError):
                 pass
+    if active_run is not None and drive and not report.get("stop_confirmed"):
+        try:
+            confirm_stop(link, report)
+            refresh()
+        except (Rejected, ValueError, TimeoutError, OSError) as exc:
+            report["note"] = f"{report.get('note', '')}；{exc}"
+    if active_run is not None and drive and report.get("stop_confirmed"):
+        try:
+            report["resistance"] = link.resistance(active_run)
+        except (Rejected, ValueError, TimeoutError, OSError) as exc:
+            report["resistance_note"] = str(exc)
     report["measurements"] = {}
     if not report.get("measurements_supported"):
         report["measurement_note"] = "当前固件未提供测试数值，判定结果保留"
@@ -642,6 +694,55 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
         if page.get("samples", 0) > 0 and state == "未测":
             measured += "（部分采样，未完成判定）"
         rows.append((name, measured, limits[item], state))
+    resistance = report.get("resistance")
+    measured, limit, state = "未测", "标称相电阻的50%～150%（含边界）；0.5A/1A", "未测"
+    if resistance:
+        nominal = resistance["nominal_ohm"]
+        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；0.5A/1A"
+
+        def values(names, readings):
+            return " / ".join(
+                f"{name}={'—' if v is None else f'{v:.4f} Ω'}"
+                for name, v in zip(names, readings, strict=True)
+            )
+
+        measured = values(("A", "B", "C"), resistance["phase_ohm"])
+        measured += "；线间 " + values(("AB", "BC", "CA"), resistance["line_ohm"])
+        faults = []
+        for key, label, names in (
+            ("open_phases", "相回路缺相", "ABC"),
+            ("low_phases", "相电阻异常小", "ABC"),
+            ("high_phases", "相电阻偏高", "ABC"),
+        ):
+            faults.extend(
+                name + label for i, name in enumerate(names) if resistance[key] & (1 << i)
+            )
+        if resistance["open_lines"]:
+            loops = [
+                name
+                for i, name in enumerate(("AB", "BC", "CA"))
+                if resistance["open_lines"] & (1 << i)
+            ]
+            faults.append("/".join(loops) + "回路开路/未建立电流")
+        failures = (
+            "",
+            "过流",
+            "转子位移超过0.5°",
+            "电流未稳定/超时",
+            "无效测量",
+            "检测取消或保护中止",
+            "三相电流不平衡",
+            "母线电压异常",
+            "启动条件不满足",
+            "正反向结果不一致",
+            "阻值偏高",
+        )
+        if resistance["failure"]:
+            faults.append(failures[resistance["failure"]])
+        state = "正常" if resistance["result"] == 1 and not faults else "；".join(faults) or "未测"
+    elif report.get("resistance_note"):
+        measured = report["resistance_note"]
+    rows.insert(8, ("相电阻", measured, limit, state))
     return rows
 
 

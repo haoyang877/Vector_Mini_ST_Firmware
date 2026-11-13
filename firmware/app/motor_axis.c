@@ -25,7 +25,11 @@
 
 /* 当前产品各有一组板级 PWM 和一个参数区；模拟轴可显式绑定独立端点。 */
 static const MotorAxisHardware s_board_hardware = {
-    .power = {BspPwm_Enable, BspPwm_Disable, BspPwm_ArePhasesDisabled, BspPwm_SetDuty},
+    .power = {BspPwm_Enable,
+              BspPwm_Disable,
+              BspPwm_ArePhasesDisabled,
+              BspPwm_SetDuty,
+              BspPwm_SelectPhases},
     .read_record = BspFlash_Read,
     .write_record = BspFlash_Write,
 };

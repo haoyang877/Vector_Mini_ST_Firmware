@@ -200,7 +200,8 @@ static bool calibration_requires_power(MotorCalibrationType calibration_type)
 {
     return calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
            calibration_type == MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
-           calibration_type == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO;
+           calibration_type == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO ||
+           calibration_type == MOTOR_CALIBRATION_PHASE_RESISTANCE;
 }
 
 static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibrationType kind)
@@ -216,6 +217,14 @@ static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibratio
         return true;
     }
     const MotorConfiguration *config = machine->drive.configuration;
+    if (kind == MOTOR_CALIBRATION_PHASE_RESISTANCE &&
+        (machine->drive.power->select_phases == NULL ||
+         config->application.current_limit_a < 1.5f ||
+         !(config->model.motor_phase_resistance_ohm > 0.0f) ||
+         !(config->model.motor_d_inductance_h > 0.0f)))
+    {
+        return false;
+    }
     if (kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION && config->preset != NULL)
     {
         const SensorlessStartupConfig *startup = config->preset->startup;
@@ -765,7 +774,8 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machi
         return MOTOR_CONTROL_OUT_OF_RANGE;
     }
     if (calibration_type <= MOTOR_CALIBRATION_NONE ||
-        calibration_type > MOTOR_CALIBRATION_MECHANICAL_ZERO)
+        (calibration_type > MOTOR_CALIBRATION_MECHANICAL_ZERO &&
+         calibration_type != MOTOR_CALIBRATION_PHASE_RESISTANCE))
     {
         return MOTOR_CONTROL_INVALID;
     }
@@ -842,6 +852,13 @@ void MotorStateMachine_FinishFastTick(MotorStateMachine *machine,
         revoke_enable_and_request_stop(machine);
         break;
     case MOTOR_TASK_COMPLETED:
+        if (machine->calibration_type == MOTOR_CALIBRATION_PHASE_RESISTANCE)
+        {
+            (void)transition_motor_state(machine, MOTOR_STATE_EVENT_COMPLETE);
+            break;
+        }
+        /* 其他标定仍需发布和保存。 */
+        /* fall through */
     case MOTOR_TASK_FINALIZE:
         if (machine->state == MOTOR_STATE_CALIBRATION &&
             machine->calibration_type != MOTOR_CALIBRATION_NONE &&

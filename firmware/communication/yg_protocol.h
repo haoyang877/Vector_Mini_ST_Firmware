@@ -70,6 +70,7 @@ typedef struct
 #define PROTOCOL_HARDWARE_CHECK_VERSION 2U
 #define PROTOCOL_FEATURE_HARDWARE_CHECK (1UL << 19U)
 #define PROTOCOL_FEATURE_HARDWARE_MEASUREMENTS (1UL << 20U)
+#define PROTOCOL_FEATURE_PHASE_RESISTANCE (1UL << 21U)
 
 /** @brief 单轮硬件检查的值快照，通道顺序和两段旋向见 Type 127 契约。 */
 typedef struct
@@ -86,7 +87,15 @@ typedef struct
     uint8_t valid;
 } ProtocolHardwareMeasurement;
 
-/** @brief 前台串行处理，mode=0 为只读，1/2 为静态/带驱动采集，命令本身不启相。 */
+/** @brief 相电阻终态线路快照；字段及有效位见Type127契约。 */
+typedef struct
+{
+    uint32_t run_id;
+    float values[7];
+    uint8_t result, open_phases, low_phases, high_phases, open_lines, failure, valid;
+} ProtocolHardwareResistance;
+
+/** @brief 前台串行处理，mode=0只读，1静态，2旧动态，3含相电阻的完整检查。 */
 typedef struct
 {
     void *context;
@@ -100,6 +109,9 @@ typedef struct
                             uint8_t item,
                             uint32_t expected_run,
                             ProtocolHardwareMeasurement *measurement);
+    ProtocolCode (*resistance)(void *context,
+                               uint32_t expected_run,
+                               ProtocolHardwareResistance *measurement);
 } ProtocolHardwareCheck;
 #define PROTOCOL_READ_PARAMETER 120U
 #define PROTOCOL_WRITE_PARAMETER 121U

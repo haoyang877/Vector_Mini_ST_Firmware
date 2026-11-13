@@ -1539,6 +1539,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>phase_resistance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\calibration\phase_resistance.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_fault.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\protection\motor_fault.c</FilePath>

@@ -60,6 +60,19 @@ void MotorStateMachine_RequestStop(MotorStateMachine *machine)
     s_off = true;
 }
 
+/* 模拟状态机受理；算法精度由独立RL测试覆盖。 */
+MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machine,
+                                                         MotorCalibrationType type)
+{
+    assert(type == MOTOR_CALIBRATION_PHASE_RESISTANCE);
+    machine->state = MOTOR_STATE_CALIBRATION;
+    ++machine->epoch;
+    machine->calibration_result_epoch = machine->epoch;
+    machine->calibration_result = MOTOR_CALIBRATION_RESULT_RUNNING;
+    s_off = false;
+    return MOTOR_CONTROL_ACCEPTED;
+}
+
 static uint32_t frame(int32_t angle, unsigned status)
 {
     uint32_t data = (((uint32_t)angle & 0x1fffffU) << 3U) | status;
@@ -506,6 +519,44 @@ static void measurement_cases(void)
     assert(s_check.measure(&s_axis, 10, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
 }
 
+/* 新流程必须在测量正常后才允许动态；失败快照只在本轮终态可读。 */
+static void resistance_cases(void)
+{
+    for (unsigned result = 1U; result <= 3U; ++result)
+    {
+        begin(3U, 1);
+        window();
+        assert(report().stage == 6U && !s_off);
+        ProtocolHardwareResistance values;
+        assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_DENIED);
+        s_axis.calibration.resistance_epoch = s_axis.state_machine.epoch;
+        s_axis.calibration.workspace.resistance.report = (PhaseResistanceReport){
+            .result = (uint8_t)result, .nominal_ohm = 1.905f, .valid = 63U,
+            .phase_ohm = {1.905f,1.905f,1.905f}, .line_ohm = {3.81f,3.81f,3.81f},
+            .open_phases = result == 2U ? 2U : 0U, .low_phases = result == 3U ? 4U : 0U};
+        s_axis.state_machine.calibration_result = MOTOR_CALIBRATION_RESULT_COMPLETED;
+        s_axis.state_machine.state = MOTOR_STATE_IDLE;
+        ++s_axis.state_machine.epoch;
+        s_off = true;
+        tick(true);
+        assert(report().stage == (result == 1U ? 2U : 5U));
+        if (result == 1U)
+        {
+            s_axis.foc.bus_voltage_v = 30.0f;
+            tick(true);
+        }
+        assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_OK);
+        assert(values.result == result && values.values[1] == 1.905f);
+        assert(s_check.resistance(&s_axis, s_run-1U, &values) == PROTOCOL_RESULT_DENIED);
+    }
+    begin(3U, 1);
+    window();
+    s_axis.foc.bus_voltage_v = 26.0f;
+    tick(true);
+    assert(report().stage == 5U && s_stops > 0U);
+    s_axis.state_machine.stop_pending = false;
+}
+
 int main(void)
 {
     s_check = HardwareCheck_Bind(&s_axis);
@@ -525,6 +576,7 @@ int main(void)
         tick(false);
         assert(report().items[5] == (age == 30 ? 1 : 2));
     }
+    resistance_cases();
     motion_cases();
     static const unsigned s_cos_edges[] = {94U, 95U, 4000U, 4001U};
     for (unsigned i = 0; i < 4U; ++i)

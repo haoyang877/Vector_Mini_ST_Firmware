@@ -153,8 +153,8 @@ static void unexpected_enable(void)
     assert(false);
 }
 static const MotorAxisHardware hardware[] = {
-    {{unexpected_enable, off_a, disabled_a, duty_a}, read_a, write_a},
-    {{unexpected_enable, off_b, disabled_b, duty_b}, read_b, write_b}};
+    {{unexpected_enable, off_a, disabled_a, duty_a, NULL}, read_a, write_a},
+    {{unexpected_enable, off_b, disabled_b, duty_b, NULL}, read_b, write_b}};
 
 /* 板级默认写入必须由本测试显式绑定的硬件接收。 */
 void BspPwm_SetDuty(float a, float b, float c)
@@ -609,4 +609,9 @@ int main(void)
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");
     return 0;
+}
+
+void BspPwm_SelectPhases(uint8_t mask)
+{
+    (void)mask;
 }

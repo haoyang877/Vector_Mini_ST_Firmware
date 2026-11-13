@@ -11,6 +11,8 @@ LR_IROM1 0x08000000 0x0001C000 {
     can.o (i.BspCan_ConfigureBitrate)
     adc.o (i.McuAdc_Init)
     pwm.o (i.McuPwm_Init)
+    ; 相电阻阶段专用，不占正常快环SRAM。
+    pwm.o (i.BspPwm_SelectPhases)
     ; LUT发布仅在关相后台调用，不占用快速中断代码区。
     encoder_calibration.o (i.EncoderCalibration_PublishLut)
     .ANY (+RO)

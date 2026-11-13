@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [硬件实测值及ROLL运行PI](2026-11-13-hardware-measurements.md)：软件实现与离线验证完成，配套发布与实机范围见记录。
+
 - [设备摘要与实时曲线](2026-11-13-live-speed-display.md)：上位机1.14.0和Release完成，固件未改。
 
 - [持续速度与30/300限速](2026-11-13-continuous-speed-limits.md)：APP1.8.6/工具1.13.0，Release及打包通过；实机首次烧录与高速测试未执行。

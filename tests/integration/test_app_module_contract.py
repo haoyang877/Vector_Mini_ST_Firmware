@@ -72,7 +72,7 @@ class AppModuleContractTests(unittest.TestCase):
             text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
             self.assertFalse((APP / f"{name}.c").exists())
             self.assertNotRegex(text, r"\b(?:extern|static)\b")
-            self.assertNotRegex(text, r"^\w+[ \t*]+\w+\s*\(", text)
+            self.assertNotRegex(text, re.compile(r"^\w+[ \t*]+\w+\s*\(", re.MULTILINE), name)
             self.assertIn("} HardwareCheckWorkspace;", text)
 
     def test_module_state_is_instance_owned(self):

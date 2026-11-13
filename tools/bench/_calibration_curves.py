@@ -108,10 +108,10 @@ def export_curves(record, axis, has_hall, uid, run, *, raw_capture=None):
         plot.spines[["top", "right"]].set_visible(False)
         plot.grid(alpha=0.22)
     angles_plot = figure.add_subplot(rows, 1, len(curves) + 1)
-    labels = ["Zero (encoder)"]
+    labels = ["Zero\n(encoder)"]
     angle_values = [values["electrical_zero_encoder_deg"]]
     if has_hall:
-        labels.append("Hall alignment (motor)")
+        labels.append("Hall phase\n(motor)")
         angle_values.append(values["hall_alignment_motor_deg"])
     angles_plot.barh(labels, angle_values, color=["#215888", "#aa491d"][: len(labels)])
     for index, value in enumerate(angle_values):

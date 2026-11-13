@@ -129,6 +129,9 @@ int main(void)
         }
         assert(configuration.application.speed_kp == (wheel ? .05f : ht ? .5f : .048f));
         assert(configuration.application.speed_ki == (node == 5 ? 1.f : .5f));
+        /* 标定使用独立增益；YAW降Kp不能改动运行速度PI或Ki。 */
+        assert(p->startup->speed_kp == (ht ? (node == 5 ? .5f : .05f) : .012f));
+        assert(p->startup->speed_ki == (node == 5 ? 1.f : .5f));
         assert(fabsf(configuration.model.iq_kp - (ht ? 12.32761f : .60995855f)) < .0001f);
         assert(fabsf(configuration.model.iq_ki - (ht ? 14363.36f : 3226.22067f)) < .01f);
         assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : pitch_parameters ? 336 : 420));

@@ -1,4 +1,4 @@
-"""采集现有 APP1.8.3 的 RTT Hall 原码；不修改控制参数或固件。"""
+"""采集 APP1.8.3/1.8.4 的 RTT Hall 原码；不修改控制参数或固件。"""
 
 import csv
 import struct
@@ -48,16 +48,18 @@ class HallRawCapture:
         self.ready = threading.Event()
         self.thread = None
         self.result = dict(
-            source="APP1.8.3 RTT channel 1",
+            source="RTT channel 1",
             nominal_hz=2000,
             loss_detection_available=False,
             samples=0,
         )
 
     def start(self, report: dict) -> None:
-        if report["app_version"] != 0x010803:
+        version = report["app_version"]
+        if version not in (0x010803, 0x010804):
             self.result["error"] = "当前APP未验证RTT原码格式，未采集原始波形"
             return
+        self.result["app_version"] = version
         self.thread = threading.Thread(target=self._read, args=(report["uid"],), daemon=True)
         self.thread.start()
         if not self.ready.wait(10):

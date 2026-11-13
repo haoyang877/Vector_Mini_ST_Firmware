@@ -73,7 +73,7 @@ static const SensorlessStartupConfig s_yq_start =
                          0.5f,
                          SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
                          YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
-                         0.048f,
+                         0.012f,
                          0.5f);
 #define YQ5740_AXIS(node, role)                                                                    \
     {(node),                                                                                       \

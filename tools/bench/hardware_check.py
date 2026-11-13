@@ -141,7 +141,7 @@ class Drive:
             )
 
 
-def reserve_counters(path, uid, previous, previous_target):
+def reserve_counters(path, uid, previous, previous_target, *, lease_count=512, target_count=16):
     """在发送前为本轮预留序号。断电或丢应答后跳过已预留的号码。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
@@ -161,7 +161,7 @@ def reserve_counters(path, uid, previous, previous_target):
                 raise Rejected("续租计数须为 u32，目标序号须为 u16")
             connection.execute(
                 "INSERT OR REPLACE INTO counter VALUES(?,?,?)",
-                (uid, (lease + 512) & 0xFFFFFFFF, (target + 16) & 65535),
+                (uid, (lease + lease_count) & 0xFFFFFFFF, (target + target_count) & 65535),
             )
             return lease, target
     finally:

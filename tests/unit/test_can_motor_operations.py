@@ -1,0 +1,298 @@
+"""标定票据和速度会话的协议/故障回归，替身不访问SDK或硬件。"""
+
+import itertools
+import queue
+import struct
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
+import can_motor_operations as ops
+import canfd_desktop as desktop
+from canfd_desktop import motor_speed_fields
+
+
+class Endpoint:
+    def __init__(self):
+        self.node, self.sequence = 6, 100
+        self.timeouts, self.commands, self.requests = {}, [], []
+        self.state, self.mode, self.actual_speed = 5, 0, 0
+        self.phases, self.revision = [(1, 1), (2, 2)], 1
+        self.starts, self.cancelled = 0, False
+        self.cal_kind = 1
+        self.fault = ""
+
+    def status(self):
+        data = bytearray(45)
+        struct.pack_into("<i", data, 12, 1000)
+        struct.pack_into("<i", data, 20, round(self.actual_speed * 1000))
+        struct.pack_into("<H", data, 24, 0x29A)
+        struct.pack_into("<h", data, 32, 50)
+        data[42:] = bytes((6, self.state, self.mode))
+        return bytes(data)
+
+    def command(self, kind, payload=b"", *, sequence=None):
+        self.commands.append((kind, payload, sequence))
+        if kind == 117:
+            self.state, self.mode = 6, 2
+            if self.fault == "start_ack":
+                self.timeouts[117] = 1
+                raise TimeoutError("start ACK lost")
+        elif kind == 116:
+            mode, position, speed, iq, vq = struct.unpack("<B3x4i", payload)
+            if (mode, position, iq, vq) != (2, 0, 0, 0):
+                raise ValueError("速度目标线路字段不符")
+            self.actual_speed = speed / 1000
+        elif kind == 118 and self.fault == "lease_ack":
+            self.timeouts[118] = 1
+            raise TimeoutError("lease ACK lost")
+        elif kind == 110:
+            if self.fault == "stop_pending":
+                return 1
+            self.state, self.mode = 5, 0
+        return 0
+
+    def request(self, kind, payload=b"", *, page=None):
+        self.requests.append((kind, payload, page))
+        if kind == 1:
+            data = bytearray(32)
+            if page == 0:
+                data[:12] = b"\x01" * 12
+            else:
+                data[21:24] = bytes((6, 1, 1))
+            return bytes(data)
+        if kind == 2:
+            return struct.pack(
+                "<I6H",
+                (1 << 13) | (0 if self.fault == "capability" else 1 << 15),
+                4,
+                64,
+                46,
+                0,
+                500,
+                500,
+            )
+        if kind in (120, 123):
+            identifier = payload[0]
+            saved_revision = self.revision + (self.fault == "saved_revision" and kind == 123)
+            value = {0: self.revision, 1: 4000, 2: 3000}[identifier]
+            return struct.pack(
+                "<HHBBHIII",
+                0,
+                0,
+                identifier,
+                2 if identifier == 0 else 1,
+                1,
+                value,
+                self.revision,
+                saved_revision,
+            )
+        if kind == 126:
+            data = bytearray(32)
+            data[4] = 1
+            struct.pack_into("<i", data, 24, 40000)
+            return bytes(data)
+        if kind == 160:
+            self.cal_kind = struct.unpack("<HH", payload)[0]
+            self.starts += 1
+            self.state = 4
+            if self.fault == "cal_ack":
+                self.timeouts[160] = 1
+                raise TimeoutError("calibration ACK lost")
+            if self.fault == "stale" and self.starts == 1:
+                return ops.JOB.pack(5, 5, 0, 0, 0, 0)
+            return ops.JOB.pack(1, 0, 7, self.cal_kind, 1, 1)
+        if kind == 162:
+            self.cancelled = True
+            return ops.JOB.pack(1, 0, 7, self.cal_kind, 3, 1)
+        if kind == 161:
+            phase, effects = (4, 1) if self.cancelled else self.phases.pop(0)
+            if phase == 2:
+                self.revision, self.state = 2, 5
+            return ops.JOB.pack(
+                0,
+                7 if phase == 5 else 0,
+                8 if self.fault == "ticket" else 7,
+                self.cal_kind,
+                phase,
+                effects,
+            )
+        raise ValueError(kind)
+
+
+class MotorOperationsTests(unittest.TestCase):
+    def setUp(self):
+        self.endpoint = Endpoint()
+        self.link = patch.object(ops, "Link", return_value=self.endpoint)
+        self.link.start()
+        self.addCleanup(self.link.stop)
+        self.sleep = patch.object(ops.time, "sleep")
+        self.sleep.start()
+        self.addCleanup(self.sleep.stop)
+
+    def test_calibration_requires_completed_saved_ticket_and_revision(self):
+        report = ops.run_angle_calibration(None, 6)
+        self.assertTrue(report["passed"] and report["stop_confirmed"])
+        self.assertEqual((report["phase"], report["effects"]), (2, 2))
+        self.assertTrue(any(kind == 123 for kind, *_ in self.endpoint.requests))
+
+    def test_unknown_start_is_not_replayed_and_stops(self):
+        self.endpoint.fault = "cal_ack"
+        report = ops.run_angle_calibration(None, 6)
+        self.assertFalse(report["passed"])
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(self.endpoint.starts, 1)
+        self.assertEqual(report["communication_timeouts"], {160: 1})
+
+    def test_electrical_zero_uses_its_own_ticket_kind(self):
+        report = ops.run_angle_calibration(None, 6, kind=2)
+        self.assertTrue(report["passed"])
+        self.assertIn((160, b"\x02\0\0\0", None), self.endpoint.requests)
+        self.assertEqual(report["kind"], 2)
+
+    def test_explicit_stale_rejection_can_choose_a_new_sequence(self):
+        self.endpoint.fault = "stale"
+        report = ops.run_angle_calibration(None, 6)
+        self.assertTrue(report["passed"])
+        self.assertEqual(self.endpoint.starts, 2)
+
+    def test_cancel_waits_for_real_terminal_and_stop(self):
+        report = ops.run_angle_calibration(
+            None, 6, stopped=lambda: any(k == 161 for k, *_ in self.endpoint.requests)
+        )
+        self.assertTrue(report["cancelled"] and report["stop_confirmed"])
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["phase"], 4)
+
+    def test_wrong_ticket_or_saved_revision_does_not_pass(self):
+        for fault in ("ticket", "saved_revision"):
+            with self.subTest(fault=fault):
+                self.endpoint.__init__()
+                self.endpoint.fault = fault
+                report = ops.run_angle_calibration(None, 6)
+                self.assertFalse(report["passed"])
+                self.assertTrue(report["stop_confirmed"])
+
+    def test_persisted_failure_marker_is_not_calibration_success(self):
+        self.endpoint.phases = [(5, 2)]
+        report = ops.run_angle_calibration(None, 6)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["effects"], 2)
+
+    def test_missing_capability_does_not_start_or_stop_other_work(self):
+        self.endpoint.fault = "capability"
+        report = ops.run_angle_calibration(None, 6)
+        self.assertFalse(report["passed"])
+        self.assertEqual(self.endpoint.commands, [])
+
+    def speed_run(self, targets=(), fault=""):
+        self.endpoint.fault = fault
+        commands, samples = queue.Queue(), []
+        for target in targets:
+            commands.put(target)
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            report = ops.run_speed_control(
+                None,
+                6,
+                0,
+                360,
+                commands,
+                out,
+                counter_db=out / "counter.db",
+                stopped=lambda: len(samples) >= 2,
+                feedback=samples.append,
+            )
+        return report, samples
+
+    def test_speed_enable_updates_both_signs_renews_and_stops(self):
+        report, samples = self.speed_run((1.2345, -1))
+        self.assertTrue(report["passed"] and report["stop_confirmed"])
+        self.assertEqual([r["actual_rad_s"] for r in samples], [1.235, -1])
+        starts = [payload for kind, payload, _ in self.endpoint.commands if kind == 117]
+        self.assertEqual(starts, [b"\x02\0\0\0"])
+        leases = [
+            struct.unpack("<I", payload)[0]
+            for kind, payload, _ in self.endpoint.commands
+            if kind == 118
+        ]
+        self.assertEqual(leases, [1, 2])
+
+    def test_speed_start_or_lease_loss_never_reenables(self):
+        for fault in ("start_ack", "lease_ack"):
+            with self.subTest(fault=fault):
+                self.endpoint.__init__()
+                report, _ = self.speed_run(fault=fault)
+                self.assertFalse(report["passed"])
+                self.assertTrue(report["stop_confirmed"])
+                self.assertEqual(sum(k == 117 for k, *_ in self.endpoint.commands), 1)
+                self.assertFalse(report["communication_reliability_passed"])
+
+    def test_speed_update_cannot_exceed_actual_board_limit(self):
+        report, _ = self.speed_run((5,))
+        self.assertFalse(report["passed"])
+        self.assertIn("板端限值", report["fatal"])
+        self.assertTrue(report["stop_confirmed"])
+
+    def test_pending_stop_does_not_claim_outputs_off(self):
+        with patch.object(ops.time, "monotonic", side_effect=itertools.count().__next__):
+            report, _ = self.speed_run(fault="stop_pending")
+        self.assertFalse(report["passed"] or report["stop_confirmed"])
+
+    def test_counter_refills_are_independent_and_skip_zero_on_wrap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "counter.db"
+            counters = ops.MotionCounters(path, "uid", 0xFFFFFFFF, 65535)
+            leases = [counters.lease() for _ in range(513)]
+            self.assertEqual(leases, list(range(1, 514)))
+            self.assertEqual([counters.target() for _ in range(17)], list(range(17)))
+            fresh = ops.MotionCounters(path, "uid", 0, 0)
+            self.assertGreater(fresh.lease(), leases[-1])
+            self.assertGreater(fresh.target(), 16)
+
+    def test_speed_panel_rejects_bad_fields_without_opening_a_port(self):
+        fields = dict(speed="0", travel="360", lease="0", target="0")
+        self.assertEqual(motor_speed_fields(fields)["speed"], 0)
+        for key, value in (("speed", "nan"), ("travel", ""), ("target", "65536"), ("lease", "-1")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                motor_speed_fields({**fields, key: value})
+
+    def test_worker_detects_lost_gui_parent(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(desktop, "controlcan_dll_path", return_value=Path("test.dll")),
+            patch.object(desktop.os, "add_dll_directory", create=True),
+            patch.object(desktop, "ControlCanFd"),
+            patch.object(
+                desktop.mp, "parent_process", return_value=SimpleNamespace(is_alive=lambda: False)
+            ),
+            patch.object(
+                desktop,
+                "run_speed_control",
+                side_effect=lambda *args, **kwargs: {
+                    "profile": "motor_speed",
+                    "node": 6,
+                    "cancelled": kwargs["stopped"](),
+                },
+            ) as run,
+        ):
+            desktop.acquire(
+                dict(
+                    profile="motor_speed",
+                    bus={},
+                    node=6,
+                    speed=0,
+                    travel=360,
+                    last_lease=0,
+                    last_target=0,
+                ),
+                Path(directory),
+                queue.Queue(),
+                SimpleNamespace(is_set=lambda: False),
+                queue.Queue(),
+            )
+            self.assertTrue(run.call_args.kwargs["stopped"]())

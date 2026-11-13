@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from can_motor_operations import TraceBus, run_angle_calibration, run_speed_control, speed_value
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
     PER_NODE,
@@ -28,7 +29,7 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.7.4"
+TITLE = "CAN FD 通信测试 v1.8.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -44,6 +45,35 @@ CHECK_DEFAULTS = {
     "lease": "0",
     "target": "0",
 }
+
+
+def _number_field(text, label, kind=float):
+    try:
+        value = kind(text)
+    except ValueError:
+        unit = "整数" if kind is int else "数值"
+        raise ValueError(f"{label}须填写有效{unit}") from None
+    if kind is float and not math.isfinite(value):
+        raise ValueError(f"{label}须为有限数值")
+    return value
+
+
+def motor_speed_fields(fields: dict[str, str]) -> dict:
+    """解析独立速度面板，使用电机轴单位，不依赖开环检测的电流/电频默认值。"""
+    travel = _number_field(fields["travel"].strip(), "两侧可用输出行程")
+    if travel <= 0:
+        raise ValueError("两侧可用输出行程须大于零")
+    result = dict(speed=speed_value(fields["speed"]), travel=travel)
+    for key, label, upper in (
+        ("lease", "首次续租计数", 0xFFFFFFFF),
+        ("target", "首次目标序号", 65535),
+    ):
+        text = fields[key].strip()
+        value = _number_field(text, label, int) if text else None
+        if value is not None and not 0 <= value <= upper:
+            raise ValueError(f"{label}须在0～{upper}内")
+        result["last_" + key] = value
+    return result
 
 
 def hardware_check_fields(fields: dict[str, str], driven: bool) -> dict:
@@ -66,13 +96,7 @@ def hardware_check_fields(fields: dict[str, str], driven: bool) -> dict:
                 raise ValueError(f"双向测试前请填写{label}")
             values[key] = None
             continue
-        try:
-            values[key] = kind(text)
-        except ValueError:
-            unit = "整数" if kind is int else "数值"
-            raise ValueError(f"{label}须填写有效{unit}") from None
-        if kind is float and not math.isfinite(values[key]):
-            raise ValueError(f"{label}须为有限数值")
+        values[key] = _number_field(text, label, kind)
     drive = None
     if driven:
         drive = tuple(values[key] for key in ("current", "frequency", "leg", "travel"))
@@ -181,12 +205,49 @@ def desktop_uids(resource, log_root):
     return uids
 
 
-def acquire(settings: dict, out: Path, events, stop) -> None:
+def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
     """子进程入口。适配器和日志释放之后才通知界面结束。"""
     try:
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         dll = controlcan_dll_path(resource)
-        if settings["profile"] == "can_scan":
+        if settings["profile"] in ("motor_calibration", "motor_speed"):
+            parent = mp.parent_process()
+
+            def operation_stopped():
+                return stop.is_set() or (parent is not None and not parent.is_alive())
+
+            with (
+                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
+                os.add_dll_directory(str(dll.parent)),
+                ControlCanFd(dll, **settings["bus"]) as port,
+            ):
+                bus = TraceBus(port, stream)
+                if settings["profile"] == "motor_calibration":
+                    report = run_angle_calibration(
+                        bus,
+                        settings["node"],
+                        kind=settings["calibration_kind"],
+                        stopped=operation_stopped,
+                        progress=lambda value: events.put(("stage", value)),
+                    )
+                else:
+                    report = run_speed_control(
+                        bus,
+                        settings["node"],
+                        settings["speed"],
+                        settings["travel"],
+                        commands,
+                        out,
+                        previous=settings["last_lease"],
+                        previous_target=settings["last_target"],
+                        stopped=operation_stopped,
+                        progress=lambda value: events.put(("stage", value)),
+                        feedback=lambda value: events.put(("motor_feedback", value)),
+                    )
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        elif settings["profile"] == "can_scan":
             with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **settings["bus"]) as bus:
                 motors, issues = scan_upgrade_motors(
                     bus, stop.is_set, lambda name: events.put(("stage", name))
@@ -278,6 +339,8 @@ class CanTestWindow:
         self.root.geometry("1000x630")
         self.process = None
         self.events = None
+        self.commands = None
+        self.active_profile = None
         self.stop_signal = None
         self.report_dir = None
         self.close_pending = False
@@ -358,6 +421,44 @@ class CanTestWindow:
             text="APP v1.8.2：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        motor_tab = ttk.Frame(self.tabs, padding=10)
+        self.tabs.add(motor_tab, text="角度标定与速度控制")
+        motor_row = ttk.Frame(motor_tab)
+        motor_row.pack(anchor="w", pady=5)
+        self.motor_node = combo(motor_row, "轴节点", tuple(str(n) for n in FIRST_FIT_AXES), "6", 3)
+        self.motor_operation = combo(
+            motor_row, "功能", ("角度标定并保存", "速度闭环控制"), "角度标定并保存", 18
+        )
+        self.calibration_kind = combo(
+            motor_row, "标定项", ("编码器/Hall角度", "电角零位"), "编码器/Hall角度", 17
+        )
+        motor_values = ttk.Frame(motor_tab)
+        motor_values.pack(anchor="w", pady=5)
+        self.motor_fields = {}
+        for key, label, default in (
+            ("speed", "电机轴目标速度 rad/s", "0"),
+            ("travel", "两侧可用输出行程 °", "360"),
+            ("lease", "首次续租计数", "0"),
+            ("target", "首次目标序号", "0"),
+        ):
+            ttk.Label(motor_values, text=label).pack(side="left")
+            entry = ttk.Entry(motor_values, width=8)
+            entry.insert(0, default)
+            entry.pack(side="left", padx=(3, 8))
+            self.motor_fields[key] = entry
+            self.controls.append((entry, "normal"))
+        self.speed_update = ttk.Button(motor_tab, text="更新速度目标", command=self.update_speed)
+        self.speed_update.pack(anchor="w", pady=5)
+        self.motor_feedback = tk.StringVar(value="使能前保持停机；速度以电机轴rad/s表示。")
+        ttk.Label(motor_tab, textvariable=self.motor_feedback).pack(anchor="w", pady=5)
+        ttk.Label(
+            motor_tab,
+            text="角度标定沿用固件编码器/Hall联合算法并自动保存；停止按钮取消标定或停止速度控制。",
+        ).pack(anchor="w", pady=3)
+        ttk.Label(
+            motor_tab,
+            text="速度控制沿用板端速度/电流限值和PI；已有UID的计数由本机持续保存，断联后停止。",
+        ).pack(anchor="w", pady=3)
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
@@ -539,6 +640,7 @@ class CanTestWindow:
         )
         self.output.pack(fill="both", expand=True, pady=(8, 0))
         self.mode.trace_add("write", lambda *_: self.update_controls())
+        self.motor_operation.trace_add("write", lambda *_: self.update_controls())
         for var in (self.channel, self.nominal, self.data):
             var.trace_add("write", lambda *_: self.clear_upgrade_scan())
         self.tabs.bind("<<NotebookTabChanged>>", lambda _: self.update_controls())
@@ -606,7 +708,25 @@ class CanTestWindow:
             entry.configure(state="normal" if not busy and mode == "fixed" else "disabled")
         for index in range(len(self.tabs.tabs())):
             self.tabs.tab(index, state="disabled" if busy and index != current else "normal")
-        action = ("开始测试", "发送一帧", "识别电机", "开始 CAN 升级", "开始硬件功能检测")[current]
+        action = (
+            "开始测试",
+            "发送一帧",
+            "识别电机",
+            "开始 CAN 升级",
+            "开始硬件功能检测",
+            "开始角度标定并保存"
+            if self.motor_operation.get() == "角度标定并保存"
+            else "使能速度控制",
+        )[current]
+        speed_active = busy and self.active_profile == "motor_speed"
+        for key, entry in self.motor_fields.items():
+            entry.configure(
+                state="normal"
+                if (speed_active and key == "speed")
+                or (not busy and self.motor_operation.get() == "速度闭环控制")
+                else "disabled"
+            )
+        self.speed_update.configure(state="normal" if speed_active else "disabled")
         for node, check in self.upgrade_checks.items():
             check.configure(
                 state="normal" if node in self.upgrade_targets and not busy else "disabled"
@@ -647,7 +767,7 @@ class CanTestWindow:
         self.rescan.configure(state="normal" if not busy and self.identity else "disabled")
         self.stop_button.configure(state="normal" if busy and not self.swd_busy else "disabled")
         self.stop_button.configure(
-            text="本台完成后停止" if current == 3 and not self.scanning else "停止"
+            text="本台完成后停止" if self.active_profile == "can_upgrade" else "停止"
         )
         self.open_button.configure(state="normal" if self.report_dir else "disabled")
         self.mode_hint.set(
@@ -665,6 +785,14 @@ class CanTestWindow:
         self.output.insert("end", text)
         self.output.configure(state="disabled")
 
+    def update_speed(self) -> None:
+        if self.active_profile != "motor_speed" or self.commands is None:
+            return
+        try:
+            self.commands.put_nowait(speed_value(self.motor_fields["speed"].get()))
+        except (ValueError, queue.Full) as exc:
+            messagebox.showerror("速度目标未提交", str(exc) or "目标队列已满", parent=self.root)
+
     def start(self, *, scan=False, bitrate_action=None) -> None:
         if self.process is not None:
             return
@@ -674,6 +802,9 @@ class CanTestWindow:
             "jlink_flash" if self.identity else "jlink_identify",
             "can_bitrate" if bitrate_action else "can_scan" if scan else "can_upgrade",
             "hardware_check",
+            "motor_calibration"
+            if self.motor_operation.get() == "角度标定并保存"
+            else "motor_speed",
         )[self.tabs.index("current")]
         swd = mode.startswith("jlink_")
         settings = {
@@ -698,6 +829,15 @@ class CanTestWindow:
                     else None,
                     "bus": settings["bus"],
                 }
+            elif mode in ("motor_calibration", "motor_speed"):
+                settings["node"] = int(self.motor_node.get())
+                if mode == "motor_calibration":
+                    settings["calibration_kind"] = (
+                        1 if self.calibration_kind.get() == "编码器/Hall角度" else 2
+                    )
+                if mode == "motor_speed":
+                    fields = {key: entry.get().strip() for key, entry in self.motor_fields.items()}
+                    settings.update(motor_speed_fields(fields))
             elif mode == "hardware_check":
                 fields = {key: entry.get().strip() for key, entry in self.check_fields.items()}
                 settings.update(
@@ -755,9 +895,13 @@ class CanTestWindow:
             context = mp.get_context("spawn")
             self.events = context.Queue()
             self.stop_signal = context.Event()
+            self.commands = context.Queue(maxsize=8) if mode == "motor_speed" else None
+            arguments = (settings, directory, self.events, self.stop_signal)
+            if mode == "motor_speed":
+                arguments += (self.commands,)
             job = context.Process(
                 target=run_upgrade_test if mode == "can_upgrade" else run_jlink if swd else acquire,
-                args=(settings, directory, self.events, self.stop_signal),
+                args=arguments,
             )
             job.start()
         except (ValueError, OSError, RuntimeError) as exc:
@@ -769,6 +913,7 @@ class CanTestWindow:
             for target in targets:
                 self.upgrade_results[target["node"]].configure(text="排队中")
         self.process = job
+        self.active_profile = mode
         self.report_dir = directory
         self.done = False
         self.bar["value"] = 0
@@ -785,9 +930,7 @@ class CanTestWindow:
             self.stop_signal.set()
             self.stop_button.configure(state="disabled")
             self.state.set(
-                "将在当前电机确认后停止"
-                if self.tabs.index("current") == 3 and not self.scanning
-                else "正在停止"
+                "将在当前电机确认后停止" if self.active_profile == "can_upgrade" else "正在停止"
             )
 
     def close(self) -> None:
@@ -816,6 +959,10 @@ class CanTestWindow:
             elif tag == "axis_status":
                 node, status = msg
                 self.upgrade_results[node].configure(text=status)
+            elif tag == "motor_feedback":
+                self.motor_feedback.set(
+                    f"电机轴：目标{msg['target_rad_s']:+.3f} rad/s，实际{msg['actual_rad_s']:+.3f} rad/s"
+                )
             elif tag == "upgrade_progress":
                 number, planned, percent = msg
                 self.bar["value"] = 100 * ((number - 1) + percent / 100) / planned
@@ -837,7 +984,11 @@ class CanTestWindow:
         self.process.join()
         self.process.close()
         self.events.close()
+        if self.commands is not None:
+            self.commands.close()
+            self.commands = None
         self.process = None
+        self.active_profile = None
         if not self.done:
             self.identity = None
             self.motor_label.set("请重新识别电机。")
@@ -859,6 +1010,36 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] in ("motor_calibration", "motor_speed"):
+            title = "角度标定" if r["profile"] == "motor_calibration" else "速度控制"
+            status = (
+                "失败"
+                if r.get("fatal")
+                else "完成"
+                if r.get("passed")
+                else "已取消"
+                if r.get("cancelled")
+                else "失败"
+            )
+            lines = [f"节点{r['node']}　{title}{status}" if "node" in r else title + status]
+            if "uid" in r:
+                lines.append(f"UID {r['uid']}")
+            if "ticket" in r:
+                lines.append(f"票据{r['ticket']}　阶段{r['phase']}　保存状态{r['effects']}")
+            if "saved_revision" in r:
+                lines.append(f"Flash保存修订 {r['saved_revision']['saved_revision']}")
+            if "samples" in r:
+                lines.append(f"反馈{r['samples']}次，目标更新{r['updates']}次；速度曲线见speed.csv")
+            lines.append("已确认关相" if r.get("stop_confirmed") else "未取得关相确认")
+            if r.get("fatal"):
+                lines.append(r["fatal"])
+            if r.get("communication_timeouts"):
+                lines.append(f"50 ms超时记录：{r['communication_timeouts']}")
+            self.state.set(title + status)
+            self.show("\n".join(lines))
+            self.bar["value"] = 100 if r.get("passed") else 0
+            self.progress.set(f"{self.bar['value']:.0f}%")
+            return
         if r["profile"] == "hardware_check":
             if "fatal" in r:
                 self.state.set("通信异常")

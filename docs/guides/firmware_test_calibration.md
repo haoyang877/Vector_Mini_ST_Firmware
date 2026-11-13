@@ -1,6 +1,6 @@
 # AT32F456 固件烧录、测试与标定使用指南
 
-适用于 APP v1.8.2、Loader v2.3.4、CAN-Link-Test v1.7.4 和电机工装 v1.4.3。
+适用于 APP v1.8.2、Loader v2.3.4、CAN-Link-Test v1.8.0 和电机工装 v1.4.3。
 本包为 debug 开发验证包。当前连接的 PITCH 台架用于验证，其他轴没有本轮实机结论；
 动态角度检测的已知限制与本次结果以随包测试报告为准。
 v1.8.0 的[历史复测](../reports/2026-11/hardware_check_v1_8_0_20261113.md)保留单拍判据的失败结论。
@@ -35,7 +35,7 @@ ISO FD+BRS、仲裁 1 Mbit/s、数据 5 Mbit/s，工具的“通道 1”对应 S
 | `firmware/app-package/` | CAN 升级包，包含 image.bin、manifest.bin、package.json，保持三者配套 |
 | `firmware/*.axf`、`*.map` | 与镜像匹配的调试符号和资源信息 |
 | `manifest.json`、`firmware/summary.json` | 文件 SHA-256、版本、目标、布局和构建来源 |
-| `CAN-Link-Test-v1.7.4.exe` | SWD 烧录、CAN 升级、通信与硬件功能检测 |
+| `CAN-Link-Test-v1.8.0.exe` | SWD烧录、CAN升级、硬件检测、角度标定与速度控制 |
 | `Hardware-Check-v1.0.1.exe` | 独立命令行硬件检测，不依赖本机 Python |
 | `YG-Motor-Commission-v1.4.3.exe` | 空板配参、标定和标定结果导出 |
 
@@ -54,6 +54,9 @@ CAN 更新只写 APP 槽：在“CAN 升级与参数”中扫描在线板卡，�
 Loader 更新使用 SWD 大包。具体分区及恢复步骤见[双板 Loader](dual_board_loader.md)。
 
 ## 硬件功能检测
+
+CAN直接标定和速度控制使用“角度标定与速度控制”页，操作见
+[该页指南](canfd_motor_operations.md)，不需要为此重新烧录当前固件。
 
 1. 在“通信压测”中选择实际节点，先完成只读查询，核对 APP 版本及故障状态。
 2. 打开“硬件功能检测”。v1.7.4默认节点6和“静态和双向驱动”，一次执行八项静态与

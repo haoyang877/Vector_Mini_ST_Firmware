@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [ROLL及左右轮10圈标定候选](2026-11-13-ht-calibration-ten-turns.md)：离线实现、Release与打包完成，实机对照未执行。
+
 - [J-Link Flash擦除](2026-11-13-jlink-erase.md)：v1.11.0及Release通过，未执行实机擦除。
 
 - [J-Link重复烧录与版本回读](2026-11-13-jlink-repeat-version.md)：v1.10.3及Release通过，未新增实机烧录。

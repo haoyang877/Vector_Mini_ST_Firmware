@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [ROLL及左右轮10圈标定候选](ht_calibration_ten_turns_20261113.md)：产品预设圈数、原误差断言与Release通过；约8秒为估计，未烧录。
+
 - [J-Link Flash擦除](jlink_flash_erase_20261113.md)：范围、确认、备份、回读及后续烧录回归；Release通过，未执行实机擦除。
 
 - [J-Link重复烧录和版本展示](jlink_repeat_version_20261113.md)：同镜像重写、保留身份和板端版本，Release通过，未新增实机烧录。

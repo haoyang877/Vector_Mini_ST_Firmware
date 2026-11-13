@@ -7,6 +7,7 @@ import os
 import re
 import struct
 import zlib
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -177,7 +178,9 @@ def _saved_snapshot(link: Link, uid: str, revision: int) -> tuple[int, int]:
     return struct.unpack_from("<I", config, 8)[0], config[5]
 
 
-def _read_record(uid: str) -> bytes:
+@contextmanager
+def calibration_probe(uid: str):
+    """串行占用已核对身份、处于关相状态的探针；退出不复位目标。"""
     import pylink
 
     target = board.maintenance.load_target("yg_esc_v1_at32f456")
@@ -202,13 +205,18 @@ def _read_record(uid: str) -> bytes:
         board.maintenance.check_outputs_off(probe, target)
         if probe.halted():
             raise ValueError("目标CPU已暂停，保留当前状态，不读取本次运行曲线")
+        yield probe, target
+    finally:
+        probe.close()
+
+
+def _read_record(uid: str) -> bytes:
+    with calibration_probe(uid) as (probe, target):
         record = board.maintenance.read_twice(
             probe, board.maintenance.target_value(target, "TARGET_PARAM_BASE"), 16384
         )
         board.maintenance.check_outputs_off(probe, target)
         return record
-    finally:
-        probe.close()
 
 
 def _validate_record(record: bytes, node: int, crc: int, has_hall: bool) -> dict:
@@ -256,7 +264,14 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
         )
         if report.get("archive", {}).get("test_serial"):
             axis.model += " · 测试" + report["archive"]["test_serial"]
-        curves = export_curves(record, axis, model in (2, 3), bytes.fromhex(report["uid"]), out)
+        curves = export_curves(
+            record,
+            axis,
+            model in (2, 3),
+            bytes.fromhex(report["uid"]),
+            out,
+            raw_capture=report.get("raw_capture"),
+        )
         (out / "calibration-parameters.bin").write_bytes(record)
         configuration = dict(
             archive_name=model_label or axis.model,
@@ -268,6 +283,8 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
             saved_revision=revision,
             app_version=report.get("app_version"),
             parameters=_configuration(record, info),
+            calibration_values=curves["calibration_values"],
+            raw_capture=report.get("raw_capture"),
         )
         (out / "motor-configuration.json").write_text(
             json.dumps(configuration, ensure_ascii=False, indent=2, allow_nan=False),
@@ -290,12 +307,17 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
             "ticket": report.get("ticket"),
             "files": {},
         }
-        for name in (
+        names = [
             curves["png"],
             curves["csv"],
+            curves["values_csv"],
             curves["configuration_json"],
             curves["parameters_bin"],
-        ):
+        ]
+        for name in ("hall-raw.bin", "hall-raw.csv", "hall-raw-receive.csv"):
+            if (out / name).exists():
+                names.append(name)
+        for name in names:
             data = (out / name).read_bytes()
             manifest["files"][name] = {
                 "bytes": len(data),

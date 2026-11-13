@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from can_calibration_capture import HallRawCapture
 from can_calibration_curves import (
     ARCHIVE_TYPES,
     calibration_archive,
@@ -35,7 +36,7 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.9.1"
+TITLE = "CAN FD 通信测试 v1.9.2"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -235,17 +236,25 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
             ):
                 bus = TraceBus(port, stream)
                 if settings["profile"] == "motor_calibration":
-                    report = run_angle_calibration(
-                        bus,
-                        settings["node"],
-                        kind=settings["calibration_kind"],
-                        stopped=operation_stopped,
-                        progress=lambda value: events.put(("stage", value)),
-                    )
+                    capture = HallRawCapture(out)
+                    try:
+                        report = run_angle_calibration(
+                            bus,
+                            settings["node"],
+                            kind=settings["calibration_kind"],
+                            stopped=operation_stopped,
+                            progress=lambda value: events.put(("stage", value)),
+                            on_identified=capture.start,
+                        )
+                    finally:
+                        raw_capture = capture.finish()
+                    report["raw_capture"] = raw_capture
                     report["archive"] = settings.get("archive", {})
                     if report.get("passed") and report.get("stop_confirmed"):
                         events.put(("stage", "标定已保存，正在只读回读补偿表并绘图"))
                         try:
+                            if capture.thread is not None and capture.thread.is_alive():
+                                raise OSError(raw_capture["error"])
                             report["curves"] = export_calibration_curves(
                                 bus, report, out, report["archive"].get("name", "")
                             )
@@ -493,7 +502,7 @@ class CanTestWindow:
         ).pack(anchor="w", pady=5)
         ttk.Label(
             calibration_tab,
-            text="成功后自动绘制1024点补偿曲线并保存PNG/CSV；补偿表需已连接的J-Link只读回读。",
+            text="连接J-Link可采集Hall原码，并绘制补偿表、零位、对齐角和两路极值；保存PNG/CSV。",
         ).pack(anchor="w", pady=5)
         speed_tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(speed_tab, text="速度控制")
@@ -876,7 +885,7 @@ class CanTestWindow:
             messagebox.showerror("曲线无法显示", str(exc), parent=self.root)
             return
         window = tk.Toplevel(self.root)
-        window.title(f"标定补偿曲线 · {path.parent.name}")
+        window.title(f"标定曲线与参数 · {path.parent.name}")
         window.curve_image = picture
         width = min(picture.width(), self.root.winfo_screenwidth() - 100)
         height = min(picture.height(), self.root.winfo_screenheight() - 180)
@@ -884,9 +893,18 @@ class CanTestWindow:
         controls.grid(row=0, column=0, sticky="ew")
         ttk.Button(controls, text="打开PNG", command=lambda: os.startfile(path)).pack(side="left")
         csv_path = path.with_suffix(".csv")
-        ttk.Button(controls, text="打开CSV", command=lambda: os.startfile(csv_path)).pack(
+        ttk.Button(controls, text="打开补偿CSV", command=lambda: os.startfile(csv_path)).pack(
             side="left"
         )
+        for filename, label in (
+            ("hall-raw.csv", "打开Hall原码"),
+            ("calibration-values.csv", "打开标定参数"),
+        ):
+            data_path = path.parent / filename
+            if data_path.is_file():
+                ttk.Button(controls, text=label, command=lambda p=data_path: os.startfile(p)).pack(
+                    side="left"
+                )
         canvas = tk.Canvas(window, width=width, height=height, background="white")
         canvas.grid(row=1, column=0, sticky="nsew")
         vertical = ttk.Scrollbar(window, orient="vertical", command=canvas.yview)
@@ -1160,6 +1178,18 @@ class CanTestWindow:
                 lines.append("补偿曲线已生成：angle-calibration.png / angle-calibration.csv")
                 lines.append("原始标定BIN、电机配置JSON及文件校验清单已保存。")
                 lines.append(f"补偿峰峰值（°）：{curves['peak_to_peak_deg']}")
+                values = curves["calibration_values"]
+                lines.append(
+                    f"电角零位Q15：{values['electrical_zero_q15']}；"
+                    f"编码器坐标：{values['electrical_zero_encoder_deg']:.5f}°"
+                )
+                if "hall_alignment_motor_deg" in values:
+                    lines.append(
+                        f"Hall对齐角（电机坐标）：{values['hall_alignment_motor_deg']:.5f}°"
+                    )
+                    lines.append(
+                        f"Hall两路标定极值（cnt）：{values['hall_calibration_extrema_counts']}"
+                    )
                 if not curves["table_updated"]:
                     lines.append("本次只更新电角零位；曲线为当前已保存LUT，并非本次重新扫表。")
                 self.curve_path = self.report_dir / curves["png"]
@@ -1168,6 +1198,11 @@ class CanTestWindow:
             if r.get("curve_error"):
                 self.curve_path = None
                 lines.append("标定已保存，但曲线未生成：" + r["curve_error"])
+            if r.get("raw_capture"):
+                capture = r["raw_capture"]
+                lines.append(f"Hall原码已接收{capture['samples']}点。")
+                if capture.get("error"):
+                    lines.append("原码采集异常：" + capture["error"])
             if "samples" in r:
                 lines.append(
                     f"反馈{r['samples']}次，目标更新{r['updates']}次；速度曲线见speed.csv"

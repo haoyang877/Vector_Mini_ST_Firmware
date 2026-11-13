@@ -16,6 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_calibration_curves as curves
 import canfd_desktop as desktop
+from can_calibration_capture import HallRawCapture
 
 
 def record():
@@ -87,6 +88,12 @@ class CalibrationCurvesTests(unittest.TestCase):
             return curves.export_calibration_curves(None, self.report, self.out)
 
     def test_saved_table_exports_1024_points_and_correct_signs(self):
+        self.out.joinpath("hall-raw.csv").write_text(
+            "sample_index,nominal_elapsed_s,hall_angle_mrad,hall_sin_counts,hall_cos_counts\n"
+            "0,0,0,100,4000\n1,0.0005,1,3900,200\n",
+            encoding="utf-8",
+        )
+        self.report["raw_capture"] = {"samples": 2, "csv": "hall-raw.csv"}
         result = self.export()
         self.assertTrue((self.out / result["png"]).read_bytes().startswith(b"\x89PNG"))
         with (self.out / result["csv"]).open(newline="") as f:
@@ -102,6 +109,9 @@ class CalibrationCurvesTests(unittest.TestCase):
         self.assertEqual(config["parameters"]["limits"]["speed_limit_rad_s"], 30)
         self.assertEqual(config["parameters"]["control"]["iq_ki"], 3300)
         self.assertEqual(config["firmware_model"], "YQ-5740")
+        self.assertEqual(config["calibration_values"]["electrical_zero_q15"], 0)
+        self.assertTrue(config["calibration_values"]["electrical_zero_valid"])
+        self.assertTrue((self.out / "calibration-values.csv").is_file())
         manifest = json.loads((self.out / result["manifest"]).read_text(encoding="utf-8"))
         for name, info in manifest["files"].items():
             self.assertEqual(
@@ -186,3 +196,30 @@ class CalibrationCurvesTests(unittest.TestCase):
         saved = json.loads((self.out / "summary.json").read_text(encoding="utf-8"))
         self.assertTrue(saved["passed"])
         self.assertEqual(saved["curve_error"], "J-Link absent")
+
+    def test_raw_capture_preserves_integer_samples_and_separates_receive_time(self):
+        rows = [(0, 0, 0, 0, 0, 3141, 123, 4090), (0, 0, 0, 0, 0, 3142, 321, 12)]
+        data = b"".join(struct.pack("<8h", *row) for row in rows)
+        (self.out / "hall-raw.bin").write_bytes(data)
+        capture = HallRawCapture(self.out)
+        result = capture.finish()
+        self.assertEqual(result["samples"], 2)
+        self.assertFalse(result["loss_detection_available"])
+        self.assertEqual(result["observed_extrema_counts"]["sin"], {"min": 123, "max": 321})
+        self.assertEqual((self.out / "hall-raw.bin").read_bytes(), data)
+        with (self.out / "hall-raw.csv").open(newline="") as stream:
+            saved = list(csv.DictReader(stream))
+        self.assertEqual(saved[1]["hall_cos_counts"], "12")
+        self.assertEqual(float(saved[1]["nominal_elapsed_s"]), 0.0005)
+        (self.out / "hall-raw.bin").write_bytes(b"\xab\xcd" + data + b"\x01")
+        shifted = HallRawCapture(self.out).finish()
+        self.assertEqual(shifted["samples"], 2)
+        self.assertEqual((shifted["prefix_bytes"], shifted["suffix_bytes"]), (2, 1))
+
+    def test_raw_capture_rejects_partial_frames_and_unknown_firmware(self):
+        (self.out / "hall-raw.bin").write_bytes(b"123")
+        self.assertIn("error", HallRawCapture(self.out).finish())
+        capture = HallRawCapture(self.out)
+        capture.start({"app_version": 1})
+        self.assertIsNone(capture.thread)
+        self.assertIn("error", capture.result)

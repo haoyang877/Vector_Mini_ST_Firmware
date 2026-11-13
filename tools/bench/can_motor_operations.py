@@ -181,6 +181,7 @@ def run_angle_calibration(
     kind: int = 1,
     stopped: Callable[[], bool] = lambda: False,
     progress: Callable[[str], None] = lambda _: None,
+    on_identified: Callable[[dict], None] = lambda _: None,
 ) -> dict:
     """执行既有角度或电零位任务，完成和保存回读匹配才成功；未知启动或取消收敛到STOP。"""
     link = Link(bus, node, timeout_s=0.5)
@@ -193,6 +194,7 @@ def run_angle_calibration(
             raise ValueError("仅支持编码器/Hall角度及电角零位标定")
         _identify(link, report, 15)
         report["before_revision"] = _scalar(link, 0)
+        on_identified(report)
         if stopped():
             report["cancelled"] = True
             return report

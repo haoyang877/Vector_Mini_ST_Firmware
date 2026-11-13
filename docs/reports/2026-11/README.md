@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [CAN FD v1.8.2中止提示和速度上限](canfd_abort_speed_limit_20261113.md)：确认Hall cos4044 cnt越界先中止，修正提示；保存本板30 rad/s包络，限值写入与±5 rad/s通过。
+
 - [CAN FD v1.8.1角度标定与速度控制](canfd_calibration_speed_20261113.md)：独立页面和平铺标定按钮；500 ms标定保存、正反速度及GUI工作进程通过，视觉复核和其余型号未测。
 
 - [APP v1.8.2 / Loader v2.3.4 首答修复](can_first_answer_v1_8_2_20261113.md)：仲裁80%消除本台架发送位错误；10000查询、30静态及3 A双向零超时，Hall独立异常保留。

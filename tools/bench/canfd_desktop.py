@@ -21,7 +21,14 @@ from can_calibration_curves import (
     export_calibration_curves,
     model_directory_name,
 )
-from can_motor_operations import TraceBus, run_angle_calibration, run_speed_control, speed_value
+from can_motor_operations import (
+    TraceBus,
+    describe_faults,
+    run_angle_calibration,
+    run_clear_fault,
+    run_speed_control,
+    speed_value,
+)
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
     PER_NODE,
@@ -36,7 +43,7 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.10.0"
+TITLE = "CAN FD 通信测试 v1.10.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -135,7 +142,7 @@ def upgrade_motor_status(motor):
         return "APP · 已确认"
     states = {3: "自检", 4: "标定", 5: "空闲", 6: "运行", 8: "故障"}
     state = states.get(motor["state"], f"未知状态 {motor['state']}")
-    return f"APP · {state}　故障码 0x{motor['faults']:08X}"
+    return f"APP · {state}　{describe_faults(motor['faults'])}（0x{motor['faults']:08X}）"
 
 
 def parse_raw(identifier: str, payload: str) -> tuple[int, bool, bytes]:
@@ -284,6 +291,22 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                         progress=lambda value: events.put(("stage", value)),
                         feedback=lambda value: events.put(("motor_feedback", value)),
                     )
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        elif settings["profile"] == "clear_fault":
+            with (
+                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
+                os.add_dll_directory(str(dll.parent)),
+                ControlCanFd(dll, **settings["bus"]) as port,
+            ):
+                report = run_clear_fault(
+                    TraceBus(port, stream),
+                    settings["node"],
+                    settings["expected_uid"],
+                    stopped=stop.is_set,
+                    progress=lambda value: events.put(("stage", value)),
+                )
             (out / "summary.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -441,6 +464,10 @@ class CanTestWindow:
         scan_motor = ttk.Button(motor_row, text="扫描识别", command=lambda: self.start(scan=True))
         scan_motor.pack(side="left")
         self.controls.append((scan_motor, "normal"))
+        self.clear_fault_button = ttk.Button(
+            motor_row, text="清除故障", command=lambda: self.start(clear_fault=True)
+        )
+        self.clear_fault_button.pack(side="left", padx=8)
         self.current_motor_label = tk.StringVar(value="未识别；烧录后自动沿用轴类型和节点。")
         ttk.Label(frame, textvariable=self.current_motor_label).pack(anchor="w", pady=(0, 6))
         self.tabs = ttk.Notebook(frame)
@@ -841,6 +868,11 @@ class CanTestWindow:
         if self.current_motor:
             self.current_motor_label.set(
                 f"UID {self.current_motor['uid']}　来源：{self.current_motor['source']}"
+                + (
+                    f"　{upgrade_motor_status(self.current_motor)}"
+                    if self.current_motor.get("role") == 1
+                    else ""
+                )
             )
         else:
             self.current_motor_label.set("当前轴尚未识别；可先烧录或点击扫描识别。")
@@ -914,6 +946,11 @@ class CanTestWindow:
                 state="normal" if (speed_active and key == "speed") or not busy else "disabled"
             )
         self.speed_update.configure(state="normal" if speed_active else "disabled")
+        self.clear_fault_button.configure(
+            state="normal"
+            if not busy and self.current_motor and self.current_motor.get("role") == 1
+            else "disabled"
+        )
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
         if current == "calibration":
             self.start_button.pack_forget()
@@ -1028,7 +1065,9 @@ class CanTestWindow:
         window.rowconfigure(1, weight=1)
         window.columnconfigure(0, weight=1)
 
-    def operation_mode(self, *, scan=False, bitrate_action=None) -> str:
+    def operation_mode(self, *, scan=False, bitrate_action=None, clear_fault=False) -> str:
+        if clear_fault:
+            return "clear_fault"
         if scan:
             return "can_scan"
         if bitrate_action:
@@ -1048,10 +1087,14 @@ class CanTestWindow:
             "speed": "motor_speed",
         }[page]
 
-    def start(self, *, scan=False, bitrate_action=None, calibration_kind=1) -> None:
+    def start(
+        self, *, scan=False, bitrate_action=None, calibration_kind=1, clear_fault=False
+    ) -> None:
         if self.process is not None:
             return
-        mode = self.operation_mode(scan=scan, bitrate_action=bitrate_action)
+        mode = self.operation_mode(
+            scan=scan, bitrate_action=bitrate_action, clear_fault=clear_fault
+        )
         swd = mode.startswith("jlink_")
         settings = {
             "profile": mode,
@@ -1075,6 +1118,10 @@ class CanTestWindow:
                     else None,
                     "bus": settings["bus"],
                 }
+            elif mode == "clear_fault":
+                if not self.current_motor or self.current_motor.get("role") != 1:
+                    raise ValueError("请先识别运行APP的当前电机")
+                settings.update(node=self.current_node(), expected_uid=self.current_motor["uid"])
             elif mode in ("motor_calibration", "motor_speed"):
                 if not self.current_motor:
                     raise ValueError("请先烧录或扫描识别当前电机")
@@ -1283,6 +1330,43 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "clear_fault":
+            status = "故障清除已确认" if r.get("passed") else "故障清除未通过"
+            if r.get("cleared") and r.get("fatal"):
+                status = "已回读无故障，清除请求未获确认"
+            lines = [status]
+            if "node" in r:
+                lines.append(f"节点 {r['node']}　UID {r.get('uid', '未确认')}")
+            for key, name in (("before", "清除前"), ("after", "清除后")):
+                if key in r:
+                    snap = r[key]
+                    lines.append(
+                        f"{name}：{describe_faults(snap['faults'])}（0x{snap['faults']:08X}）"
+                        f"　state={snap['state']} mode={snap['mode']}"
+                    )
+            if r.get("result") is not None:
+                lines.append(f"Type107 result={r['result']} detail={r['detail']}")
+            if r.get("fatal"):
+                lines.append(r["fatal"])
+            if r.get("communication_timeouts"):
+                lines.append(f"500 ms超时记录：{r['communication_timeouts']}")
+            lines.append("本操作不启动电机；原始报文与清除前后状态已保存。")
+            motor = self.known_motors.get(r.get("node"))
+            if r.get("identity_changed"):
+                self.known_motors.pop(r.get("node"), None)
+                self.identity = None
+                self.select_current_motor()
+            if motor and motor["uid"] == r.get("uid") and "after" in r:
+                motor.update(state=r["after"]["state"], faults=r["after"]["faults"])
+                self.select_current_motor()
+                if motor["node"] in self.upgrade_targets:
+                    self.upgrade_targets[motor["node"]].update(motor)
+                    self.show_online_motor(motor)
+            self.state.set(status)
+            self.show("\n".join(lines))
+            self.bar["value"] = 100 if r.get("passed") else 0
+            self.progress.set(f"{self.bar['value']:.0f}%")
+            return
         if r["profile"] in ("motor_calibration", "motor_speed"):
             title = "角度标定" if r["profile"] == "motor_calibration" else "速度控制"
             status = (

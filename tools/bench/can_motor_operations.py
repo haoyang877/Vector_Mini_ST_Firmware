@@ -24,6 +24,95 @@ STAGES = {
 }
 
 
+def describe_faults(bits: int) -> str:
+    """按APP线路位解析类别；共享位不推断唯一内部故障，保留未知位。"""
+    names = []
+    known = 0
+    for bit, name in (
+        (0, "过流"),
+        (1, "过压"),
+        (2, "欠压"),
+        (4, "MCU过温"),
+        (5, "编码器故障"),
+        (6, "CAN断连"),
+        (9, "参数/极对数/编码器未标定"),
+        (12, "温度传感器或其他未分类故障"),
+        (14, "电流校零/角度标定故障"),
+        (15, "电气辨识故障"),
+    ):
+        known |= 1 << bit
+        if bits & (1 << bit):
+            names.append(name)
+    if bits & ~known:
+        names.append(f"未知故障位0x{bits & ~known:08X}")
+    return "、".join(names) if names else "无故障"
+
+
+def fault_snapshot(data: bytes) -> dict:
+    bits = int.from_bytes(data[4:8], "little")
+    return dict(
+        state=data[43], mode=data[44], faults=bits, fault_text=describe_faults(bits), raw=data.hex()
+    )
+
+
+def run_clear_fault(bus, node, expected_uid, *, stopped=lambda: False, progress=lambda _: None):
+    """显式清错只发送一次107；身份、静止状态及108回读决定结果，不启相。"""
+    link = Link(bus, node, timeout_s=0.5)
+    report = dict(profile="clear_fault", node=node, passed=False, cleared=False, clear_sent=False)
+    try:
+        info = link.request(1, page=0)
+        if len(info) != 32 or info[:12].hex() != expected_uid:
+            report["identity_changed"] = True
+            raise ValueError("当前节点UID已改变，请重新扫描识别；未发送清除命令")
+        report["uid"] = info[:12].hex()
+        identity = link.request(1, page=1)
+        if len(identity) != 32 or identity[21:23] != bytes((node, 1)):
+            raise ValueError("所选节点未运行APP；未发送清除命令")
+        before = report["before"] = fault_snapshot(link.status())
+        if before["state"] not in (5, 8) or before["mode"] != 0:
+            raise ValueError("请先停止电机并结束标定，再清除故障；未发送清除命令")
+        if stopped():
+            report["cancelled"] = True
+            return report
+        if before["faults"] == 0 and before["state"] == 5:
+            report.update(after=before, passed=True, cleared=True)
+            return report
+        progress("正在清除故障，随后回读确认；不会启动电机")
+        report["clear_sent"] = True
+        try:
+            reply = link.request(107)
+            if len(reply) != 4:
+                raise ValueError("Type107清除应答长度错误")
+            result, detail = struct.unpack("<HH", reply)
+            report.update(result=result, detail=detail)
+            if result not in (0, 1):
+                report["fatal"] = f"Type107拒绝清除，result={result} detail={detail}"
+        except (TimeoutError, ValueError) as exc:
+            report["fatal"] = str(exc)
+        deadline = time.monotonic() + 2
+        while not stopped() and time.monotonic() < deadline:
+            try:
+                after = report["after"] = fault_snapshot(link.status())
+                report["cleared"] = (
+                    after["faults"] == 0 and after["state"] == 5 and after["mode"] == 0
+                )
+                if report["cleared"] or "fatal" in report:
+                    break
+            except TimeoutError:
+                pass
+            time.sleep(0.05)
+        report["cancelled"] = stopped()
+        report["passed"] = report["cleared"] and "fatal" not in report
+        if not report["cleared"] and "fatal" not in report:
+            report["fatal"] = "清除未确认：故障源仍存在或尚未恢复空闲，请检查电机/编码器连接"
+    except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+        report["fatal"] = str(exc)
+    finally:
+        report["communication_timeouts"] = link.timeouts
+        report["reply_timeout_ms"] = 500
+    return report
+
+
 def speed_value(text: str) -> float:
     """解析电机轴rad/s，按线路有符号毫弧度范围限制外部输入。"""
     try:
@@ -130,7 +219,11 @@ def _identify(link, report, feature):
     report.update(uid=info[:12].hex(), app_version=int.from_bytes(info[20:24], "little"))
     status = link.status()
     if status[4:8] != bytes(4) or status[43:] != bytes((5, 0)):
-        raise Rejected("操作需要IDLE、模式NONE及零故障")
+        report["initial_status"] = fault_snapshot(status)
+        bits = report["initial_status"]["faults"]
+        raise Rejected(
+            f"操作需要IDLE、模式NONE及零故障；当前{describe_faults(bits)}（0x{bits:08X}）"
+        )
     return caps, status
 
 
@@ -146,7 +239,9 @@ def _stop(link, report):
                 report["stop_faults"] = int.from_bytes(status[4:8], "little")
                 if report["stop_faults"]:
                     report.update(
-                        passed=False, fatal=f"已关相，故障码0x{report['stop_faults']:08X}"
+                        passed=False,
+                        fatal=f"已关相，{describe_faults(report['stop_faults'])}"
+                        f"（0x{report['stop_faults']:08X}）",
                     )
                 return
         except (TimeoutError, OSError, ValueError, Rejected):

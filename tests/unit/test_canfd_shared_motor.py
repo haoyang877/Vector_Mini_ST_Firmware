@@ -28,7 +28,7 @@ class SharedMotorTests(unittest.TestCase):
         self.window.report_dir = Path(self.temp.name)
         self.uid = "01" * 12
 
-    def capture_start(self, page):
+    def capture_start(self, page, **options):
         window = self.window
         window.update_controls()
         window.tabs.select(window.pages[page])
@@ -46,12 +46,44 @@ class SharedMotorTests(unittest.TestCase):
             patch.object(desktop.Path, "home", return_value=Path(self.temp.name)),
             patch.object(self.root, "after"),
         ):
-            window.start()
+            window.start(**options)
         self.assertEqual(len(launched), 1)
         return launched[0]["args"][0]
 
     def bind(self, node=7):
         self.window.set_current_motor(node, self.uid, "测试识别", role=1)
+
+    def test_fault_clear_uses_current_motor_from_any_page(self):
+        w = self.window
+        self.assertTrue(w.clear_fault_button.instate(["disabled"]))
+        self.bind(6)
+        self.assertFalse(w.clear_fault_button.instate(["disabled"]))
+        settings = self.capture_start("calibration", clear_fault=True)
+        self.assertEqual(settings["profile"], "clear_fault")
+        self.assertEqual(settings["node"], 6)
+        self.assertEqual(settings["expected_uid"], self.uid)
+        self.assertTrue(w.clear_fault_button.instate(["disabled"]))
+
+    def test_fault_names_display_and_clear_readback_update_identity(self):
+        w = self.window
+        w.set_current_motor(6, self.uid, "扫描", role=1, state=8, faults=32)
+        self.assertIn("编码器故障", w.current_motor_label.get())
+        w.display_report(
+            dict(
+                profile="clear_fault",
+                node=6,
+                uid=self.uid,
+                passed=True,
+                cleared=True,
+                before=dict(state=8, mode=0, faults=32),
+                after=dict(state=5, mode=0, faults=0),
+                result=0,
+                detail=0,
+            )
+        )
+        self.assertIn("无故障", w.current_motor_label.get())
+        self.assertIn("清除前：编码器故障", w.output.get("1.0", "end"))
+        self.assertEqual(w.current_motor["faults"], 0)
 
     def test_page_order_and_action_routing(self):
         w = self.window

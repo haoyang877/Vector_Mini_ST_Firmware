@@ -527,7 +527,7 @@ class CanTestWindow:
         ).pack(anchor="w")
         ttk.Label(
             check_tab,
-            text="APP v1.8.4：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
+            text="APP v1.8.5：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         calibration_tab = self.pages["calibration"]
@@ -600,10 +600,10 @@ class CanTestWindow:
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.4/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.5/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.4")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.5")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")

@@ -99,4 +99,3 @@
 
 阶段完成和未测边界分别记录，详见[当前限制](../tech-debt-tracker.md)。
 
-- [自由转子相电阻测量](2026-11-13-phase-resistance-free-rotor.md)

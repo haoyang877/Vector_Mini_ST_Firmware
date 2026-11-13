@@ -303,3 +303,5 @@
 
 - [相电阻检测及资源优化合并](2026-11-13-phase-resistance-check.md)
 - [最新重构分支RAM优化移植](2026-11-13-at32-ram-latest-v1.md)
+
+- [自由转子相电阻与耗时优化](2026-11-13-phase-resistance-free-rotor.md)

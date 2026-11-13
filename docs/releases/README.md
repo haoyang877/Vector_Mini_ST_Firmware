@@ -52,3 +52,5 @@
 当前规则见[发布标准](../guides/firmware_release_standard.md)，当前证据缺口见[计划索引](../plans/active/README.md)。
 
 - [相电阻检测测试包APP1.8.9](phase-resistance-app-v1.8.9-20261113.md)
+
+- [自由转子相电阻测试包APP1.8.11](phase-resistance-app-v1.8.11-20261113.md)

@@ -663,7 +663,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             param->position_maximum_speed_rad_s > 0.0f)
         {
             app->position_maximum_speed_rad_s =
-                fminf(app->speed_limit_rad_s, param->position_maximum_speed_rad_s);
+                fminf(app->axis_profile.maximum_speed_rad_s,
+                      fminf(app->speed_limit_rad_s, param->position_maximum_speed_rad_s));
         }
         app->current_limit_a = fminf(app->current_limit_a, configuration->model.thermal.peak_a);
         app->speed_feedforward.current_limit_a =

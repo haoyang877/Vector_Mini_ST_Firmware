@@ -151,6 +151,13 @@ int main(void)
             request.raw_value++;
             assert(ParameterValue_Apply(&cfg, &request) == PARAMETER_OUT_OF_RANGE);
             assert(cfg.device.encoder.linearization_lut_q15[71] == -42);
+            InterfaceParam narrow = record;
+            narrow.speed_limit_rad_s = limit;
+            narrow.position_maximum_speed_rad_s = limit;
+            narrow.record_crc32 = Param_RecordCrc(&narrow);
+            Param_Download(&narrow, sizeof(narrow), &cfg);
+            assert(cfg.application.speed_limit_rad_s == limit);
+            assert(cfg.application.position_maximum_speed_rad_s == .5f);
             if (node == 6)
             {
                 InterfaceParam old = record;

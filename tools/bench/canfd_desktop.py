@@ -1060,7 +1060,11 @@ class CanTestWindow:
             if "saved_revision" in r:
                 lines.append(f"Flash保存修订 {r['saved_revision']['saved_revision']}")
             if "samples" in r:
-                lines.append(f"反馈{r['samples']}次，目标更新{r['updates']}次；速度曲线见speed.csv")
+                lines.append(
+                    f"反馈{r['samples']}次，目标更新{r['updates']}次；速度曲线见speed.csv"
+                    if r["samples"]
+                    else "尚未开始速度反馈采集"
+                )
             if r["profile"] == "motor_speed" and r.get("enable_attempted") is False:
                 lines.append("未发送使能命令，本次未启动电机")
             else:

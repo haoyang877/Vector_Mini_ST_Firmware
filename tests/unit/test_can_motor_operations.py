@@ -331,7 +331,14 @@ class MotorOperationsTests(unittest.TestCase):
     def test_speed_panel_rejects_bad_fields_without_opening_a_port(self):
         fields = dict(speed="0", travel="360", lease="0", target="0")
         self.assertEqual(motor_speed_fields(fields)["speed"], 0)
-        for key, value in (("speed", "nan"), ("travel", ""), ("target", "65536"), ("lease", "-1")):
+        for key, value in (
+            ("speed", "nan"),
+            ("speed", "31"),
+            ("limit", "0"),
+            ("travel", ""),
+            ("target", "65536"),
+            ("lease", "-1"),
+        ):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 motor_speed_fields({**fields, key: value})
 

@@ -293,7 +293,8 @@ def run_speed_control(
         caps, status = _identify(link, report, 13)
         if not int.from_bytes(caps[4:6], "little") & (1 << 2):
             raise Rejected("固件不支持速度闭环模式2")
-        limit = _scalar(link, 1)["value"] / 1000
+        active_limit = _scalar(link, 1)["value"] / 1000
+        limit = active_limit
         if speed_limit is not None:
             limit = speed_value(str(speed_limit))
         report["current_limit_a"] = _scalar(link, 2)["value"] / 1000
@@ -303,7 +304,7 @@ def run_speed_control(
         ratio = struct.unpack_from("<i", geometry, 24)[0] / 1000
         if limit <= 0 or ratio < 1 or not status[24] & 2:
             raise Rejected("速度限额、减速比或机械位置无效")
-        report.update(speed_limit_rad_s=limit, gear_ratio=ratio)
+        report.update(speed_limit_rad_s=active_limit, gear_ratio=ratio)
         if abs(target) > limit:
             raise ValueError(f"目标速度超出板端限值±{limit:g} rad/s")
         if stopped():

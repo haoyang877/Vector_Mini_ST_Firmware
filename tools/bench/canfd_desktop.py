@@ -44,7 +44,7 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.11.1"
+TITLE = "CAN FD 通信测试 v1.12.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -703,16 +703,34 @@ class CanTestWindow:
         ).pack(anchor="w")
         self.firmware_version = tk.StringVar(value="板端版本：尚未查询")
         ttk.Label(self.swd_tab, textvariable=self.firmware_version).pack(anchor="w")
-        self.motor_label = tk.StringVar(value="接好已停转电机的 J-Link 后，点击“识别电机”。")
+        self.motor_label = tk.StringVar(
+            value="接好已停转电机的 J-Link，点击“烧录固件”；自动识别已配板或新板。"
+        )
         ttk.Label(self.swd_tab, textvariable=self.motor_label).pack(anchor="w")
         setup_row = ttk.Frame(self.swd_tab)
         setup_row.pack(anchor="w", pady=4)
-        self.rescan = ttk.Button(setup_row, text="重新识别", command=self.identify_again)
+        self.rescan = ttk.Button(setup_row, text="识别 / 刷新连接", command=self.identify_again)
         self.rescan.pack(side="left")
-        ttk.Label(setup_row, text="空白板初装：在顶部选择实际电机类型一次。").pack(
-            side="left", padx=8
+        ttk.Label(
+            setup_row, text="已配板保留参数；新板识别后在下方选择类型并初装，无需先擦除。"
+        ).pack(side="left", padx=8)
+        self.initial_setup = ttk.LabelFrame(
+            self.swd_tab, text="新板初装：选择实际电机类型", padding=8
         )
-        erase_row = ttk.Frame(self.swd_tab)
+        self.initial_axis = tk.StringVar(value="")
+        self.initial_buttons = []
+        for label in self.axis_choices:
+            button = ttk.Radiobutton(
+                self.initial_setup,
+                text=label,
+                value=label,
+                variable=self.initial_axis,
+                command=self.select_initial_axis,
+            )
+            button.pack(anchor="w")
+            self.controls.append((button, "normal"))
+            self.initial_buttons.append(button)
+        erase_row = self.erase_row = ttk.Frame(self.swd_tab)
         erase_row.pack(anchor="w", pady=5)
         self.erase_buttons = {}
         for scope, label in (
@@ -852,7 +870,7 @@ class CanTestWindow:
         self.select_current_motor()
         self.motor_label.set("识别当前连接的电机。")
         self.tabs.select(self.swd_tab)
-        self.start()
+        self.start(identify_only=True)
 
     def current_page(self) -> str:
         return next(key for key, page in self.pages.items() if str(page) == self.tabs.select())
@@ -863,7 +881,12 @@ class CanTestWindow:
     def select_first_fit(self, _event=None) -> None:
         if self.identity and self.identity["node"] is None:
             self.first_fit_selected = True
+            self.initial_axis.set(self.motor_axis.get())
         self.update_controls()
+
+    def select_initial_axis(self) -> None:
+        self.motor_axis.set(self.initial_axis.get())
+        self.select_first_fit()
 
     def select_current_motor(self, *_args) -> None:
         node = self.current_node()
@@ -945,7 +968,7 @@ class CanTestWindow:
             "communication": "发送一帧"
             if self.communication_tabs.select() == str(self.raw_tab)
             else "开始通信测试",
-            "jlink": "识别电机",
+            "jlink": "烧录固件（自动识别）",
             "upgrade": "开始 CAN 升级",
             "hardware": "开始硬件功能检测",
             "calibration": "开始角度标定并保存",
@@ -989,23 +1012,33 @@ class CanTestWindow:
         if current == "upgrade" and selected:
             action = f"开始升级（{selected} 台）"
         blank = self.identity is not None and self.identity["node"] is None
+        if blank:
+            self.initial_setup.pack(fill="x", pady=5, before=self.erase_row)
+        else:
+            self.initial_setup.pack_forget()
         if blank and "resume_node" in self.identity:
             self.motor_selector.configure(state="disabled")
+            for button in self.initial_buttons:
+                button.configure(state="disabled")
         if swd and self.identity:
-            action = "按所选型号初装" if blank else f"烧录节点 {self.identity['node']}"
+            action = (
+                (
+                    f"初始化并烧录 · {self.motor_axis.get()}"
+                    if self.first_fit_selected
+                    else "请先选择上方电机类型"
+                )
+                if blank
+                else f"烧录固件 · 节点 {self.identity['node']}（保留参数）"
+            )
         self.start_button.configure(
             text=action,
             state="disabled"
             if busy
             or (current == "upgrade" and not selected)
-            or (
-                swd
-                and self.identity
-                and (not self.hex_path or (blank and not self.first_fit_selected))
-            )
+            or (swd and (not self.hex_path or (blank and not self.first_fit_selected)))
             else "normal",
         )
-        self.rescan.configure(state="normal" if not busy and self.identity else "disabled")
+        self.rescan.configure(state="normal" if not busy else "disabled")
         for scope, button in self.erase_buttons.items():
             allowed = (
                 not busy and self.identity and (scope == "all" or self.identity["node"] is not None)
@@ -1101,8 +1134,16 @@ class CanTestWindow:
             self.start(erase_scope=scope, erase_confirmed=True)
 
     def operation_mode(
-        self, *, scan=False, bitrate_action=None, clear_fault=False, erase_scope=None
+        self,
+        *,
+        scan=False,
+        bitrate_action=None,
+        clear_fault=False,
+        erase_scope=None,
+        identify_only=False,
     ) -> str:
+        if identify_only:
+            return "jlink_identify"
         if erase_scope is not None:
             return "jlink_erase"
         if clear_fault:
@@ -1119,7 +1160,7 @@ class CanTestWindow:
                 else MODES[self.mode.get()]
             )
         return {
-            "jlink": "jlink_flash" if self.identity else "jlink_identify",
+            "jlink": "jlink_flash",
             "upgrade": "can_upgrade",
             "hardware": "hardware_check",
             "calibration": "motor_calibration",
@@ -1135,6 +1176,7 @@ class CanTestWindow:
         clear_fault=False,
         erase_scope=None,
         erase_confirmed=False,
+        identify_only=False,
     ) -> None:
         if self.process is not None:
             return
@@ -1143,6 +1185,7 @@ class CanTestWindow:
             bitrate_action=bitrate_action,
             clear_fault=clear_fault,
             erase_scope=erase_scope,
+            identify_only=identify_only,
         )
         swd = mode.startswith("jlink_")
         settings = {
@@ -1389,6 +1432,7 @@ class CanTestWindow:
         if r["profile"] == "jlink_erase":
             self.identity = None
             self.first_fit_selected = False
+            self.initial_axis.set("")
             self.known_motors.clear()
             self.clear_upgrade_scan()
             self.select_current_motor()
@@ -1665,11 +1709,12 @@ class CanTestWindow:
                     if identity["node"] is None
                     else f"节点 {identity['node']}（{AXES[identity['node']]}）"
                 )
-                if r["profile"] == "jlink_identify":
+                if r["profile"] == "jlink_identify" or r.get("needs_initial_setup"):
                     self.identity = identity
                     detail = f"{name}　UID {identity['uid']}　J-Link {identity['serial']}"
                     if identity["node"] is None:
-                        detail += "　请选择与实物相符的轴和型号。"
+                        self.initial_axis.set("")
+                        detail += "　请在本页选择实际电机类型，再点击初始化并烧录。"
                         if "resume_node" in identity:
                             self.motor_axis.set(
                                 next(
@@ -1679,6 +1724,7 @@ class CanTestWindow:
                                 )
                             )
                             self.first_fit_selected = True
+                            self.initial_axis.set(self.motor_axis.get())
                             detail = (
                                 f"节点 {identity['resume_node']} 初装待恢复　UID {identity['uid']}"
                             )

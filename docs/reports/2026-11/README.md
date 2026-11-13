@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [J-Link流程与擦除提速](jlink_workflow_speed_20261113.md)：页内初装、自动识别烧录；完整双读由6.693秒降至1.375秒，实际擦除总耗时未测。
+
 - [ROLL及左右轮10圈标定候选](ht_calibration_ten_turns_20261113.md)：产品预设圈数、原误差断言与Release通过；约8秒为估计，未烧录。
 
 - [J-Link Flash擦除](jlink_flash_erase_20261113.md)：范围、确认、备份、回读及后续烧录回归；Release通过，未执行实机擦除。

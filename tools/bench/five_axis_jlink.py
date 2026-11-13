@@ -374,12 +374,15 @@ def erase_motor(probe, target, identity, scope, out, report, stage, hex_hash):
     if start < base or start + size > base + total or start % page or size % page:
         raise ValueError("擦除范围与物理Flash或扇区边界不符")
     report.update(erase_scope=scope, erase_start=start, erase_bytes=size)
+    backup_started = time.monotonic()
     stage("双读备份完整Flash，确认六路输出关闭")
     backup = maintenance.capture(probe, target, uid, out / "before")
     before = (out / "before/flash.bin").read_bytes()
     if maintenance.digest(before) != backup["flash"]:
         raise OSError("擦除前磁盘备份校验失败")
     report["backup_sha256"] = backup["flash"]["sha256"]
+    report["backup_s"] = round(time.monotonic() - backup_started, 3)
+    stage("暂停并复核完整Flash备份")
     maintenance.halt_for_flash(probe, target)
     maintenance.check_outputs_off(probe, target)
     if maintenance.read_twice(probe, base, total) != before:
@@ -402,10 +405,12 @@ def erase_motor(probe, target, identity, scope, out, report, stage, hex_hash):
         journal.replace(pending)
     report["erase_started"] = True
     stage("擦除APP区，保留Loader和参数" if scope == "app" else "擦除全部物理Flash（含参数与身份）")
+    erase_started = time.monotonic()
     if scope == "app":
         probe.flash_write8(start, b"\xff" * size)
     else:
         probe.erase()
+    report["erase_algorithm_s"] = round(time.monotonic() - erase_started, 3)
     if not probe.halt():
         raise RuntimeError("擦除后无法确认CPU已暂停")
     if (
@@ -415,6 +420,7 @@ def erase_motor(probe, target, identity, scope, out, report, stage, hex_hash):
         set_blank_board_outputs_low(probe)
     maintenance.check_outputs_off(probe, target)
     stage("双读校验擦除范围及全部保留区域")
+    verify_started = time.monotonic()
     after = maintenance.read_twice(probe, base, total)
     (out / "flash_after.bin").write_bytes(after)
     offset = start - base
@@ -431,6 +437,7 @@ def erase_motor(probe, target, identity, scope, out, report, stage, hex_hash):
         outputs_off=True,
         protected_regions_verified=scope == "app",
         flash_sha256=maintenance.digest(after)["sha256"],
+        verify_s=round(time.monotonic() - verify_started, 3),
     )
 
 
@@ -522,7 +529,8 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
             if len(probes) != 1:
                 raise RuntimeError(f"检测到 {len(probes)} 只 J-Link，请连接本次使用的一只探针")
             serial = probes[0].SerialNumber
-            if mode in ("jlink_flash", "jlink_erase") and settings["identity"]["serial"] != serial:
+            expected_identity = settings.get("identity")
+            if expected_identity and expected_identity["serial"] != serial:
                 raise RuntimeError("J-Link 已更换，请重新识别")
             probe.open(serial_no=serial)
             for command in (
@@ -541,9 +549,16 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                 probe, target, motors, serial, out.parent, batch["hex_sha256"]
             )
             report.update(identity=identity)
+            if mode in ("jlink_flash", "jlink_erase"):
+                if expected_identity and identity != expected_identity:
+                    raise RuntimeError("当前芯片与已识别的UID/节点不同，请重新识别")
+                if mode == "jlink_erase" and not expected_identity:
+                    raise ValueError("擦除需要先识别并确认芯片UID")
             if mode == "jlink_erase":
-                if identity != settings["identity"]:
-                    raise RuntimeError("当前芯片与擦除确认的UID/节点不同，请重新识别")
+                report["swd_khz"] = select_flash_speed(
+                    probe, target, stage, blank=identity["node"] is None
+                )
+                stage(f"SWD 试读通过，当前时钟 {report['swd_khz']} kHz")
                 erase_motor(
                     probe,
                     target,
@@ -555,11 +570,13 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                     batch["hex_sha256"],
                 )
             if mode == "jlink_flash":
-                if identity != settings["identity"]:
-                    raise RuntimeError("当前电机与界面已识别的电机不同，请重新识别")
                 node = settings.get("first_fit_node")
                 record = b""
                 if identity["node"] is None:
+                    if node is None:
+                        report.update(success=True, needs_initial_setup=True)
+                        stage("已识别待初装板，请在烧录页选择实际电机类型后初始化并烧录")
+                        return
                     if node not in FIRST_FIT_AXES or identity.get("resume_node", node) != node:
                         raise ValueError("请选择待初装的电机类型；中断恢复须沿用原选择")
                     directory = (

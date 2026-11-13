@@ -105,7 +105,7 @@ class SharedMotorTests(unittest.TestCase):
             ["J-Link 烧录", "硬件测试", "通信测试", "角度标定", "升级压测", "速度控制"],
         )
         expected = dict(
-            jlink="jlink_identify",
+            jlink="jlink_flash",
             hardware="hardware_check",
             communication="fixed",
             calibration="motor_calibration",
@@ -300,6 +300,59 @@ class SharedMotorTests(unittest.TestCase):
         w.select_first_fit()
         self.assertTrue(w.first_fit_selected)
         self.assertEqual(self.capture_start("jlink")["first_fit_node"], 7)
+
+    def test_flash_without_prior_identification_and_refresh_are_separate_actions(self):
+        w = self.window
+        w.hex_path = Path(self.temp.name) / "firmware.hex"
+        settings = self.capture_start("jlink")
+        self.assertEqual(settings["profile"], "jlink_flash")
+        self.assertIsNone(settings["identity"])
+        self.assertIsNone(settings["first_fit_node"])
+        w.process = None
+        with patch.object(w, "start") as start:
+            w.identify_again()
+            start.assert_called_once_with(identify_only=True)
+        self.assertEqual(w.operation_mode(identify_only=True), "jlink_identify")
+
+    def test_new_board_shows_unselected_types_then_uses_explicit_choice(self):
+        w = self.window
+        w.hex_path = Path(self.temp.name) / "firmware.hex"
+        w.display_report(
+            dict(
+                profile="jlink_flash",
+                success=True,
+                needs_initial_setup=True,
+                identity=dict(node=None, uid=self.uid, serial=123),
+                steps=[],
+                elapsed_s=1,
+            )
+        )
+        w.update_controls()
+        self.assertEqual(w.initial_axis.get(), "")
+        self.assertTrue(w.start_button.instate(["disabled"]))
+        self.assertEqual(w.initial_setup.winfo_manager(), "pack")
+        # 点击与顶部当前值相同的选项，也应完成明确选择。
+        w.initial_axis.set(w.motor_axis.get())
+        w.select_initial_axis()
+        self.assertFalse(w.start_button.instate(["disabled"]))
+        self.assertIn("初始化并烧录", w.start_button["text"])
+        self.assertEqual(self.capture_start("jlink")["first_fit_node"], 6)
+
+    def test_interrupted_initial_setup_locks_original_type(self):
+        w = self.window
+        w.display_report(
+            dict(
+                profile="jlink_identify",
+                success=True,
+                identity=dict(node=None, uid=self.uid, serial=123, resume_node=7),
+                steps=[],
+                elapsed_s=1,
+            )
+        )
+        w.update_controls()
+        self.assertTrue(w.first_fit_selected)
+        self.assertEqual(w.current_node(), 7)
+        self.assertTrue(all(button.instate(["disabled"]) for button in w.initial_buttons))
 
     def test_single_scan_auto_selects_axis_and_failed_identification_clears_it(self):
         w = self.window

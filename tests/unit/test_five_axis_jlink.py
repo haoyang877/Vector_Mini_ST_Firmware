@@ -140,13 +140,14 @@ class FlashGuiTests(unittest.TestCase):
         force=False,
         erase_scope=None,
         erase_confirmed=False,
+        auto_identify=False,
     ):
         self.number += 1
         directory = self.directory / str(self.number)
         directory.mkdir()
         settings = {
             "profile": mode,
-            "identity": identity or self.identity,
+            "identity": None if auto_identify else identity or self.identity,
             "hex": str(self.hex_file),
             "restart_after_flash": restart,
             "force_reflash": force,
@@ -186,6 +187,59 @@ class FlashGuiTests(unittest.TestCase):
         self.assertTrue(self.job()["already_installed"])
         self.probe.reset.assert_not_called()
         self.probe.flash_file.assert_called_once()
+
+    def test_direct_flash_identifies_configured_board_and_preserves_parameters(self):
+        self.allow_core_reset()
+        result = self.job(auto_identify=True, force=True, restart=True)
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["identity"], self.identity)
+        self.assertTrue(result["can_test"]["version_verified"])
+        self.assertEqual(self.probe.flash[0x1C000:], self.before[0x1C000:])
+
+    def test_direct_flash_blank_board_waits_for_explicit_type_without_mutation(self):
+        identity, _ = self.blank_board(6)
+        before = bytes(self.probe.flash)
+        result = self.job(auto_identify=True)
+        self.assertTrue(result["success"] and result["needs_initial_setup"])
+        self.assertEqual(result["identity"], identity)
+        self.assertFalse(result["write_started"])
+        self.assertEqual((bytes(self.probe.flash), self.probe.halts), (before, 0))
+        self.probe.flash_file.assert_not_called()
+        self.assertTrue(self.job(identity=identity, first_fit_node=6)["success"])
+
+    def test_erase_negotiates_speed_before_backup_and_records_phases(self):
+        capture = swd.maintenance.capture
+
+        def at_fast_speed(*args):
+            self.assertEqual(self.probe.speed, 8000)
+            return capture(*args)
+
+        with patch.object(swd.maintenance, "capture", side_effect=at_fast_speed):
+            result = self.job("jlink_erase", erase_scope="all", erase_confirmed=True)
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["swd_khz"], 8000)
+        for key in ("backup_s", "erase_algorithm_s", "verify_s"):
+            self.assertGreaterEqual(result[key], 0)
+
+    def test_erase_falls_back_on_unstable_high_speed(self):
+        read = self.probe.memory_read8
+
+        def fail_fast(address, size):
+            if self.probe.speed > 1000:
+                raise OSError("unstable SWD")
+            return read(address, size)
+
+        self.probe.memory_read8 = fail_fast
+        result = self.job("jlink_erase", erase_scope="all", erase_confirmed=True)
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["swd_khz"], 1000)
+
+    def test_erase_never_accepts_auto_identity_in_place_of_confirmation(self):
+        result = self.job(
+            "jlink_erase", erase_scope="all", erase_confirmed=True, auto_identify=True
+        )
+        self.assertFalse(result["success"])
+        self.probe.erase.assert_not_called()
 
     def test_app_erase_preserves_all_other_bytes_and_can_be_reflashed(self):
         result = self.job("jlink_erase", erase_scope="app", erase_confirmed=True)

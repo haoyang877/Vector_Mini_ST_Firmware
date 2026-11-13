@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [30 rad/s目标边界修复](speed_target_boundary_20261113.md)：修复浮点换算误拒绝，节点6±30受理、±30.001拒绝，当前角区十项正常。
+
 - [CAN FD v1.8.2中止提示和速度上限](canfd_abort_speed_limit_20261113.md)：确认Hall cos4044 cnt越界先中止，修正提示；保存本板30 rad/s包络，限值写入与±5 rad/s通过。
 
 - [CAN FD v1.8.1角度标定与速度控制](canfd_calibration_speed_20261113.md)：独立页面和平铺标定按钮；500 ms标定保存、正反速度及GUI工作进程通过，视觉复核和其余型号未测。

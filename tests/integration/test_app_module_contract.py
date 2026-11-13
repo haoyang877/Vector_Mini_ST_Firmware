@@ -17,6 +17,9 @@ MODULE_PREFIXES = {
 }
 
 
+VALUE_HEADERS = {"hardware_check_state"}
+
+
 class AppModuleContractTests(unittest.TestCase):
     def test_production_control_and_protocol_use_single_precision(self):
         """检查核心源码里的类型、普通浮点字面量及常见双精度数学调用。"""
@@ -51,7 +54,7 @@ class AppModuleContractTests(unittest.TestCase):
             {p.stem for p in APP.glob("*.c")},
             set(MODULE_PREFIXES),
         )
-        self.assertEqual({p.stem for p in APP.glob("*.h")}, set(MODULE_PREFIXES))
+        self.assertEqual({p.stem for p in APP.glob("*.h")}, set(MODULE_PREFIXES) | VALUE_HEADERS)
         for name, prefix in MODULE_PREFIXES.items():
             with self.subTest(module=name):
                 source = (APP / f"{name}.h").read_text(encoding="utf-8")
@@ -59,6 +62,18 @@ class AppModuleContractTests(unittest.TestCase):
                 public = [func for func in declarations if not func.startswith("RTT_")]
                 self.assertTrue(public)
                 self.assertTrue(all(func.startswith(prefix + "_") for func in public), public)
+
+    def test_value_headers_only_declare_instance_storage(self):
+        """纯值类型头不增加运行模块、函数入口或静态状态；由轴维护区拥有实例。"""
+        owner = (APP / "motor_calibration.h").read_text(encoding="utf-8")
+        self.assertIn("HardwareCheckWorkspace hardware_check;", owner)
+        for name in VALUE_HEADERS:
+            text = (APP / f"{name}.h").read_text(encoding="utf-8")
+            text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
+            self.assertFalse((APP / f"{name}.c").exists())
+            self.assertNotRegex(text, r"\b(?:extern|static)\b")
+            self.assertNotRegex(text, r"^\w+[ \t*]+\w+\s*\(", text)
+            self.assertIn("} HardwareCheckWorkspace;", text)
 
     def test_module_state_is_instance_owned(self):
         # C 函数体与函数声明均不匹配；检查文件级和函数内静态工作对象。

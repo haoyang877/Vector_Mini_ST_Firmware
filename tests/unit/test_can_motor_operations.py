@@ -25,6 +25,7 @@ class Endpoint:
         self.starts, self.cancelled = 0, False
         self.cal_kind = 1
         self.fault = ""
+        self.status_losses = 0
 
     def status(self):
         data = bytearray(45)
@@ -110,6 +111,10 @@ class Endpoint:
             self.cancelled = True
             return ops.JOB.pack(1, 0, 7, self.cal_kind, 3, 1)
         if kind == 161:
+            if self.status_losses:
+                self.status_losses -= 1
+                self.timeouts[161] = self.timeouts.get(161, 0) + 1
+                raise TimeoutError("job status delayed during Flash save")
             phase, effects = (4, 1) if self.cancelled else self.phases.pop(0)
             if phase == 2:
                 self.revision, self.state = 2, 5
@@ -147,6 +152,24 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertTrue(report["stop_confirmed"])
         self.assertEqual(self.endpoint.starts, 1)
         self.assertEqual(report["communication_timeouts"], {160: 1})
+
+    def test_read_only_job_retry_keeps_timeout_and_does_not_restart(self):
+        self.endpoint.status_losses = 1
+        report = ops.run_angle_calibration(None, 6)
+        self.assertTrue(report["passed"] and report["stop_confirmed"])
+        self.assertEqual(self.endpoint.starts, 1)
+        self.assertEqual(report["job_status_retries"], 1)
+        self.assertEqual(report["communication_timeouts"], {161: 1})
+        self.assertFalse(report["communication_reliability_passed"])
+
+    def test_read_only_job_retry_is_bounded_and_stops(self):
+        self.endpoint.status_losses = 3
+        report = ops.run_angle_calibration(None, 6)
+        self.assertFalse(report["passed"])
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(report["ticket"], 7)
+        self.assertEqual(self.endpoint.starts, 1)
+        self.assertEqual(report["communication_timeouts"], {161: 3})
 
     def test_electrical_zero_uses_its_own_ticket_kind(self):
         report = ops.run_angle_calibration(None, 6, kind=2)

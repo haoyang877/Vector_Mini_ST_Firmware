@@ -134,8 +134,17 @@ def _stop(link, report):
     raise TimeoutError("STOP后未确认实际关相")
 
 
-def _job(link, ticket, expected_kind):
-    data = link.request(161, struct.pack("<I", ticket))
+def _job(link, ticket, expected_kind, report):
+    for attempt in range(3):
+        try:
+            data = link.request(161, struct.pack("<I", ticket))
+            break
+        except TimeoutError:
+            if attempt == 2:
+                raise
+            # Flash保存可能暂停前台；只重查同一票据，保留每次50 ms超时。
+            report["job_status_retries"] = report.get("job_status_retries", 0) + 1
+            time.sleep(0.1)
     if len(data) != JOB.size:
         raise Rejected("标定票据回复长度错误")
     result, detail, current, kind, phase, effects = JOB.unpack(data)
@@ -171,6 +180,7 @@ def run_angle_calibration(
                 raise Rejected("标定启动回复长度错误")
             result, detail, ticket, actual_kind, phase, effects = JOB.unpack(data)
             if result == 1 and ticket and actual_kind == kind and phase == 1 and effects == 1:
+                report.update(ticket=ticket, kind=actual_kind, phase=phase, effects=effects)
                 break
             if result > 1 and detail == 5:
                 # 明确拒绝的旧序号才能换号；丢ACK不重放启动。
@@ -194,7 +204,7 @@ def run_angle_calibration(
                 cancelled = True
                 report["cancel_requested"] = True
                 deadline = min(deadline, time.monotonic() + 2)
-            job = _job(link, ticket, kind)
+            job = _job(link, ticket, kind, report)
             report.update(job)
             progress(f"票据{ticket} · {STAGES.get(job['detail'], '处理')} · 阶段{job['phase']}")
             if job["phase"] == 2 and job["effects"] == 2:

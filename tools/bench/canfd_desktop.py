@@ -1035,7 +1035,8 @@ class CanTestWindow:
                 lines.append(r["fatal"])
             if r.get("communication_timeouts"):
                 lines.append(f"50 ms超时记录：{r['communication_timeouts']}")
-            self.state.set(title + status)
+            reliability = " · 50ms首答异常" if r.get("communication_timeouts") else ""
+            self.state.set(title + status + reliability)
             self.show("\n".join(lines))
             self.bar["value"] = 100 if r.get("passed") else 0
             self.progress.set(f"{self.bar['value']:.0f}%")

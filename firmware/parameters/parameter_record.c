@@ -604,6 +604,13 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     configuration->application.speed_deceleration_rad_s2 = param->speed_deceleration_rad_s2;
     configuration->application.speed_kp = param->speed_kp;
     configuration->application.speed_ki = param->speed_ki;
+    /* ROLL旧默认PI随当前预设更新；其他显式整定保留，启动不回写Flash。 */
+    if (preset != NULL && preset->joint == MOTOR_JOINT_ROLL && param->speed_kp == 0.5f &&
+        param->speed_ki == 1.0f)
+    {
+        configuration->application.speed_kp = preset->control.speed_kp;
+        configuration->application.speed_ki = preset->control.speed_ki;
+    }
     configuration->application.position_acceleration_rad_s2 =
         isfinite(param->position_acceleration_rad_s2) && param->position_acceleration_rad_s2 > 0.0f
             ? Math_Constrain(

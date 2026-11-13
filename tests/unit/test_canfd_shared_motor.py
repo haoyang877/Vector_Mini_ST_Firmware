@@ -125,10 +125,39 @@ class SharedMotorTests(unittest.TestCase):
         direction_results(report)
         self.window.display_report(report)
         self.assertIn("编码器方向反向", self.window.state.get())
-        text = self.window.output.get("1.0", "end")
-        self.assertIn("电机角动态　异常", text)
+        rows = [
+            self.window.hardware_table.item(i, "values")
+            for i in self.window.hardware_table.get_children()
+        ]
+        self.assertEqual(rows[8][0], "电机角动态")
+        self.assertEqual(rows[8][3], "异常")
+        text = self.window.hardware_result_note.get()
         self.assertIn("正向命令→编码器反转", text)
         self.assertIn("反向命令→编码器正转", text)
+
+    def test_hardware_result_table_has_values_limits_and_missing_states(self):
+        report = desktop.empty_report(6)
+        report.update(stage=4, communication="正常", measurements_supported=True)
+        report["board_items"] = [1] * 8 + [0, 3]
+        report["measurements"] = {
+            "0": {"samples": 2000, "values": [2050, 4, None, None]},
+            "4": {"samples": 2000, "values": [26.99, 28.2, 1, 0]},
+        }
+        direction_results(report)
+        self.window.display_report(report)
+        rows = [
+            self.window.hardware_table.item(i, "values")
+            for i in self.window.hardware_table.get_children()
+        ]
+        self.assertEqual(len(rows), 10)
+        self.assertIn("2050.00", rows[0][1])
+        self.assertIn("RMS <10", rows[0][2])
+        self.assertIn("26.99", rows[4][1])
+        self.assertIn("1/2000", rows[4][1])
+        self.assertEqual(rows[8][1], "未采集")
+        self.assertEqual(rows[9][1], "未装")
+        self.window.show("下一项任务")
+        self.assertEqual(self.window.hardware_results.winfo_manager(), "")
 
     def test_page_order_and_action_routing(self):
         w = self.window

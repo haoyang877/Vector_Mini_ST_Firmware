@@ -134,7 +134,7 @@ static const MotorAxisPreset s_presets[] = {
      HT8115_CALIB_SPEED_RAD_S,
      ROLL_CALIB_CURRENT_A,
      30.0f,
-     {8.0f, 2.0f, 0.5f, 1.0f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
+     {8.0f, 2.0f, 0.05f, 0.5f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,
      CONFIG_TWO_PI * (150.0f / 360.0f),
      .gear_ratio = 1.0f,

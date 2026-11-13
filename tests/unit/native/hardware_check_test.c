@@ -383,7 +383,7 @@ static void motion_cases(void)
 }
 
 /* 这两帧由实际主控编码器生成，按字节穿过生产 RX IRQ、前台及 TX 再交回主控。 */
-extern const uint8_t host_start[32], host_read[20];
+extern const uint8_t host_start[32], host_read[20], host_measure[32];
 static ProtocolEndpoint s_endpoint;
 static BspCanFrame s_rx, s_tx;
 static bool s_rx_pending, s_tx_sent;
@@ -453,6 +453,57 @@ static void can_loopback(void)
         printf("%02x", s_tx.data[i]);
     }
     puts("");
+    service_frame(host_measure, 32U, false);
+    assert(s_tx_sent && s_tx.length == 64U && s_stops == 0U);
+    printf("CAN_HW_MEASUREMENT ");
+    for (unsigned i = 0U; i < s_tx.length; ++i)
+    {
+        printf("%02x", s_tx.data[i]);
+    }
+    puts("");
+}
+
+/* 合成有偏置/噪声的完整静态窗口，验证公开数值与判定采用同一批样本。 */
+static void measurement_cases(void)
+{
+    ProtocolHardwareMeasurement m;
+    begin(1U, 1);
+    assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_BUSY);
+    for (unsigned i = 0; i < 2000U; ++i)
+    {
+        s_adc[BSP_ADC_PHASE_CURRENT_A] = 2050.0f + (i % 2 ? 4.0f : -4.0f);
+        s_axis.hall_samples[0].sin_counts = (uint16_t)(2048 + (i % 2 ? 2 : -2));
+        s_axis.foc.bus_voltage_v = i % 2 ? 27.5f : 28.5f;
+        tick(true);
+    }
+    assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.run_id == s_run && m.samples == 2000 && m.valid == 3);
+    assert(m.values[0] == 2050 && m.values[1] == 4);
+    assert(s_check.measure(&s_axis, 4, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.valid == 15 && m.values[0] == 27.5f && m.values[1] == 28.5f && m.values[2] == 0 &&
+           m.values[3] == 0);
+    assert(s_check.measure(&s_axis, 5, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.valid == 7 && m.values[0] == 25 && m.values[1] == 25 && m.values[2] == 25);
+    assert(s_check.measure(&s_axis, 7, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.valid == 15 && m.values[0] == 2048 && m.values[1] == 2);
+    assert(s_check.measure(&s_axis, 8, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
+    assert(s_check.measure(&s_axis, 4, s_run - 1U, &m) == PROTOCOL_RESULT_DENIED);
+    assert(s_check.measure(&s_axis, 11, s_run, &m) == PROTOCOL_RESULT_BAD_FIELD);
+    begin(1U, 1);
+    for (unsigned i = 0; i < 100U; ++i)
+    {
+        s_adc[BSP_ADC_PHASE_CURRENT_A] = 2050.0f + (i % 2 ? 4.0f : -4.0f);
+        tick(true);
+    }
+    ++s_axis.parameters.revision;
+    tick(true);
+    assert(report().stage == 5);
+    assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.samples == 100 && m.values[0] == 2050 && m.values[1] == 4);
+    begin(1U, 0);
+    window();
+    assert(s_check.measure(&s_axis, 7, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
+    assert(s_check.measure(&s_axis, 10, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
 }
 
 int main(void)
@@ -461,6 +512,7 @@ int main(void)
     assert(report().stage == 0 && report().run_id == 0);
     s_cycles = UINT32_MAX - 45000;
     can_loopback();
+    measurement_cases();
     static_cases();
     for (unsigned age = 30; age <= 31; ++age)
     {

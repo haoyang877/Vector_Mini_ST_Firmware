@@ -44,7 +44,7 @@ from five_axis_can_stability import (
     version_text,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
-from hardware_check import Drive, Link, empty_report, run_check, summarize
+from hardware_check import Drive, Link, empty_report, result_rows, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
@@ -582,7 +582,7 @@ class CanTestWindow:
         ).pack(anchor="w")
         ttk.Label(
             check_tab,
-            text="APP v1.8.7：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
+            text="APP v1.8.8：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         calibration_tab = self.pages["calibration"]
@@ -676,10 +676,10 @@ class CanTestWindow:
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.7/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.8/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.7")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.8")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -891,6 +891,35 @@ class CanTestWindow:
             frame, height=8, wrap="word", state="disabled", font=("Microsoft YaHei UI", 10)
         )
         self.output.pack(fill="both", expand=True, pady=(8, 0))
+        self.hardware_results = ttk.Frame(frame)
+        self.hardware_result_note = tk.StringVar()
+        ttk.Label(
+            self.hardware_results, textvariable=self.hardware_result_note, wraplength=940
+        ).pack(fill="x", pady=(2, 4))
+        grid = ttk.Frame(self.hardware_results)
+        grid.pack(fill="both", expand=True)
+        self.hardware_table = ttk.Treeview(
+            grid, columns=("item", "measured", "limit", "result"), show="headings", height=7
+        )
+        for key, title, width in (
+            ("item", "测试项目", 100),
+            ("measured", "本轮实测数值", 500),
+            ("limit", "判定标准", 280),
+            ("result", "结果", 65),
+        ):
+            self.hardware_table.heading(key, text=title)
+            self.hardware_table.column(key, width=width, minwidth=65, stretch=key == "measured")
+        self.hardware_table.tag_configure("异常", foreground="#b42318")
+        self.hardware_table.tag_configure("正常", foreground="#16734b")
+        self.hardware_table.tag_configure("未测", foreground="#8a6100")
+        self.hardware_table.grid(row=0, column=0, sticky="nsew")
+        vertical = ttk.Scrollbar(grid, orient="vertical", command=self.hardware_table.yview)
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal = ttk.Scrollbar(grid, orient="horizontal", command=self.hardware_table.xview)
+        horizontal.grid(row=1, column=0, sticky="ew")
+        self.hardware_table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        grid.rowconfigure(0, weight=1)
+        grid.columnconfigure(0, weight=1)
         self.mode.trace_add("write", lambda *_: self.update_controls())
         self.motor_axis.trace_add("write", self.select_current_motor)
         for var in (self.channel, self.nominal, self.data):
@@ -1093,6 +1122,9 @@ class CanTestWindow:
             "speed": "使能速度控制",
             "parameters": "读取参数",
         }[current]
+        self.tabs.configure(
+            height=self.pages[current].winfo_reqheight() if current == "hardware" else 0
+        )
         speed_active = busy and self.active_profile == "motor_speed"
         for key, entry in self.motor_fields.items():
             entry.configure(
@@ -1194,7 +1226,24 @@ class CanTestWindow:
             + "　｜　控制器正常发送 · 应用层重试 0 次"
         )
 
+    def show_hardware_result(self, report: dict) -> None:
+        """展示本轮实测值和原始判定，缺失项保持可见。"""
+        self.output.pack_forget()
+        self.hardware_results.pack(fill="both", expand=True, pady=(8, 0))
+        self.hardware_table.delete(*self.hardware_table.get_children())
+        for row in result_rows(report):
+            self.hardware_table.insert("", "end", values=row, tags=(row[3],))
+        notes = [summarize(report).splitlines()[0]]
+        for key in ("note", "measurement_note"):
+            if report.get(key):
+                notes.append(report[key])
+        if report.get("motor_direction"):
+            notes.append(report["motor_direction"]["detail"])
+        self.hardware_result_note.set("；".join(notes))
+
     def show(self, text: str) -> None:
+        self.hardware_results.pack_forget()
+        self.output.pack(fill="both", expand=True, pady=(8, 0))
         self.output.configure(state="normal")
         self.output.delete("1.0", "end")
         self.output.insert("end", text)
@@ -1815,7 +1864,7 @@ class CanTestWindow:
                 self.state.set(self.state.get() + " · " + direction["reason"])
             if r.get("communication_reliability_passed") is False:
                 self.state.set(self.state.get() + " · 50ms首答异常")
-            self.show(summarize(r))
+            self.show_hardware_result(r)
             self.bar["value"] = 100 if r["stage"] in (4, 5) else 0
             self.progress.set(f"{self.bar['value']:.0f}%")
             return

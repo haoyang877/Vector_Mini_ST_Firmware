@@ -1,5 +1,7 @@
 """在原生平台编译 AT32 检测、独立霍尔角算法并注入 ADC/DMA 和运动事件。"""
 
+import json
+
 from _bsp_test_support import ROOT, arguments, run_c
 from hardware_check import Link, encode_frames
 
@@ -9,7 +11,8 @@ def main():
     _, start = encode_frames(6, 127, bytes.fromhex("0201010001000000"), 0x42)[0]
     _, poll = encode_frames(6, 127, b"", 0x43)[0]
     source = (ROOT / "tests/unit/native/hardware_check_test.c").read_text(encoding="utf-8")
-    for name, data in (("host_start", start), ("host_read", poll)):
+    _, measure = encode_frames(6, 127, bytes.fromhex("0202000002000000"), 0x44)[0]
+    for name, data in (("host_start", start), ("host_read", poll), ("host_measure", measure)):
         source += f"\nconst uint8_t {name}[] = {{" + ",".join(map(str, data)) + "};\n"
     run_c(
         args,
@@ -47,6 +50,25 @@ def main():
     assert result == dict(
         run_id=2, stage=4, board_items=[2, 1, 1, 1, 1, 1, 1, 1, 0, 0], directions=0
     )
+    values = bytes.fromhex(
+        next(line.split()[1] for line in log.splitlines() if line.startswith("CAN_HW_MEASUREMENT "))
+    )
+    golden = json.loads(
+        (ROOT / "tests/fixtures/protocol/hardware_measurements_v1.json").read_text()
+    )
+    assert measure.hex() == golden["request_frame"]
+    assert values.hex() == golden["response_frame"]
+
+    class MeasurementReplay:
+        def send(self, identifier, data):
+            assert (identifier, data) == (0x0CEF0602, measure)
+
+        def receive(self, timeout):
+            return 0x0CEF0206, values
+
+    link = Link(MeasurementReplay(), 6)
+    link.sequence = 0x43
+    assert link.measurement(0, 2) == {"samples": 2000, "values": [2048, 10, None, None]}
     print(
         "PASS host to AT32 RX IRQ to physical-window detector to TX to host, including corrupt and repeated START"
     )

@@ -24,7 +24,8 @@ def response(node, kind, seq, data):
 
 
 class Port:
-    def __init__(self, fault=""):
+    def __init__(self, fault="", measurements=False):
+        self.measurements = measurements
         self.fault = fault
         self.pending = []
         self.sent = []
@@ -57,9 +58,29 @@ class Port:
                 reply = b"\x06\0\0\0"
         elif kind == 2:
             reply = struct.pack(
-                "<I6H", 0 if self.fault == "legacy" else 0xFFD00, 0x64E, 64, 46, 0, 500, 500
+                "<I6H",
+                0 if self.fault == "legacy" else 0xFFD00 | (int(self.measurements) << 20),
+                0x64E,
+                64,
+                46,
+                0,
+                500,
+                500,
             )
         elif kind == 127:
+            if payload and payload[1] == 2:
+                _, _, item, _, expected = struct.unpack("<4BI", payload)
+                assert not self.running and expected == self.run
+                values = {
+                    0: (2050.0, 4.0, 0.0, 0.0),
+                    4: (26.99, 29.01, 0.0, 0.0),
+                    8: (1.2, -1.1, 0.8, 0.9),
+                    10: (500, 3500, 600, 3400),
+                }.get(item, (0.0, 0.0, 0.0, 0.0))
+                valid = 3 if item in (0, 4) else 15 if item in (8, 10) else 0
+                reply = struct.pack("<HH4BII4f", 0, 0, 2, item, valid, 0, self.run, 2000, *values)
+                self.pending.append(response(node, kind, seq, reply))
+                return
             if payload:
                 _, _, self.mode, _, previous = struct.unpack("<4BI", payload)
                 if seq != self.start_seq:
@@ -187,6 +208,51 @@ class HardwareHostTest(unittest.TestCase):
             port, 6, drive=config, previous=0, previous_target=0, counter_db=self.db, **kwargs
         )
         return result, port
+
+    def test_measurement_pages_preserve_results_and_render_values(self):
+        port = Port(measurements=True)
+        report = hw.run_check(port, 6)
+        self.assertEqual(report["items"]["Ia"], "正常")
+        self.assertEqual(report["measurements"]["0"]["values"], [2050, 4, None, None])
+        rows = hw.result_rows(report)
+        self.assertIn("2050.00", rows[0][1])
+        self.assertIn("4.00", rows[0][1])
+        self.assertIn("26.99", rows[4][1])
+        self.assertIn("29.01", rows[4][1])
+        self.assertIn("27～29", rows[4][2])
+        # 显示读取值不会重新推导或覆盖板端的判定。
+        self.assertEqual(rows[4][3], "正常")
+        self.assertEqual(len([p for k, _, p in port.sent if k == 127 and p and p[1] == 2]), 11)
+        report["board_items"][7] = 3
+        hw.direction_results(report)
+        self.assertEqual(hw.result_rows(report)[7][1], "未装")
+        report["board_items"][0] = 0
+        hw.direction_results(report)
+        self.assertIn("部分采样", hw.result_rows(report)[0][1])
+
+    def test_old_firmware_has_no_fake_values_or_measurement_queries(self):
+        report, port = self.check()
+        self.assertEqual(report["measurements"], {})
+        self.assertIn("未提供", hw.result_rows(report)[0][1])
+        self.assertFalse(any(k == 127 and p and p[1] == 2 for k, _, p in port.sent))
+
+    def test_measurement_decoder_rejects_stale_or_invalid_values(self):
+        class Reply:
+            def __init__(self, data):
+                self.data = data
+
+            def send(self, identifier, frame):
+                self.seq = struct.unpack_from("<H", frame, 8)[0]
+
+            def receive(self, seconds):
+                return response(6, 127, self.seq, self.data)
+
+        for run, valid, first in ((9, 1, 28.0), (8, 16, 28.0), (8, 1, float("nan"))):
+            data = struct.pack("<HH4BII4f", 0, 0, 2, 4, valid, 0, run, 20, first, 0, 0, 0)
+            with self.subTest(run=run, valid=valid), self.assertRaises(ValueError):
+                hw.Link(Reply(data), 6).measurement(4, 8)
+        data = struct.pack("<HH4BII4f", 0, 0, 2, 4, 0, 0, 8, 0, 0, 0, 0, 0)
+        self.assertEqual(hw.Link(Reply(data), 6).measurement(4, 8)["values"], [None] * 4)
 
     def test_golden_frame(self):
         row = json.loads((ROOT / "tests/fixtures/protocol/hardware_check_v2.json").read_text())

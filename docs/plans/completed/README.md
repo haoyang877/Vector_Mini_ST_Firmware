@@ -1,6 +1,7 @@
 # 已完成计划记录
 
 - [ROLL更新重新配套大包](2026-11-13-roll-repackage.md)：APP1.8.7 / 工具1.14.1，合并与发布校验通过。
+- [硬件实测值及ROLL运行PI](2026-11-13-hardware-measurements.md)：软件实现与离线验证完成，配套发布与实机范围见记录。
 
 - [设备摘要与实时曲线](2026-11-13-live-speed-display.md)：上位机1.14.0和Release完成，固件未改。
 

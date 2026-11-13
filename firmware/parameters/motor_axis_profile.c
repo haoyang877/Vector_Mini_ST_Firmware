@@ -75,7 +75,7 @@ static const SensorlessStartupConfig s_yq_start =
                          YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
                          0.012f,
                          0.5f);
-#define YQ5740_AXIS(node, role)                                                                    \
+#define YQ5740_AXIS(node, role, speed_limit)                                                       \
     {(node),                                                                                       \
      (role),                                                                                       \
      YQ5740_MODEL_NAME,                                                                            \
@@ -83,7 +83,7 @@ static const SensorlessStartupConfig s_yq_start =
      &s_pitch_start,                                                                               \
      PITCH_CALIB_SPEED_RAD_S,                                                                      \
      1.6f,                                                                                         \
-     30.0f * YQ_JOINT_GEAR_RATIO,                                                                  \
+     (speed_limit),                                                                                \
      {2.0f,                                                                                        \
       0.0f,                                                                                        \
       0.048f,                                                                                      \
@@ -105,7 +105,7 @@ static const MotorAxisPreset s_presets[] = {
      &s_wheel_start,
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
-     20.0f,
+     30.0f,
      {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
      0.0f,
      0.0f,
@@ -119,7 +119,7 @@ static const MotorAxisPreset s_presets[] = {
      &s_wheel_start,
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
-     20.0f,
+     30.0f,
      {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
      0.0f,
      0.0f,
@@ -133,14 +133,14 @@ static const MotorAxisPreset s_presets[] = {
      &s_roll_start,
      HT8115_CALIB_SPEED_RAD_S,
      ROLL_CALIB_CURRENT_A,
-     3.14159265f,
+     30.0f,
      {8.0f, 2.0f, 0.5f, 1.0f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,
      CONFIG_TWO_PI * (150.0f / 360.0f),
      .gear_ratio = 1.0f,
      .has_linear_hall = false,
      .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
-    YQ5740_AXIS(0x06, MOTOR_JOINT_PITCH),
+    YQ5740_AXIS(0x06, MOTOR_JOINT_PITCH, 300.0f),
     {0x07,
      MOTOR_JOINT_YAW,
      YQ5708_MODEL_NAME,
@@ -148,7 +148,7 @@ static const MotorAxisPreset s_presets[] = {
      &s_yq_start,
      YQ5708_CALIB_SPEED_RAD_S,
      1.6f,
-     YQ_MOTOR_SPEED_RAD_S,
+     300.0f,
      {2.0f,
       0.0f,
       0.048f,
@@ -161,7 +161,7 @@ static const MotorAxisPreset s_presets[] = {
      .gear_ratio = YQ_JOINT_GEAR_RATIO,
      .has_linear_hall = true,
      .calibration_mechanical_turns = SENSORLESS_ENCODER_CALIB_MECH_TURNS},
-    YQ5740_AXIS(0x08, MOTOR_JOINT_LIFT),
+    YQ5740_AXIS(0x08, MOTOR_JOINT_LIFT, 30.0f * YQ_JOINT_GEAR_RATIO),
 };
 
 static const MotorAxisPreset *product_joint(uint32_t joint)
@@ -253,10 +253,18 @@ static bool load_profile(const MotorAxisProfile *stored, MotorAxisProfile *outpu
             const uint32_t role = stored->identity.numeric.joint_type;
             const MotorAxisPreset *p = product_joint(role);
             if (p == NULL || !isfinite(stored->maximum_speed_rad_s) ||
-                stored->maximum_speed_rad_s <= 0.0f ||
-                stored->maximum_speed_rad_s > p->speed_ceiling_rad_s)
+                stored->maximum_speed_rad_s <= 0.0f)
             {
                 return false;
+            }
+            if (stored->maximum_speed_rad_s > p->speed_ceiling_rad_s)
+            {
+                if (!restore)
+                {
+                    return false;
+                }
+                output->maximum_speed_rad_s = p->speed_ceiling_rad_s;
+                output->crc32 = record_crc(output);
             }
             if (role == MOTOR_JOINT_WHEEL_LEFT || role == MOTOR_JOINT_WHEEL_RIGHT)
             {

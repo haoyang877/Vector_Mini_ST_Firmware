@@ -359,7 +359,7 @@ def run_speed_control(
     bus: ControlCanFd | TraceBus,
     node: int,
     target: float,
-    travel_deg: float,
+    travel_deg: float | None,
     commands: Any,
     out: Path,
     *,
@@ -385,7 +385,7 @@ def run_speed_control(
     started = False
     try:
         target = speed_value(str(target))
-        if not math.isfinite(travel_deg) or travel_deg <= 0:
+        if travel_deg is not None and (not math.isfinite(travel_deg) or travel_deg <= 0):
             raise ValueError("两侧可用输出行程须为正数")
         caps, status = _identify(link, report, 13)
         if not int.from_bytes(caps[4:6], "little") & (1 << 2):
@@ -457,7 +457,9 @@ def run_speed_control(
                 if status[4:8] != bytes(4) or status[43:] != bytes((6, 2)) or flags & 10 != 10:
                     raise Rejected("速度反馈失效、故障或运行模式改变")
                 position = struct.unpack_from("<i", status, 12)[0] / 1000
-                if abs(position - origin) / ratio > math.radians(travel_deg):
+                if travel_deg is not None and abs(position - origin) / ratio > math.radians(
+                    travel_deg
+                ):
                     raise Rejected("速度运动到达本次可用输出行程")
                 row = dict(
                     target_rad_s=target,

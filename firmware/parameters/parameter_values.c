@@ -249,7 +249,7 @@ static float speed_ceiling(const MotorConfiguration *configuration)
     {
         return 0.0f;
     }
-    if (configuration->application.axis_profile.magic != 0U)
+    if (configuration->preset == NULL && configuration->application.axis_profile.magic != 0U)
     {
         limit = fminf(limit, configuration->application.axis_profile.maximum_speed_rad_s);
     }
@@ -490,6 +490,8 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     case 23U:
         if (si_value <= 0.0f || si_value > configuration->application.speed_limit_rad_s ||
             si_value > speed_ceiling(configuration) ||
+            (configuration->application.axis_profile.magic != 0U &&
+             si_value > configuration->application.axis_profile.maximum_speed_rad_s) ||
             (configuration->preset == NULL &&
              si_value > PARAM_APP_POSITION_RESTORE_SPEED_MAX_RAD_S))
         {

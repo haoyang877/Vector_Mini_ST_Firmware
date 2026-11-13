@@ -335,12 +335,39 @@ class MotorOperationsTests(unittest.TestCase):
             ("speed", "nan"),
             ("speed", "31"),
             ("limit", "0"),
-            ("travel", ""),
             ("target", "65536"),
             ("lease", "-1"),
         ):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 motor_speed_fields({**fields, key: value})
+
+    def test_speed_continues_across_many_turns_until_operator_stops(self):
+        status = self.endpoint.status
+        positions = iter((0, 0, 1000000000, -1000000000, 1000000000, 0))
+        samples = []
+
+        def moving_status():
+            data = bytearray(status())
+            struct.pack_into("<i", data, 12, next(positions, 0))
+            return bytes(data)
+
+        self.endpoint.status = moving_status
+        with tempfile.TemporaryDirectory() as directory:
+            report = ops.run_speed_control(
+                None,
+                6,
+                3,
+                None,
+                queue.Queue(),
+                Path(directory),
+                counter_db=Path(directory) / "counter.db",
+                stopped=lambda: len(samples) >= 3,
+                feedback=samples.append,
+            )
+        self.assertTrue(report["passed"] and report["stop_confirmed"], report)
+        self.assertEqual(len(samples), 3)
+        self.assertGreater(abs(samples[0]["position_rad"]), 10000)
+        self.assertIsNone(motor_speed_fields(dict(speed="3", lease="0", target="0"))["travel"])
 
     def test_worker_detects_lost_gui_parent(self):
         with (

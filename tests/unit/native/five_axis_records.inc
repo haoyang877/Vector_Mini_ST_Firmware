@@ -108,9 +108,9 @@ int main(void)
         assert(configuration.model.thermal.continuous_vector_a == 3);
         if (node == 5)
         {
-            assert(fabsf(p->speed_ceiling_rad_s - 3.14159265f) < 1e-6f);
-            assert(p->control.acceleration_rad_s2 == p->speed_ceiling_rad_s);
-            assert(p->control.deceleration_rad_s2 == p->speed_ceiling_rad_s);
+            assert(p->speed_ceiling_rad_s == 30.0f);
+            assert(fabsf(p->control.acceleration_rad_s2 - 3.14159265f) < 1e-6f);
+            assert(fabsf(p->control.deceleration_rad_s2 - 3.14159265f) < 1e-6f);
         }
         assert(configuration.application.speed_acceleration_rad_s2 == (wheel ? 20.0f : p->control.acceleration_rad_s2));
         assert(configuration.application.speed_deceleration_rad_s2 == (wheel ? 20.0f : p->control.deceleration_rad_s2));
@@ -119,7 +119,7 @@ int main(void)
         if (node >= 6)
         {
             const float ratio = p->gear_ratio;
-            const float output_limit = pitch_parameters ? 30.0f : 2.094395102f;
+            const float output_limit = node == 8 ? 30.0f : 7.5f;
             assert(fabsf(p->speed_ceiling_rad_s / ratio - output_limit) < 1e-6f);
             assert(fabsf(p->control.acceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
             assert(fabsf(p->control.deceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
@@ -139,6 +139,32 @@ int main(void)
         assert(p->gear_ratio == (ht ? 1 : 40));
         assert(p->electrical->observer_gamma == 800000);
         assert(configuration.device.encoder.linearization_lut_q15[71] == -42);
+        {
+            MotorConfiguration cfg = configuration;
+            const float limit = node <= 5 ? 30.0f : node <= 7 ? 300.0f : 1200.0f;
+            assert(cfg.application.speed_ceiling_rad_s == limit);
+            ParameterWriteRequest request = {.parameter_id=1, .value_type=PARAMETER_VALUE_I32,
+                                              .raw_value=(uint32_t)(limit * 1000)};
+            assert(ParameterValue_Apply(&cfg, &request) == PARAMETER_OK);
+            assert(cfg.application.speed_limit_rad_s == limit);
+            assert(cfg.application.axis_profile.maximum_speed_rad_s == .5f);
+            request.raw_value++;
+            assert(ParameterValue_Apply(&cfg, &request) == PARAMETER_OUT_OF_RANGE);
+            assert(cfg.device.encoder.linearization_lut_q15[71] == -42);
+            if (node == 6)
+            {
+                InterfaceParam old = record;
+                old.axis_profile.maximum_speed_rad_s = 1200.0f;
+                old.axis_profile.crc32 = Crc32_Compute(&old.axis_profile, offsetof(MotorAxisProfile, crc32), 0);
+                old.record_crc32 = Param_RecordCrc(&old);
+                InterfaceParam unchanged = old;
+                Param_Download(&old, sizeof(old), &cfg);
+                assert(cfg.configuration_confirmed && cfg.application.axis_profile_valid);
+                assert(cfg.application.axis_profile.maximum_speed_rad_s == 300.0f);
+                assert(cfg.device.encoder.linearization_lut_q15[71] == -42);
+                assert(memcmp(&unchanged, &old, sizeof(old)) == 0);
+            }
+        }
         assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));
         assert(MotorAxisPreset_HasLinearHall(p) == (!ht));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, 0, 0));

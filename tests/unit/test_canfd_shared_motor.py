@@ -265,6 +265,17 @@ class SharedMotorTests(unittest.TestCase):
                 self.window.process = None
                 self.window.commands = None
 
+    def test_speed_page_defaults_follow_motor_axis_without_travel_stop(self):
+        w = self.window
+        self.assertNotIn("travel", w.motor_fields)
+        for node, limit in ((3, 30), (4, 30), (5, 30), (6, 300), (7, 300)):
+            self.bind(node)
+            self.assertEqual(float(w.motor_fields["limit"].get()), limit)
+        settings = self.capture_start("speed")
+        self.assertEqual(settings["speed"], 3)
+        self.assertEqual(settings["speed_limit"], 300)
+        self.assertIsNone(settings["travel"])
+
     def test_query_and_single_upgrade_need_no_page_selection(self):
         self.bind()
         settings = self.capture_start("communication")

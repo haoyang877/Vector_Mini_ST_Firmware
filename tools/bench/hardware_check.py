@@ -437,8 +437,9 @@ def run_check(
     progress=lambda _: None,
 ):
     """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
-    link = Link(bus, node)
+    link = Link(bus, node, timeout_s=0.5)
     report = empty_report(node, ambient)
+    report["reply_timeout_ms"] = 500
     if drive:
         report["drive"] = vars(drive).copy()
     active_run = None
@@ -459,7 +460,7 @@ def run_check(
             if len(info) == 32 or info == b"\x06\0\0\0":
                 break
         else:
-            raise TimeoutError("三次 50 ms 探测均无有效应答")
+            raise TimeoutError("三次 500 ms 探测均无有效应答")
         report["communication"] = "正常"
         if len(info) == 4:
             raise Rejected("设备忙，已确认通信")
@@ -518,7 +519,13 @@ def run_check(
             except (OSError, sqlite3.Error) as exc:
                 raise Rejected(f"无法保存本轮运动计数：{exc}") from exc
             progress("低速正向、停稳、反向")
-            execute_drive(link, report, drive, start_seq, refresh, stopped, lease, target)
+            # 运动中保持50ms请求期限，避免一次长等待耗尽500ms板端租约。
+            link.timeout_s = 0.05
+            report["drive_reply_timeout_ms"] = 50
+            try:
+                execute_drive(link, report, drive, start_seq, refresh, stopped, lease, target)
+            finally:
+                link.timeout_s = 0.5
             deadline = time.monotonic() + 0.5
             while report["stage"] in (2, 3):
                 if time.monotonic() > deadline:
@@ -559,8 +566,8 @@ def summarize(report):
         lines.append("关相已确认" if report["stop_confirmed"] else "关相待现场确认")
     if report.get("communication_reliability_passed") is False:
         lines.append(
-            "50 ms 首答可靠性未通过：超时 %d 次，重试与检测结果已保留"
-            % sum(report["communication_timeouts"].values())
+            "%d ms 静态应答可靠性未通过：超时 %d 次，驱动仍按50 ms，全部记录保留"
+            % (report.get("reply_timeout_ms", 500), sum(report["communication_timeouts"].values()))
         )
     if report["note"]:
         lines.append(report["note"])

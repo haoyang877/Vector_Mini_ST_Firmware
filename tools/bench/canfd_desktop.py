@@ -44,10 +44,11 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.12.0"
+TITLE = "CAN FD 通信测试 v1.13.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
+AXIS_SPEED_LIMITS = {3: 30, 4: 30, 5: 30, 6: 300, 7: 300}
 FD_LENGTHS = (*range(9), 12, 16, 20, 24, 32, 48, 64)
 CHECK_DEFAULTS = {
     "node": "6",
@@ -75,10 +76,7 @@ def _number_field(text, label, kind=float):
 
 def motor_speed_fields(fields: dict[str, str]) -> dict:
     """解析独立速度面板，使用电机轴单位，不依赖开环检测的电流/电频默认值。"""
-    travel = _number_field(fields["travel"].strip(), "两侧可用输出行程")
-    if travel <= 0:
-        raise ValueError("两侧可用输出行程须大于零")
-    result = dict(speed=speed_value(fields["speed"]), travel=travel)
+    result = dict(speed=speed_value(fields["speed"]), travel=None)
     limit = speed_value(fields.get("limit", "30"))
     if limit < 0.001:
         raise ValueError("速度上限至少为0.001 rad/s")
@@ -527,7 +525,7 @@ class CanTestWindow:
         ).pack(anchor="w")
         ttk.Label(
             check_tab,
-            text="APP v1.8.5：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
+            text="APP v1.8.6：正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
         ).pack(anchor="w")
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         calibration_tab = self.pages["calibration"]
@@ -573,9 +571,8 @@ class CanTestWindow:
         self.motor_fields = {}
         for index, (key, label, default) in enumerate(
             (
-                ("speed", "电机轴目标速度 rad/s", "0"),
-                ("limit", "速度上限 rad/s", "30"),
-                ("travel", "两侧可用输出行程 °", "360"),
+                ("speed", "电机轴目标速度 rad/s", "3"),
+                ("limit", "速度上限 rad/s", "300"),
                 ("lease", "首次续租计数", "0"),
                 ("target", "首次目标序号", "0"),
             )
@@ -595,12 +592,12 @@ class CanTestWindow:
         ttk.Label(speed_tab, textvariable=self.motor_feedback).pack(anchor="w", pady=5)
         ttk.Label(
             speed_tab,
-            text="使能前应用速度上限到RAM，不自动保存Flash；保持电流限值和PI，断联后停止。",
+            text="持续旋转直到点击停止；目标0为停转保持。断联或故障停机，电流限值和PI保持。",
         ).pack(anchor="w", pady=3)
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.5/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.6/app-package"
         )
         self.upgrade_package = self.builtin_package
         self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.5")
@@ -890,6 +887,9 @@ class CanTestWindow:
 
     def select_current_motor(self, *_args) -> None:
         node = self.current_node()
+        if node != self.previous_node:
+            self.motor_fields["limit"].delete(0, "end")
+            self.motor_fields["limit"].insert(0, str(AXIS_SPEED_LIMITS.get(node, 30)))
         self.current_motor = self.known_motors.get(node)
         if self.identity and self.identity["node"] not in (None, node):
             self.identity = None

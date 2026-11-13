@@ -557,7 +557,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             fminf(configuration->model.calibration_current_a, preset->calibration_limit_a);
         configuration->application.current_limit_a =
             fminf(configuration->application.current_limit_a, preset->control.maximum_current_a);
-        configuration->application.speed_ceiling_rad_s = param->axis_profile.maximum_speed_rad_s;
+        /* 产品运行限速取当前预设；旧AXS速度仍保留为位置模式包络。 */
+        configuration->application.speed_ceiling_rad_s = preset->speed_ceiling_rad_s;
     }
     else if (CURRENT_LOOP_USE_IDENTIFIED_GAINS)
     {

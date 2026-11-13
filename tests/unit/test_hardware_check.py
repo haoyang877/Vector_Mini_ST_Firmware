@@ -227,6 +227,21 @@ class HardwareHostTest(unittest.TestCase):
         stale, _ = self.check("old")
         self.assertEqual((stale["run_id"], stale["stage"]), (8, 1))
 
+    def test_first_static_reply_can_take_more_than_50_ms(self):
+        port = Port()
+        receive = port.receive
+
+        def delayed(seconds):
+            self.assertGreater(seconds, 0.05)
+            self.clock += 0.12
+            return receive(seconds)
+
+        port.receive = delayed
+        report = hw.run_check(port, 6)
+        self.assertEqual(report["stage"], 4, report)
+        self.assertEqual(report["reply_timeout_ms"], 500)
+        self.assertEqual(report["communication_timeouts"], {})
+
     def test_temperature(self):
         r, bus = self.check(drive=True, ambient=-1)
         self.assertFalse(any(k == 127 for k, _, _ in bus.sent))
@@ -325,7 +340,7 @@ class HardwareHostTest(unittest.TestCase):
         self.assertFalse(r["communication_reliability_passed"])
         self.assertEqual(r["communication_timeouts"], {118: 1})
         self.assertEqual(sum(kind == 117 for kind, _, _ in bus.sent), 1)
-        self.assertIn("50 ms 首答可靠性未通过", hw.summarize(r))
+        self.assertIn("驱动仍按50 ms", hw.summarize(r))
 
     def test_busy_status_is_retried_without_restarting_motion(self):
         r, bus = self.check("statusbusy", True)

@@ -57,7 +57,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
             if (MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
             {
                 LinearHall_CalibrationBegin(&calibration->hall_sweep);
-                OutputEncoder_CalibBegin(&calibration->output_calibration,
+                OutputEncoder_CalibBegin(&calibration->storage.output_calibration,
                                          calibration->output->params.gear_ratio);
             }
 #endif
@@ -175,7 +175,8 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
         OutputEncoder_SetZero(&output);
     }
 #if BSP_ENABLED_LINEAR_HALL
-    LinearHall hall = *calibration->hall;
+    LinearHall *hall = &calibration->workspace.publication_hall;
+    *hall = *calibration->hall;
 #endif
     BspSystem_ExitControlCritical(mask);
     MotorFaultCode fault = MOTOR_FAULT_NONE;
@@ -183,10 +184,10 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
     /* 候选结算允许控制中断抢占；即使 Hall 失败也结算输出轴，保留完整失败记录。 */
     if (kind == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO)
     {
-        bool hall_ok = LinearHall_CalibrationFinish(&calibration->hall_sweep, &hall);
+        bool hall_ok = LinearHall_CalibrationFinish(&calibration->hall_sweep, hall);
         bool output_ok = OutputEncoder_CalibEnd(&output,
-                                                &calibration->output_calibration,
-                                                &hall,
+                                                &calibration->storage.output_calibration,
+                                                hall,
                                                 &calibration->drive.configuration->device.encoder);
         if (!hall_ok)
         {
@@ -202,9 +203,9 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
 #if BSP_ENABLED_LINEAR_HALL
     if (MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
     {
-        Param_StoreLinearHall(&calibration->record->motor, &hall);
+        Param_StoreLinearHall(&calibration->record->motor, hall);
     }
-    Param_StoreOutputEncoder(calibration->record, &output, &hall);
+    Param_StoreOutputEncoder(calibration->record, &output, hall);
 #else
     Param_StoreOutputEncoder(calibration->record, &output, NULL);
 #endif
@@ -218,7 +219,7 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
     {
         *calibration->output = output;
 #if BSP_ENABLED_LINEAR_HALL
-        *calibration->hall = hall;
+        *calibration->hall = *hall;
 #endif
         if (calibration->write_record(calibration->record, sizeof(*calibration->record)) != BSP_OK)
         {

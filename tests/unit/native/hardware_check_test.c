@@ -126,6 +126,7 @@ static void begin(unsigned mode, int installation)
     ++s_seq;
     uint32_t previous = report().run_id;
     assert(s_check.handle(&s_axis, mode, s_seq, previous, &r) == PROTOCOL_RESULT_ACCEPTED);
+    assert(s_axis.state_machine.maintenance_capture);
     s_run = r.run_id;
     assert(s_run == previous + 1U && r.stage == 1U);
     assert(s_check.handle(&s_axis, mode, s_seq, previous, &r) == PROTOCOL_RESULT_ACCEPTED);
@@ -606,6 +607,20 @@ int main(void)
     s_ticks += 12000;
     HardwareCheck_Process(&s_axis);
     assert(report().stage == 5);
+    assert(!s_axis.state_machine.maintenance_capture && !g_hardware_check_capture);
+    ProtocolHardwareReport saved = report();
+    ProtocolHardwareReport rejected;
+    s_axis.state_machine.calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
+    assert(s_check.handle(&s_axis, 1U, ++s_seq, saved.run_id, &rejected) == PROTOCOL_RESULT_BUSY);
+    assert(!g_hardware_check_capture);
+    s_axis.state_machine.calibration_type = MOTOR_CALIBRATION_NONE;
+    memset(&s_axis.calibration.storage, 0x5a, sizeof(s_axis.calibration.storage));
+    ProtocolHardwareReport retained = report();
+    assert(retained.run_id == saved.run_id && retained.stage == saved.stage);
+    assert(!memcmp(retained.items, saved.items, sizeof(saved.items)));
+    begin(1U, 1);
+    window();
+    assert(!s_axis.state_machine.maintenance_capture && !g_hardware_check_capture);
     puts("PASS AT32 hardware check: static edges, full DMA frames, two driven legs, ownership, "
          "loss and STOP");
     return 0;

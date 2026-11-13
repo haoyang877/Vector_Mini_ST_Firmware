@@ -49,7 +49,7 @@ float BspAdc_ReadRawChannel(BspAdcChannel channel) {
  return channel==BSP_ADC_LINEAR_HALL_SIN ? 1234 : 4095;
 }
 int SEGGER_RTT_ConfigUpBuffer(unsigned ch,const char *name,void *buf,unsigned bytes,unsigned flags) {
- assert(buf && bytes==4096 && flags==0 && ch==1);
+ assert(buf && bytes==512 && flags==0 && ch==1);
  assert(strcmp(name,"JScope_i2i2i2i2i2i2i2i2")==0);
  ++configured; return 0;
 }

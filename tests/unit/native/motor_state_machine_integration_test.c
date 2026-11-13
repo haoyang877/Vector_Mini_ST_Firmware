@@ -995,8 +995,26 @@ static void test_host_position_session(void)
     assert(!motor.host_position_unlimited && phases_disabled);
 }
 
+static void test_detection_excludes_calibration(void)
+{
+    reset();
+    configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
+    machine.maintenance_capture = true;
+    uint32_t epoch = machine.epoch;
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+           MOTOR_CONTROL_BUSY);
+    assert(machine.epoch == epoch && machine.state == MOTOR_STATE_IDLE && phases_disabled);
+    machine.maintenance_capture = false;
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_ELECTRICAL_ZERO) ==
+           MOTOR_CONTROL_ACCEPTED);
+    MotorStateMachine_RequestStop(&machine);
+    tick();
+    assert(MotorStateMachine_IsStopped(&machine));
+}
+
 int main(void)
 {
+    test_detection_excludes_calibration();
     test_host_position_session();
     test_state_transition_matrix();
     AppProtocol_Init(&adapter, &endpoint, &machine);

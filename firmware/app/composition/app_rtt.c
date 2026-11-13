@@ -23,7 +23,7 @@ typedef struct
 RTT_Data_struct rtt_data;
 
 /* 通道1上行缓冲；单写者，满时按RTT模式丢整帧。 */
-static char s_rtt_buffer[4096];
+static char s_rtt_buffer[512];
 
 /* 浮点换算后饱和到int16；截断取整，启动零偏未就绪的NaN记为0。 */
 static int16_t scale_to_int16(float value, float counts_per_unit)

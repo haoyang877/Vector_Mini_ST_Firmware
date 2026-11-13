@@ -45,10 +45,13 @@ void MotorAxis_Init(MotorAxis *axis)
     axis->foc.bus_voltage_filter_alpha = 0.05f;
     axis->foc.bus_current_filter_alpha = 0.05f;
     /* 固定启动暂存区与停机保存共用；装载失败沿用默认值。 */
-    if (axis->hardware->read_record(&axis->record, sizeof(axis->record)) == BSP_OK)
+    if (axis->hardware->read_record(&axis->calibration.storage.record,
+                                    sizeof(axis->calibration.storage.record)) == BSP_OK)
     {
-        Param_Download(&axis->record.motor, sizeof(axis->record.motor), &axis->configuration);
-        axis->parameters.stored_record_crc = axis->record.motor.record_crc32;
+        Param_Download(&axis->calibration.storage.record.motor,
+                       sizeof(axis->calibration.storage.record.motor),
+                       &axis->configuration);
+        axis->parameters.stored_record_crc = axis->calibration.storage.record.motor.record_crc32;
     }
     else
     {
@@ -59,7 +62,7 @@ void MotorAxis_Init(MotorAxis *axis)
     if (axis->configuration.configuration_source == MOTOR_CONFIGURATION_STORED &&
         MotorAxisPreset_HasLinearHall(axis->configuration.preset))
     {
-        Param_RestoreLinearHall(&axis->record.motor, &axis->linear_hall);
+        Param_RestoreLinearHall(&axis->calibration.storage.record.motor, &axis->linear_hall);
     }
 #endif
     float ratio =
@@ -77,12 +80,15 @@ void MotorAxis_Init(MotorAxis *axis)
     bool output_record_valid = false;
     if (axis->configuration.configuration_source == MOTOR_CONFIGURATION_STORED)
     {
-        output_record_valid =
-            Param_RestoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
+        output_record_valid = Param_RestoreOutputEncoder(
+            &axis->calibration.storage.record, &axis->output_encoder, &axis->linear_hall);
     }
     axis->parameters.revision = 1U;
     axis->parameters.saved_revision =
-        output_record_valid && axis->record.output.magic == PARAM_OUTPUT_ENCODER_V3 ? 1U : 0U;
+        output_record_valid &&
+                axis->calibration.storage.record.output.magic == PARAM_OUTPUT_ENCODER_V3
+            ? 1U
+            : 0U;
     axis->parameters.save_status = PARAMETER_OK;
     axis->calibration.parameters = &axis->parameters;
     MotorCurrentOffsets_Init(
@@ -98,7 +104,7 @@ void MotorAxis_Init(MotorAxis *axis)
     axis->calibration.outer = &axis->outer;
     axis->calibration.hall = &axis->linear_hall;
     axis->calibration.output = &axis->output_encoder;
-    axis->calibration.record = &axis->record;
+    axis->calibration.record = &axis->calibration.storage.record;
     const MotorStateMachineBindings bindings = {.configuration = &axis->configuration,
                                                 .parameter_revision = &axis->parameters.revision,
                                                 .motor = &axis->motor,
@@ -184,7 +190,7 @@ static void update_outer_loop_encoder_feedback(MotorAxis *axis)
             EncoderCalibration_GetPhase(&axis->calibration.session) == CS_OBS_SAMPLE_CW)
         {
             LinearHall_CalibrationSample(&axis->calibration.hall_sweep, sin_counts, cos_counts);
-            OutputEncoder_CalibSample(&axis->calibration.output_calibration,
+            OutputEncoder_CalibSample(&axis->calibration.storage.output_calibration,
                                       (uint16_t)sample.motor_counts,
                                       sample.sin_counts,
                                       sample.cos_counts);
@@ -385,7 +391,8 @@ static bool begin_parameter_update(MotorAxis *axis)
 {
     MotorStateMachine *machine = &axis->state_machine;
     if (machine->state != MOTOR_STATE_IDLE || !MotorStateMachine_IsStopped(machine) ||
-        machine->starts_locked || machine->drive.motor->fault_code != MOTOR_FAULT_NONE ||
+        machine->starts_locked || machine->maintenance_capture ||
+        machine->drive.motor->fault_code != MOTOR_FAULT_NONE ||
         machine->calibration_type != MOTOR_CALIBRATION_NONE)
     {
         return false;
@@ -479,27 +486,30 @@ ParameterStatus MotorAxis_SaveParameters(MotorAxis *axis, uint32_t expected_revi
         axis->state_machine.parameters_updating = false;
         return PARAMETER_OK;
     }
-    Param_Upload(&axis->record.motor, &axis->configuration);
+    Param_Upload(&axis->calibration.storage.record.motor, &axis->configuration);
 #if BSP_ENABLED_LINEAR_HALL
     if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
     {
-        Param_StoreLinearHall(&axis->record.motor, &axis->linear_hall);
+        Param_StoreLinearHall(&axis->calibration.storage.record.motor, &axis->linear_hall);
     }
 #endif
-    Param_StoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
+    Param_StoreOutputEncoder(
+        &axis->calibration.storage.record, &axis->output_encoder, &axis->linear_hall);
     uint32_t mask = BspSystem_EnterCritical();
     /* Flash事务复核实际关相；STOP/故障抢占过准备阶段时不写。 */
     ParameterStatus result = PARAMETER_WRONG_STATE;
     if (MotorStateMachine_IsStopped(&axis->state_machine) &&
         axis->motor.fault_code == MOTOR_FAULT_NONE && !axis->state_machine.starts_locked)
     {
-        result = axis->hardware->write_record(&axis->record, sizeof(axis->record)) == BSP_OK
+        result = axis->hardware->write_record(&axis->calibration.storage.record,
+                                              sizeof(axis->calibration.storage.record)) == BSP_OK
                      ? PARAMETER_OK
                      : PARAMETER_PERSIST_FAILED;
         axis->parameters.save_status = result;
         if (result == PARAMETER_OK)
         {
-            axis->parameters.stored_record_crc = axis->record.motor.record_crc32;
+            axis->parameters.stored_record_crc =
+                axis->calibration.storage.record.motor.record_crc32;
         }
         axis->parameters.saved_revision = result == PARAMETER_OK ? axis->parameters.revision : 0U;
     }
@@ -513,60 +523,71 @@ MotorAxis_ReadParameter(MotorAxis *axis, uint8_t id, bool saved, ParameterValue 
 {
     if (!saved && id == 0x70U)
     {
-        if (!MotorStateMachine_IsStopped(&axis->state_machine) ||
+        if (axis->state_machine.maintenance_capture ||
+            !MotorStateMachine_IsStopped(&axis->state_machine) ||
             axis->state_machine.calibration_type != MOTOR_CALIBRATION_NONE)
         {
             return PARAMETER_WRONG_STATE;
         }
-        Param_Upload(&axis->record.motor, &axis->configuration);
+        Param_Upload(&axis->calibration.storage.record.motor, &axis->configuration);
 #if BSP_ENABLED_LINEAR_HALL
         if (MotorAxisPreset_HasLinearHall(axis->configuration.preset))
         {
-            Param_StoreLinearHall(&axis->record.motor, &axis->linear_hall);
+            Param_StoreLinearHall(&axis->calibration.storage.record.motor, &axis->linear_hall);
         }
 #endif
-        Param_StoreOutputEncoder(&axis->record, &axis->output_encoder, &axis->linear_hall);
-        *value = (ParameterValue){.parameter_id = id,
-                                  .value_type = PARAMETER_VALUE_U32,
-                                  .access = PARAMETER_ACCESS_READ,
-                                  .revision = axis->parameters.revision,
-                                  .raw_value = Param_CoordinateCrc(&axis->record)};
+        Param_StoreOutputEncoder(
+            &axis->calibration.storage.record, &axis->output_encoder, &axis->linear_hall);
+        *value =
+            (ParameterValue){.parameter_id = id,
+                             .value_type = PARAMETER_VALUE_U32,
+                             .access = PARAMETER_ACCESS_READ,
+                             .revision = axis->parameters.revision,
+                             .raw_value = Param_CoordinateCrc(&axis->calibration.storage.record)};
         return PARAMETER_OK;
     }
     if (!saved)
     {
         return ParameterValue_Read(&axis->configuration, axis->parameters.revision, id, value);
     }
-    if (!MotorStateMachine_IsStopped(&axis->state_machine) ||
+    if (axis->state_machine.maintenance_capture ||
+        !MotorStateMachine_IsStopped(&axis->state_machine) ||
         axis->state_machine.calibration_type != MOTOR_CALIBRATION_NONE)
     {
         return PARAMETER_WRONG_STATE;
     }
-    if (axis->hardware->read_record(&axis->record, sizeof(axis->record)) != BSP_OK)
+    if (axis->hardware->read_record(&axis->calibration.storage.record,
+                                    sizeof(axis->calibration.storage.record)) != BSP_OK)
     {
         return PARAMETER_PERSIST_FAILED;
     }
     MotorConfiguration *stored = &axis->calibration.workspace.parameters;
     memset(stored, 0, sizeof(*stored));
-    Param_Download(&axis->record.motor, sizeof(axis->record.motor), stored);
+    Param_Download(&axis->calibration.storage.record.motor,
+                   sizeof(axis->calibration.storage.record.motor),
+                   stored);
     if (stored->configuration_source != MOTOR_CONFIGURATION_STORED)
     {
         return PARAMETER_PERSIST_FAILED;
     }
     if (id == 0x70U)
     {
-        if (axis->record.output.magic != PARAM_OUTPUT_ENCODER_V3 ||
-            axis->record.output.motor_crc32 != axis->record.motor.record_crc32 ||
-            axis->record.output.crc32 !=
-                Crc32_Compute(&axis->record.output, offsetof(OutputEncoderRecord, crc32), 0U))
+        if (axis->calibration.storage.record.output.magic != PARAM_OUTPUT_ENCODER_V3 ||
+            axis->calibration.storage.record.output.motor_crc32 !=
+                axis->calibration.storage.record.motor.record_crc32 ||
+            axis->calibration.storage.record.output.crc32 !=
+                Crc32_Compute(&axis->calibration.storage.record.output,
+                              offsetof(OutputEncoderRecord, crc32),
+                              0U))
         {
             return PARAMETER_PERSIST_FAILED;
         }
-        *value = (ParameterValue){.parameter_id = id,
-                                  .value_type = PARAMETER_VALUE_U32,
-                                  .access = PARAMETER_ACCESS_READ,
-                                  .revision = axis->parameters.saved_revision,
-                                  .raw_value = Param_CoordinateCrc(&axis->record)};
+        *value =
+            (ParameterValue){.parameter_id = id,
+                             .value_type = PARAMETER_VALUE_U32,
+                             .access = PARAMETER_ACCESS_READ,
+                             .revision = axis->parameters.saved_revision,
+                             .raw_value = Param_CoordinateCrc(&axis->calibration.storage.record)};
         return PARAMETER_OK;
     }
     return ParameterValue_Read(stored, axis->parameters.saved_revision, id, value);

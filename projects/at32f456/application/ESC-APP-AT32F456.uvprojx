@@ -1849,9 +1849,9 @@
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\boot_loader.c</FilePath>
             </File>
             <File>
-              <FileName>startup_at32f456_app.s</FileName>
+              <FileName>startup_at32f456_ram48.s</FileName>
               <FileType>2</FileType>
-              <FilePath>startup_at32f456_app.s</FilePath>
+              <FilePath>startup_at32f456_ram48.s</FilePath>
             </File>
           </Files>
         </Group>

@@ -1,5 +1,5 @@
 ; 普通APP：与调试APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
-; 32KiB热代码、60KiB数据；运行区限制在前128KiB。
+; 热代码按快拍职责选择；数据紧随代码，含4KiB栈及邮箱总分配限制48KiB。
 LR_IROM1 0x08000000 0x0001C000 {
   ER_IROM1 0x08000000 0x0001C000 {
     *.o (RESET, +First)
@@ -15,19 +15,45 @@ LR_IROM1 0x08000000 0x0001C000 {
     pwm.o (i.BspPwm_SelectPhases)
     ; LUT发布仅在关相后台调用，不占用快速中断代码区。
     encoder_calibration.o (i.EncoderCalibration_PublishLut)
+    ; 维护、初始化、4kHz慢估计及只读查表保留Flash，快速数值运算不变。
+    system.o (i.BspSystem_ReadUid)
+    system.o (i.BspSystem_ReadIdentity)
+    system.o (i.BspSystem_StartCycleCounter)
+    system.o (i.BspSystem_Reset)
+    system.o (i.BspSystem_CompareExchange32)
+    system.o (i.Bsp_Start)
+    adc.o (i.Adc_Start)
+    adc.o (i.Adc_Stop)
+    adc.o (i.BspAdc_ReadMotorTemperature)
+    encoder_spi.o (i.McuEncoder_Init)
+    encoder_feedback.o (i.Encoder_InitFeedback)
+    encoder_feedback.o (i.Encoder_UpdateSlowEstimate)
+    encoder_feedback.o (i.Encoder_SetMechanicalZero)
+    encoder_feedback.o (i.Encoder_GetCalibrationFlag)
+    encoder_feedback.o (i.Encoder_GetMechPos)
+    motor_current.o (i.MotorCurrentOffsets_Init)
+    motor_thermal.o (+RO)
+    motor_thermal_config.o (+RO)
+    mcu_temperature_sensing.o (+RO)
+    encoder_calibration.o (i.fail_lut)
+    sensorless_startup.o (i.SensorlessStartup_Reset)
+    sensorless_startup.o (.constdata)
+    foc.o (i.Foc_ConfigureControllers)
+    control_math.o (.constdata)
+    encoder_calibration.o (.constdata)
     .ANY (+RO)
   }
   ER_FAST 0x20000000 0x00008000 {
     system.o (+RO)
-    can.o (+RO)
-    motor_axis.o (+RO)
-    motor_control.o (+RO)
+    motor_axis.o (i.MotorAxis_SampleFast)
+    motor_axis.o (i.MotorAxis_ControlFast)
+    motor_axis.o (i.MotorAxis_OuterOverrun)
+    motor_axis.o (.constdata)
+    motor_control.o (i.MotorControl_Step)
     motor_state_machine.o (i.MotorStateMachine_NextState)
     motor_calibration.o (i.MotorCalibration_StepFast)
-    motor_thermal*.o (+RO)
     adc.o (+RO)
     pwm.o (+RO)
-    parameter_values.o (+RO)
     encoder_feedback.o (+RO)
     encoder*.o (+RO)
     sensorless_startup.o (+RO)
@@ -36,20 +62,20 @@ LR_IROM1 0x08000000 0x0001C000 {
     pi_controller.o (+RO)
     motor_current.o (+RO)
     motor_voltage.o (+RO)
-    mcu_temperature_sensing.o (+RO)
-    speed*.o (+RO)
     control_math.o (+RO)
     ; APP向量移到main后仍在SRAM执行，避免Flash到SRAM跳板。
     main.o (i.ADC1_2_IRQHandler)
     main.o (i.TMR6_DAC_GLOBAL_IRQHandler)
     main.o (i.SysTick_Handler)
     ; SystemInit在scatterload之前调用CRM，CRM及启动用库函数必须留在Flash。
-    at32f45x_adc.o (+RO)
-    at32f45x_can.o (+RO)
-    at32f45x_dma.o (+RO)
-    at32f45x_gpio.o (+RO)
-    at32f45x_spi.o (+RO)
-    at32f45x_tmr.o (+RO)
+    at32f45x_adc.o (i.adc_flag_get)
+    at32f45x_adc.o (i.adc_flag_clear)
+    at32f45x_gpio.o (i.gpio_bits_set)
+    at32f45x_gpio.o (i.gpio_bits_reset)
+    at32f45x_tmr.o (i.tmr_channel_value_set)
+    at32f45x_tmr.o (i.tmr_flag_get)
+    at32f45x_tmr.o (i.tmr_flag_clear)
+    at32f45x_tmr.o (i.tmr_output_enable)
     sqrtf.o (+RO)
     ; BSP快帧与编码器结果复制不能经Flash跳板；保留原库实现与计算顺序。
     rt_memcpy_v6.o (+RO)
@@ -57,7 +83,8 @@ LR_IROM1 0x08000000 0x0001C000 {
     rt_memclr.o (+RO)
     rt_memclr_w.o (+RO)
   }
-  RW_IRAM1 0x20008000 0x0000F000 {
+  RW_IRAM1 AlignExpr(ImageLimit(ER_FAST), 8) 0x0000F000 {
     .ANY (+RW +ZI)
   }
+  ScatterAssert(ImageLimit(RW_IRAM1) <= 0x2000BFE0)
 }

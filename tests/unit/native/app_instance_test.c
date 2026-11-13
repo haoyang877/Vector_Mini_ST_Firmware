@@ -52,7 +52,7 @@ static BspResult initial_record(void *data)
 }
 static BspResult read_a(void *data, size_t length)
 {
-    assert(data == &apps[0].axis.record && length == sizeof(MotorAxisRecord));
+    assert(data == &apps[0].axis.calibration.storage.record && length == sizeof(MotorAxisRecord));
     ++devices[0].reads;
     if (nested)
     {
@@ -67,7 +67,7 @@ static BspResult read_a(void *data, size_t length)
 }
 static BspResult read_b(void *data, size_t length)
 {
-    assert(data == &apps[1].axis.record && length == sizeof(MotorAxisRecord));
+    assert(data == &apps[1].axis.calibration.storage.record && length == sizeof(MotorAxisRecord));
     ++devices[1].reads;
     return initial_record(data);
 }
@@ -110,7 +110,7 @@ static void duty_b(float a, float b, float c)
 }
 static BspResult store(unsigned id, const void *data, size_t length)
 {
-    assert(data == &apps[id].axis.record && length == sizeof(MotorAxisRecord));
+    assert(data == &apps[id].axis.calibration.storage.record && length == sizeof(MotorAxisRecord));
     assert(depth && devices[id].disabled);
     ++devices[id].record_writes;
     if (write_fails)
@@ -596,6 +596,25 @@ static void parameter_and_output_services(void)
     puts("PASS parameter revision/retry/limits, real save/failure/reload, coordinate CRC, "
          "output/NTC freshness");
 }
+
+static void test_maintenance_storage_exclusion(void)
+{
+    MotorAxis *axis = &apps[0].axis;
+    axis->state_machine.maintenance_capture = true;
+    memset(&axis->calibration.storage, 0x5a, sizeof(axis->calibration.storage));
+    ParameterValue value;
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_WRONG_STATE);
+    assert(MotorAxis_ReadParameter(axis, 0x70U, true, &value) == PARAMETER_WRONG_STATE);
+    assert(MotorAxis_ReadParameter(axis, 16U, true, &value) == PARAMETER_WRONG_STATE);
+    const uint8_t *storage = (const uint8_t *)&axis->calibration.storage;
+    for (unsigned i = 0; i < sizeof(axis->calibration.storage); ++i)
+    {
+        assert(storage[i] == 0x5a);
+    }
+    axis->state_machine.maintenance_capture = false;
+    assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
+}
+
 int main(void)
 {
     run(false);
@@ -605,6 +624,7 @@ int main(void)
     assert(memcmp(reference, devices, sizeof(devices)) == 0);
     stop_between_snapshot_and_commit();
     motion_permission_expires();
+    test_maintenance_storage_exclusion();
     parameter_and_output_services();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");

@@ -69,7 +69,7 @@ class UpgradeClientTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        """把硬件无关设备模型编译为DLL，所有生成物在outputs。"""
+        """设备DLL与编译日志放outputs，临时升级报告与工作树文件监视隔离。"""
         compiler = zig_path()
         if compiler is None:
             raise unittest.SkipTest("原生编译器不可用；PR profile必须提供Zig")
@@ -124,7 +124,10 @@ class UpgradeClientTests(unittest.TestCase):
         vector = json.loads(
             (ROOT / "tests/fixtures/loader_image_v3.json").read_text(encoding="utf-8")
         )
+        # Windows工作树文件监视会短暂占用summary.json，破坏原子替换测试。
+        # 报告在tearDownClass清理；DLL与编译证据仍留在outputs。
         cls.temp = tempfile.TemporaryDirectory(dir=ROOT / "outputs")
+        cls.reports_temp = tempfile.TemporaryDirectory(prefix="vector-upgrade-test-")
         cls.directory = Path(cls.temp.name)
         raw = cls.directory / "source.bin"
         image = bytearray.fromhex(vector["source_hex"])
@@ -164,6 +167,7 @@ class UpgradeClientTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         """释放临时包，不清理持久测试日志。"""
         cls.temp.cleanup()
+        cls.reports_temp.cleanup()
 
     def test_real_loader_transfer_and_ack_loss(self) -> None:
         """真实C内核完成下载、激活和试运行；首个查询丢失不能中止重试。"""
@@ -195,7 +199,7 @@ class UpgradeClientTests(unittest.TestCase):
                 if msg[0] == "stage" and stop_stage and stop_stage in msg[1]:
                     stop.set()
 
-        with tempfile.TemporaryDirectory(dir=self.directory) as directory:
+        with tempfile.TemporaryDirectory(dir=self.reports_temp.name) as directory:
             out = Path(directory)
             bus = MagicMock()
             bus.__enter__.return_value = device
@@ -587,7 +591,7 @@ class UpgradeClientTests(unittest.TestCase):
 
     def test_compatible_new_app_version_does_not_require_new_host(self) -> None:
         """目标布局/ABI不变的新APP包按自身版本核对，不绑客户端构建版本。"""
-        with tempfile.TemporaryDirectory(dir=self.directory) as directory:
+        with tempfile.TemporaryDirectory(dir=self.reports_temp.name) as directory:
             destination = Path(directory)
             image = bytearray(self.package.image)
             manifest = bytearray(self.package.manifest)

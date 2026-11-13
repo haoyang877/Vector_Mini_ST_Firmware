@@ -186,6 +186,7 @@ def calibration_probe(uid: str):
     target = board.maintenance.load_target("yg_esc_v1_at32f456")
     library = pylink.library.Library(dllpath=os.environ.get("JLINK_DLL") or None)
     probe = pylink.JLink(lib=library)
+    attached_running = False
     try:
         probes = probe.connected_emulators()
         if len(probes) != 1:
@@ -205,9 +206,15 @@ def calibration_probe(uid: str):
         board.maintenance.check_outputs_off(probe, target)
         if probe.halted():
             raise ValueError("目标CPU已暂停，保留当前状态，不读取本次运行曲线")
+        attached_running = True
         yield probe, target
     finally:
-        probe.close()
+        try:
+            # 读取连接会启用复位捕获；不能让下一次正常CAN升级停在复位入口。
+            if attached_running and not probe.halted():
+                board.maintenance.release_reset_catch(probe)
+        finally:
+            probe.close()
 
 
 def _read_record(uid: str) -> bytes:

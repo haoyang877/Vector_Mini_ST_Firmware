@@ -10,3 +10,7 @@ APP栈4096 B，当前静态审计需3496 B，余600 B。存储ABI和Flash分区�
 交付门禁为outputs/runs/phase-resistance-release-20261113/summary.json及整包哈希。
 本包为debug台架候选；未烧录、未验证实机阻值精度、电流响应、中断时序或栈水位。
 升级已有板默认保留参数；检测不会自动改写相电阻、PI或Flash。
+
+## 后续实机发现
+
+APP1.8.9首次测阻触发位移中止，且测阻PWM极性与既有SVM约定不一致。本版本不再用于实机测阻，后续采用APP1.8.10自由转子实现。详见[右轮实测记录](../reports/2026-11/phase_resistance_free_rotor_20261113.md)。

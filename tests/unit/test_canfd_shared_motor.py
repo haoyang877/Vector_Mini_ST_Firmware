@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import canfd_desktop as desktop
+from hardware_check import direction_results
 
 
 class SharedMotorTests(unittest.TestCase):
@@ -84,6 +85,18 @@ class SharedMotorTests(unittest.TestCase):
         self.assertIn("无故障", w.current_motor_label.get())
         self.assertIn("清除前：编码器故障", w.output.get("1.0", "end"))
         self.assertEqual(w.current_motor["faults"], 0)
+
+    def test_hardware_summary_exposes_reverse_direction(self):
+        report = desktop.empty_report(6)
+        report.update(stage=4, communication="正常", directions=0x96)
+        report["board_items"] = [1] * 8 + [2, 1]
+        direction_results(report)
+        self.window.display_report(report)
+        self.assertIn("编码器方向反向", self.window.state.get())
+        text = self.window.output.get("1.0", "end")
+        self.assertIn("电机角动态　异常", text)
+        self.assertIn("正向命令→编码器反转", text)
+        self.assertIn("反向命令→编码器正转", text)
 
     def test_page_order_and_action_routing(self):
         w = self.window

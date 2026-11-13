@@ -203,6 +203,39 @@ def direction_results(report, motor=None, hall=(0, 0)):
         "hall": list(hall),
     }
     report["items"] = dict(zip(ITEMS, (STATES[v] for v in values), strict=True))
+    expected = report["direction_reference"]["motor"]
+    measured = [(report["directions"] >> (2 * leg)) & 3 for leg in (0, 1)]
+    opposite = [
+        leg
+        for leg, (actual, reference) in enumerate(zip(measured, expected, strict=True))
+        if actual in (1, 2) and reference in (1, 2) and actual != reference
+    ]
+    names = ("未取得", "正转", "反转", "无可辨位移")
+    reference_names = ("未知", "正向", "反向", "无效")
+    reference_source = "命令" if motor is None else "现场参照"
+    legs = [
+        f"{'去程' if leg == 0 else '回程'}：{reference_names[reference]}{reference_source}→编码器{names[actual]}"
+        for leg, (actual, reference) in enumerate(zip(measured, expected, strict=True))
+    ]
+    if len(opposite) == 2:
+        result, reason = "reversed", f"编码器方向反向，{reference_source}与编码器方向不一致"
+    elif opposite:
+        result, reason = "mismatch", "编码器方向不一致（部分行程反向）"
+    elif any(actual not in (1, 2) for actual in measured):
+        result, reason = "incomplete", "方向数据不足，不能确认方向关系"
+    elif values[8] != 1:
+        result, reason = "dynamic_failure", "方向符号一致，但动态检测未通过"
+    else:
+        result, reason = "consistent", f"{reference_source}与编码器方向一致"
+    report["motor_direction"] = dict(
+        result=result,
+        reason=reason,
+        expected=expected,
+        measured=measured,
+        opposite_legs=opposite,
+        reference_source=reference_source,
+        detail="；".join(legs),
+    )
 
 
 def read_temperature(link, report, ambient):
@@ -249,8 +282,15 @@ def drive_geometry(link, drive):
 def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, target_seq):
     ratio = drive_geometry(link, drive)
     before = link.status()
+    report["drive_precheck"] = dict(
+        faults=int.from_bytes(before[4:8], "little"), state=before[43], mode=before[44]
+    )
     if before[43:] != bytes((5, 0)) or before[4:8] != bytes(4) or not before[24] & 2:
-        raise Rejected("驱动需要轴空闲、无保护故障和有效机械位置")
+        raise Rejected(
+            "驱动需要轴空闲、无保护故障和有效机械位置；"
+            f"当前固件故障码0x{report['drive_precheck']['faults']:08X}，"
+            "尚未验证本轮旋向"
+        )
     origin = struct.unpack_from("<i", before, 12)[0]
     refresh()
     if stopped() or report["stage"] != 2:
@@ -509,6 +549,10 @@ def summarize(report):
     lines = [f"节点 {report['node']}　通信{report['communication']}　{STAGES[report['stage']]}"]
     for name, state in report["items"].items():
         lines.append(f"{name}　{state}")
+        if name == "电机角动态" and report.get("motor_direction"):
+            direction = report["motor_direction"]
+            lines.append(f"  {direction['reason']}")
+            lines.append(f"  {direction['detail']}")
     if "motor_temperature_c" in report:
         lines.append("电机 NTC 实测 %.2f °C" % report["motor_temperature_c"])
     if "stop_confirmed" in report:

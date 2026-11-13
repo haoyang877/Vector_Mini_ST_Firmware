@@ -76,6 +76,8 @@ class Port:
                 items[5] = 0
             if self.mode == 2 and self.stage == 4:
                 items[8:] = [1, 1]
+                if self.fault == "reversed":
+                    items[8] = 2
             if self.fault == "hallabort" and self.stage == 5:
                 items[9] = 2
             reply = struct.pack(
@@ -86,11 +88,14 @@ class Port:
                 self.stage,
                 self.run + (self.fault == "old" and not payload and self.stage != 0),
                 *items,
-                0x99 if items[8] else 0,
+                (0x96 if self.fault == "reversed" else 0x99) if items[8] else 0,
             )
         elif kind == 108:
             reply = bytearray(45)
             reply[42:] = bytes((node, 6 if self.running else 5, 10 if self.running else 0))
+            if self.fault == "prefault":
+                reply[43] = 8
+                struct.pack_into("<I", reply, 4, 0x20)
             struct.pack_into("<H", reply, 24, 0x202)
             struct.pack_into("<h", reply, 36, 6500 if self.fault == "hot" else 2500)
             if self.fault == "travel" and self.running:
@@ -253,6 +258,46 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual((r["communication"], r["stage"], r["stop_confirmed"]), ("正常", 4, True))
         self.assertIn(117, [kind for kind, _, _ in bus.sent])
         self.assertGreater(bus.previous_lease, 3)
+
+    def test_reversed_motion_exposes_both_command_directions(self):
+        report, bus = self.check("reversed", True)
+        self.assertEqual(report["items"]["电机角动态"], "异常")
+        self.assertEqual(report["motor_direction"]["result"], "reversed")
+        self.assertEqual(report["motor_direction"]["measured"], [2, 1])
+        text = hw.summarize(report)
+        self.assertIn("编码器方向反向", text)
+        self.assertIn("去程：正向命令→编码器反转", text)
+        self.assertIn("回程：反向命令→编码器正转", text)
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(sum(kind == 117 for kind, *_ in bus.sent), 1)
+
+    def test_direction_diagnosis_does_not_guess_from_missing_motion(self):
+        for bits, board_result, expected in (
+            (0, 0, "incomplete"),
+            (15, 2, "incomplete"),
+            (9, 1, "consistent"),
+            (9, 2, "dynamic_failure"),
+            (10, 2, "mismatch"),
+        ):
+            with self.subTest(bits=bits, board_result=board_result):
+                report = hw.empty_report(6)
+                report.update(stage=4, directions=bits)
+                report["board_items"][8] = board_result
+                hw.direction_results(report)
+                self.assertEqual(report["motor_direction"]["result"], expected)
+
+    def test_existing_fault_blocks_drive_without_claiming_reverse(self):
+        report, bus = self.check("prefault", True)
+        self.assertEqual(report["drive_precheck"]["faults"], 32)
+        self.assertIn("0x00000020", hw.summarize(report))
+        self.assertEqual(report["motor_direction"]["result"], "incomplete")
+        self.assertFalse(any(kind == 117 for kind, *_ in bus.sent))
+
+    def test_direction_detail_survives_json_roundtrip(self):
+        report, _ = self.check("reversed", True)
+        saved = json.loads(json.dumps(report, ensure_ascii=False))
+        self.assertEqual(saved["motor_direction"], report["motor_direction"])
+        self.assertEqual(hw.summarize(saved), hw.summarize(report))
 
     def test_board_abort_precedes_lease_rejection(self):
         report, bus = self.check("hallabort", True)

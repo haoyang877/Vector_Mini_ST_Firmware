@@ -3,9 +3,9 @@
   "can_data_bps": 5000000,
   "app_version": 67590,
   "loader_version": 131844,
-  "hex_sha256": "7ef187e15c89737c7b0fa67e7af792f0dd5f1ca35f8bed523cab264912fc5c31",
-  "can_image_sha256": "2f199eb9cb3474f2e7b142662c2c5b0afda1194db229fc5f8a38d109b45c1278",
-  "can_manifest_sha256": "82ee58caf4829b71478bde1ae1d57ecd4af9eb8c4a491c7c223ac6f17e66051a",
+  "hex_sha256": "7a3bbf3cb72c2c500c54b5b4bcb77ffd53f0c32cc39e67e9ba2b50e09d89dd55",
+  "can_image_sha256": "4cb411cad4ef7492e44c029d999d6bbdc986822b13e65c575bf5c5684961646c",
+  "can_manifest_sha256": "db6580efddedaf26927de0d8117fe6996f0fdcbbe72d4a04b0ad351db280c744",
   "motors": [
     {
       "node": 3,

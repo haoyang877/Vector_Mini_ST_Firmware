@@ -336,7 +336,9 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
         except (Rejected, ValueError, TimeoutError, OSError):
             pass
         if report["stage"] == 5:
-            failed = [name for name, state in zip(ITEMS, report["board_items"]) if state == 2]
+            failed = [
+                name for name, state in zip(ITEMS, report["board_items"], strict=True) if state == 2
+            ]
             if failed:
                 report["board_abort_items"] = failed
                 report["drive_command_error"] = str(exc)

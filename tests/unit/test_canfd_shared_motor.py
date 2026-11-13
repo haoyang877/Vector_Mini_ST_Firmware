@@ -65,6 +65,38 @@ class SharedMotorTests(unittest.TestCase):
         self.assertEqual(settings["expected_uid"], self.uid)
         self.assertTrue(w.clear_fault_button.instate(["disabled"]))
 
+    def test_device_summary_uses_observed_versions_and_invalidates_changed_uid(self):
+        w = self.window
+        w.display_report(
+            dict(
+                profile="device_status",
+                device=dict(
+                    node=6,
+                    uid=self.uid,
+                    role=1,
+                    app_version=0x010806,
+                    loader_version=0x020304,
+                    state=8,
+                    mode=0,
+                    faults=32,
+                    checked_at=1,
+                ),
+            )
+        )
+        self.assertIn("APP：v1.8.6", w.device_versions.get())
+        self.assertIn("Loader：v2.3.4", w.device_versions.get())
+        self.assertIn("编码器", w.device_state.get())
+        self.assertEqual(w.operation_mode(status_only=True), "device_status")
+        w.display_report(dict(profile="device_status", fatal="设备UID已改变，请重新识别"))
+        self.assertIsNone(w.current_motor)
+        self.assertEqual(w.device_versions.get(), "APP：—    Loader：—")
+
+    def test_same_node_with_changed_uid_clears_old_curve(self):
+        self.bind(6)
+        self.window.speed_plot.append(dict(elapsed_s=0, iq_a=0.5))
+        self.window.set_current_motor(6, "02" * 12, "新板")
+        self.assertFalse(self.window.speed_plot.samples)
+
     def test_fault_names_display_and_clear_readback_update_identity(self):
         w = self.window
         w.set_current_motor(6, self.uid, "扫描", role=1, state=8, faults=32)

@@ -369,6 +369,38 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertGreater(abs(samples[0]["position_rad"]), 10000)
         self.assertIsNone(motor_speed_fields(dict(speed="3", lease="0", target="0"))["travel"])
 
+    def test_actual_device_summary_and_complete_csv_channels(self):
+        device = ops.read_device_status(None, 6, "01" * 12)
+        self.assertEqual((device["app_version"], device["loader_version"]), (0, 0))
+        self.assertEqual((device["state"], device["mode"]), (5, 0))
+        with self.assertRaisesRegex(ValueError, "UID"):
+            ops.read_device_status(None, 6, "02" * 12)
+        samples = []
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            report = ops.run_speed_control(
+                None,
+                6,
+                3,
+                None,
+                queue.Queue(),
+                out,
+                counter_db=out / "counter.db",
+                stopped=lambda: len(samples) == 1,
+                feedback=samples.append,
+            )
+            import csv
+
+            with (out / "speed.csv").open(newline="", encoding="utf-8") as stream:
+                rows = list(csv.DictReader(stream))
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(report["final_status"], dict(state=5, mode=0, faults=0))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reference_position_rad"], "")
+        self.assertEqual(float(rows[0]["actual_rad_s"]), 3)
+        self.assertIn("reference_iq_a", rows[0])
+        self.assertIn("reference_speed_rad_s", rows[0])
+
     def test_worker_detects_lost_gui_parent(self):
         with (
             tempfile.TemporaryDirectory() as directory,

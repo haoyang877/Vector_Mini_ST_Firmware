@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [YAW新电机标定抖动诊断](2026-11-13-new-motor-calibration-diagnosis.md) — Kp单变量对照与APP1.8.4复测通过，GUI1.9.3及原始数据包已交付。
+
 - [CAN FD 标定曲线与双编号归档](2026-11-13-canfd-calibration-curves.md) — v1.9.2补偿/零位/极值/原码图及参数归档；节点6采集、原生Tk图窗、Release和发布包校验通过。
 
 - [速度目标精确边界](2026-11-13-speed-target-boundary.md) — APP/GUI v1.8.3，±30目标受理和±30.001拒绝实测通过；原角区Hall诊断保留。

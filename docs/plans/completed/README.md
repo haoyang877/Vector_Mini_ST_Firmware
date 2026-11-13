@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [CAN FD 故障解析与显式清除](2026-11-13-canfd-fault-clear.md)：v1.10.1 Release通过，当前节点6只读诊断完成；实际清错/运动未执行。
+
 - [CAN FD 共用电机选择与页面顺序](2026-11-13-canfd-shared-motor-navigation.md)：v1.10.0、Release和窗口验证通过。
 
 - [YAW新电机标定抖动诊断](2026-11-13-new-motor-calibration-diagnosis.md) — Kp单变量对照与APP1.8.4复测通过，GUI1.9.3及原始数据包已交付。

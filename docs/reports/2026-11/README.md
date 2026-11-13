@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [CAN FD故障解析/清除与节点6编码器诊断](canfd_fault_clear_encoder_20261113.md)：v1.10.1 Release通过，保留样本显示标定方向相反；未清错或主动转动。
+
 - [CAN FD v1.10.0共用电机与页面顺序](canfd_shared_motor_20261113.md)：共享身份、六页重排、Release与窗口验证。
 
 - [YAW标定观测器闭环抖动](yaw_calibration_oscillation_20261113.md)：确认标定Kp过大，速度标准差下降88.8%；正式版保存/关相与参数保留通过。

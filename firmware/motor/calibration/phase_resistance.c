@@ -173,8 +173,8 @@ uint8_t PhaseResistance_Step(PhaseResistance *state,
     float sign = (state->excitation & 1U) == 0U ? 1.0f : -1.0f;
     float measured_a = sign * 0.5f * (current_a[first] - current_a[second]);
     float desired_a = state->gap ? 0.0f : (state->level == 0U ? 0.5f : 1.0f);
-    /* 升降流均为1A/s，避免自由转子在换档、换向时受到阶跃冲击。 */
-    float ramp_a = 1.0f * period_s;
+    /* 新磁场缓升流对齐；已对齐后的同向升档和撤流加快，仍保留稳定判定。 */
+    float ramp_a = (state->gap || state->level == 1U ? 5.0f : 1.0f) * period_s;
     if (state->target_a < desired_a)
     {
         state->target_a = fminf(desired_a, state->target_a + ramp_a);

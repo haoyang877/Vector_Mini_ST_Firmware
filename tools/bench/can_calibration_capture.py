@@ -1,4 +1,4 @@
-"""采集 APP1.8.3～1.8.10 的 RTT Hall 原码；不修改控制参数或固件。"""
+"""采集 APP1.8.3～1.8.11 的 RTT Hall 原码；不修改控制参数或固件。"""
 
 import csv
 import struct

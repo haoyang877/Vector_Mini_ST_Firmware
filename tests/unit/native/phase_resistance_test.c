@@ -65,6 +65,20 @@ simulate(float a, float b, float c, unsigned open, float drop, unsigned motion)
 
 int main(void)
 {
+    /* 起始对齐保持慢升流，只有第二档及撤流采用较快斜坡。 */
+    PhaseResistance ramps;
+    float ramp_duty[3], zero_current[3] = {0};
+    PhaseResistance_Init(&ramps, 1.905f, 0.001f, 0.0f);
+    PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
+    assert(fabsf(ramps.target_a - 0.00005f) < 1e-8f);
+    ramps.level = 1U;
+    ramps.target_a = 0.5f;
+    PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
+    assert(fabsf(ramps.target_a - 0.50025f) < 1e-7f);
+    ramps.gap = true;
+    ramps.target_a = 1.0f;
+    PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
+    assert(fabsf(ramps.target_a - 0.99975f) < 1e-7f);
     /* 精确二进制边界验证50%与150%均包含，不能只验证中间值。 */
     PhaseResistance edges = {.report = {.nominal_ohm = 2.0f, .line_ohm = {3.0f, 5.0f, 4.0f}}};
     finish(&edges);

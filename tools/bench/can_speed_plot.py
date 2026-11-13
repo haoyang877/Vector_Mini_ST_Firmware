@@ -15,7 +15,7 @@ CHANNELS = (
 class SpeedPlot(ttk.Frame):
     """GUI线程持有；最多1200点、30秒窗口，重绘不超过10Hz。"""
 
-    def __init__(self, master):
+    def __init__(self, master: tk.Misc) -> None:
         super().__init__(master)
         self.samples = deque(maxlen=1200)
         self.pending = None
@@ -30,16 +30,16 @@ class SpeedPlot(ttk.Frame):
         self.canvas.bind("<Configure>", lambda _: self.schedule())
         self.bind("<Destroy>", self.close)
 
-    def close(self, event):
+    def close(self, event: tk.Event) -> None:
         if event.widget is self and self.pending is not None:
             self.after_cancel(self.pending)
             self.pending = None
 
-    def clear(self):
+    def clear(self) -> None:
         self.samples.clear()
         self.schedule()
 
-    def append(self, sample: dict):
+    def append(self, sample: dict) -> None:
         stamp = sample.get("elapsed_s")
         if not isinstance(stamp, (int, float)) or not math.isfinite(stamp):
             return
@@ -50,11 +50,22 @@ class SpeedPlot(ttk.Frame):
             self.samples.popleft()
         self.schedule()
 
-    def schedule(self):
+    def schedule(self) -> None:
         if self.pending is None:
             self.pending = self.after(100, self.redraw)
 
-    def redraw(self):
+    def _draw_segment(
+        self, segment: list[float], color: str, dash: tuple[int, ...], tags: tuple[str, str]
+    ) -> None:
+        if len(segment) >= 4:
+            self.canvas.create_line(*segment, fill=color, dash=dash, width=1.6, tags=tags)
+        elif segment:
+            x, y = segment
+            self.canvas.create_oval(
+                x - 2, y - 2, x + 2, y + 2, fill=color, outline=color, tags=tags
+            )
+
+    def redraw(self) -> None:
         self.pending = None
         canvas = self.canvas
         canvas.delete("all")
@@ -100,21 +111,10 @@ class SpeedPlot(ttk.Frame):
             ):
                 segment = []
 
-                def draw():
-                    if len(segment) >= 4:
-                        canvas.create_line(
-                            *segment, fill=color, dash=dash, width=1.6, tags=(tag, key)
-                        )
-                    elif segment:
-                        x, y = segment
-                        canvas.create_oval(
-                            x - 2, y - 2, x + 2, y + 2, fill=color, outline=color, tags=(tag, key)
-                        )
-
                 for point in self.samples:
                     value = point.get(key)
                     if value is None or not math.isfinite(value):
-                        draw()
+                        self._draw_segment(segment, color, dash, (tag, key))
                         segment = []
                         continue
                     segment.extend(
@@ -123,7 +123,7 @@ class SpeedPlot(ttk.Frame):
                             y1 - (value - low) / (high - low) * (y1 - y0),
                         )
                     )
-                draw()
+                self._draw_segment(segment, color, dash, (tag, key))
                 if self.samples and self.samples[-1].get(key) is None:
                     canvas.create_text(
                         right - 4,

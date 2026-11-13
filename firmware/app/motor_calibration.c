@@ -26,7 +26,7 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
             if (MotorAxisPreset_HasLinearHall(calibration->drive.configuration->preset))
             {
                 LinearHall_CalibrationBegin(&calibration->hall_sweep);
-                OutputEncoder_CalibBegin(&calibration->output_calibration,
+                OutputEncoder_CalibBegin(&calibration->storage.output_calibration,
                                          calibration->output->params.gear_ratio);
             }
 #endif
@@ -154,7 +154,7 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
     {
         bool hall_ok = LinearHall_CalibrationFinish(&calibration->hall_sweep, &hall);
         bool output_ok = OutputEncoder_CalibEnd(&output,
-                                                &calibration->output_calibration,
+                                                &calibration->storage.output_calibration,
                                                 &hall,
                                                 &calibration->drive.configuration->device.encoder);
         if (!hall_ok)

@@ -29,9 +29,18 @@ typedef struct
     } workspace;
 #if BSP_ENABLED_LINEAR_HALL
     LinearHallCalibration hall_sweep;
-    OutputEncoderCalib output_calibration;
     uint32_t coast_epoch, coast_start_ms, stable_since_ms;
 #endif
+    /* 样本仅在联合标定期间有效；前台结算完成后才允许编码记录覆盖。
+     * 检测期间由maintenance_capture独占，报告及统计保留在板级对象中。 */
+    union
+    {
+        MotorAxisRecord record;
+#if BSP_ENABLED_LINEAR_HALL
+        OutputEncoderCalib output_calibration;
+        uint8_t diagnostic_samples[5120];
+#endif
+    } storage;
 } MotorCalibration;
 
 /**

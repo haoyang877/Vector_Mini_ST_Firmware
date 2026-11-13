@@ -82,7 +82,8 @@ static bool same_request(const ProtocolMotorConfigurationRequest *left,
 static bool stopped(MotorAxis *axis)
 {
     MotorStatus status;
-    return axis->state_machine.state == MOTOR_STATE_IDLE && !axis->state_machine.stop_pending &&
+    return !axis->state_machine.maintenance_capture &&
+           axis->state_machine.state == MOTOR_STATE_IDLE && !axis->state_machine.stop_pending &&
            !axis->state_machine.start_pending &&
            axis->state_machine.calibration_handoff == MOTOR_CALIBRATION_NO_HANDOFF &&
            axis->motor.fault_code == MOTOR_FAULT_NONE &&
@@ -168,17 +169,25 @@ static void configure(void *context,
         service->previous_revision = service->saved_request.revision;
         service->pending.device.can_bitrate_profile =
             axis->configuration.device.can_bitrate_profile;
-        Param_Upload(&axis->record.motor, &service->pending);
-        memset(&axis->record.output, 0, sizeof(axis->record.output));
-        uint32_t expected = Crc32_Compute(&axis->record, sizeof(axis->record), 0U);
+        Param_Upload(&axis->calibration.storage.record.motor, &service->pending);
+        memset(&axis->calibration.storage.record.output,
+               0,
+               sizeof(axis->calibration.storage.record.output));
+        uint32_t expected = Crc32_Compute(
+            &axis->calibration.storage.record, sizeof(axis->calibration.storage.record), 0U);
         uint32_t mask = BspSystem_EnterCritical();
         bool off = axis->state_machine.state == MOTOR_STATE_IDLE &&
                    axis->motor.fault_code == MOTOR_FAULT_NONE &&
                    axis->hardware->power.phases_disabled();
-        bool stored = off &&
-                      axis->hardware->write_record(&axis->record, sizeof(axis->record)) == BSP_OK &&
-                      axis->hardware->read_record(&axis->record, sizeof(axis->record)) == BSP_OK &&
-                      expected == Crc32_Compute(&axis->record, sizeof(axis->record), 0U);
+        bool stored =
+            off &&
+            axis->hardware->write_record(&axis->calibration.storage.record,
+                                         sizeof(axis->calibration.storage.record)) == BSP_OK &&
+            axis->hardware->read_record(&axis->calibration.storage.record,
+                                        sizeof(axis->calibration.storage.record)) == BSP_OK &&
+            expected == Crc32_Compute(&axis->calibration.storage.record,
+                                      sizeof(axis->calibration.storage.record),
+                                      0U);
         BspSystem_ExitCritical(mask);
         if (!stored)
         {
@@ -187,7 +196,7 @@ static void configure(void *context,
             return;
         }
         service->saved = true;
-        service->saved_revision = axis->record.motor.record_crc32;
+        service->saved_revision = axis->calibration.storage.record.motor.record_crc32;
         axis->parameters.stored_record_crc = service->saved_revision;
         (void)describe(&service->pending, service->saved_revision, true, reply);
         reply->status = PROTOCOL_OK;

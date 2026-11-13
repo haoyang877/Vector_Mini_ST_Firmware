@@ -93,9 +93,11 @@ static void setup(void)
     assert(Param_CreateAxis(5U, -2.0f, 2.0f, 1.0f, NULL, &axis.configuration));
     axis.configuration.configuration_confirmed = true;
     axis.configuration.device.encoder.calib_flag = ENC_CALIB_ALL;
-    Param_Upload(&axis.record.motor, &axis.configuration);
-    memset(&axis.record.output, 0x5a, sizeof(axis.record.output));
-    flash_record = axis.record;
+    Param_Upload(&axis.calibration.storage.record.motor, &axis.configuration);
+    memset(&axis.calibration.storage.record.output,
+           0x5a,
+           sizeof(axis.calibration.storage.record.output));
+    flash_record = axis.calibration.storage.record;
     axis.parameters.stored_record_crc = flash_record.motor.record_crc32;
     axis.state_machine.state = MOTOR_STATE_IDLE;
     off = complete = true;
@@ -132,8 +134,12 @@ int main(void)
 {
     setup();
     ProtocolMotorConfigurationRequest request = yq_request();
+    axis.state_machine.maintenance_capture = true;
+    assert(call(request).status == PROTOCOL_DENIED && writes == 0);
+    assert(!service.prepared && !axis.state_machine.starts_locked);
+    axis.state_machine.maintenance_capture = false;
     /* 模拟活动坐标 CRC 读取：工作区可重新导出，Flash 修订应保持稳定。 */
-    axis.record.motor.encoder_mechanical_zero_q15 ^= 1U;
+    axis.calibration.storage.record.motor.encoder_mechanical_zero_q15 ^= 1U;
     ProtocolMotorConfigurationReply active = call((ProtocolMotorConfigurationRequest){0});
     assert(active.revision == flash_record.motor.record_crc32);
     assert(active.status == PROTOCOL_OK && active.model == 1U && active.node == 5U &&

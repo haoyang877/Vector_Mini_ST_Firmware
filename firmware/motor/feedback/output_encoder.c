@@ -104,10 +104,12 @@ void OutputEncoder_CalibSample(OutputEncoderCalib *cal,
         (float)cal->count * (float)cal->step_counts)
     {
         uint32_t n = cal->sample_count;
-        cal->samples[cal->count++] =
+        OutputEncoder_CalibSetSample(
+            cal,
+            cal->count++,
             (OutputEncoderCalibSample){(int32_t)lroundf((float)cal->motor_sum_counts / (float)n),
                                        (uint16_t)((cal->sin_sum_counts + n / 2U) / n),
-                                       (uint16_t)((cal->cos_sum_counts + n / 2U) / n)};
+                                       (uint16_t)((cal->cos_sum_counts + n / 2U) / n)});
         cal->motor_sum_counts = 0;
         cal->sin_sum_counts = cal->cos_sum_counts = cal->sample_count = 0U;
     }
@@ -142,7 +144,8 @@ static int32_t read_filtered_pair(const OutputEncoderCalib *cal,
     uint32_t sin_sum = 0U, cos_sum = 0U;
     for (unsigned k = 0U; k < 9U; ++k)
     {
-        const OutputEncoderCalibSample *sample = &cal->samples[i + k - 4U];
+        const OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i + k - 4U);
+        const OutputEncoderCalibSample *sample = &value;
         motor_sum += (float)sample->motor_counts * (float)weights[k];
         sin_sum += sample->sin_counts * weights[k];
         cos_sum += sample->cos_counts * weights[k];
@@ -264,7 +267,9 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float travel = 0.0f, previous = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        LinearHall_Update(&corrected, cal->samples[i].sin_counts, cal->samples[i].cos_counts);
+        LinearHall_Update(&corrected,
+                          OutputEncoder_CalibGetSample(cal, i).sin_counts,
+                          OutputEncoder_CalibGetSample(cal, i).cos_counts);
         if (i != 0U)
         {
             travel += delta(corrected.val.angle_rad - previous);
@@ -272,9 +277,10 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
         previous = corrected.val.angle_rad;
     }
     float motor_travel =
-        (float)(corrected_counts(cal->samples[OUTPUT_ENCODER_CAL_SAMPLES - 1U].motor_counts,
-                                 motor) -
-                corrected_counts(cal->samples[0].motor_counts, motor)) *
+        (float)(corrected_counts(
+                    OutputEncoder_CalibGetSample(cal, OUTPUT_ENCODER_CAL_SAMPLES - 1U).motor_counts,
+                    motor) -
+                corrected_counts(OutputEncoder_CalibGetSample(cal, 0).motor_counts, motor)) *
         (_2PI / 65536.0f);
     int32_t direction = travel * motor_travel >= 0.0f ? 1 : -1;
     float ratio = encoder->params.gear_ratio;
@@ -295,7 +301,8 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float sine = 0.0f, cosine = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        float phase = sample_phase(&cal->samples[i], &corrected, motor, ratio, direction);
+        OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i);
+        float phase = sample_phase(&value, &corrected, motor, ratio, direction);
         sine += sinf(phase);
         cosine += cosf(phase);
     }
@@ -303,7 +310,8 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float peak_error = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        float error = sample_phase(&cal->samples[i], &corrected, motor, ratio, direction) - phase;
+        OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i);
+        float error = sample_phase(&value, &corrected, motor, ratio, direction) - phase;
         peak_error = fmaxf(peak_error, fabsf(delta(error)));
     }
     /* 辨圈边界为 π 电机轴 rad；保留一半余量，且不能把错误减速比拟合成有效关系。 */

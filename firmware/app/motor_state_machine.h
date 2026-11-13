@@ -179,6 +179,7 @@ struct MotorStateMachine
     volatile uint32_t motion_renewed_ms; /* 前台唯一写者，监督读取。 */
     volatile bool motion_lease_active;   /* 仅协议启动启用，结束会话撤销。 */
     volatile bool parameters_updating;   /* 关相前台正在提交配置，禁止启相和配置扫描。 */
+    volatile bool maintenance_capture;   /* 检测独占维护存储；禁止标定和记录编码。 */
     bool start_pending;                  /* 普通启动已受理，尚未确认三相输出开启。 */
     bool fault_locked, fast_samples_fresh, starts_locked;
 };

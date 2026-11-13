@@ -102,12 +102,16 @@ typedef struct
 
 /* 前台独占统计和报告，Watch 可直接读取本轮 s_check。ADC 单写 write，前台单写 read。 */
 static HardwareCheckState s_check;
-static HardwareSample s_queue[QUEUE_SIZE];
+/* 同一队列深度和样本格式；内存与标定配对样本互斥复用。 */
+typedef char HardwareQueueFits[(QUEUE_SIZE * sizeof(HardwareSample) <=
+                                sizeof(((MotorCalibration *)0)->storage.diagnostic_samples))
+                                   ? 1
+                                   : -1];
 static volatile uint32_t s_write, s_read;
 static volatile bool s_overrun;
 volatile bool g_hardware_check_capture;
 
-void HardwareCheck_CaptureFast(const MotorAxis *axis)
+void HardwareCheck_CaptureFast(MotorAxis *axis)
 {
     uint32_t write = s_write;
     if (write - s_read >= QUEUE_SIZE)
@@ -115,7 +119,8 @@ void HardwareCheck_CaptureFast(const MotorAxis *axis)
         s_overrun = true;
         return;
     }
-    HardwareSample *sample = &s_queue[write % QUEUE_SIZE];
+    HardwareSample value = {0};
+    HardwareSample *sample = &value;
     sample->cycles = BspSystem_CycleCount();
     sample->frame = BspEncoder_ReadCompletedFrame();
     sample->voltage_v = axis->foc.bus_voltage_v;
@@ -142,12 +147,18 @@ void HardwareCheck_CaptureFast(const MotorAxis *axis)
         sample->current_q4[3] = (uint16_t)(4.0f * BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT));
     }
     BspSystem_MemoryBarrier();
+    memcpy(&axis->calibration.storage.diagnostic_samples[(write % QUEUE_SIZE) * sizeof(value)],
+           &value,
+           sizeof(value));
+    BspSystem_MemoryBarrier();
     s_write = write + 1U;
 }
 
 static void end_check(MotorAxis *axis, uint8_t stage)
 {
     g_hardware_check_capture = false;
+    BspSystem_MemoryBarrier();
+    axis->state_machine.maintenance_capture = false;
     s_check.report.stage = stage;
     if (s_check.driven_epoch != 0U && axis->state_machine.epoch == s_check.driven_epoch &&
         !MotorStateMachine_IsStopped(&axis->state_machine))
@@ -178,7 +189,9 @@ static ProtocolCode handle_request(void *context,
     {
         return PROTOCOL_RESULT_DENIED;
     }
-    if (g_hardware_check_capture || !MotorStateMachine_IsStopped(&axis->state_machine) ||
+    if (g_hardware_check_capture || axis->state_machine.maintenance_capture ||
+        axis->state_machine.calibration_type != MOTOR_CALIBRATION_NONE ||
+        !MotorStateMachine_IsStopped(&axis->state_machine) ||
         axis->state_machine.parameters_updating || axis->state_machine.starts_locked)
     {
         return PROTOCOL_RESULT_BUSY;
@@ -213,6 +226,8 @@ static ProtocolCode handle_request(void *context,
     }
     s_read = s_write;
     s_overrun = false;
+    BspSystem_MemoryBarrier();
+    axis->state_machine.maintenance_capture = true;
     BspSystem_MemoryBarrier();
     g_hardware_check_capture = true;
     *report = s_check.report;
@@ -827,7 +842,11 @@ void HardwareCheck_Process(MotorAxis *axis)
     BspSystem_MemoryBarrier();
     while (s_read != end && g_hardware_check_capture)
     {
-        HardwareSample sample = s_queue[s_read % QUEUE_SIZE];
+        HardwareSample sample;
+        memcpy(
+            &sample,
+            &axis->calibration.storage.diagnostic_samples[(s_read % QUEUE_SIZE) * sizeof(sample)],
+            sizeof(sample));
         BspSystem_MemoryBarrier();
         ++s_read;
         consume_sample(axis, &sample);

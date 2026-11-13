@@ -219,7 +219,7 @@ static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibratio
     const MotorConfiguration *config = machine->drive.configuration;
     if (kind == MOTOR_CALIBRATION_PHASE_RESISTANCE &&
         (machine->drive.power->select_phases == NULL ||
-         config->application.current_limit_a < 1.5f ||
+         config->application.current_limit_a < 1.0f ||
          !(config->model.motor_phase_resistance_ohm > 0.0f) ||
          !(config->model.motor_d_inductance_h > 0.0f)))
     {

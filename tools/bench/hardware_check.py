@@ -568,7 +568,7 @@ def run_check(
             refresh()
         if drive and report["stage"] == 6:
             progress("相电阻：AB/BC/CA 正反向 0.5A / 1A 测量")
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 27
             while report["stage"] == 6:
                 if stopped() or time.monotonic() > deadline:
                     raise Rejected("相电阻测量已取消或超时")

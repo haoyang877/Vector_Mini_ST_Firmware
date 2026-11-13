@@ -1,5 +1,5 @@
 param([Parameter(Mandatory = $true)][string]$Dll, [string]$FirmwareHex,
-      [string]$CanPackage = "outputs/AT32F456-FULL-v1.8.9/app-package",
+      [string]$CanPackage = "outputs/AT32F456-FULL-v1.8.10/app-package",
       [string[]]$PitchThermal = @('3','3','3600','0.8','0.7','1','0.5'),
       [string[]]$YawThermal = @('3','3','3600','0.8','0.7','1','0.5'))
 $ErrorActionPreference = "Stop"
@@ -48,7 +48,7 @@ try {
         Move-Item -LiteralPath $temp -Destination (Join-Path $records.FullName "$node.bin") -Force
     }
     uv run --no-sync --extra maintenance --with pyinstaller==6.16.0 python -m PyInstaller --noconfirm --onefile --windowed `
-        --name CAN-Link-Test-v1.17.0 --distpath "$output/dist" --workpath "$output/build" `
+        --name CAN-Link-Test-v1.17.1 --distpath "$output/dist" --workpath "$output/build" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
         --add-binary "${sdk};." --add-data "$root/tools/bench/five_axis_can_stability.json;." `
         --add-data "$root/shared/targets/yg_esc_v1_at32f456.json;." `
@@ -58,7 +58,7 @@ try {
         --add-data "$canDir/image.bin;can-app" --add-data "$canDir/manifest.bin;can-app" --add-data "$canDir/package.json;can-app" `
         tools/bench/canfd_desktop.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败 ($LASTEXITCODE)" }
-    Get-FileHash -LiteralPath "$output/dist/CAN-Link-Test-v1.17.0.exe" -Algorithm SHA256
+    Get-FileHash -LiteralPath "$output/dist/CAN-Link-Test-v1.17.1.exe" -Algorithm SHA256
 } finally {
     Pop-Location
 }

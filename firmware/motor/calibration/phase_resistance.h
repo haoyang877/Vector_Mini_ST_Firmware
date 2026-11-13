@@ -15,11 +15,15 @@ typedef struct
 {
     PhaseResistanceReport report;
     float points_v[2], points_a[2], positive_ohm;
+    /* 留下各回路两档均值，便于停机后核对真实激励；工作区与LUT互斥。 */
+    float measured_a[6][2], measured_v[6][2];
     float voltage_v, integral_v, target_a, sum_v, sum_a;
-    float nominal_inductance_h, origin_turns;
-    uint32_t ticks, samples, stable_ticks;
+    float nominal_inductance_h, last_turns, window_position, window_min, window_max;
+    float peak_current_a;
+    uint32_t ticks, samples, stable_ticks, window_ticks, zero_ticks;
     uint8_t excitation, level;
-    bool gap, done;
+    bool gap, done, window_current_stable;
+
 } PhaseResistance;
 
 /**

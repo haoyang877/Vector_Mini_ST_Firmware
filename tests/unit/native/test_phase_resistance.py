@@ -1,6 +1,7 @@
 """用RL回路验证真实相电阻算法，无设备访问。"""
 
 from _bsp_test_support import ROOT, arguments, run_c
+from run_position_servo_tests import function_source
 
 
 def main():
@@ -14,6 +15,13 @@ def main():
         .replace(
             "/* PHASE_RESISTANCE_IMPLEMENTATION */",
             (ROOT / "firmware/motor/calibration/phase_resistance.c").read_text(encoding="utf-8"),
+        )
+        .replace(
+            "/* SVM_IMPLEMENTATION */",
+            function_source(
+                (ROOT / "firmware/motor/control/foc.c").read_text(encoding="utf-8"),
+                "Svm_SectorJudge",
+            ),
         ),
         2,
         [],

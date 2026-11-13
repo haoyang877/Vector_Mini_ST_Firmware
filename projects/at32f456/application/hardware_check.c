@@ -995,7 +995,7 @@ void HardwareCheck_Process(MotorAxis *axis)
     uint32_t now = BspSystem_TimeMs();
     uint8_t stage = s_report.stage;
     uint32_t timeout_ms =
-        stage == STATIC ? 500U : (stage == ARMED ? 3000U : (stage == RESISTANCE ? 2000U : 8000U));
+        stage == STATIC ? 500U : (stage == ARMED ? 3000U : (stage == RESISTANCE ? 25000U : 8000U));
     if (s_overrun || axis->parameters.revision != s_state->revision ||
         now - s_state->stage_ms > timeout_ms)
     {

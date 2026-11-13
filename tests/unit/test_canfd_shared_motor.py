@@ -192,6 +192,63 @@ class SharedMotorTests(unittest.TestCase):
         self.assertIn("本次未查询到", w.firmware_version.get())
         self.assertEqual(w.operation_mode(), "jlink_flash")
 
+    def test_erase_requires_confirmation_and_uses_bound_identity(self):
+        w = self.window
+        self.assertTrue(w.erase_buttons["all"].instate(["disabled"]))
+        w.identity = dict(node=6, uid=self.uid, serial=123)
+        w.update_controls()
+        self.assertFalse(w.erase_buttons["app"].instate(["disabled"]))
+        with (
+            patch.object(desktop.messagebox, "askyesno", return_value=False) as ask,
+            patch.object(w, "start") as start,
+        ):
+            w.confirm_erase("all")
+            start.assert_not_called()
+            self.assertIn(self.uid, ask.call_args.args[1])
+            self.assertIn("256 KiB", ask.call_args.args[1])
+            self.assertEqual(ask.call_args.kwargs["default"], "no")
+        with (
+            patch.object(desktop.messagebox, "askyesno", return_value=True),
+            patch.object(w, "start") as start,
+        ):
+            w.confirm_erase("app")
+            start.assert_called_once_with(erase_scope="app", erase_confirmed=True)
+        settings = self.capture_start("jlink", erase_scope="app", erase_confirmed=True)
+        self.assertEqual(settings["profile"], "jlink_erase")
+        self.assertEqual(settings["identity"]["uid"], self.uid)
+        self.assertTrue(w.erase_buttons["all"].instate(["disabled"]))
+
+    def test_erase_report_resets_versions_and_keeps_correct_reflash_path(self):
+        w = self.window
+        for scope in ("app", "all"):
+            w.display_report(
+                dict(
+                    profile="jlink_erase",
+                    success=True,
+                    identity=dict(node=6, uid=self.uid, serial=123),
+                    erase_scope=scope,
+                    steps=[],
+                )
+            )
+            self.assertIn("等待重新烧录", w.firmware_version.get())
+            self.assertEqual(w.identity["node"], 6 if scope == "app" else None)
+            self.assertFalse(w.first_fit_selected)
+            if scope == "all":
+                self.assertIsNone(w.current_motor)
+            else:
+                self.assertEqual(w.current_motor["source"], "APP已擦除")
+
+    def test_failed_erase_invalidates_previous_identity(self):
+        w = self.window
+        w.identity = dict(node=6, uid=self.uid, serial=123)
+        self.bind(6)
+        w.display_report(
+            dict(profile="jlink_erase", success=False, fatal="readback failed", steps=[])
+        )
+        self.assertIsNone(w.identity)
+        self.assertIsNone(w.current_motor)
+        self.assertIn("未完成", w.state.get())
+
     def test_motion_and_calibration_use_shared_uid_and_axis(self):
         for page, profile in (
             ("hardware", "hardware_check"),

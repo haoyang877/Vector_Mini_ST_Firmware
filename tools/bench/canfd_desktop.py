@@ -44,7 +44,7 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.10.3"
+TITLE = "CAN FD 通信测试 v1.11.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -712,6 +712,19 @@ class CanTestWindow:
         ttk.Label(setup_row, text="空白板初装：在顶部选择实际电机类型一次。").pack(
             side="left", padx=8
         )
+        erase_row = ttk.Frame(self.swd_tab)
+        erase_row.pack(anchor="w", pady=5)
+        self.erase_buttons = {}
+        for scope, label in (
+            ("app", "擦除APP（保留Loader和参数）"),
+            ("all", "整片擦除（含参数和身份）"),
+        ):
+            button = ttk.Button(
+                erase_row, text=label, command=lambda value=scope: self.confirm_erase(value)
+            )
+            button.pack(side="left", padx=(0, 8))
+            self.erase_buttons[scope] = button
+        ttk.Label(erase_row, text="擦除后保持停机，需重新烧录。").pack(side="left")
         self.batch_query = tk.BooleanVar(value=False)
         batch_query = ttk.Checkbutton(
             self.query_tab, text="多轴查询", variable=self.batch_query, command=self.update_controls
@@ -993,6 +1006,11 @@ class CanTestWindow:
             else "normal",
         )
         self.rescan.configure(state="normal" if not busy and self.identity else "disabled")
+        for scope, button in self.erase_buttons.items():
+            allowed = (
+                not busy and self.identity and (scope == "all" or self.identity["node"] is not None)
+            )
+            button.configure(state="normal" if allowed else "disabled")
         self.stop_button.configure(state="normal" if busy and not self.swd_busy else "disabled")
         self.stop_button.configure(
             text="本台完成后停止" if self.active_profile == "can_upgrade" else "停止"
@@ -1063,7 +1081,30 @@ class CanTestWindow:
         window.rowconfigure(1, weight=1)
         window.columnconfigure(0, weight=1)
 
-    def operation_mode(self, *, scan=False, bitrate_action=None, clear_fault=False) -> str:
+    def confirm_erase(self, scope: str) -> None:
+        if self.process is not None or self.identity is None:
+            return
+        labels = {
+            "app": "仅APP区（96 KiB）；保留Loader、标定参数和生产身份。",
+            "all": "全部物理Flash（256 KiB）；Loader、APP、标定参数和生产身份均会清空。",
+        }
+        if scope not in labels or (scope == "app" and self.identity["node"] is None):
+            return
+        if messagebox.askyesno(
+            "确认Flash擦除",
+            f"芯片UID：{self.identity['uid']}\n范围：{labels[scope]}\n\n"
+            "执行前保存完整Flash备份；完成后不启动电机，必须重新烧录。\n确认擦除？",
+            icon="warning",
+            default="no",
+            parent=self.root,
+        ):
+            self.start(erase_scope=scope, erase_confirmed=True)
+
+    def operation_mode(
+        self, *, scan=False, bitrate_action=None, clear_fault=False, erase_scope=None
+    ) -> str:
+        if erase_scope is not None:
+            return "jlink_erase"
         if clear_fault:
             return "clear_fault"
         if scan:
@@ -1086,12 +1127,22 @@ class CanTestWindow:
         }[page]
 
     def start(
-        self, *, scan=False, bitrate_action=None, calibration_kind=1, clear_fault=False
+        self,
+        *,
+        scan=False,
+        bitrate_action=None,
+        calibration_kind=1,
+        clear_fault=False,
+        erase_scope=None,
+        erase_confirmed=False,
     ) -> None:
         if self.process is not None:
             return
         mode = self.operation_mode(
-            scan=scan, bitrate_action=bitrate_action, clear_fault=clear_fault
+            scan=scan,
+            bitrate_action=bitrate_action,
+            clear_fault=clear_fault,
+            erase_scope=erase_scope,
         )
         swd = mode.startswith("jlink_")
         settings = {
@@ -1104,7 +1155,11 @@ class CanTestWindow:
         }
         try:
             if swd:
-                if mode == "jlink_flash":
+                if mode == "jlink_erase" and (
+                    not self.identity or not erase_confirmed or erase_scope not in ("app", "all")
+                ):
+                    raise ValueError("请先识别当前芯片并确认擦除范围")
+                if mode in ("jlink_flash", "jlink_erase"):
                     self.clear_upgrade_scan()
                 settings = {
                     "profile": mode,
@@ -1112,6 +1167,8 @@ class CanTestWindow:
                     "hex": str(self.hex_path or ""),
                     "restart_after_flash": True,
                     "force_reflash": True,
+                    "erase_scope": erase_scope,
+                    "erase_confirmed": erase_confirmed,
                     "first_fit_node": self.current_node()
                     if self.identity and self.identity["node"] is None and self.first_fit_selected
                     else None,
@@ -1329,6 +1386,36 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "jlink_erase":
+            self.identity = None
+            self.first_fit_selected = False
+            self.known_motors.clear()
+            self.clear_upgrade_scan()
+            self.select_current_motor()
+            if r.get("success"):
+                self.identity = {key: r["identity"][key] for key in ("uid", "serial", "node")}
+                if r["erase_scope"] == "all":
+                    self.identity["node"] = None
+                    message = "整片Flash擦除并回读通过；请选择实际电机类型后重新初装。"
+                else:
+                    message = "APP擦除并回读通过；Loader、参数和身份保留，可直接重新烧录。"
+                    self.set_current_motor(self.identity["node"], self.identity["uid"], "APP已擦除")
+                self.firmware_version.set("APP已擦除；等待重新烧录和版本查询")
+                self.motor_label.set(message)
+                self.state.set("Flash擦除完成 · CPU保持暂停")
+            else:
+                message = r.get("fatal", "擦除结果未知")
+                self.state.set("Flash擦除未完成")
+                self.firmware_version.set("本次擦除未确认；需重新识别")
+                self.motor_label.set("保留备份，排除故障后重新识别，勿直接启动。")
+            lines = [*r.get("steps", []), message]
+            if "erase_start" in r:
+                lines.append(f"范围：0x{r['erase_start']:08X} 起，{r['erase_bytes']} 字节")
+            lines.append(f"记录和备份目录　{self.report_dir}")
+            self.show("\n".join(lines))
+            self.bar["value"] = 100 if r.get("success") else 0
+            self.progress.set(f"{self.bar['value']:.0f}%")
+            return
         if r["profile"] == "clear_fault":
             status = "故障清除已确认" if r.get("passed") else "故障清除未通过"
             if r.get("cleared") and r.get("fatal"):

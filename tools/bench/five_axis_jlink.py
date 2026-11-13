@@ -361,6 +361,79 @@ def program_motor(
     )
 
 
+def erase_motor(probe, target, identity, scope, out, report, stage, hex_hash):
+    """显式擦除并验证全片边界；保留备份，APP擦除沿用烧录恢复凭据。"""
+    if scope not in ("app", "all") or (scope == "app" and identity["node"] is None):
+        raise ValueError("APP擦除需要已配板；整片擦除范围须明确")
+    uid = bytes.fromhex(identity["uid"])
+    base = maintenance.target_value(target, "TARGET_FLASH_BASE")
+    total = maintenance.physical_flash_bytes(target)
+    start = maintenance.target_value(target, "TARGET_APP_BASE") if scope == "app" else base
+    size = maintenance.target_value(target, "TARGET_APP_BYTES") if scope == "app" else total
+    page = maintenance.target_value(target, "TARGET_ERASE_BYTES")
+    if start < base or start + size > base + total or start % page or size % page:
+        raise ValueError("擦除范围与物理Flash或扇区边界不符")
+    report.update(erase_scope=scope, erase_start=start, erase_bytes=size)
+    stage("双读备份完整Flash，确认六路输出关闭")
+    backup = maintenance.capture(probe, target, uid, out / "before")
+    before = (out / "before/flash.bin").read_bytes()
+    if maintenance.digest(before) != backup["flash"]:
+        raise OSError("擦除前磁盘备份校验失败")
+    report["backup_sha256"] = backup["flash"]["sha256"]
+    maintenance.halt_for_flash(probe, target)
+    maintenance.check_outputs_off(probe, target)
+    if maintenance.read_twice(probe, base, total) != before:
+        raise RuntimeError("暂停后Flash与备份不一致，未擦除")
+    maintenance.check_identity(probe, target, uid)
+    pending = out.parent / f"jlink-{identity['uid']}-{hex_hash}.pending"
+    if scope == "app" and not pending.exists():
+        journal = out / "pending.tmp"
+        journal.write_text(
+            json.dumps(
+                dict(
+                    directory=out.name,
+                    sha256=report["backup_sha256"],
+                    first_fit_node=None,
+                    record_sha256=None,
+                )
+            ),
+            encoding="utf-8",
+        )
+        journal.replace(pending)
+    report["erase_started"] = True
+    stage("擦除APP区，保留Loader和参数" if scope == "app" else "擦除全部物理Flash（含参数与身份）")
+    if scope == "app":
+        probe.flash_write8(start, b"\xff" * size)
+    else:
+        probe.erase()
+    if not probe.halt():
+        raise RuntimeError("擦除后无法确认CPU已暂停")
+    if (
+        probe.memory_read32(0x40023830, 1)[0] & 3 != 3
+        or not probe.memory_read32(0x40023844, 1)[0] & 1
+    ):
+        set_blank_board_outputs_low(probe)
+    maintenance.check_outputs_off(probe, target)
+    stage("双读校验擦除范围及全部保留区域")
+    after = maintenance.read_twice(probe, base, total)
+    (out / "flash_after.bin").write_bytes(after)
+    offset = start - base
+    if after[offset : offset + size] != b"\xff" * size:
+        raise RuntimeError("擦除回读仍有非FF字节，未确认成功")
+    if after[:offset] != before[:offset] or after[offset + size :] != before[offset + size :]:
+        raise RuntimeError("擦除范围外发生变化，请使用本轮备份核查")
+    if scope == "all":
+        for journal in out.parent.glob(f"jlink-{identity['uid']}-*.pending"):
+            journal.rename(out / journal.name)
+    report.update(
+        erase_verified=True,
+        cpu_halted=True,
+        outputs_off=True,
+        protected_regions_verified=scope == "app",
+        flash_sha256=maintenance.digest(after)["sha256"],
+    )
+
+
 def restart_verified_app(probe, target, parameter_file):
     """通过 SWD 复位并运行，确认 Loader 已将向量表切到本批 APP。"""
     maintenance.check_outputs_off(probe, target)
@@ -431,6 +504,12 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
             raw = Path(settings["hex"]).read_bytes()
             report["hex_sha256"] = batch["hex_sha256"]
             segments = firmware_segments(raw, report["hex_sha256"], target)
+        elif mode == "jlink_erase":
+            if not settings.get("erase_confirmed") or settings.get("erase_scope") not in (
+                "app",
+                "all",
+            ):
+                raise ValueError("请先确认擦除范围和芯片UID")
         elif mode != "jlink_identify":
             raise ValueError("未知 J-Link 操作")
         stage("连接 J-Link / SWD")
@@ -443,7 +522,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
             if len(probes) != 1:
                 raise RuntimeError(f"检测到 {len(probes)} 只 J-Link，请连接本次使用的一只探针")
             serial = probes[0].SerialNumber
-            if mode == "jlink_flash" and settings["identity"]["serial"] != serial:
+            if mode in ("jlink_flash", "jlink_erase") and settings["identity"]["serial"] != serial:
                 raise RuntimeError("J-Link 已更换，请重新识别")
             probe.open(serial_no=serial)
             for command in (
@@ -462,6 +541,19 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                 probe, target, motors, serial, out.parent, batch["hex_sha256"]
             )
             report.update(identity=identity)
+            if mode == "jlink_erase":
+                if identity != settings["identity"]:
+                    raise RuntimeError("当前芯片与擦除确认的UID/节点不同，请重新识别")
+                erase_motor(
+                    probe,
+                    target,
+                    identity,
+                    settings["erase_scope"],
+                    out,
+                    report,
+                    stage,
+                    batch["hex_sha256"],
+                )
             if mode == "jlink_flash":
                 if identity != settings["identity"]:
                     raise RuntimeError("当前电机与界面已识别的电机不同，请重新识别")

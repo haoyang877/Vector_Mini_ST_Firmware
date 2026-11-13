@@ -69,6 +69,7 @@ class FlashGuiTests(unittest.TestCase):
         self.batch = {"motors": [{"uid": self.probe.uid.hex(), "node": self.node}]}
         self.freeze_image()
         self.probe.flash_file = Mock(side_effect=self.write_hex)
+        self.probe.erase = Mock(side_effect=self.erase_all)
         self.pylink = Mock()
         self.pylink.JLink.return_value = self.probe
         self.identity = {"uid": self.probe.uid.hex(), "serial": self.serial, "node": self.node}
@@ -126,8 +127,19 @@ class FlashGuiTests(unittest.TestCase):
         for start, end in image.segments():
             self.probe.flash_write8(start, image.tobinstr(start=start, end=end - 1))
 
+    def erase_all(self):
+        self.probe.flash[:] = b"\xff" * len(self.probe.flash)
+        return len(self.probe.flash)
+
     def job(
-        self, mode="jlink_flash", identity=None, restart=False, first_fit_node=None, force=False
+        self,
+        mode="jlink_flash",
+        identity=None,
+        restart=False,
+        first_fit_node=None,
+        force=False,
+        erase_scope=None,
+        erase_confirmed=False,
     ):
         self.number += 1
         directory = self.directory / str(self.number)
@@ -139,6 +151,8 @@ class FlashGuiTests(unittest.TestCase):
             "restart_after_flash": restart,
             "force_reflash": force,
             "first_fit_node": first_fit_node,
+            "erase_scope": erase_scope,
+            "erase_confirmed": erase_confirmed,
             "bus": {"channel_index": 0, "nominal_bps": 1000000, "data_bps": 5000000},
         }
         events = SimpleQueue()
@@ -172,6 +186,91 @@ class FlashGuiTests(unittest.TestCase):
         self.assertTrue(self.job()["already_installed"])
         self.probe.reset.assert_not_called()
         self.probe.flash_file.assert_called_once()
+
+    def test_app_erase_preserves_all_other_bytes_and_can_be_reflashed(self):
+        result = self.job("jlink_erase", erase_scope="app", erase_confirmed=True)
+        self.assertTrue(result["success"], result)
+        self.assertTrue(result["erase_verified"] and result["cpu_halted"])
+        self.assertEqual((result["erase_start"], result["erase_bytes"]), (0x08004000, 0x18000))
+        self.assertEqual(self.probe.flash[:0x4000], self.before[:0x4000])
+        self.assertEqual(self.probe.flash[0x4000:0x1C000], b"\xff" * 0x18000)
+        self.assertEqual(self.probe.flash[0x1C000:], self.before[0x1C000:])
+        self.assertEqual((self.directory / "1/before/flash.bin").read_bytes(), self.before)
+        identified = self.job("jlink_identify")
+        self.assertTrue(identified["success"], identified)
+        reflashed = self.job(identity=identified["identity"], force=True)
+        self.assertTrue(reflashed["success"], reflashed)
+        self.assertIn("recovery_backup", reflashed)
+        self.assertEqual(self.probe.flash[0x1C000:], self.before[0x1C000:])
+        self.probe.erase.assert_not_called()
+
+    def test_full_erase_covers_physical_flash_and_clears_old_recovery(self):
+        self.probe.flash[0x3FFFF] = 0x12
+        pending = (
+            self.directory / f"jlink-{self.probe.uid.hex()}-{self.batch['hex_sha256']}.pending"
+        )
+        pending.write_text(json.dumps(dict(directory="old", sha256="unused", first_fit_node=None)))
+        report = self.job("jlink_erase", erase_scope="all", erase_confirmed=True)
+        self.assertTrue(report["success"], report)
+        self.assertEqual(report["erase_bytes"], 262144)
+        self.assertEqual(self.probe.flash, b"\xff" * 262144)
+        self.assertFalse(pending.exists())
+        self.assertTrue((self.directory / "1" / pending.name).exists())
+        blank = self.job("jlink_identify")
+        self.assertTrue(blank["success"], blank)
+        self.assertIsNone(blank["identity"]["node"])
+        self.probe.reset.assert_not_called()
+
+    def test_erase_needs_confirmation_scope_and_matching_identity(self):
+        for scope, confirmed, identity in (
+            ("app", False, self.identity),
+            ("unknown", True, self.identity),
+            ("all", True, {**self.identity, "uid": "00" * 12}),
+        ):
+            with self.subTest(scope=scope, confirmed=confirmed):
+                result = self.job(
+                    "jlink_erase", erase_scope=scope, erase_confirmed=confirmed, identity=identity
+                )
+                self.assertFalse(result["success"])
+                self.assertFalse(result.get("erase_started"))
+        self.assertEqual(self.probe.writes, [])
+        self.probe.erase.assert_not_called()
+
+    def test_erase_readback_failure_does_not_claim_success(self):
+        self.probe.erase.side_effect = lambda: None
+        report = self.job("jlink_erase", erase_scope="all", erase_confirmed=True)
+        self.assertFalse(report["success"])
+        self.assertTrue(report["erase_started"])
+        self.assertNotIn("erase_verified", report)
+        self.assertIn("非FF", report["fatal"])
+
+    def test_app_erase_detects_damage_outside_requested_range(self):
+        write = self.probe.flash_write8
+
+        def corrupt(address, data):
+            write(address, data)
+            self.probe.flash[0x1F800] ^= 1
+
+        self.probe.flash_write8 = corrupt
+        result = self.job("jlink_erase", erase_scope="app", erase_confirmed=True)
+        self.assertFalse(result["success"])
+        self.assertIn("范围外", result["fatal"])
+
+    def test_erase_rejects_enabled_outputs_before_mutation(self):
+        self.probe.registers[0x40010044] = 0x8000
+        result = self.job("jlink_erase", erase_scope="all", erase_confirmed=True)
+        self.assertFalse(result["success"])
+        self.assertFalse(result.get("erase_started"))
+        self.probe.erase.assert_not_called()
+        self.assertEqual(self.probe.flash, self.before)
+
+    def test_interrupted_erase_keeps_original_backup(self):
+        self.probe.erase.side_effect = OSError("probe disconnected")
+        result = self.job("jlink_erase", erase_scope="all", erase_confirmed=True)
+        self.assertFalse(result["success"])
+        self.assertTrue(result["erase_started"])
+        self.assertEqual((self.directory / "1/before/flash.bin").read_bytes(), self.before)
+        self.probe.reset.assert_not_called()
 
     def test_explicit_repeat_rewrites_identical_image_and_preserves_parameters(self):
         self.allow_core_reset()

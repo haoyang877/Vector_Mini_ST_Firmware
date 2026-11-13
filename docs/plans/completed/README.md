@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [J-Link Flash擦除](2026-11-13-jlink-erase.md)：v1.11.0及Release通过，未执行实机擦除。
+
 - [J-Link重复烧录与版本回读](2026-11-13-jlink-repeat-version.md)：v1.10.3及Release通过，未新增实机烧录。
 
 - [硬件检测方向诊断](2026-11-13-hardware-direction-diagnostic.md)：v1.10.2报告/GUI与Release通过。

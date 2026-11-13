@@ -1,5 +1,7 @@
 # 历史交付与候选记录
 
+- [CAN-Link-Test v1.11.0](can-link-test-v1.11.0-20261113.md)：APP/整片Flash显式擦除、备份及回读。
+
 - [CAN-Link-Test v1.10.3](can-link-test-v1.10.3-20261113.md)：J-Link重复写入和板端版本展示。
 
 - [CAN-Link-Test v1.10.2](can-link-test-v1.10.2-20261113.md)：硬件检测明确显示命令/编码器反向原因。

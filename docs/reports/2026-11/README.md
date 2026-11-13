@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [J-Link Flash擦除](jlink_flash_erase_20261113.md)：范围、确认、备份、回读及后续烧录回归；Release通过，未执行实机擦除。
+
 - [J-Link重复烧录和版本展示](jlink_repeat_version_20261113.md)：同镜像重写、保留身份和板端版本，Release通过，未新增实机烧录。
 
 - [硬件检测方向诊断v1.10.2](hardware_direction_diagnostic_20261113.md)：显示去回方向和反向原因，Release通过，未新增实机运动。

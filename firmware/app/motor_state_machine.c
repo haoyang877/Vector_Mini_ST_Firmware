@@ -6,6 +6,7 @@
 #include "axis_config.h"
 #include "bsp_system.h"
 #include "encoder_calibration.h"
+#include "phase_resistance.h"
 #include "motor_control.h"
 #include "motor_fault.h"
 #include "motor_sensing.h"
@@ -219,7 +220,7 @@ static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibratio
     const MotorConfiguration *config = machine->drive.configuration;
     if (kind == MOTOR_CALIBRATION_PHASE_RESISTANCE &&
         (machine->drive.power->select_phases == NULL ||
-         config->application.current_limit_a < 1.0f ||
+         config->application.current_limit_a < PHASE_RESISTANCE_HIGH_CURRENT_A ||
          !(config->model.motor_phase_resistance_ohm > 0.0f) ||
          !(config->model.motor_d_inductance_h > 0.0f)))
     {

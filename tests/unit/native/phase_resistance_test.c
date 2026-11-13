@@ -70,15 +70,15 @@ int main(void)
     float ramp_duty[3], zero_current[3] = {0};
     PhaseResistance_Init(&ramps, 1.905f, 0.001f, 0.0f);
     PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
-    assert(fabsf(ramps.target_a - 0.00005f) < 1e-8f);
+    assert(fabsf(ramps.target_a - 0.00010f) < 1e-8f);
     ramps.level = 1U;
-    ramps.target_a = 0.5f;
-    PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
-    assert(fabsf(ramps.target_a - 0.50025f) < 1e-7f);
-    ramps.gap = true;
     ramps.target_a = 1.0f;
     PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
-    assert(fabsf(ramps.target_a - 0.99975f) < 1e-7f);
+    assert(fabsf(ramps.target_a - 1.00025f) < 1e-7f);
+    ramps.gap = true;
+    ramps.target_a = 2.0f;
+    PhaseResistance_Step(&ramps, zero_current, 28.0f, 0.0f, 0.00005f, ramp_duty);
+    assert(fabsf(ramps.target_a - 1.99950f) < 1e-7f);
     /* 精确二进制边界验证50%与150%均包含，不能只验证中间值。 */
     PhaseResistance edges = {.report = {.nominal_ohm = 2.0f, .line_ohm = {3.0f, 5.0f, 4.0f}}};
     finish(&edges);
@@ -93,6 +93,15 @@ int main(void)
            normal.report.phase_ohm[1],
            normal.report.phase_ohm[2]);
     assert(normal.report.result == 1U && normal.report.valid == 63U);
+    for (unsigned excitation = 0U; excitation < 6U; ++excitation)
+    {
+        assert(fabsf(normal.measured_a[excitation][0] - 1.0f) < 0.01f);
+        assert(fabsf(normal.measured_a[excitation][1] - 2.0f) < 0.01f);
+    }
+    /* 最坏正常线阻在2A下仍有电压余量，不把有效高阻误报为超时。 */
+    PhaseResistance upper = simulate(2.8f, 2.8f, 2.8f, 0U, 0.3f, 0U);
+    assert(upper.report.result == 1U);
+
     for (unsigned i = 0U; i < 3U; ++i)
     {
         assert(fabsf(normal.report.phase_ohm[i] - 1.905f) < 0.05f);
@@ -120,6 +129,16 @@ int main(void)
     PhaseResistance_Init(&normal, 1.905f, 0.001f, 0.0f);
     PhaseResistance_Step(&normal, current, NAN, 0.0f, 0.00005f, duty);
     assert(normal.done && normal.report.failure == 4U);
+    PhaseResistance_Init(&ramps, 1.905f, 0.001f, 0.0f);
+    for (unsigned tick = 0U; tick < 10000U; ++tick)
+    {
+        PhaseResistance_Step(&ramps, zero_current, 10.0f, 0.0f, 0.00005f, ramp_duty);
+        for (unsigned phase = 0U; phase < 3U; ++phase)
+        {
+            assert(ramp_duty[phase] >= 0.0f && ramp_duty[phase] <= 1.0f);
+        }
+        assert(ramps.voltage_v <= 4.5f);
+    }
     /* 六个测试方向与既有生产SVM同向，防止仿真和实现共同采用错误极性。 */
     for (unsigned excitation = 0U; excitation < 6U; ++excitation)
     {

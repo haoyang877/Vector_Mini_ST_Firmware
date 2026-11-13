@@ -2,6 +2,8 @@
 #include <math.h>
 #include <string.h>
 
+#define MAX_TEST_VOLTAGE_V 12.5f
+
 static const uint8_t s_first[3] = {0U, 1U, 2U};
 static const uint8_t s_second[3] = {1U, 2U, 0U};
 
@@ -172,9 +174,12 @@ uint8_t PhaseResistance_Step(PhaseResistance *state,
     ++state->ticks;
     float sign = (state->excitation & 1U) == 0U ? 1.0f : -1.0f;
     float measured_a = sign * 0.5f * (current_a[first] - current_a[second]);
-    float desired_a = state->gap ? 0.0f : (state->level == 0U ? 0.5f : 1.0f);
+    float desired_a = state->gap ? 0.0f
+                                 : (state->level == 0U ? PHASE_RESISTANCE_LOW_CURRENT_A
+                                                       : PHASE_RESISTANCE_HIGH_CURRENT_A);
+    float maximum_v = fminf(MAX_TEST_VOLTAGE_V, 0.45f * bus_v);
     /* 新磁场缓升流对齐；已对齐后的同向升档和撤流加快，仍保留稳定判定。 */
-    float ramp_a = (state->gap || state->level == 1U ? 5.0f : 1.0f) * period_s;
+    float ramp_a = (state->gap ? 10.0f : (state->level == 1U ? 5.0f : 2.0f)) * period_s;
     if (state->target_a < desired_a)
     {
         state->target_a = fminf(desired_a, state->target_a + ramp_a);
@@ -187,7 +192,7 @@ uint8_t PhaseResistance_Step(PhaseResistance *state,
     float resistance = 2.0f * state->report.nominal_ohm;
     float output = resistance * state->target_a +
                    2.0f * state->nominal_inductance_h / 0.002f * error_a + state->integral_v;
-    if ((output < 6.5f || error_a < 0.0f) && (output > 0.0f || error_a > 0.0f))
+    if ((output < maximum_v || error_a < 0.0f) && (output > 0.0f || error_a > 0.0f))
     {
         state->integral_v += resistance / 0.002f * error_a * period_s;
     }
@@ -228,7 +233,7 @@ uint8_t PhaseResistance_Step(PhaseResistance *state,
     }
     if ((float)state->ticks * period_s > 4.0f)
     {
-        if (!state->gap && fabsf(measured_a) < 0.1f && state->voltage_v > 6.3f)
+        if (!state->gap && fabsf(measured_a) < 0.1f && state->voltage_v > maximum_v - 0.2f)
         {
             state->report.open_lines |= (uint8_t)(1U << line);
             state->excitation |= 1U;
@@ -241,7 +246,7 @@ uint8_t PhaseResistance_Step(PhaseResistance *state,
             finish(state);
         }
     }
-    state->voltage_v = state->done ? 0.0f : fminf(6.5f, fmaxf(0.0f, output));
+    state->voltage_v = state->done ? 0.0f : fminf(maximum_v, fmaxf(0.0f, output));
     /* 与既有SVM和三相采样符号一致：正相电压对应较低CCR占空比。 */
     duty[first] -= sign * state->voltage_v / (2.0f * bus_v);
     duty[second] += sign * state->voltage_v / (2.0f * bus_v);

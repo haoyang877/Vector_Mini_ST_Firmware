@@ -567,7 +567,7 @@ def run_check(
             time.sleep(0.012)
             refresh()
         if drive and report["stage"] == 6:
-            progress("相电阻：AB/BC/CA 正反向 0.5A / 1A 测量")
+            progress("相电阻：AB/BC/CA 正反向 1A / 2A 测量")
             deadline = time.monotonic() + 27
             while report["stage"] == 6:
                 if stopped() or time.monotonic() > deadline:
@@ -695,10 +695,10 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
             measured += "（部分采样，未完成判定）"
         rows.append((name, measured, limits[item], state))
     resistance = report.get("resistance")
-    measured, limit, state = "未测", "标称相电阻的50%～150%（含边界）；0.5A/1A", "未测"
+    measured, limit, state = "未测", "标称相电阻的50%～150%（含边界）；1A/2A", "未测"
     if resistance:
         nominal = resistance["nominal_ohm"]
-        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；0.5A/1A"
+        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；1A/2A"
 
         def values(names, readings):
             return " / ".join(

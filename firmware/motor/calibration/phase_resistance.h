@@ -3,6 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define PHASE_RESISTANCE_LOW_CURRENT_A 1.0f
+#define PHASE_RESISTANCE_HIGH_CURRENT_A 2.0f
+
 /** @brief 相电阻终态快照；电阻均为Ω，相序ABC，线序AB/BC/CA。 */
 typedef struct
 {

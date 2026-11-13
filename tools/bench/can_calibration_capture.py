@@ -1,4 +1,4 @@
-"""采集 APP1.8.3～1.8.11 的 RTT Hall 原码；不修改控制参数或固件。"""
+"""采集 APP1.8.3～1.8.12 的 RTT Hall 原码；不修改控制参数或固件。"""
 
 import csv
 import struct
@@ -65,6 +65,8 @@ class HallRawCapture:
             0x010808,
             0x010809,
             0x01080A,
+            0x01080B,
+            0x01080C,
         ):
             self.result["error"] = "当前APP未验证RTT原码格式，未采集原始波形"
             return

@@ -300,3 +300,6 @@
 
 - [AT32 RAM 48 KiB](2026-11-13-at32-ram-48k-v1.md)：完整采样/精度、维护区复用、APP 4 KiB栈与自动预算审计。
 - [输出轴采样分块差值验证](2026-11-13-output-sample-block-delta-v1.md)：两板等价对照通过，跨度反例与回退容量不满足固定RAM缩减，未修改固件。
+
+- [相电阻检测及资源优化合并](2026-11-13-phase-resistance-check.md)
+- [最新重构分支RAM优化移植](2026-11-13-at32-ram-latest-v1.md)

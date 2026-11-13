@@ -10,4 +10,4 @@
 重启历史事项前先核对代码现状，在现行计划承接有效缺口，不能把旧阶段状态直接当作当前任务。
 维护流程见[文档规则](../guides/documentation.md)，实机结论只按[报告](../reports/README.md)的原始基线解释。
 
-- [硬件检测相电阻检查](active/2026-11-13-phase-resistance-check.md)
+- [硬件检测相电阻检查](completed/2026-11-13-phase-resistance-check.md)

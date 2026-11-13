@@ -74,12 +74,12 @@ class Port:
                     0,
                     0,
                     2,
-                    1,
-                    0,
+                    2 if self.fault == "resistance_missing" else 1,
+                    2 if self.fault == "resistance_missing" else 0,
                     0,
                     self.run,
                     0,
-                    0,
+                    3 if self.fault == "resistance_missing" else 0,
                     0,
                     63,
                     1.905,
@@ -115,8 +115,10 @@ class Port:
                     if self.fault == "start127loss":
                         return
             elif self.stage == 1:
-                self.stage = (2 if self.mode == 3 else 4) if self.fault != "hot" else 5
-            items = [1] * 8 + [0, 0] if self.stage in (2, 3, 4, 5) else [0] * 10
+                self.stage = (6 if self.mode == 3 else 4) if self.fault != "hot" else 5
+            elif self.stage == 6:
+                self.stage = 5 if self.fault == "resistance_missing" else 2
+            items = [1] * 8 + [0, 0] if self.stage in (2, 3, 4, 5, 6) else [0] * 10
             if self.fault == "hot" and self.stage == 5:
                 items[5] = 0
             if self.mode == 3 and self.stage == 4:
@@ -437,6 +439,13 @@ class HardwareHostTest(unittest.TestCase):
         self.assertEqual((r["stage"], r["stop_confirmed"], r["status_busy_replies"]), (4, True, 1))
         self.assertTrue(r["communication_reliability_passed"])
         self.assertEqual(sum(kind == 117 for kind, _, _ in bus.sent), 1)
+
+    def test_missing_phase_prevents_dynamic_start(self):
+        report, bus = self.check("resistance_missing", True)
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(report["stage"], 5)
+        self.assertNotIn(117, [kind for kind, _, _ in bus.sent])
+        self.assertIn("B相回路缺相", hw.result_rows(report)[8][3])
 
     def test_resistance_values_and_fault_details(self):
         report, bus = self.check("", True)

@@ -190,8 +190,8 @@ int main(void) {
         startup.state = SENSORLESS_STARTUP_CLOSED_LOOP;
         observer.electrical_velocity_rad_s = cfg->target_electrical_velocity_rad_s;
         for(unsigned i=0;i<SPEED_LOOP_DIVIDER;++i) tick();
-        const float kp[] = {.05f,.05f,.5f,.012f,.012f,.012f};
-        const float ki[] = {.5f,.5f,1.0f,.5f,.5f,.5f};
+        const float kp[] = {.05f,.05f,.05f,.012f,.012f,.012f};
+        const float ki[] = {.5f,.5f,.5f,.5f,.5f,.5f};
         assert(pi.proportional_gain == kp[node-3] && pi.integral_gain == ki[node-3]);
         configuration.application.speed_kp = .008f;
         configuration.application.speed_ki = .05f;

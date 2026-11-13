@@ -58,7 +58,7 @@ static const SensorlessStartupConfig s_wheel_start =
                          0.05f,
                          0.5f);
 static const SensorlessStartupConfig s_roll_start = CALIB_STARTUP_CONFIG(
-    ROLL_CALIB_CURRENT_A, 4.9f, 0.25f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.5f, 1.0f);
+    ROLL_CALIB_CURRENT_A, 4.9f, 0.25f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.05f, 0.5f);
 /* PITCH 长扫圈的电机轴速度目标，保持在观测器最低锁定速度以上。 */
 #define PITCH_CALIB_SPEED_RAD_S 24.0f
 static const SensorlessStartupConfig s_pitch_start =

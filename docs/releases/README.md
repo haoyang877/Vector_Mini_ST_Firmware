@@ -1,5 +1,7 @@
 # 历史交付与候选记录
 
+- [APP1.8.7 ROLL标定候选](at32f456-roll-calibration-v1.8.7-20261113.md)：ROLL标定PI与左右轮一致，保留5 A电流。
+
 - [APP1.8.6 / CAN-Link-Test1.13.0](can-link-test-v1.13.0-20261113.md)：持续速度控制、30/300限速及硬件静态等待修正。
 
 - [CAN-Link-Test v1.12.0](can-link-test-v1.12.0-20261113.md)：直接烧录、页内初装与擦除SWD提速，配套APP1.8.5候选。

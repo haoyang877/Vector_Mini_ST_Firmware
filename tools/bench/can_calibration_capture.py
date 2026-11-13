@@ -1,4 +1,4 @@
-"""采集 APP1.8.3～1.8.7 的 RTT Hall 原码；不修改控制参数或固件。"""
+"""采集 APP1.8.3～1.8.8 的 RTT Hall 原码；不修改控制参数或固件。"""
 
 import csv
 import struct
@@ -56,7 +56,7 @@ class HallRawCapture:
 
     def start(self, report: dict) -> None:
         version = report["app_version"]
-        if version not in (0x010803, 0x010804, 0x010805, 0x010806, 0x010807):
+        if version not in (0x010803, 0x010804, 0x010805, 0x010806, 0x010807, 0x010808):
             self.result["error"] = "当前APP未验证RTT原码格式，未采集原始波形"
             return
         self.result["app_version"] = version

@@ -30,6 +30,8 @@ from can_motor_operations import (
     run_speed_control,
     speed_value,
 )
+from can_parameter_page import ParameterPage
+from can_parameters import run_parameters, value_text
 from can_speed_plot import SpeedPlot
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
@@ -46,7 +48,7 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.14.1"
+TITLE = "CAN FD 通信测试 v1.16.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -89,7 +91,7 @@ def motor_speed_fields(fields: dict[str, str]) -> dict:
         ("lease", "首次续租计数", 0xFFFFFFFF),
         ("target", "首次目标序号", 65535),
     ):
-        text = fields[key].strip()
+        text = fields.get(key, "0").strip()
         value = _number_field(text, label, int) if text else None
         if value is not None and not 0 <= value <= upper:
             raise ValueError(f"{label}须在0～{upper}内")
@@ -239,7 +241,25 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
     try:
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         dll = controlcan_dll_path(resource)
-        if settings["profile"] == "device_status":
+        if settings["profile"] == "parameters":
+            with (
+                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
+                os.add_dll_directory(str(dll.parent)),
+                ControlCanFd(dll, **settings["bus"]) as port,
+            ):
+                report = run_parameters(
+                    TraceBus(port, stream),
+                    settings["node"],
+                    settings["expected_uid"],
+                    settings["group"],
+                    changes=settings["changes"],
+                    snapshot=settings["snapshot"],
+                    stopped=stop.is_set,
+                )
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        elif settings["profile"] == "device_status":
             with (
                 (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
                 os.add_dll_directory(str(dll.parent)),
@@ -515,6 +535,7 @@ class CanTestWindow:
             ("calibration", "角度标定"),
             ("upgrade", "升级压测"),
             ("speed", "速度控制"),
+            ("parameters", "参数读写"),
         ):
             page = self.pages[key] = ttk.Frame(self.tabs, padding=10)
             self.tabs.add(page, text=title)
@@ -604,18 +625,25 @@ class CanTestWindow:
             text="连接J-Link可采集Hall原码，并绘制补偿表、零位、对齐角和两路极值；保存PNG/CSV。",
         ).pack(anchor="w", pady=5)
         speed_tab = self.pages["speed"]
+        speed_top = ttk.Frame(speed_tab)
+        speed_top.pack(fill="x", pady=5)
+        speed_actions = ttk.Frame(speed_top)
+        speed_actions.pack(side="right", anchor="n")
+        self.speed_start = ttk.Button(speed_actions, text="使能速度控制", command=self.start)
+        self.speed_start.pack(side="left", padx=4)
+        self.speed_stop = ttk.Button(speed_actions, text="停止", command=self.stop)
+        self.speed_stop.pack(side="left", padx=4)
+        self.speed_open = ttk.Button(
+            speed_actions, text="打开本次记录", command=lambda: os.startfile(self.report_dir)
+        )
+        self.speed_open.pack(side="left", padx=4)
+        motor_values = ttk.Frame(speed_top)
+        motor_values.pack(side="left", anchor="n")
         self.motor_fields = {}
-        for index, (key, label, default) in enumerate(
-            (
-                ("speed", "电机轴目标速度 rad/s", "3"),
-                ("limit", "速度上限 rad/s", "300"),
-                ("lease", "首次续租计数", "0"),
-                ("target", "首次目标序号", "0"),
-            )
+        for key, label, default in (
+            ("speed", "电机轴目标速度 rad/s", "3"),
+            ("limit", "速度上限 rad/s", "300"),
         ):
-            if index in (0, 3):
-                motor_values = ttk.Frame(speed_tab)
-                motor_values.pack(anchor="w", pady=5)
             ttk.Label(motor_values, text=label).pack(side="left")
             entry = ttk.Entry(motor_values, width=8)
             entry.insert(0, default)
@@ -630,12 +658,21 @@ class CanTestWindow:
             speed_tab,
             text="持续旋转直到点击停止；目标0为停转保持。断联或故障停机，电流限值和PI保持。",
         ).pack(anchor="w", pady=3)
+        ttk.Label(
+            speed_tab,
+            text="速度上限按轴配置：ROLL/左右轮30，PITCH/YAW300 rad/s；计数按UID自动保存。",
+        ).pack(anchor="w", pady=3)
         self.speed_plot = SpeedPlot(speed_tab)
         self.speed_plot.pack(fill="both", expand=True, pady=(6, 0))
         ttk.Label(
             speed_tab,
             text="参考/反馈来自同一帧；速度模式无位置参考时显示缺失。原始点保存到speed.csv。",
         ).pack(anchor="w")
+        self.parameter_page = ParameterPage(
+            self.pages["parameters"],
+            lambda group, save: self.start(parameter_action=(group, save)),
+        )
+        self.parameter_page.pack(fill="both", expand=True)
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
@@ -936,6 +973,7 @@ class CanTestWindow:
         plot_identity = (node, self.current_motor.get("uid") if self.current_motor else None)
         if plot_identity != self.plot_identity:
             self.speed_plot.clear()
+            self.parameter_page.reset(plot_identity)
             self.plot_identity = plot_identity
         if self.identity and self.identity["node"] not in (None, node):
             self.identity = None
@@ -1053,6 +1091,7 @@ class CanTestWindow:
             "hardware": "开始硬件功能检测",
             "calibration": "开始角度标定并保存",
             "speed": "使能速度控制",
+            "parameters": "读取参数",
         }[current]
         speed_active = busy and self.active_profile == "motor_speed"
         for key, entry in self.motor_fields.items():
@@ -1069,7 +1108,21 @@ class CanTestWindow:
             state="normal" if not busy and self.current_motor else "disabled"
         )
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
-        if current == "calibration":
+        self.parameter_page.update_controls(
+            busy, bool(self.current_motor and self.current_motor.get("role") == 1)
+        )
+        self.speed_start.configure(state="disabled" if busy else "normal")
+        self.speed_stop.configure(state="normal" if speed_active else "disabled")
+        self.speed_open.configure(state="normal" if self.report_dir else "disabled")
+        if current == "speed":
+            self.stop_button.pack_forget()
+            self.open_button.pack_forget()
+        else:
+            if not self.stop_button.winfo_manager():
+                self.stop_button.pack(side="left", padx=5)
+            if not self.open_button.winfo_manager():
+                self.open_button.pack(side="left")
+        if current in ("calibration", "speed", "parameters"):
             self.start_button.pack_forget()
         elif not self.start_button.winfo_manager():
             self.start_button.pack(side="left", before=self.stop_button)
@@ -1225,7 +1278,10 @@ class CanTestWindow:
         erase_scope=None,
         identify_only=False,
         status_only=False,
+        parameter_action=None,
     ) -> str:
+        if parameter_action is not None:
+            return "parameters"
         if status_only:
             return "device_status"
         if identify_only:
@@ -1251,6 +1307,7 @@ class CanTestWindow:
             "hardware": "hardware_check",
             "calibration": "motor_calibration",
             "speed": "motor_speed",
+            "parameters": "parameters",
         }[page]
 
     def start(
@@ -1264,6 +1321,7 @@ class CanTestWindow:
         erase_confirmed=False,
         identify_only=False,
         status_only=False,
+        parameter_action=None,
     ) -> None:
         if self.process is not None:
             return
@@ -1274,6 +1332,7 @@ class CanTestWindow:
             erase_scope=erase_scope,
             identify_only=identify_only,
             status_only=status_only,
+            parameter_action=parameter_action,
         )
         swd = mode.startswith("jlink_")
         settings = {
@@ -1305,6 +1364,16 @@ class CanTestWindow:
                     else None,
                     "bus": settings["bus"],
                 }
+            elif mode == "parameters":
+                if not self.current_motor or self.current_motor.get("role") != 1:
+                    raise ValueError("请先识别运行APP的当前电机")
+                if parameter_action is None:
+                    raise ValueError("请选择参数组的读取或保存操作")
+                settings.update(
+                    node=self.current_node(),
+                    expected_uid=self.current_motor["uid"],
+                    **self.parameter_page.request(*parameter_action),
+                )
             elif mode == "device_status":
                 if not self.current_motor:
                     raise ValueError("请先识别当前电机")
@@ -1533,6 +1602,31 @@ class CanTestWindow:
             self.update_controls()
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] == "parameters":
+            self.parameter_page.display(r)
+            if r.get("passed") and 1 in r.get("rows", {}):
+                self.motor_fields["limit"].configure(state="normal")
+                self.motor_fields["limit"].delete(0, "end")
+                self.motor_fields["limit"].insert(0, value_text(1, r["rows"][1]["raw"]))
+            status = "参数读取完成" if r.get("passed") else "参数操作失败"
+            if r.get("persisted"):
+                status = "参数已保存，Flash回读一致"
+            self.state.set(status)
+            self.bar["value"] = 100 if r.get("passed") else 0
+            self.progress.set(f"{self.bar['value']:.0f}%")
+            self.show(
+                status
+                + "\n"
+                + self.parameter_page.message.get()
+                + ("\n已确认的RAM修改：" + str(list(r["applied"])) if r.get("applied") else "")
+                + (
+                    "\n保存已发送但未确认，请重新读取核查。"
+                    if r.get("save_sent") and not r.get("persisted")
+                    else ""
+                )
+                + f"\n记录目录　{self.report_dir}"
+            )
+            return
         if r["profile"] == "device_status":
             if "device" in r:
                 device = dict(r["device"])

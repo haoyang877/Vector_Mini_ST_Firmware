@@ -195,7 +195,9 @@ def set_blank_board_outputs_low(probe):
         raise RuntimeError("TMR1 时钟未开启，无法读取 PWM 使能状态")
 
 
-def program_motor(probe, target, identity, raw, segments, out, report, stage, record=b""):
+def program_motor(
+    probe, target, identity, raw, segments, out, report, stage, record=b"", *, force=False
+):
     """备份、按扇区写入、物理回读；遇到失败保留备份和已到达的阶段。"""
     uid = bytes.fromhex(identity["uid"])
     base, app, param, page = (
@@ -280,12 +282,18 @@ def program_motor(probe, target, identity, raw, segments, out, report, stage, re
     report["backup_sha256"] = backup["flash"]["sha256"]
     if "recovery_backup" in report:
         verify_untouched_pages(before, reference, segments, base, page)
-    if all(before[start - base : start - base + len(data)] == data for start, data in segments):
+    identical = all(
+        before[start - base : start - base + len(data)] == data for start, data in segments
+    )
+    report["image_was_identical"] = identical
+    if identical and not force:
         if record:
             save_initial_binding(out, identity)
         pending.unlink(missing_ok=True)
         report.update(already_installed=True, protected_regions_verified=True)
         return
+    if identical:
+        stage("目标已有相同镜像，按本次要求重新烧录并校验")
     hex_path = out / "firmware.hex"
     hex_path.write_bytes(raw)
     if hex_path.read_bytes() != raw:
@@ -481,7 +489,18 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                     raise ValueError("该板已有电机参数，拒绝覆盖为初装配置")
                 report["swd_khz"] = select_flash_speed(probe, target, stage, blank=bool(record))
                 stage(f"SWD 试读通过，当前时钟 {report['swd_khz']} kHz")
-                program_motor(probe, target, identity, raw, segments, out, report, stage, record)
+                program_motor(
+                    probe,
+                    target,
+                    identity,
+                    raw,
+                    segments,
+                    out,
+                    report,
+                    stage,
+                    record,
+                    force=settings.get("force_reflash", False),
+                )
                 if settings.get("restart_after_flash", False):
                     stage("Loader、APP 和保护区已核验，正在通过 J-Link 复位芯片")
                     report.pop("cpu_halted", None)

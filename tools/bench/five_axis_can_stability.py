@@ -88,6 +88,10 @@ def controlcan_dll_path(resource: Path) -> Path:
     return dll
 
 
+def version_text(value: int) -> str:
+    return f"{(value >> 16) & 255}.{(value >> 8) & 255}.{value & 255}"
+
+
 def query_restarted_motor(dll, bus, node, uid, result, stage, *, versions=LEGACY_VERSIONS):
     """查询芯片身份和十次电机状态。每笔独立匹配首答，保留出错前的实测结果。"""
     with os.add_dll_directory(str(dll.parent)), ControlCanFd(dll, **bus) as port:
@@ -113,13 +117,22 @@ def query_restarted_motor(dll, bus, node, uid, result, stage, *, versions=LEGACY
                 if len(data) >= 10 and struct.unpack_from("<HH", data, 6) != (kind, seq):
                     continue
                 payload = decode_reply(rx_id, data, node, kind, seq)
-                _validate(uid, node, kind, payload, versions)
                 row.update(
                     rx_id=hex(rx_id),
                     reply_hex=data.hex(),
                     latency_ms=round(elapsed * 1000, 3),
-                    passed=True,
                 )
+                if kind == 1 and len(payload) == 32 and payload[:12] == uid:
+                    actual = struct.unpack_from("<II", payload, 20)
+                    result["device_versions"] = dict(app=actual[0], loader=actual[1])
+                    result["version_verified"] = actual == versions
+                    stage(
+                        f"板端版本：APP v{version_text(actual[0])} / "
+                        f"Loader v{version_text(actual[1])}"
+                        + ("，与烧录包一致" if actual == versions else "，与烧录包不一致")
+                    )
+                _validate(uid, node, kind, payload, versions)
+                row["passed"] = True
                 break
             if not row["passed"]:
                 raise TimeoutError(f"节点 {node} 的{label}在 50 ms 内未收到匹配应答")

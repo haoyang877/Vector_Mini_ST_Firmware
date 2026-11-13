@@ -37,13 +37,14 @@ from five_axis_can_stability import (
     controlcan_dll_path,
     encode_frames,
     run_queries,
+    version_text,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
 from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.10.2"
+TITLE = "CAN FD 通信测试 v1.10.3"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -682,7 +683,7 @@ class CanTestWindow:
         self.controls.append((compatibility, "normal"))
         ttk.Label(count_row, text="升级期间请暂停其他主站轮询。").pack(side="left")
         ttk.Label(
-            self.swd_tab, text="AT32F456 · Loader 2.3.4 + APP 1.8.4 · 默认 CAN FD 1M/5M"
+            self.swd_tab, text="内置烧录包：AT32F456 · Loader 2.3.4 + APP 1.8.4 · CAN FD 1M/5M"
         ).pack(anchor="w")
         embedded = (
             Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "firmware" / "five-axis.hex"
@@ -697,14 +698,11 @@ class CanTestWindow:
         choose = ttk.Button(files, text="选择 HEX", command=self.choose_hex)
         choose.pack(side="left", padx=8)
         self.controls.append((choose, "normal"))
-        self.restart_after_flash = tk.BooleanVar(value=True)
-        restart = ttk.Checkbutton(
-            self.swd_tab,
-            text="校验通过后复位，并通过 USB-CAN 查询当前电机",
-            variable=self.restart_after_flash,
-        )
-        restart.pack(anchor="w")
-        self.controls.append((restart, "normal"))
+        ttk.Label(
+            self.swd_tab, text="每次重新烧录并校验；完成后自动复位，读取 APP / Loader 版本。"
+        ).pack(anchor="w")
+        self.firmware_version = tk.StringVar(value="板端版本：尚未查询")
+        ttk.Label(self.swd_tab, textvariable=self.firmware_version).pack(anchor="w")
         self.motor_label = tk.StringVar(value="接好已停转电机的 J-Link 后，点击“识别电机”。")
         ttk.Label(self.swd_tab, textvariable=self.motor_label).pack(anchor="w")
         setup_row = ttk.Frame(self.swd_tab)
@@ -1112,7 +1110,8 @@ class CanTestWindow:
                     "profile": mode,
                     "identity": self.identity,
                     "hex": str(self.hex_path or ""),
-                    "restart_after_flash": self.restart_after_flash.get(),
+                    "restart_after_flash": True,
+                    "force_reflash": True,
                     "first_fit_node": self.current_node()
                     if self.identity and self.identity["node"] is None and self.first_fit_selected
                     else None,
@@ -1557,8 +1556,23 @@ class CanTestWindow:
             self.first_fit_selected = False
             self.known_motors.clear()
             self.select_current_motor()
+            versions = r.get("can_test", {}).get("device_versions")
+            self.firmware_version.set(
+                f"板端版本：APP v{version_text(versions['app'])} / "
+                f"Loader v{version_text(versions['loader'])}"
+                + ("（已核对）" if r["can_test"].get("version_verified") else "（与烧录包不一致）")
+                if versions
+                else "板端版本：本次未查询到"
+            )
+            if r.get("protected_regions_verified") and r.get("identity", {}).get("node"):
+                self.identity = {key: r["identity"][key] for key in ("uid", "serial", "node")}
             if r.get("success"):
                 identity = r["identity"]
+                self.identity = (
+                    {key: identity[key] for key in ("uid", "serial", "node")}
+                    if identity["node"] is not None
+                    else identity
+                )
                 name = (
                     "待初装板"
                     if identity["node"] is None
@@ -1593,7 +1607,9 @@ class CanTestWindow:
                         detail = f"{name} 初装参数回读通过，编码器待本机标定。"
                     if r.get("app_started"):
                         self.state.set(f"{name} · 通信通过")
-                        self.motor_label.set(f"{name} 已启动，身份及 10 次状态查询通过。")
+                        self.motor_label.set(
+                            f"{name} 已启动，可直接再次烧录；每次都会重新核对UID。"
+                        )
                     else:
                         self.state.set(f"{name} · 已核验")
                         self.motor_label.set(
@@ -1616,7 +1632,7 @@ class CanTestWindow:
                 detail = r.get("fatal", "未取得烧录结果")
                 if r.get("app_started"):
                     self.state.set("APP 已启动 · CAN 查询失败")
-                    self.motor_label.set("请检查 USB-CAN 连接及通道，再进行通信查询。")
+                    self.motor_label.set("固件已核验；请检查 USB-CAN 连接，可再次烧录或重新识别。")
                 elif r.get("protected_regions_verified"):
                     detail += "\n固件已核验，请重新识别后重试启动。"
                 elif r.get("write_started"):
@@ -1626,6 +1642,7 @@ class CanTestWindow:
                     [
                         *r.get("steps", []),
                         detail,
+                        self.firmware_version.get(),
                         f"用时 {r['elapsed_s']:.2f} 秒　记录目录　{self.report_dir}",
                     ]
                 )

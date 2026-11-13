@@ -145,6 +145,53 @@ class SharedMotorTests(unittest.TestCase):
             self.assertFalse(hasattr(w, obsolete))
         self.assertEqual(w.selected_upgrade_motors()[0]["node"], 7)
 
+    def test_flash_can_repeat_and_displays_queried_versions(self):
+        w = self.window
+        identity = dict(node=6, uid=self.uid, serial=123, resume_node=6)
+        w.display_report(
+            dict(
+                profile="jlink_flash",
+                success=True,
+                identity=identity,
+                app_started=True,
+                protected_regions_verified=True,
+                steps=[],
+                elapsed_s=1,
+                can_test=dict(
+                    device_versions=dict(app=0x010804, loader=0x020304), version_verified=True
+                ),
+            )
+        )
+        w.hex_path = Path(self.temp.name) / "firmware.hex"
+        self.assertEqual(w.identity, dict(node=6, uid=self.uid, serial=123))
+        self.assertIn("APP v1.8.4 / Loader v2.3.4", w.firmware_version.get())
+        self.assertIn("可直接再次烧录", w.motor_label.get())
+        settings = self.capture_start("jlink")
+        self.assertEqual(settings["profile"], "jlink_flash")
+        self.assertTrue(settings["force_reflash"])
+        self.assertTrue(settings["restart_after_flash"])
+        self.assertIsNone(settings["first_fit_node"])
+
+    def test_flash_query_failure_keeps_verified_identity_without_fake_version(self):
+        w = self.window
+        identity = dict(node=6, uid=self.uid, serial=123)
+        w.display_report(
+            dict(
+                profile="jlink_flash",
+                success=False,
+                identity=identity,
+                app_started=True,
+                protected_regions_verified=True,
+                steps=[],
+                elapsed_s=1,
+                fatal="CAN timeout",
+                can_test=dict(queries=[]),
+            )
+        )
+        self.assertEqual(w.identity, identity)
+        self.assertIn("本次未查询到", w.firmware_version.get())
+        self.assertEqual(w.operation_mode(), "jlink_flash")
+
     def test_motion_and_calibration_use_shared_uid_and_axis(self):
         for page, profile in (
             ("hardware", "hardware_check"),

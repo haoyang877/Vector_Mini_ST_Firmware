@@ -73,6 +73,7 @@ class FlashGuiTests(unittest.TestCase):
         self.pylink.JLink.return_value = self.probe
         self.identity = {"uid": self.probe.uid.hex(), "serial": self.serial, "node": self.node}
         self.number = 0
+        self.reply_versions = (0x602, 0x20200)
         self.bus = MagicMock()
         self.port = self.bus.__enter__.return_value
         self.port.receive.side_effect = self.can_reply
@@ -100,7 +101,7 @@ class FlashGuiTests(unittest.TestCase):
         payload = bytearray(32 if kind == 1 else 45)
         if kind == 1:
             payload[:12] = self.probe.uid
-            struct.pack_into("<II", payload, 20, 0x602, 0x20200)
+            struct.pack_into("<II", payload, 20, *self.reply_versions)
         else:
             payload[42] = self.node
         header = struct.pack(
@@ -125,7 +126,9 @@ class FlashGuiTests(unittest.TestCase):
         for start, end in image.segments():
             self.probe.flash_write8(start, image.tobinstr(start=start, end=end - 1))
 
-    def job(self, mode="jlink_flash", identity=None, restart=False, first_fit_node=None):
+    def job(
+        self, mode="jlink_flash", identity=None, restart=False, first_fit_node=None, force=False
+    ):
         self.number += 1
         directory = self.directory / str(self.number)
         directory.mkdir()
@@ -134,6 +137,7 @@ class FlashGuiTests(unittest.TestCase):
             "identity": identity or self.identity,
             "hex": str(self.hex_file),
             "restart_after_flash": restart,
+            "force_reflash": force,
             "first_fit_node": first_fit_node,
             "bus": {"channel_index": 0, "nominal_bps": 1000000, "data_bps": 5000000},
         }
@@ -168,6 +172,31 @@ class FlashGuiTests(unittest.TestCase):
         self.assertTrue(self.job()["already_installed"])
         self.probe.reset.assert_not_called()
         self.probe.flash_file.assert_called_once()
+
+    def test_explicit_repeat_rewrites_identical_image_and_preserves_parameters(self):
+        self.allow_core_reset()
+        for expected_identical in (False, True):
+            report = self.job(restart=True, force=True)
+            self.assertTrue(report["success"], report)
+            self.assertTrue(report["write_started"])
+            self.assertEqual(report["image_was_identical"], expected_identical)
+            self.assertEqual(self.probe.flash[0x1C000:], self.before[0x1C000:])
+            self.assertEqual(report["can_test"]["device_versions"], dict(app=0x602, loader=0x20200))
+            self.assertTrue(report["can_test"]["version_verified"])
+        self.assertEqual(self.probe.flash_file.call_count, 2)
+        self.assertEqual(self.probe.reset.call_count, 2)
+
+    def test_actual_mismatched_version_is_retained_without_success(self):
+        self.allow_core_reset()
+        self.reply_versions = (0x10803, 0x20304)
+        report = self.job(restart=True, force=True)
+        self.assertFalse(report["success"])
+        self.assertTrue(report["protected_regions_verified"])
+        result = report["can_test"]
+        self.assertFalse(result["version_verified"])
+        self.assertEqual(result["device_versions"], dict(app=0x10803, loader=0x20304))
+        self.assertIn("reply_hex", result["queries"][0])
+        self.assertFalse(result["queries"][0]["passed"])
 
     def allow_core_reset(self):
         original_write = self.probe.memory_write32

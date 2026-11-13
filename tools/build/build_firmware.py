@@ -74,6 +74,23 @@ def main():
         if result.returncode > 1 or "0 Error(s)" not in text or "0 Warning(s)" not in text:
             print(f"Build failed. See {log}", file=sys.stderr)
             return 1
+        if kind in ("at32f456-app-off", "at32-loader-app"):
+            output = ROOT / "outputs/build/keil" / project.stem
+            budget = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools/analysis/check_at32_stack.py"),
+                    "--callgraph",
+                    str(output / (project.stem + ".htm")),
+                    "--map",
+                    str(output / (project.stem + ".map")),
+                    "--out",
+                    str(output / "stack-budget.json"),
+                ],
+                cwd=ROOT,
+            )
+            if budget.returncode:
+                return budget.returncode
     return 0
 
 

@@ -263,19 +263,20 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
             !hall->calibration_success ? OUTPUT_ENCODER_CAL_HALL : OUTPUT_ENCODER_CAL_NO_SAMPLES;
         return false;
     }
-    LinearHall corrected = *hall;
+    LinearHallSample saved_value = hall->val;
     float travel = 0.0f, previous = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        LinearHall_Update(&corrected,
+        LinearHall_Update(hall,
                           OutputEncoder_CalibGetSample(cal, i).sin_counts,
                           OutputEncoder_CalibGetSample(cal, i).cos_counts);
         if (i != 0U)
         {
-            travel += delta(corrected.val.angle_rad - previous);
+            travel += delta(hall->val.angle_rad - previous);
         }
-        previous = corrected.val.angle_rad;
+        previous = hall->val.angle_rad;
     }
+    hall->val = saved_value;
     float motor_travel =
         (float)(corrected_counts(
                     OutputEncoder_CalibGetSample(cal, OUTPUT_ENCODER_CAL_SAMPLES - 1U).motor_counts,
@@ -297,12 +298,12 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
         encoder->params.status = OUTPUT_ENCODER_CAL_RELATION;
         return false;
     }
-    corrected = *hall;
+    saved_value = hall->val;
     float sine = 0.0f, cosine = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
         OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i);
-        float phase = sample_phase(&value, &corrected, motor, ratio, direction);
+        float phase = sample_phase(&value, hall, motor, ratio, direction);
         sine += sinf(phase);
         cosine += cosf(phase);
     }
@@ -311,9 +312,10 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
         OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i);
-        float error = sample_phase(&value, &corrected, motor, ratio, direction) - phase;
+        float error = sample_phase(&value, hall, motor, ratio, direction) - phase;
         peak_error = fmaxf(peak_error, fabsf(delta(error)));
     }
+    hall->val = saved_value;
     /* 辨圈边界为 π 电机轴 rad；保留一半余量，且不能把错误减速比拟合成有效关系。 */
     if (!isfinite(peak_error) || peak_error >= _PI * 0.5f)
     {

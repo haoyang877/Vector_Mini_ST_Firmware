@@ -89,9 +89,11 @@ void Param_StoreOutputEncoder(MotorAxisRecord *record,
                               const OutputEncoder *encoder,
                               const LinearHall *hall)
 {
-    record->output = (OutputEncoderRecord){.magic = PARAM_OUTPUT_ENCODER_V3,
-                                           .motor_crc32 = record->motor.record_crc32,
-                                           .params = encoder->params};
+    /* 维护区由前台独占；原位编码，避免完整OEN3记录成为栈临时量。 */
+    memset(&record->output, 0, sizeof(record->output));
+    record->output.magic = PARAM_OUTPUT_ENCODER_V3;
+    record->output.motor_crc32 = record->motor.record_crc32;
+    record->output.params = encoder->params;
     if (hall != NULL)
     {
         record->output.hall_lut_status = hall->lut_status;

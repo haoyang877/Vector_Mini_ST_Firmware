@@ -6,6 +6,7 @@
 #include "bsp_flash.h"
 #include "parameter_record.h"
 #include "parameter_values.h"
+#include "hardware_check_state.h"
 
 /** @brief 单轴标定的候选与工作区；绑定的活动对象在整个会话内有效。 */
 typedef struct
@@ -26,6 +27,7 @@ typedef struct
     {
         EncoderCalibrationWorkspace encoder;
         MotorConfiguration parameters;
+        LinearHall publication_hall;
     } workspace;
 #if BSP_ENABLED_LINEAR_HALL
     LinearHallCalibration hall_sweep;
@@ -38,7 +40,7 @@ typedef struct
         MotorAxisRecord record;
 #if BSP_ENABLED_LINEAR_HALL
         OutputEncoderCalib output_calibration;
-        uint8_t diagnostic_samples[5120];
+        HardwareCheckWorkspace hardware_check;
 #endif
     } storage;
 } MotorCalibration;

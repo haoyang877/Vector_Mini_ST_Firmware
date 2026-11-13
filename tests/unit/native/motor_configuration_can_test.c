@@ -1,5 +1,6 @@
 /* 型号配置事务：真实参数构造/CRC，替代 Flash 和复位，不访问硬件。 */
 #include "app_motor_configuration.h"
+#include "can_bitrate.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -130,8 +131,49 @@ static ProtocolMotorConfigurationRequest yq_request(void)
         .speed_mrad_s = 1000,
         .thermal = {3000, 7000, 65000, 800000, 700000, 1000000, 500000}};
 }
+
+static void reconstructed_candidates(void)
+{
+    for (uint8_t node = 3U; node <= 8U; ++node)
+    {
+        setup();
+        ProtocolMotorConfigurationRequest request = yq_request();
+        request.node = node;
+        request.model = node <= 5U ? 1U : (node == 7U ? 2U : 3U);
+        request.speed_mrad_s = 1001 + node;
+        request.thermal[2] = 65001 + node;
+        ProtocolMotorConfigurationReply prepared = call(request);
+        assert(prepared.status == PROTOCOL_OK && writes == 0U);
+        /* 其他维护任务可覆盖工作区，不能改变候选票据或提交数据。 */
+        memset(&axis.calibration.workspace, 0xa5, sizeof(axis.calibration.workspace));
+        ProtocolMotorConfigurationReply repeated = call(request);
+        assert(repeated.status == PROTOCOL_OK && repeated.revision == prepared.revision);
+        assert(!memcmp(repeated.thermal, prepared.thermal, sizeof(repeated.thermal)));
+        axis.configuration.device.can_bitrate_profile = node;
+        ProtocolMotorConfigurationReply saved = call(uid_request(2U, prepared.revision));
+        assert(saved.status == PROTOCOL_OK && saved.node == node && writes == 1U);
+        assert(flash_record.motor.encoder_calib_flag == 0U);
+        assert(flash_record.motor.speed_limit_rad_s == request.speed_mrad_s * 0.001f);
+        for (unsigned i = 0U; i < ENCODER_OFFSET_LUT_SIZE; ++i)
+        {
+            assert(flash_record.motor.encoder_linearization_lut_q15[i] == 0);
+        }
+#if BSP_BOARD == BSP_BOARD_AT32F456
+        assert(CanBitrate_FromRecord(flash_record.motor.can_bitrate_record) == node);
+#endif
+        memset(&axis.calibration.workspace, 0x5a, sizeof(axis.calibration.workspace));
+        ProtocolMotorConfigurationReply page =
+            call((ProtocolMotorConfigurationRequest){.page = 1U});
+        assert(page.status == PROTOCOL_OK && page.node == node && page.revision == saved.revision);
+        assert(page.flags == 9U && page.speed_mrad_s == prepared.speed_mrad_s);
+        assert(!memcmp(page.thermal, prepared.thermal, sizeof(page.thermal)));
+        assert(call(uid_request(2U, prepared.revision)).status == PROTOCOL_OK && writes == 1U);
+    }
+}
+
 int main(void)
 {
+    reconstructed_candidates();
     setup();
     ProtocolMotorConfigurationRequest request = yq_request();
     axis.state_machine.maintenance_capture = true;

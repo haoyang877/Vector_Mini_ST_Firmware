@@ -93,7 +93,8 @@ Loader v2.3.4，APP长度94400 B、CRC32 `6187d28d`。相较上一包APP增加40
 `outputs/runs/can-first-answer-fix-v1.8.2-final-20261113/summary.json` 为干净固件
 源码的release档PASS，六个Keil目标零错误/警告。首次检查中的旧默认值断言失败
 已更新为144+36并重新验证全部12档；原失败记录保留。工具v1.7.2的quick通过，
-v1.7.4输入/硬件流程专项22项通过；最终工具检查另附本轮quick记录。
+v1.7.4输入/硬件流程专项22项通过；
+`outputs/runs/can-first-answer-desktop-v1.7.4-final-20261113/summary.json` 的最终quick通过。
 用户按Escape停止了桌面控制，未宣称v1.7.4弹窗的实际交互回归已经完成。
 
 完整证据在 `outputs/can-first-answer-20261113/`：`ab-summary.json`、各次原始帧和

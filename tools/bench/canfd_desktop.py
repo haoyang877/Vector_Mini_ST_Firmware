@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from can_calibration_curves import (
     ARCHIVE_TYPES,
-    calibration_archive_name,
+    calibration_archive,
     export_calibration_curves,
     model_directory_name,
 )
@@ -35,7 +35,7 @@ from hardware_check import Drive, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.9.0"
+TITLE = "CAN FD 通信测试 v1.9.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -242,16 +242,12 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                         stopped=operation_stopped,
                         progress=lambda value: events.put(("stage", value)),
                     )
-                    report["archive"] = {
-                        "type": settings.get("archive_type"),
-                        "serial_number": settings.get("archive_serial"),
-                        "name": settings.get("archive_name"),
-                    }
+                    report["archive"] = settings.get("archive", {})
                     if report.get("passed") and report.get("stop_confirmed"):
                         events.put(("stage", "标定已保存，正在只读回读补偿表并绘图"))
                         try:
                             report["curves"] = export_calibration_curves(
-                                bus, report, out, settings.get("archive_name", "")
+                                bus, report, out, report["archive"].get("name", "")
                             )
                         except Exception as exc:
                             report["curve_error"] = str(exc)
@@ -463,11 +459,16 @@ class CanTestWindow:
         self.archive_type = combo(
             calibration_row, "电机类型", tuple(ARCHIVE_TYPES.values()), "P轴电机", 12
         )
-        ttk.Label(calibration_row, text="序列号").pack(side="left")
+        ttk.Label(calibration_row, text="样机序列号").pack(side="left")
         self.archive_serial = tk.StringVar(value="0001")
         model_entry = ttk.Entry(calibration_row, textvariable=self.archive_serial, width=14)
         model_entry.pack(side="left", padx=5)
         self.controls.append((model_entry, "normal"))
+        ttk.Label(calibration_row, text="测试序列号").pack(side="left")
+        self.test_serial = tk.StringVar(value="0001")
+        test_entry = ttk.Entry(calibration_row, textvariable=self.test_serial, width=14)
+        test_entry.pack(side="left", padx=5)
+        self.controls.append((test_entry, "normal"))
         calibration_actions = ttk.Frame(calibration_tab)
         calibration_actions.pack(anchor="w", pady=8)
         for kind, label in ((1, "编码器 / Hall 角度标定并保存"), (2, "电角零位标定并保存")):
@@ -947,10 +948,8 @@ class CanTestWindow:
                 if mode == "motor_calibration":
                     self.curve_path = None
                     settings["calibration_kind"] = calibration_kind
-                    settings["archive_type"] = self.archive_type.get()
-                    settings["archive_serial"] = self.archive_serial.get().strip()
-                    settings["archive_name"] = calibration_archive_name(
-                        settings["archive_type"], settings["archive_serial"]
+                    settings["archive"] = calibration_archive(
+                        self.archive_type.get(), self.archive_serial.get(), self.test_serial.get()
                     )
                 if mode == "motor_speed":
                     fields = {key: entry.get().strip() for key, entry in self.motor_fields.items()}
@@ -1010,7 +1009,10 @@ class CanTestWindow:
             directory = Path.home() / "CAN-Link-Test"
             if mode == "motor_calibration":
                 directory = (
-                    directory / "calibration" / model_directory_name(settings["archive_name"])
+                    directory
+                    / "calibration"
+                    / model_directory_name(settings["archive"]["name"])
+                    / ("测试-" + settings["archive"]["test_serial"])
                 )
             directory = directory / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             directory.mkdir(parents=True, exist_ok=False)
@@ -1146,6 +1148,9 @@ class CanTestWindow:
             lines = [f"节点{r['node']}　{title}{status}" if "node" in r else title + status]
             if "uid" in r:
                 lines.append(f"UID {r['uid']}")
+            if r.get("archive"):
+                archive = r["archive"]
+                lines.append(f"样机 {archive['name']}　测试序列号 {archive['test_serial']}")
             if "ticket" in r:
                 lines.append(f"票据{r['ticket']}　阶段{r['phase']}　保存状态{r['effects']}")
             if "saved_revision" in r:

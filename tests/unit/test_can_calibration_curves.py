@@ -109,13 +109,23 @@ class CalibrationCurvesTests(unittest.TestCase):
             )
 
     def test_archive_type_and_serial_are_separate_from_hardware_identity(self):
-        self.assertEqual(curves.calibration_archive_name("P轴电机", "0001"), "P轴电机-0001")
+        first = curves.calibration_archive("P轴电机", "0001", "T0001")
+        second = curves.calibration_archive("P轴电机", "0001", "T0002")
+        self.assertEqual(first["name"], "P轴电机-0001")
+        self.assertEqual(first["specimen_serial"], second["specimen_serial"])
+        self.assertNotEqual(first["test_serial"], second["test_serial"])
+        self.report["archive"] = first
+        self.export()
+        for name in ("motor-configuration.json", "calibration-manifest.json"):
+            saved = json.loads((self.out / name).read_text(encoding="utf-8"))
+            self.assertEqual(saved["archive"], first)
         self.assertEqual(len(curves.ARCHIVE_TYPES), 5)
         for bad in ("", "../1", "a/b", "1:2"):
-            with self.assertRaises(ValueError):
-                curves.calibration_archive_name("P轴电机", bad)
+            for specimen, test in ((bad, "0001"), ("0001", bad)):
+                with self.assertRaises(ValueError):
+                    curves.calibration_archive("P轴电机", specimen, test)
         with self.assertRaises(ValueError):
-            curves.calibration_archive_name("unknown", "0001")
+            curves.calibration_archive("unknown", "0001", "0001")
 
     def test_archive_directory_cannot_escape_root(self):
         for raw in ("a/b", "..\\..\\x", "CON", "设备:123"):

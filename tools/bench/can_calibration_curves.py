@@ -18,14 +18,17 @@ from hardware_check import Link
 ARCHIVE_TYPES = {3: "左轮电机", 4: "右轮电机", 5: "R轴电机", 6: "P轴电机", 7: "Y轴电机"}
 
 
-def calibration_archive_name(motor_type: str, serial_number: str) -> str:
-    """组合用户归档标签；序号保持前导零，不充当MCU生产身份。"""
-    serial = serial_number.strip()
+def calibration_archive(motor_type: str, specimen_serial: str, test_serial: str) -> dict[str, str]:
+    """区分样机与测试编号；保留前导零，不写MCU生产身份。"""
     if motor_type not in ARCHIVE_TYPES.values():
         raise ValueError("请选择五种归档电机类型之一")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", serial):
-        raise ValueError("序列号须为1～32位数字、字母、短横线或下划线")
-    return f"{motor_type}-{serial}"
+    specimen, test = specimen_serial.strip(), test_serial.strip()
+    for label, serial in (("样机序列号", specimen), ("测试序列号", test)):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", serial):
+            raise ValueError(f"{label}须为1～32位数字、字母、短横线或下划线")
+    return dict(
+        type=motor_type, specimen_serial=specimen, test_serial=test, name=f"{motor_type}-{specimen}"
+    )
 
 
 def model_directory_name(label: str) -> str:
@@ -251,6 +254,8 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
             model=model_label or {1: "HT8115-4", 2: "YQ-5708", 3: "YQ-5740"}.get(model, "Motor"),
             node=report["node"],
         )
+        if report.get("archive", {}).get("test_serial"):
+            axis.model += " · 测试" + report["archive"]["test_serial"]
         curves = export_curves(record, axis, model in (2, 3), bytes.fromhex(report["uid"]), out)
         (out / "calibration-parameters.bin").write_bytes(record)
         configuration = dict(
@@ -280,6 +285,7 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
         )
         manifest = {
             "model": configuration["archive_name"],
+            "archive": report.get("archive"),
             "uid": report["uid"],
             "ticket": report.get("ticket"),
             "files": {},

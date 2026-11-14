@@ -13,7 +13,9 @@ BSP 统一管理实际使用的时钟、看门狗、ADC、GPIO、PWM、SPI、DMA
 - 各 MCU 的 adc/pwm/encoder_spi/can/flash/system 实现直接定义统一接口，不增加转发层或驱动注册表。
 - ADC 零偏和物理换算、PWM 占空比换算、CAN DLC 换算随硬件实现保留在对应 MCU 文件。
 - 单文件辅助函数为 static；只有真实多消费者共享完整契约时才提取共用逻辑。
-- LED、UART、独立器件包装、功率窗口和旧诊断入口已删除，不保留空接口或工程引用。
+- AT32 APP 在 BSP 初始化时将 PC13、PC14 置高熄灭，通过 BspSystem_WriteStatusLights 同步输出两灯。
+  [灯语](../hardware/at32f456_configuration_v1.md)由本板前台根据轴状态与硬件检查决定。
+- 公共 LED 框架、UART、独立器件包装、功率窗口和旧诊断入口已删除。
 
 ## 当前接口语义
 

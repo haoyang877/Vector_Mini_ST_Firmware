@@ -156,7 +156,12 @@
 #define MCU_SYSTICK_IRQ_PRIORITY 3U
 #define MCU_CONTROL_CRITICAL_PRIORITY 2U
 
-/* UART：当前无驱动、无引脚/DMA/IRQ分配；接入时在此登记整组资源后实现初始化。
- * LED、外部编码器SPI和GPIO EXTI也未启用，不把预留焊盘当作已实现能力。 */
+/* APP 状态灯低有效。双色灯 PB5/PB6 保持原配置。 */
+#define MCU_STATUS_LED_PORT GPIOC
+#define MCU_STATUS_LED_CLOCK CRM_GPIOC_PERIPH_CLOCK
+#define MCU_STATUS_LED_RED_PIN GPIO_PINS_13
+#define MCU_STATUS_LED_BLUE_PIN GPIO_PINS_14
+
+/* UART、外部编码器SPI和GPIO EXTI未启用。 */
 
 #endif

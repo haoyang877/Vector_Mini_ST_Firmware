@@ -34,7 +34,7 @@
 | UART资源 | TX：PB6，RX：PB7，驱动已移除 | TX：PA15，RX：PB3，未启用 |
 | DMA当前用途 | 无，RGB已移除 | DMA1_CH2：辅助ADC；CH3：内部温度/VREF；DMA2_CH1/2：SPI2 RX/TX |
 | SWD | PA13 / PA14 | PA13 / PA14 |
-| LED硬件焊盘（驱动已移除） | PA15红、PC10绿；PA2：RGB | PC13红、PC14蓝；PB5/PB6：双色灯 |
+| LED 硬件焊盘 | PA15红、PC10绿；PA2：RGB，驱动已移除 | APP 使用 PC13 红、PC14 蓝；PB5/PB6 双色灯未启用 |
 | 栅极驱动 / MOS | FD6288Q / CSD18540Q5B | FD6288Q / WSD6035DN33 |
 | 相电流采样 | 低侧分流；当前6mΩ、10倍增益 | 相线分流；4mΩ、INA240A1、20倍增益 |
 | 母线电流采样 | 无 | 2mΩ、INA240A1、20倍增益 |

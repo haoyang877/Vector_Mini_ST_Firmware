@@ -1,7 +1,6 @@
 # BSP API v1（修订6）
 
-当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
-不保留接口、占位实现或工程引用。见[删除记录](../../plans/active/2026-10-30-remove-led-uart-v1.md)。
+当前范围以[公开接口与实现](../bsp_interfaces_v1.md)为准，AT32 APP 状态灯由 bsp_system.h 提供。
 
 2026-10-30更新：CAN两板已统一最简接口，本目录副本与当前公开头同步；
 旧票据/保护约定由[当前CAN链路](../can_chain_v1.md)取代，本轮未编译、未测试。

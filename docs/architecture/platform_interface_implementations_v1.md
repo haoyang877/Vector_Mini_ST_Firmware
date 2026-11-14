@@ -3,8 +3,8 @@
 include仅含8个公开功能头；bsp_internal.h位于BSP根目录。
 未使用的微秒时基、独立复位和快速环阶段诊断已删除，单相PWM仅供底层台架。
 
-当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
-不保留接口、占位实现或工程引用。见[删除记录](../plans/active/2026-10-30-remove-led-uart-v1.md)。
+当前范围包括 PWM、ADC、Encoder（SPI）、CAN、Flash 及系统支撑。AT32 APP 通过 bsp_system.h
+更新[红蓝状态灯](../hardware/at32f456_configuration_v1.md)。旧公共 LED 和 UART 的移除见[删除记录](../plans/active/2026-10-30-remove-led-uart-v1.md)。
 
 完整文件树、每个文件的职责和数据所有权统一维护在[BSP架构总图](bsp_architecture_v1.md)。
 函数签名、单位、失败和上下文统一维护在[BSP接口](bsp_interfaces_v1.md)及[公开头文件](../../firmware/platform/bsp/include)。

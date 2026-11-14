@@ -22,6 +22,11 @@ extern "C"
      */
     void BspSystem_HandleControlInterrupt(void);
 #if defined(FIRMWARE_TARGET_AT32_OFF)
+    /** @brief 前台更新 AT32 板载红蓝状态灯，Bsp_Init 后可调用。
+     * @param red 红灯是否点亮。
+     * @param blue 蓝灯是否点亮。
+     */
+    void BspSystem_WriteStatusLights(bool red, bool blue);
     /** @brief AT32 正式 APP 在有效 ADC 分频后请求可由快环抢占的外环执行。 */
     void BspSystem_PendOuterTick(void);
     /** @brief 在开放 ADC 中断前启用 CPU 周期计数。 */

@@ -1,7 +1,7 @@
 # BSP功能接口与实现v1（修订6）
 
-当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
-不保留接口、占位实现或工程引用。见[删除记录](../plans/active/2026-10-30-remove-led-uart-v1.md)。
+当前范围包括 PWM、ADC、Encoder（SPI）、CAN、Flash 及系统支撑。AT32 APP 通过 bsp_system.h
+更新[红蓝状态灯](../hardware/at32f456_configuration_v1.md)。旧公共 LED 和 UART 的移除见[删除记录](../plans/active/2026-10-30-remove-led-uart-v1.md)。
 
 状态：修订6接口已接入两板固件，双板构建与离线发布检查通过；统一实机验收尚未完成。日期：2026-10-26。
 电流零偏现由INIT阶段的独立校正函数统一处理三相与母线，详见[校正调整](../plans/active/2026-10-30-current-offset-init-v2.md)。

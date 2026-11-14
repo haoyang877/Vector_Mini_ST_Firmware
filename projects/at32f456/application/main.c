@@ -95,6 +95,55 @@ void MCU_SYSTICK_IRQ_HANDLER(void)
     BspSystem_HandleTickInterrupt();
 }
 
+static void update_status_lights(void)
+{
+    static uint32_t last_poll_ms;
+    static uint32_t pattern_start_ms;
+    static MotorState previous_state = MOTOR_STATE_SELF_TEST;
+    static bool previous_check;
+
+    uint32_t now_ms = BspSystem_TimeMs();
+    if (now_ms - last_poll_ms < 50U)
+    {
+        return;
+    }
+    last_poll_ms = now_ms;
+    MotorStatus status;
+    if (!MotorStateMachine_ReadStatus(&g_app.axis.state_machine, &status))
+    {
+        return;
+    }
+    MotorState state = status.fault != MOTOR_FAULT_NONE ? MOTOR_STATE_FAULT : status.state;
+    bool checking = state == MOTOR_STATE_IDLE && g_hardware_check_capture;
+    if (state != previous_state || checking != previous_check)
+    {
+        pattern_start_ms = now_ms;
+        previous_state = state;
+        previous_check = checking;
+    }
+
+    uint32_t elapsed_ms = now_ms - pattern_start_ms;
+    bool blue = false;
+    switch (state)
+    {
+    case MOTOR_STATE_CALIBRATION:
+    {
+        uint32_t phase_ms = elapsed_ms % 1000U;
+        blue = phase_ms < 100U || (phase_ms >= 200U && phase_ms < 300U);
+        break;
+    }
+    case MOTOR_STATE_RUNNING:
+        blue = true;
+        break;
+    case MOTOR_STATE_IDLE:
+        blue = elapsed_ms % (checking ? 200U : 2000U) < 100U;
+        break;
+    default:
+        break;
+    }
+    BspSystem_WriteStatusLights(state == MOTOR_STATE_FAULT, blue);
+}
+
 int main(void)
 {
     if (Bsp_Init() != BSP_OK)
@@ -135,5 +184,6 @@ int main(void)
 #endif
         App_Process(&g_app);
         HardwareCheck_Process(&g_app.axis);
+        update_status_lights();
     }
 }

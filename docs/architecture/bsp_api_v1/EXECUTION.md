@@ -3,8 +3,7 @@
 
 # BSP接口执行与配置约定（修订6）
 
-当前范围：保留PWM、ADC、Encoder（SPI）、CAN与Flash及必要系统支撑。LED、UART已删除，
-不保留接口、占位实现或工程引用。见[删除记录](../../plans/active/2026-10-30-remove-led-uart-v1.md)。
+当前范围以[公开接口与实现](../bsp_interfaces_v1.md)为准，AT32 APP 状态灯由 bsp_system.h 提供。
 
 状态：接口已接入两板，离线构建、回归和干净快照release通过；按用户要求，统一实机验收后置。
 与[头文件入口](README.md)共同构成契约。第2节明确记录相电流零偏收尾的调度调整，不能将其称为原草案时序逐拍不变。

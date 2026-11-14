@@ -12,7 +12,7 @@ bsp_config.h检查布尔值、板型匹配及不能启用未支持功能；app_f
 | 独立母线电流 | 支持，同步快采样 | 不支持 |
 | MCU温度、VDDA | 支持；温度有效性依赖校准 | 支持 |
 | 电机NTC、sin/cos原码诊断 | 支持，按目标启用 | 不支持 |
-| LED | 支持，共享双灯 | 支持，独立指示/灯带 |
+| LED | APP 和 Standalone 支持 PC13/PC14 [红蓝状态灯](../hardware/at32f456_configuration_v1.md) | 驱动已移除 |
 | UART、硬件版本采样 | 未绑定，NOT_SUPPORTED | 未绑定，NOT_SUPPORTED |
 
 相电压没有采样电路，已删除接口及能力项；旧宏启用时编译拒绝。

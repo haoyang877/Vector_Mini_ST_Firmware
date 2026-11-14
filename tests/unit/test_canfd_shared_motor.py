@@ -29,6 +29,9 @@ class SharedMotorTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.window.report_dir = Path(self.temp.name)
         self.uid = "01" * 12
+        dll_patch = patch.object(desktop, "controlcan_dll_path", return_value=Path("mock.dll"))
+        dll_patch.start()
+        self.addCleanup(dll_patch.stop)
 
     def capture_start(self, page, **options):
         window = self.window
@@ -45,7 +48,19 @@ class SharedMotorTests(unittest.TestCase):
         )
         with (
             patch.object(desktop.mp, "get_context", return_value=context),
-            patch.object(desktop.threading, "Thread", side_effect=process),
+            patch.object(
+                desktop,
+                "CanSession",
+                return_value=SimpleNamespace(
+                    process=SimpleNamespace(is_alive=lambda: True),
+                    cancel=threading.Event(),
+                    connected=False,
+                    submit=lambda settings, directory: (
+                        launched.append(dict(args=(settings, directory))),
+                        SimpleNamespace(),
+                    )[1],
+                ),
+            ),
             patch.object(desktop.Path, "home", return_value=Path(self.temp.name)),
             patch.object(self.root, "after"),
         ):
@@ -357,53 +372,104 @@ class SharedMotorTests(unittest.TestCase):
         w.update_controls()
         self.assertEqual(w.start_button.winfo_manager(), "pack")
 
-    def test_parameter_worker_keeps_ui_responsive_and_releases_before_next_task(self):
+    def test_parameter_task_keeps_ui_responsive_until_done(self):
         self.bind(6)
         w = self.window
         w.tabs.select(w.pages["parameters"])
-        entered, release = threading.Event(), threading.Event()
-        workers = []
-
-        def acquire(settings, directory, events, stop):
-            workers.append(threading.get_ident())
-            entered.set()
-            release.wait(2)
+        events = queue.Queue()
+        events.close = lambda: None
+        alive = [True]
+        task = SimpleNamespace(is_alive=lambda: alive[0], close=lambda: None, join=lambda: None)
+        session = SimpleNamespace(
+            process=SimpleNamespace(is_alive=lambda: True),
+            cancel=threading.Event(),
+            connected=True,
+            submit=lambda settings, directory: task,
+        )
+        with (
+            patch.object(desktop, "CanSession", return_value=session),
+            patch.object(desktop.Path, "home", return_value=Path(self.temp.name)),
+        ):
+            w.start(parameter_action=("current", False))
+            w.events = events
+            w.start(parameter_action=("current", False))
+            self.assertIs(w.process, task)
+            ticks = []
+            self.root.after(1, lambda: ticks.append(True))
+            deadline = time.monotonic() + 0.2
+            while not ticks and time.monotonic() < deadline:
+                self.root.update()
+                time.sleep(0.001)
+            self.assertTrue(ticks)
+            w.stop()
+            self.assertTrue(session.cancel.is_set())
+            self.assertIs(w.process, task)
             events.put(("done", dict(profile="parameters", fatal="测试停止")))
+            alive[0] = False
+            deadline = time.monotonic() + 1
+            while w.process is not None and time.monotonic() < deadline:
+                self.root.update()
+                time.sleep(0.001)
+            self.assertIsNone(w.process)
+            self.assertIn("测试停止", w.parameter_page.message.get())
+            w.can_session = None
 
-        try:
-            with (
-                patch.object(desktop, "acquire", side_effect=acquire),
-                patch.object(desktop.Path, "home", return_value=Path(self.temp.name)),
-            ):
-                w.start(parameter_action=("current", False))
-                self.assertTrue(entered.wait(1))
-                self.assertIsInstance(w.process, threading.Thread)
-                first = w.process
-                w.start(parameter_action=("current", False))
-                self.assertIs(w.process, first)
-                ticks = []
-                self.root.after(1, lambda: ticks.append(True))
-                deadline = time.monotonic() + 0.2
-                while not ticks and time.monotonic() < deadline:
-                    self.root.update()
-                    time.sleep(0.001)
-                self.assertTrue(ticks, "参数等待期间主线程须继续处理界面事件")
-                self.assertNotEqual(workers[0], threading.get_ident())
-                w.stop()
-                self.assertTrue(w.stop_signal.is_set())
-                self.assertIs(w.process, first, "资源释放之前不能开始下一项")
-                release.set()
-                first.join(1)
-                deadline = time.monotonic() + 1
-                while w.process is not None and time.monotonic() < deadline:
-                    self.root.update()
-                    time.sleep(0.001)
-                self.assertIsNone(w.process)
-                self.assertIn("测试停止", w.parameter_page.message.get())
-        finally:
-            release.set()
-            if w.process is not None:
-                w.process.join(2)
+    def test_refresh_preserves_parameter_draft(self):
+        self.bind(6)
+        report = dict(
+            profile="parameters",
+            action="read",
+            group="current",
+            node=6,
+            uid=self.uid,
+            passed=True,
+            revision=7,
+            rows={i: dict(raw=1000, access=3) for i in (11, 12, 13, 14)},
+        )
+        self.window.display_report(report)
+        entry = self.window.parameter_page.entries[11]
+        entry.delete(0, "end")
+        entry.insert(0, "1.5")
+        report["revision"] = 8
+        report["rows"][11] = dict(raw=1200, access=3)
+        self.window.display_report(report)
+        self.assertEqual(entry.get(), "1.5")
+        self.assertEqual(self.window.parameter_page.snapshots["current"]["rows"][11]["raw"], 1200)
+        self.assertIn("保留", self.window.parameter_page.message.get())
+
+    def test_legacy_task_waits_for_can_release(self):
+        self.bind(6)
+        w = self.window
+        endpoint = SimpleNamespace(
+            process=SimpleNamespace(is_alive=lambda: True),
+            connected=True,
+            active=True,
+            cancel=threading.Event(),
+            events=queue.Queue(),
+        )
+        task = desktop.SessionTask(endpoint, 1)
+        endpoint.submit = lambda settings, directory: task
+        w.can_session = endpoint
+        with patch.object(self.root, "after"):
+            w.start(identify_only=True)
+        self.assertIs(w.process, task)
+        self.assertEqual(w.active_profile, "can_release")
+        self.assertTrue(w.pending_start["identify_only"])
+        endpoint.events.put((1, "done", dict(profile="can_release", passed=True)))
+        with patch.object(w, "start") as start:
+            w.poll()
+            start.assert_called_once_with(
+                identify_only=True,
+                scan=False,
+                bitrate_action=None,
+                calibration_kind=1,
+                clear_fault=False,
+                erase_scope=None,
+                erase_confirmed=False,
+                status_only=False,
+                parameter_action=None,
+            )
+        w.can_session = None
 
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window

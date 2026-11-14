@@ -8,7 +8,6 @@ import multiprocessing as mp
 import os
 import queue
 import sys
-import threading
 import time
 import tkinter as tk
 from datetime import datetime
@@ -25,14 +24,14 @@ from can_calibration_curves import (
 from can_motor_operations import (
     TraceBus,
     describe_faults,
-    read_device_status,
     run_angle_calibration,
     run_clear_fault,
     run_speed_control,
     speed_value,
 )
 from can_parameter_page import ParameterPage
-from can_parameters import run_parameters, value_text
+from can_parameters import value_text
+from can_session import CanSession, SessionTask
 from can_speed_plot import SpeedPlot
 from can_upgrade_stress import read_node_uids, run_upgrade_test, scan_upgrade_motors
 from five_axis_can_stability import (
@@ -49,7 +48,7 @@ from hardware_check import Drive, Link, empty_report, result_rows, run_check, su
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.17.4"
+TITLE = "CAN FD 通信测试 v1.18.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -242,41 +241,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
     try:
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         dll = controlcan_dll_path(resource)
-        if settings["profile"] == "parameters":
-            with (
-                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
-                os.add_dll_directory(str(dll.parent)),
-                ControlCanFd(dll, **settings["bus"]) as port,
-            ):
-                report = run_parameters(
-                    TraceBus(port, stream),
-                    settings["node"],
-                    settings["expected_uid"],
-                    settings["group"],
-                    changes=settings["changes"],
-                    snapshot=settings["snapshot"],
-                    stopped=stop.is_set,
-                    progress=lambda done, total: events.put(("parameter_progress", (done, total))),
-                )
-            (out / "summary.json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        elif settings["profile"] == "device_status":
-            with (
-                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
-                os.add_dll_directory(str(dll.parent)),
-                ControlCanFd(dll, **settings["bus"]) as port,
-            ):
-                report = dict(
-                    profile="device_status",
-                    device=read_device_status(
-                        TraceBus(port, stream), settings["node"], settings["expected_uid"]
-                    ),
-                )
-            (out / "summary.json").write_text(
-                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        elif settings["profile"] in ("motor_calibration", "motor_speed"):
+        if settings["profile"] in ("motor_calibration", "motor_speed"):
             parent = mp.parent_process()
 
             def operation_stopped():
@@ -448,6 +413,10 @@ class CanTestWindow:
         self.root.minsize(min(1080, width), min(700, height))
         self.root.geometry(f"{width}x{height}")
         self.process = None
+        self.can_session = None
+        self.pending_start = None
+        self.release_ok = False
+        self.exit_polls = 0
         self.events = None
         self.commands = None
         self.active_profile = None
@@ -483,6 +452,8 @@ class CanTestWindow:
             summary, text="刷新状态", command=lambda: self.start(status_only=True)
         )
         self.status_refresh.pack(anchor="e", pady=(5, 0))
+        self.can_disconnect = ttk.Button(summary, text="断开 CAN", command=self.release_can)
+        self.can_disconnect.pack(anchor="e", pady=(3, 0))
         ttk.Label(connection, text="CAN FD 通信测试", font=("Microsoft YaHei UI", 17, "bold")).pack(
             anchor="w"
         )
@@ -1105,7 +1076,9 @@ class CanTestWindow:
             self.tabs.tab(
                 index,
                 state="disabled"
-                if busy and self.tabs.tabs()[index] != self.tabs.select()
+                if busy
+                and self.active_profile not in ("parameters", "device_status")
+                and self.tabs.tabs()[index] != self.tabs.select()
                 else "normal",
             )
         for tab in self.communication_tabs.tabs():
@@ -1140,6 +1113,11 @@ class CanTestWindow:
         )
         self.status_refresh.configure(
             state="normal" if not busy and self.current_motor else "disabled"
+        )
+        self.can_disconnect.configure(
+            state="normal"
+            if not busy and self.can_session and self.can_session.connected
+            else "disabled"
         )
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
         self.parameter_page.update_controls(
@@ -1385,6 +1363,24 @@ class CanTestWindow:
             status_only=status_only,
             parameter_action=parameter_action,
         )
+        if (
+            mode not in ("parameters", "device_status")
+            and self.can_session
+            and self.can_session.connected
+        ):
+            self.pending_start = dict(
+                scan=scan,
+                bitrate_action=bitrate_action,
+                calibration_kind=calibration_kind,
+                clear_fault=clear_fault,
+                erase_scope=erase_scope,
+                erase_confirmed=erase_confirmed,
+                identify_only=identify_only,
+                status_only=status_only,
+                parameter_action=parameter_action,
+            )
+            self.release_can()
+            return
         swd = mode.startswith("jlink_")
         settings = {
             "profile": mode,
@@ -1521,20 +1517,34 @@ class CanTestWindow:
                 )
             directory = directory / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             directory.mkdir(parents=True, exist_ok=False)
-            # 参数短事务复用已加载的解释器；其他任务继续保留进程隔离。
-            context = mp.get_context("spawn")
-            self.events = queue.Queue() if mode == "parameters" else context.Queue()
-            self.stop_signal = threading.Event() if mode == "parameters" else context.Event()
-            self.commands = context.Queue(maxsize=8) if mode == "motor_speed" else None
-            arguments = (settings, directory, self.events, self.stop_signal)
-            if mode == "motor_speed":
-                arguments += (self.commands,)
-            worker = threading.Thread if mode == "parameters" else context.Process
-            job = worker(
-                target=run_upgrade_test if mode == "can_upgrade" else run_jlink if swd else acquire,
-                args=arguments,
-            )
-            job.start()
+            if mode in ("parameters", "device_status"):
+                if self.can_session is not None and not self.can_session.process.is_alive():
+                    self.can_session.dispose()
+                    self.can_session = None
+                if self.can_session is None:
+                    resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+                    self.can_session = CanSession(controlcan_dll_path(resource))
+                job = self.can_session.submit(settings, directory)
+                self.events = job
+                self.stop_signal = self.can_session.cancel
+                self.commands = None
+            else:
+                context = mp.get_context("spawn")
+                self.events = context.Queue()
+                self.stop_signal = context.Event()
+                self.commands = context.Queue(maxsize=8) if mode == "motor_speed" else None
+                arguments = (settings, directory, self.events, self.stop_signal)
+                if mode == "motor_speed":
+                    arguments += (self.commands,)
+                job = context.Process(
+                    target=run_upgrade_test
+                    if mode == "can_upgrade"
+                    else run_jlink
+                    if swd
+                    else acquire,
+                    args=arguments,
+                )
+                job.start()
         except (ValueError, OSError, RuntimeError) as exc:
             messagebox.showerror("无法启动", str(exc), parent=self.root)
             return
@@ -1549,6 +1559,7 @@ class CanTestWindow:
             self.speed_plot.clear()
         self.report_dir = directory
         self.done = False
+        self.exit_polls = 0
         self.bar["value"] = 0
         self.progress.set("0%")
         self.state.set(
@@ -1557,6 +1568,27 @@ class CanTestWindow:
         self.show(f"记录目录　{directory}")
         self.update_controls()
         self.root.after(80, self.poll)
+
+    def release_can(self, shutdown: bool = False) -> None:
+        """异步释放常驻 CAN；释放应答前不启动其他设备任务。"""
+        if self.process is not None or self.can_session is None:
+            return
+        if not self.can_session.process.is_alive():
+            self.can_session.dispose()
+            self.can_session = None
+            self.update_controls()
+            return
+        mode = "can_shutdown" if shutdown else "can_release"
+        self.process = self.can_session.submit(dict(profile=mode), None)
+        self.events = self.process
+        self.stop_signal = self.can_session.cancel
+        self.active_profile = mode
+        self.swd_busy = False
+        self.done = self.release_ok = False
+        self.exit_polls = 0
+        self.state.set("正在释放 CAN 连接")
+        self.update_controls()
+        self.root.after(20, self.poll)
 
     def stop(self) -> None:
         if self.process and not self.swd_busy:
@@ -1573,15 +1605,25 @@ class CanTestWindow:
                 self.state.set("等待 SWD 操作完成后关闭")
             else:
                 self.stop()
+        elif self.can_session is not None:
+            self.close_pending = True
+            if self.can_session.process.is_alive():
+                self.release_can(shutdown=True)
+            else:
+                self.can_session.dispose()
+                self.can_session = None
+                self.root.destroy()
         else:
             self.root.destroy()
 
     def poll(self) -> None:
-        finished = not self.process.is_alive()
-        while True:
+        deadline = time.monotonic() + 0.008
+        drained = False
+        for _ in range(64):
             try:
                 tag, msg = self.events.get_nowait()
             except queue.Empty:
+                drained = True
                 break
             if tag == "stage":
                 self.state.set(msg.split(" s  ", 1)[-1])
@@ -1626,13 +1668,19 @@ class CanTestWindow:
             else:
                 self.done = True
                 self.display_report(msg)
-        if not finished:
-            self.root.after(80, self.poll)
+            if time.monotonic() >= deadline:
+                break
+        finished = not self.process.is_alive()
+        if self.active_profile == "can_shutdown" and self.can_session.process.is_alive():
+            finished = False
+        if finished and not self.done:
+            self.exit_polls += 1
+        if not finished or not drained or (not self.done and self.exit_polls < 5):
+            self.root.after(20 if isinstance(self.process, SessionTask) else 80, self.poll)
             return
         self.process.join()
-        if self.active_profile != "parameters":
-            self.process.close()
-            self.events.close()
+        self.process.close()
+        self.events.close()
         if self.commands is not None:
             self.commands.close()
             self.commands = None
@@ -1656,11 +1704,19 @@ class CanTestWindow:
             self.state.set("工作进程异常退出")
             self.show(f"请检查记录目录 {self.report_dir}")
         if self.close_pending:
-            self.root.destroy()
+            self.close()
         else:
             self.update_controls()
+            if self.pending_start is not None:
+                pending, self.pending_start = self.pending_start, None
+                if self.release_ok:
+                    self.start(**pending)
 
     def display_report(self, r: dict) -> None:
+        if r["profile"] in ("can_release", "can_shutdown"):
+            self.release_ok = bool(r.get("passed"))
+            self.state.set("CAN 已断开" if self.release_ok else r.get("fatal", "CAN 释放失败"))
+            return
         if r["profile"] == "parameters":
             self.parameter_page.display(r)
             if r.get("passed") and 1 in r.get("rows", {}):
@@ -1670,7 +1726,9 @@ class CanTestWindow:
             status = "参数读取完成" if r.get("passed") else "参数操作失败"
             if r.get("persisted"):
                 status = "参数已保存，Flash回读一致"
-            status += f" · {r.get('elapsed_s', 0):.2f} 秒"
+            status += f" · {r.get('total_elapsed_s', r.get('elapsed_s', 0)):.2f} 秒"
+            if r.get("passed"):
+                status += " · 复用 CAN" if r.get("connection_reused") else " · CAN 已连接"
             self.state.set(status)
             self.bar["value"] = 100 if r.get("passed") else 0
             self.progress.set(f"{self.bar['value']:.0f}%")

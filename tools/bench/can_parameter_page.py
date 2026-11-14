@@ -106,6 +106,13 @@ class ParameterPage(ttk.Frame):
 
     def display(self, report: dict) -> None:
         """保存后其他组修订缓存失效；失败保留编辑文本但要求重新读取。"""
+        drafts = {}
+        old = self.snapshots.get(report.get("group"))
+        if report.get("action") == "read" and old:
+            for identifier, row in old["rows"].items():
+                text = self.entries[identifier].get()
+                if CATALOG[identifier]["access"] & 2 and text != value_text(identifier, row["raw"]):
+                    drafts[identifier] = text
         if report.get("action") == "save" or "group" not in report:
             self.snapshots.clear()
         if report.get("passed"):
@@ -118,9 +125,12 @@ class ParameterPage(ttk.Frame):
                 entry = self.entries[identifier]
                 entry.configure(state="normal")
                 entry.delete(0, "end")
-                entry.insert(0, value_text(identifier, row["raw"]))
+                entry.insert(0, drafts.get(identifier, value_text(identifier, row["raw"])))
             action = "已保存并回读验证" if report["action"] == "save" else "已读取"
-            self.message.set(f"{GROUPS[group][0]}{action} · 活动修订 {report['revision']}")
+            self.message.set(
+                f"{GROUPS[group][0]}{action} · 活动修订 {report['revision']}"
+                + (" · 已保留未保存编辑" if drafts else "")
+            )
         else:
             self.snapshots.pop(report.get("group"), None)
             self.message.set(report.get("fatal", "参数操作失败") + "；请重新读取。")

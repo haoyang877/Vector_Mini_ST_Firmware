@@ -163,7 +163,16 @@ class SharedMotorTests(unittest.TestCase):
         w = self.window
         self.assertEqual(
             [w.tabs.tab(tab, "text") for tab in w.tabs.tabs()],
-            ["J-Link 烧录", "硬件测试", "通信测试", "角度标定", "升级压测", "速度控制", "参数读写"],
+            [
+                "J-Link 烧录",
+                "硬件测试",
+                "通信测试",
+                "角度标定",
+                "升级压测",
+                "速度控制",
+                "参数读写",
+                "多项标定",
+            ],
         )
         expected = dict(
             jlink="jlink_flash",

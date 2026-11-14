@@ -294,7 +294,10 @@ class UpgradeClient:
                 self._record_timing(kind, started, send_s, attempts, len(frames), True)
                 return response
         self._record_timing(kind, started, send_s, attempts, len(frames), False)
-        raise TimeoutError(f"Type{kind}回复超时；停止升级，检查CAN与Loader驻留状态")
+        hint = (
+            "停止升级，检查CAN与Loader驻留状态" if 48 <= kind <= 57 else "请检查 CAN 连接和设备状态"
+        )
+        raise TimeoutError(f"Type{kind}回复超时；{hint}")
 
     def _record_timing(
         self,

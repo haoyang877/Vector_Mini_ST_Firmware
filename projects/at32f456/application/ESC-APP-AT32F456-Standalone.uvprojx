@@ -1807,6 +1807,16 @@
               <FilePath>hardware_check.c</FilePath>
             </File>
             <File>
+              <FileName>status_lights.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>status_lights.c</FilePath>
+            </File>
+            <File>
+              <FileName>status_light_gpio.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\status_light_gpio.c</FilePath>
+            </File>
+            <File>
               <FileName>system.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\system.c</FilePath>

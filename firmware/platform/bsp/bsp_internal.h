@@ -65,4 +65,8 @@ void McuSystem_Init(void);
  * @note 仅在McuSystem_Init之后由前台一次调用，不提供初始化错误返回。
  */
 void McuSystem_Start(void);
+#if defined(FIRMWARE_TARGET_AT32_OFF)
+/** @brief AT32 APP 初始化两路低有效指示灯，预置熄灭后再切换为输出。 */
+void McuStatusLights_Init(void);
+#endif
 #endif /* BSP_INTERNAL_H */

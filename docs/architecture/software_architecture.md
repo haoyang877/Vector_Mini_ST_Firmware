@@ -4,6 +4,10 @@
 
 ## 两个镜像如何协作
 
+AT32F456 的 TMR6 监督拍先更新轴，再把主状态、当前故障及检查标志交给
+[灯语模块](../../projects/at32f456/application/status_lights.c)。模块逐拍计算逻辑亮灭，板级入口仅在输出变化时调用
+[GPIO 驱动](../../firmware/platform/bsp/mcu/at32f456/status_light_gpio.c)。
+
 AT32F456 的硬件检测统计由板级前台维护；ADC 只发布同拍原码样本。
 APP v1.8.1 的旋转验收按 50 ms 展开角均值判断整体趋势，单拍角增量只作诊断。
 窗口、两段轨迹和停稳证据均属于本轮 RAM 会话，不写参数。上位机沿用 Type127 v2

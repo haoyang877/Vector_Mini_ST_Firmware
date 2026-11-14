@@ -22,7 +22,7 @@ extern "C"
      */
     void BspSystem_HandleControlInterrupt(void);
 #if defined(FIRMWARE_TARGET_AT32_OFF)
-    /** @brief 前台更新 AT32 板载红蓝状态灯，Bsp_Init 后可调用。
+    /** @brief 更新 AT32 板载红蓝状态灯，初始化后由监督拍在亮灭变化时调用。
      * @param red 红灯是否点亮。
      * @param blue 蓝灯是否点亮。
      */

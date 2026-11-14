@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [AT32 状态灯模块化与 2 kHz 调度](2026-11-14-at32-status-light-module.md) — APP 和 Standalone 编译通过，28 V 右轮实板验证空闲心跳、关相检查快闪及心跳恢复。
+
 - [AT32 红蓝状态灯](2026-11-13-at32-status-lights.md)：双目标编译通过，28 V 右轮实板验证检查快闪及空闲心跳。
 
 - [参数页面与速度布局](2026-11-13-parameter-desktop.md)：工具1.16.0，Release和打包通过，实机读写待验收。

@@ -1,4 +1,5 @@
 #include "app.h"
+#include "status_lights.h"
 #include "hardware_check.h"
 #include "application_config.h"
 #include "motor_axis.h"
@@ -10,6 +11,7 @@
 
 /* 该板中断向量只服务本机应用。 */
 AppContext g_app;
+static StatusLights s_lights;
 
 #if defined(AT32_KEIL_CALIBRATION) && AT32_KEIL_CALIBRATION
 /* Watch 单次写入：1 请求 LUT 标定，2 请求停机。前台消费后清零。 */
@@ -45,10 +47,17 @@ static void startup_failed(void)
     }
 }
 
-/** @brief 在BSP确认监督事件后执行应用慢环。 */
+/** @brief 每个 2 kHz 中频控制拍先更新轴状态，再推进状态灯。 */
 void BspApp_OnControlTick(void)
 {
     MotorAxis_SupervisorTick(&g_app.axis);
+    if (StatusLights_Step(&s_lights,
+                          g_app.axis.state_machine.state,
+                          g_app.axis.motor.fault_code != MOTOR_FAULT_NONE,
+                          g_hardware_check_capture))
+    {
+        BspSystem_WriteStatusLights(s_lights.red, s_lights.blue);
+    }
     RTT_Sampling();
 }
 
@@ -95,55 +104,6 @@ void MCU_SYSTICK_IRQ_HANDLER(void)
     BspSystem_HandleTickInterrupt();
 }
 
-static void update_status_lights(void)
-{
-    static uint32_t last_poll_ms;
-    static uint32_t pattern_start_ms;
-    static MotorState previous_state = MOTOR_STATE_SELF_TEST;
-    static bool previous_check;
-
-    uint32_t now_ms = BspSystem_TimeMs();
-    if (now_ms - last_poll_ms < 50U)
-    {
-        return;
-    }
-    last_poll_ms = now_ms;
-    MotorStatus status;
-    if (!MotorStateMachine_ReadStatus(&g_app.axis.state_machine, &status))
-    {
-        return;
-    }
-    MotorState state = status.fault != MOTOR_FAULT_NONE ? MOTOR_STATE_FAULT : status.state;
-    bool checking = state == MOTOR_STATE_IDLE && g_hardware_check_capture;
-    if (state != previous_state || checking != previous_check)
-    {
-        pattern_start_ms = now_ms;
-        previous_state = state;
-        previous_check = checking;
-    }
-
-    uint32_t elapsed_ms = now_ms - pattern_start_ms;
-    bool blue = false;
-    switch (state)
-    {
-    case MOTOR_STATE_CALIBRATION:
-    {
-        uint32_t phase_ms = elapsed_ms % 1000U;
-        blue = phase_ms < 100U || (phase_ms >= 200U && phase_ms < 300U);
-        break;
-    }
-    case MOTOR_STATE_RUNNING:
-        blue = true;
-        break;
-    case MOTOR_STATE_IDLE:
-        blue = elapsed_ms % (checking ? 200U : 2000U) < 100U;
-        break;
-    default:
-        break;
-    }
-    BspSystem_WriteStatusLights(state == MOTOR_STATE_FAULT, blue);
-}
-
 int main(void)
 {
     if (Bsp_Init() != BSP_OK)
@@ -184,6 +144,5 @@ int main(void)
 #endif
         App_Process(&g_app);
         HardwareCheck_Process(&g_app.axis);
-        update_status_lights();
     }
 }

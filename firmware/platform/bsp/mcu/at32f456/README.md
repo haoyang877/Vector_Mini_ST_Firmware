@@ -1,7 +1,7 @@
 # AT32F456 BSP实现
 
 当前范围包括 PWM、ADC、Encoder（SPI）、CAN、Flash 和系统支撑。
-system.c 为两个 APP 目标初始化和更新 PC13/PC14；见[红蓝状态灯](../../../../../docs/hardware/at32f456_configuration_v1.md)。
+status_light_gpio.c 为两个 APP 目标初始化和更新 PC13/PC14；见[红蓝状态灯](../../../../../docs/hardware/at32f456_configuration_v1.md)。
 旧公共 LED 和 UART 的移除见[删除记录](../../../../../docs/plans/active/2026-10-30-remove-led-uart-v1.md)。
 
 公开功能接口在../../include。本目录保存实际MCU操作，不新增转发层。

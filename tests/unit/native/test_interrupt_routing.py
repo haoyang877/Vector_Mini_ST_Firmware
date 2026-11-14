@@ -15,6 +15,15 @@ void RTT_Sampling(void) {
 OUTER_STUB = r"""
 #include "config.h"
 #if BSP_BOARD == BSP_BOARD_AT32F456
+#include "status_lights.h"
+static StatusLights s_lights;
+static unsigned light_calls;
+bool StatusLights_Step(StatusLights *lights, MotorState state, bool fault, bool checking) {
+ assert(lights==&s_lights && state==g_app.axis.state_machine.state && !fault && !checking);
+ assert(g_app.axis.state_machine.supervisor_ticks==1U);
+ ++light_calls; return true;
+}
+void BspSystem_WriteStatusLights(bool red, bool blue) { assert(light_calls==1U && !red && !blue); }
 static volatile bool g_hardware_check_capture;
 static unsigned captures;
 static void HardwareCheck_CaptureFast(const MotorAxis *axis) {
@@ -133,6 +142,9 @@ int main(void) {
  for (unsigned i = 0U; i < count; ++i) { assert(order[i] == i + 1U); }
  MCU_SYSTICK_IRQ_HANDLER();
  assert(ticks == 1U && count == 5U && g_app.axis.state_machine.fast_sample_ticks == 1U && g_app.axis.state_machine.supervisor_ticks == 1U);
+#if BSP_BOARD == BSP_BOARD_AT32F456
+ assert(light_calls==1U);
+#endif
  puts("PASS main IRQ routing: hardware confirmation, one task/count per event, independent SysTick");
  return 0;
 }
@@ -336,8 +348,20 @@ def main() -> None:
     """运行双板入口与硬件事件顺序夹具。"""
     args = arguments(__doc__)
     for board, platform in ((1, "stm32g4"), (2, "at32f456")):
-        run_c(args, f"{platform}_main_irqs", routing_fixture(platform), board)
-    run_c(args, "at32_hardware_irqs", at32_hardware_fixture(), 2)
+        run_c(
+            args,
+            f"{platform}_main_irqs",
+            routing_fixture(platform),
+            board,
+            ["-I", ROOT / "projects/at32f456/application"],
+        )
+    run_c(
+        args,
+        "at32_hardware_irqs",
+        at32_hardware_fixture(),
+        2,
+        ["-I", ROOT / "projects/at32f456/application"],
+    )
     run_c(
         args,
         "at32_rtt_sampling",

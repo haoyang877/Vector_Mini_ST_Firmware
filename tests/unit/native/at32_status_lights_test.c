@@ -1,4 +1,4 @@
-#include "app.h"
+#include "status_lights.h"
 #include "bsp_system.h"
 #include <assert.h>
 
@@ -43,88 +43,49 @@ static void gpio_init(const void *port, const gpio_init_type *pins)
            pins->gpio_drive_strength == GPIO_DRIVE_STRENGTH_MODERATE);
 }
 
-static AppContext g_app;
-static bool g_hardware_check_capture;
-static uint32_t s_now_ms;
-static MotorStatus s_sample;
-static bool s_valid = true;
-
-uint32_t BspSystem_TimeMs(void)
-{
-    return s_now_ms;
-}
-
-bool MotorStateMachine_ReadStatus(const MotorStateMachine *machine, MotorStatus *status)
-{
-    assert(machine == &g_app.axis.state_machine);
-    *status = s_sample;
-    return s_valid;
-}
-
 /* FUNCTIONS */
+
+static void
+tick(StatusLights *lights, MotorState state, bool fault, bool check, bool red, bool blue)
+{
+    bool changed = lights->red != red || lights->blue != blue;
+    assert(StatusLights_Step(lights, state, fault, check) == changed);
+    assert(lights->red == red && lights->blue == blue);
+    if (changed)
+    {
+        BspSystem_WriteStatusLights(red, blue);
+    }
+    assert(s_port.scr == (red ? 0x20004000U : blue ? 0x40002000U : 0x6000U));
+}
 
 int main(void)
 {
-    const uint32_t off = 0x6000U, red = 0x20004000U, blue = 0x40002000U;
-    init_status_lights();
-    assert(s_port.scr == off);
-    /* 从回绕前 100 ms 开始，检查跨界时心跳宽度和刷新限频。 */
-    uint32_t start_ms = UINT32_MAX - 99U;
-    s_sample.state = MOTOR_STATE_IDLE;
-    s_now_ms = start_ms;
-    update_status_lights();
-    assert(s_port.scr == blue);
-    s_now_ms += 100U;
-    update_status_lights();
-    assert(s_port.scr == off);
-    s_now_ms = start_ms + 2000U;
-    update_status_lights();
-    assert(s_port.scr == blue);
-
-    g_hardware_check_capture = true;
-    s_now_ms += 50U;
-    update_status_lights();
-    assert(s_port.scr == blue);
-    s_now_ms += 100U;
-    update_status_lights();
-    assert(s_port.scr == off);
-    s_now_ms += 100U;
-    update_status_lights();
-    assert(s_port.scr == blue);
-
-    s_sample.state = MOTOR_STATE_RUNNING;
-    s_now_ms += 100U;
-    update_status_lights();
-    assert(s_port.scr == blue);
-    s_sample.fault = 1U;
-    s_now_ms += 49U;
-    update_status_lights();
-    assert(s_port.scr == blue);
-    ++s_now_ms;
-    update_status_lights();
-    assert(s_port.scr == red);
-    s_sample.state = MOTOR_STATE_FAULT;
-    s_sample.fault = 0U;
-    s_now_ms += 50U;
-    update_status_lights();
-    assert(s_port.scr == red);
-    s_sample.state = MOTOR_STATE_CALIBRATION;
-    s_valid = false;
-    s_now_ms += 50U;
-    update_status_lights();
-    assert(s_port.scr == red);
-    s_valid = true;
-    for (unsigned ms = 0U; ms <= 1000U; ms += 50U)
+    StatusLights lights = {0};
+    McuStatusLights_Init();
+    assert(s_port.scr == 0x6000U);
+    /* 按实际 2 kHz 调用，核对三个重复周期中每个亮灭边沿。 */
+    for (unsigned n = 0; n < 12000U; ++n)
     {
-        s_now_ms += 50U;
-        update_status_lights();
-        assert(s_port.scr ==
-               ((ms < 100U || (ms >= 200U && ms < 300U) || ms == 1000U) ? blue : off));
+        tick(&lights, MOTOR_STATE_IDLE, false, false, false, n % 4000U < 200U);
     }
-    s_sample.state = MOTOR_STATE_IDLE;
-    g_hardware_check_capture = false;
-    s_now_ms += 50U;
-    update_status_lights();
-    assert(s_port.scr == blue);
+    for (unsigned n = 0; n < 1200U; ++n)
+    {
+        tick(&lights, MOTOR_STATE_IDLE, false, true, false, n % 400U < 200U);
+    }
+    tick(&lights, MOTOR_STATE_RUNNING, false, true, false, true);
+    tick(&lights, MOTOR_STATE_RUNNING, true, true, true, false);
+    tick(&lights, MOTOR_STATE_FAULT, false, false, true, false);
+    for (unsigned n = 0; n < 6000U; ++n)
+    {
+        unsigned phase = n % 2000U;
+        tick(&lights,
+             MOTOR_STATE_CALIBRATION,
+             false,
+             true,
+             false,
+             phase < 200U || (phase >= 400U && phase < 600U));
+    }
+    tick(&lights, MOTOR_STATE_SELF_TEST, false, false, false, false);
+    tick(&lights, MOTOR_STATE_IDLE, false, false, false, true);
     return 0;
 }

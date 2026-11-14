@@ -51,7 +51,9 @@ class AppModuleContractTests(unittest.TestCase):
             {p.stem for p in APP.glob("*.c")},
             set(MODULE_PREFIXES),
         )
-        self.assertEqual({p.stem for p in APP.glob("*.h")}, set(MODULE_PREFIXES))
+        self.assertEqual({p.stem for p in APP.glob("*.h")}, set(MODULE_PREFIXES) | {"motor_state"})
+        state_types = (APP / "motor_state.h").read_text(encoding="utf-8")
+        self.assertNotRegex(state_types, r"(?m)^\s*#include|^\w+[ \t*]+\w+\s*\(")
         for name, prefix in MODULE_PREFIXES.items():
             with self.subTest(module=name):
                 source = (APP / f"{name}.h").read_text(encoding="utf-8")

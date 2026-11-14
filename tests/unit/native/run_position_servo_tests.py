@@ -128,7 +128,6 @@ void RTT_Init(void) { assert(count==2U); }
 void BspSystem_StartCycleCounter(void) { assert(count==2U); }
 static unsigned HardwareCheck_Bind(const unsigned *axis) { assert(axis==&g_app.axis && count==1U); return 1U; }
 static void HardwareCheck_Process(const unsigned *axis) { assert(axis==&g_app.axis && g_app.endpoint.hardware_check==1U && iterations==1U); }
-static void update_status_lights(void) { assert(iterations==1U && count==5U); }
 """
     return (
         r"""
@@ -226,7 +225,7 @@ static void step(unsigned value) { assert(count<8U);trace[count++]=value; }
 static bool BootHw_Init(void) { step(1);return false; }
 static void McuSystem_Init(void) { step(2); }
 static bool lights_initialized;
-static void init_status_lights(void) { assert(count==2U);lights_initialized=true; }
+static void McuStatusLights_Init(void) { assert(count==2U);lights_initialized=true; }
 static void McuCan_Init(void) { assert(lights_initialized);step(3); }
 static void McuAdc_Init(void) { step(4); }
 static bool Flash_Init(void) { step(5);return true; }

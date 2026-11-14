@@ -1,4 +1,4 @@
-"""Windows USB-CAN 桌面工具。界面只负责参数与显示，采集进程独占 SDK。"""
+"""Windows USB-CAN 桌面工具。界面只负责参数与显示，后台任务独占 SDK。"""
 
 import csv
 import ctypes as C
@@ -8,6 +8,7 @@ import multiprocessing as mp
 import os
 import queue
 import sys
+import threading
 import time
 import tkinter as tk
 from datetime import datetime
@@ -48,7 +49,7 @@ from hardware_check import Drive, Link, empty_report, result_rows, run_check, su
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.17.3"
+TITLE = "CAN FD 通信测试 v1.17.4"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -255,6 +256,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                     changes=settings["changes"],
                     snapshot=settings["snapshot"],
                     stopped=stop.is_set,
+                    progress=lambda done, total: events.put(("parameter_progress", (done, total))),
                 )
             (out / "summary.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -1519,14 +1521,16 @@ class CanTestWindow:
                 )
             directory = directory / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             directory.mkdir(parents=True, exist_ok=False)
+            # 参数短事务复用已加载的解释器；其他任务继续保留进程隔离。
             context = mp.get_context("spawn")
-            self.events = context.Queue()
-            self.stop_signal = context.Event()
+            self.events = queue.Queue() if mode == "parameters" else context.Queue()
+            self.stop_signal = threading.Event() if mode == "parameters" else context.Event()
             self.commands = context.Queue(maxsize=8) if mode == "motor_speed" else None
             arguments = (settings, directory, self.events, self.stop_signal)
             if mode == "motor_speed":
                 arguments += (self.commands,)
-            job = context.Process(
+            worker = threading.Thread if mode == "parameters" else context.Process
+            job = worker(
                 target=run_upgrade_test if mode == "can_upgrade" else run_jlink if swd else acquire,
                 args=arguments,
             )
@@ -1585,6 +1589,11 @@ class CanTestWindow:
                 self.output.insert("end", "\n" + msg)
                 self.output.see("end")
                 self.output.configure(state="disabled")
+            elif tag == "parameter_progress":
+                done, total = msg
+                self.bar["value"] = 100 * done / total
+                self.progress.set(f"{done}/{total}")
+                self.state.set(f"正在读取参数 {done}/{total}")
             elif tag == "axis_status":
                 node, status = msg
                 self.upgrade_results[node].configure(text=status)
@@ -1621,8 +1630,9 @@ class CanTestWindow:
             self.root.after(80, self.poll)
             return
         self.process.join()
-        self.process.close()
-        self.events.close()
+        if self.active_profile != "parameters":
+            self.process.close()
+            self.events.close()
         if self.commands is not None:
             self.commands.close()
             self.commands = None
@@ -1660,6 +1670,7 @@ class CanTestWindow:
             status = "参数读取完成" if r.get("passed") else "参数操作失败"
             if r.get("persisted"):
                 status = "参数已保存，Flash回读一致"
+            status += f" · {r.get('elapsed_s', 0):.2f} 秒"
             self.state.set(status)
             self.bar["value"] = 100 if r.get("passed") else 0
             self.progress.set(f"{self.bar['value']:.0f}%")

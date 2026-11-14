@@ -3,6 +3,7 @@
 import json
 import struct
 import sys
+import time
 from collections.abc import Callable
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
@@ -124,13 +125,23 @@ def _reply(data: bytes, identifier: int, kind: int) -> dict:
     )
 
 
-def _read(link: Link, ids: list[int], *, saved: bool = False) -> dict[int, dict]:
+def _read(
+    link: Link,
+    ids: list[int],
+    *,
+    saved: bool = False,
+    stopped: Callable[[], bool] = lambda: False,
+    progress: Callable[[int, int], None] = lambda done, total: None,
+) -> dict[int, dict]:
     rows = {}
-    for identifier in ids:
+    for index, identifier in enumerate(ids):
+        if stopped():
+            raise Rejected("操作已停止")
         kind = 123 if saved else 120
         rows[identifier] = _reply(
             link.request(kind, bytes((identifier, 0, 0, 0))), identifier, kind
         )
+        progress(index + 1, len(ids))
     if len({row["revision"] for row in rows.values()}) != 1:
         raise Rejected("读取期间参数发生变化，请重新读取")
     return rows
@@ -145,8 +156,10 @@ def run_parameters(
     changes: dict[int, int] | None = None,
     snapshot: dict | None = None,
     stopped: Callable[[], bool] = lambda: False,
+    progress: Callable[[int, int], None] = lambda done, total: None,
 ) -> dict:
     """读取或显式写入并保存；失败不回放写命令，保留已确认 RAM 修改及持久化状态。"""
+    started = time.monotonic()
     link = Link(bus, node, timeout_s=0.5)
     report = dict(
         profile="parameters",
@@ -161,6 +174,8 @@ def run_parameters(
         write_attempted=[],
     )
     try:
+        if stopped():
+            raise Rejected("操作已停止")
         info = link.request(1, page=0)
         identity = link.request(1, page=1)
         caps = link.request(2, page=0)
@@ -174,7 +189,7 @@ def run_parameters(
         if status[43:] != bytes((5, 0)) or status[4:8] != bytes(4):
             raise Rejected("请先停机并清除故障，再读取或保存参数")
         ids = parameter_ids(group)
-        rows = _read(link, ids)
+        rows = _read(link, ids, stopped=stopped, progress=progress)
         report.update(rows=rows, revision=next(iter(rows.values()))["revision"])
         if stopped():
             raise Rejected("操作已停止，未发送保存")
@@ -225,8 +240,10 @@ def run_parameters(
                 or not saved["flags"] & 1
             ):
                 raise Rejected("Flash保存修订未确认")
-            report["rows"] = rows = _read(link, ids)
-            stored = report["saved_rows"] = _read(link, ids, saved=True)
+            report["rows"] = rows = _read(link, ids, stopped=stopped, progress=progress)
+            stored = report["saved_rows"] = _read(
+                link, ids, saved=True, stopped=stopped, progress=progress
+            )
             if any(
                 rows[i]["raw"] != stored[i]["raw"]
                 or stored[i]["saved_revision"] != report["revision"]
@@ -239,5 +256,6 @@ def run_parameters(
         report["passed"] = True
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         report["fatal"] = str(exc)
+    report["elapsed_s"] = time.monotonic() - started
     report["communication_timeouts"] = link.timeouts
     return report

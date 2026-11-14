@@ -307,3 +307,5 @@
 - [自由转子相电阻与耗时优化](2026-11-13-phase-resistance-free-rotor.md)
 
 - [相电阻1A/2A档位](2026-11-13-phase-resistance-1a-2a.md)
+
+- [参数刷新响应优化](2026-11-14-parameter-refresh.md)：v1.17.4，后台线程、进度和停止；PR通过，实机耗时待验证。

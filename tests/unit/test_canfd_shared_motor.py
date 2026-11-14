@@ -4,6 +4,7 @@ import queue
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
 import unittest
 from pathlib import Path
@@ -44,6 +45,7 @@ class SharedMotorTests(unittest.TestCase):
         )
         with (
             patch.object(desktop.mp, "get_context", return_value=context),
+            patch.object(desktop.threading, "Thread", side_effect=process),
             patch.object(desktop.Path, "home", return_value=Path(self.temp.name)),
             patch.object(self.root, "after"),
         ):
@@ -354,6 +356,54 @@ class SharedMotorTests(unittest.TestCase):
         w.tabs.select(w.pages["hardware"])
         w.update_controls()
         self.assertEqual(w.start_button.winfo_manager(), "pack")
+
+    def test_parameter_worker_keeps_ui_responsive_and_releases_before_next_task(self):
+        self.bind(6)
+        w = self.window
+        w.tabs.select(w.pages["parameters"])
+        entered, release = threading.Event(), threading.Event()
+        workers = []
+
+        def acquire(settings, directory, events, stop):
+            workers.append(threading.get_ident())
+            entered.set()
+            release.wait(2)
+            events.put(("done", dict(profile="parameters", fatal="测试停止")))
+
+        try:
+            with (
+                patch.object(desktop, "acquire", side_effect=acquire),
+                patch.object(desktop.Path, "home", return_value=Path(self.temp.name)),
+            ):
+                w.start(parameter_action=("current", False))
+                self.assertTrue(entered.wait(1))
+                self.assertIsInstance(w.process, threading.Thread)
+                first = w.process
+                w.start(parameter_action=("current", False))
+                self.assertIs(w.process, first)
+                ticks = []
+                self.root.after(1, lambda: ticks.append(True))
+                deadline = time.monotonic() + 0.2
+                while not ticks and time.monotonic() < deadline:
+                    self.root.update()
+                    time.sleep(0.001)
+                self.assertTrue(ticks, "参数等待期间主线程须继续处理界面事件")
+                self.assertNotEqual(workers[0], threading.get_ident())
+                w.stop()
+                self.assertTrue(w.stop_signal.is_set())
+                self.assertIs(w.process, first, "资源释放之前不能开始下一项")
+                release.set()
+                first.join(1)
+                deadline = time.monotonic() + 1
+                while w.process is not None and time.monotonic() < deadline:
+                    self.root.update()
+                    time.sleep(0.001)
+                self.assertIsNone(w.process)
+                self.assertIn("测试停止", w.parameter_page.message.get())
+        finally:
+            release.set()
+            if w.process is not None:
+                w.process.join(2)
 
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window

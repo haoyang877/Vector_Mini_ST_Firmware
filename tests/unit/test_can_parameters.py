@@ -149,3 +149,20 @@ class ParameterTests(unittest.TestCase):
             report = self.run_operation(snapshot=snapshot, **kwargs)
             self.assertFalse(report["passed"])
             self.assertFalse(any(kind in (121, 122) for kind, _ in self.endpoint.calls))
+
+    def test_read_progress_and_cancel_between_parameters(self):
+        progress = []
+        report = self.run_operation(
+            progress=lambda done, total: progress.append((done, total)),
+            stopped=lambda: len(progress) == 2,
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(progress, [(1, 4), (2, 4)])
+        self.assertEqual(sum(kind == 120 for kind, _ in self.endpoint.calls), 2)
+        self.assertFalse(any(kind in (121, 122) for kind, _ in self.endpoint.calls))
+        self.assertGreaterEqual(report["elapsed_s"], 0)
+
+    def test_cancel_before_start_does_not_access_device(self):
+        report = self.run_operation(stopped=lambda: True)
+        self.assertFalse(report["passed"])
+        self.assertEqual(self.endpoint.calls, [])

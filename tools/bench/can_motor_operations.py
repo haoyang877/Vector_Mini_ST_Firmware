@@ -520,6 +520,7 @@ def run_speed_control(
             )
             writer = csv.DictWriter(stream, fieldnames=columns)
             writer.writeheader()
+            next_flush = time.monotonic() + 0.25
             while not stopped():
                 link.command(118, struct.pack("<I", counters.lease()))
                 try:
@@ -542,7 +543,9 @@ def run_speed_control(
                 if row["actual_rad_s"] is None or row["position_rad"] is None:
                     raise Rejected("速度反馈含无效位置或速度")
                 writer.writerow(dict(host_s=now, **row))
-                stream.flush()
+                if now >= next_flush:
+                    stream.flush()
+                    next_flush = now + 0.25
                 report["samples"] += 1
                 report["last_feedback"] = row
                 feedback(row)

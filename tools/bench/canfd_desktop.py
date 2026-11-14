@@ -48,7 +48,7 @@ from hardware_check import Drive, Link, empty_report, result_rows, run_check, su
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.18.0"
+TITLE = "CAN FD 通信测试 v1.18.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -553,10 +553,12 @@ class CanTestWindow:
             check_tab,
             text="双向驱动前确认从起点两侧可用的输出轴行程。首次驱动填写已知计数，确认刚上电可填 0。",
         ).pack(anchor="w")
-        ttk.Label(
-            check_tab,
-            text="APP v1.8.12：相电阻通过后，正命令角度增加、反命令角度减少；按50ms均值趋势自动验收，无需现场旋向。",
-        ).pack(anchor="w")
+        self.hardware_hint = tk.StringVar()
+        ttk.Label(check_tab, textvariable=self.hardware_hint, wraplength=950).pack(anchor="w")
+        self.hardware_upgrade = ttk.Button(
+            check_tab, text="打开当前电机固件升级", command=self.open_current_upgrade
+        )
+        self.hardware_upgrade.pack(anchor="w", pady=3)
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         calibration_tab = self.pages["calibration"]
         calibration_row = ttk.Frame(calibration_tab)
@@ -1006,6 +1008,15 @@ class CanTestWindow:
         self.update_device_summary()
         self.update_controls()
 
+    def open_current_upgrade(self) -> None:
+        """选择当前节点的升级页；仍由用户显式启动升级。"""
+        if self.process is not None or not self.current_motor:
+            return
+        self.batch_upgrade.set(False)
+        self.tabs.select(self.pages["upgrade"])
+        self.update_controls()
+        self.state.set("已选择当前电机和随包 APP v1.8.12；点击开始升级，保留参数和标定")
+
     def update_device_summary(self) -> None:
         motor = self.current_motor or {}
 
@@ -1013,6 +1024,15 @@ class CanTestWindow:
             value = motor.get(key)
             return "—" if value is None else "未提供" if value == 0 else "v" + version_text(value)
 
+        app = motor.get("app_version")
+        if not app:
+            hint = "先刷新状态读取实际 APP 版本；随包 APP v1.8.12 支持 1A/2A 相电阻检查。"
+        elif app < 0x010809:
+            hint = f"当前设备 APP v{version_text(app)} 不支持完整相电阻检测，请升级到随包 v1.8.12；可先做关相静态检查。"
+        else:
+            currents = "1A/2A" if app >= 0x01080C else "0.5A/1A"
+            hint = f"当前设备 APP v{version_text(app)}：相电阻 {currents}，通过后执行双向动态检测；以设备能力回读为准。"
+        self.hardware_hint.set(hint)
         self.device_versions.set(
             f"APP：{version('app_version')}    Loader：{version('loader_version')}"
         )
@@ -1120,6 +1140,9 @@ class CanTestWindow:
             else "disabled"
         )
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
+        self.hardware_upgrade.configure(
+            state="normal" if not busy and self.current_motor else "disabled"
+        )
         self.parameter_page.update_controls(
             busy, bool(self.current_motor and self.current_motor.get("role") == 1)
         )
@@ -1713,6 +1736,8 @@ class CanTestWindow:
                     self.start(**pending)
 
     def display_report(self, r: dict) -> None:
+        if "submitted_at" in r:
+            r["display_elapsed_s"] = time.monotonic() - r["submitted_at"]
         if r["profile"] in ("can_release", "can_shutdown"):
             self.release_ok = bool(r.get("passed"))
             self.state.set("CAN 已断开" if self.release_ok else r.get("fatal", "CAN 释放失败"))
@@ -1726,7 +1751,7 @@ class CanTestWindow:
             status = "参数读取完成" if r.get("passed") else "参数操作失败"
             if r.get("persisted"):
                 status = "参数已保存，Flash回读一致"
-            status += f" · {r.get('total_elapsed_s', r.get('elapsed_s', 0)):.2f} 秒"
+            status += f" · {r.get('display_elapsed_s', r.get('total_elapsed_s', r.get('elapsed_s', 0))):.2f} 秒"
             if r.get("passed"):
                 status += " · 复用 CAN" if r.get("connection_reused") else " · CAN 已连接"
             self.state.set(status)

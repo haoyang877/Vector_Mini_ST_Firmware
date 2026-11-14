@@ -86,6 +86,11 @@ class SessionTests(unittest.TestCase):
                     requests.put((number, config, out))
                     result = events.get(timeout=2)
                     self.assertEqual(result[:2], (number, "done"))
+                    self.assertGreaterEqual(result[2]["protocol_elapsed_s"], 0)
+                    self.assertGreaterEqual(result[2]["queue_elapsed_s"], 0)
+                    self.assertGreaterEqual(
+                        result[2]["total_elapsed_s"], result[2]["open_elapsed_s"]
+                    )
                     self.assertEqual(result[2]["connection_reused"], number in (2, 3))
                 self.assertEqual((Port.opened, Port.closed), (2, 1))
                 requests.put((5, dict(profile="can_release"), None))

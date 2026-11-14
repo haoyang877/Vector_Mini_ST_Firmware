@@ -55,6 +55,7 @@ def run_session(dll: Path, requests: Any, events: Any, cancel: Any) -> None:
                 continue
             mode = settings["profile"]
             started = time.monotonic()
+            submitted = settings.get("submitted_at", started)
             report = dict(profile=mode, passed=False)
             try:
                 if mode in ("can_release", "can_shutdown"):
@@ -90,13 +91,21 @@ def run_session(dll: Path, requests: Any, events: Any, cancel: Any) -> None:
                             )
                         else:
                             raise ValueError("常驻会话不支持此任务")
-                    report.update(connection_reused=reused, open_elapsed_s=opened - started)
+                    report.update(
+                        connection_reused=reused,
+                        open_elapsed_s=opened - started,
+                        protocol_elapsed_s=time.monotonic() - opened,
+                    )
                     if not report.get("passed"):
                         connection.close()
             except Exception as exc:
                 report["fatal"] = str(exc)
                 connection.close()
-            report["total_elapsed_s"] = time.monotonic() - started
+            report.update(
+                total_elapsed_s=time.monotonic() - submitted,
+                submitted_at=submitted,
+                queue_elapsed_s=started - submitted,
+            )
             if out is not None:
                 (out / "summary.json").write_text(
                     json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -161,7 +170,7 @@ class CanSession:
             raise RuntimeError("CAN 会话忙或已退出，请重新连接")
         self.number += 1
         self.cancel.clear()
-        self.requests.put_nowait((self.number, settings, out))
+        self.requests.put_nowait((self.number, dict(settings, submitted_at=time.monotonic()), out))
         self.active = True
         if settings["profile"] not in ("can_release", "can_shutdown"):
             self.connected = True

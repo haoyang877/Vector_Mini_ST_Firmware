@@ -540,7 +540,13 @@ def run_check(
         report["measurements_supported"] = bool(features & (1 << 20))
         report["resistance_supported"] = bool(features & (1 << 21))
         if drive and not report["resistance_supported"]:
-            raise Rejected("完整检测需要支持相电阻检查的新固件，请先升级")
+            report["upgrade_required"] = True
+            version = report["app_version"]
+            actual = f"{version >> 16}.{(version >> 8) & 255}.{version & 255}"
+            raise Rejected(
+                f"当前设备 APP v{actual} 不支持相电阻检查；请升级到随包 APP v1.8.12。"
+                "本次未启动静态、相电阻或动态检测；也可选择关相静态检查。"
+            )
         if not report["supported"]:
             raise Rejected("该 APP 未提供硬件功能检测")
         if ambient is not None and (not math.isfinite(ambient) or not 0 <= ambient <= 60):
@@ -744,6 +750,8 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
         if resistance["failure"]:
             faults.append(failures[resistance["failure"]])
         state = "正常" if resistance["result"] == 1 and not faults else "；".join(faults) or "未测"
+    elif report.get("resistance_supported") is False:
+        measured, limit, state = "当前固件不支持，未执行", "需升级支持相电阻检查的固件", "不支持"
     elif report.get("resistance_note"):
         measured = report["resistance_note"]
     rows.insert(8, ("相电阻", measured, limit, state))

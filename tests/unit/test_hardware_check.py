@@ -62,7 +62,10 @@ class Port:
         elif kind == 2:
             reply = struct.pack(
                 "<I6H",
-                0 if self.fault == "legacy" else 0x2FFD00 | (int(self.measurements) << 20),
+                0
+                if self.fault == "legacy"
+                else (0x2FFD00 | (int(self.measurements) << 20))
+                & (~(1 << 21) if self.fault == "no_resistance" else 0xFFFFFFFF),
                 0x64E,
                 64,
                 46,
@@ -237,6 +240,16 @@ class HardwareHostTest(unittest.TestCase):
             port, 6, drive=config, previous=0, previous_target=0, counter_db=self.db, **kwargs
         )
         return result, port
+
+    def test_missing_resistance_is_explicit_and_never_starts_detection(self):
+        port = Port(fault="no_resistance", version=0x010808)
+        report = hw.run_check(port, 4, drive=hw.Drive(1, 2, 700, 5))
+        self.assertTrue(report["upgrade_required"])
+        self.assertIn("1.8.8", report["note"])
+        self.assertIn("1.8.12", report["note"])
+        self.assertEqual(hw.result_rows(report)[8][3], "不支持")
+        self.assertNotIn("0.5A", hw.result_rows(report)[8][2])
+        self.assertFalse(any(kind in (116, 117, 118, 127) for kind, _, _ in port.sent))
 
     def test_current_labels_follow_device_firmware(self):
         for version, currents, label in (

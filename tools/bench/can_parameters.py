@@ -73,6 +73,10 @@ DETAILS = {
 
 def parameter_ids(group: str) -> list[int]:
     """返回页面组包含的协议 ID，保持显示和事务顺序一致。"""
+    if group == "all":
+        return list(
+            dict.fromkeys(identifier for _, fields in GROUPS.values() for identifier, _ in fields)
+        )
     return [identifier for identifier, _ in GROUPS[group][1]]
 
 
@@ -174,6 +178,8 @@ def run_parameters(
         write_attempted=[],
     )
     try:
+        if group == "all" and changes is not None:
+            raise Rejected("全部参数仅支持读取，请按组编辑并保存")
         if stopped():
             raise Rejected("操作已停止")
         info = link.request(1, page=0)

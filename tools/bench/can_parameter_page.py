@@ -18,6 +18,9 @@ class ParameterPage(ttk.Frame):
         self.identity = None
         self.busy = False
         self.available = False
+        read_all = ttk.Button(self, text="读取全部参数", command=lambda: action("all", False))
+        read_all.pack(anchor="w", pady=(0, 5))
+        self.buttons.append((read_all, "all", False))
         self.message = tk.StringVar(value="先识别当前电机，再读取需要调整的参数组。")
         ttk.Label(self, textvariable=self.message).pack(anchor="w")
         ttk.Label(
@@ -106,6 +109,19 @@ class ParameterPage(ttk.Frame):
 
     def display(self, report: dict) -> None:
         """保存后其他组修订缓存失效；失败保留编辑文本但要求重新读取。"""
+        if report.get("group") == "all":
+            if not report.get("passed"):
+                self.snapshots.clear()
+                self.message.set(report.get("fatal", "全部读取失败") + "；请重新读取。")
+                self.update_controls(self.busy, self.available)
+                return
+            rows = {int(key): value for key, value in report["rows"].items()}
+            for group, (_, fields) in GROUPS.items():
+                self.display(dict(report, group=group, rows={i: rows[i] for i, _ in fields}))
+            self.message.set(
+                f"已读取全部 {len(rows)} 项参数 · 活动修订 {report['revision']} · 未保存编辑保留"
+            )
+            return
         drafts = {}
         old = self.snapshots.get(report.get("group"))
         if report.get("action") == "read" and old:

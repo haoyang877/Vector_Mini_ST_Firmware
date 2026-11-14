@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_motor_operations as ops
@@ -400,6 +400,51 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertEqual(float(rows[0]["actual_rad_s"]), 3)
         self.assertIn("reference_iq_a", rows[0])
         self.assertIn("reference_speed_rad_s", rows[0])
+
+    def test_speed_csv_batches_flush_and_preserves_all_rows(self):
+        import csv
+
+        samples, streams = [], []
+        clock = [0.0]
+        original_open = Path.open
+
+        def open_trace(path, *args, **kwargs):
+            stream = original_open(path, *args, **kwargs)
+            if path.name == "speed.csv" and args and args[0] == "w":
+                wrapped = MagicMock(wraps=stream)
+                wrapped.__enter__.return_value = wrapped
+                wrapped.__exit__.side_effect = stream.__exit__
+                streams.append(wrapped)
+                return wrapped
+            return stream
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            with (
+                patch.object(Path, "open", open_trace),
+                patch.object(ops.time, "monotonic", side_effect=lambda: clock[0]),
+                patch.object(ops.time, "sleep", side_effect=sleep),
+            ):
+                report = ops.run_speed_control(
+                    None,
+                    6,
+                    3,
+                    None,
+                    queue.Queue(),
+                    out,
+                    counter_db=out / "counter.db",
+                    stopped=lambda: len(samples) == 12,
+                    feedback=samples.append,
+                )
+            with (out / "speed.csv").open(newline="", encoding="utf-8") as stream:
+                rows = list(csv.DictReader(stream))
+        self.assertTrue(report["passed"] and report["stop_confirmed"])
+        self.assertEqual(len(rows), 12)
+        self.assertGreater(streams[0].flush.call_count, 0)
+        self.assertLessEqual(streams[0].flush.call_count, 3)
 
     def test_worker_detects_lost_gui_parent(self):
         with (

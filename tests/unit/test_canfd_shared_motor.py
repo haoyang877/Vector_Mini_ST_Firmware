@@ -471,6 +471,46 @@ class SharedMotorTests(unittest.TestCase):
             )
         w.can_session = None
 
+    def test_hardware_hint_and_upgrade_use_current_device(self):
+        self.window.set_current_motor(4, self.uid, "测试", role=1, app_version=0x010808)
+        self.assertIn("当前设备 APP v1.8.8", self.window.hardware_hint.get())
+        self.assertIn("不支持", self.window.hardware_hint.get())
+        self.window.open_current_upgrade()
+        self.assertEqual(self.window.current_page(), "upgrade")
+        self.assertEqual(self.window.current_node(), 4)
+        self.assertFalse(self.window.batch_upgrade.get())
+        self.assertIsNone(self.window.process)
+        self.window.set_current_motor(4, self.uid, "测试", role=1, app_version=0x01080C)
+        self.assertIn("1A/2A", self.window.hardware_hint.get())
+
+    def test_all_parameters_distribute_snapshots_and_keep_draft(self):
+        self.bind(6)
+        from can_parameters import parameter_ids
+
+        rows = {i: dict(raw=1000, access=3) for i in parameter_ids("all")}
+        report = dict(
+            profile="parameters",
+            action="read",
+            group="all",
+            node=6,
+            uid=self.uid,
+            passed=True,
+            revision=7,
+            rows=rows,
+        )
+        self.window.display_report(report)
+        entry = self.window.parameter_page.entries[11]
+        entry.delete(0, "end")
+        entry.insert(0, "1.7")
+        self.window.display_report(dict(report, revision=8))
+        self.assertEqual(entry.get(), "1.7")
+        self.assertEqual(len(self.window.parameter_page.snapshots), 4)
+        self.assertIn("30", self.window.parameter_page.message.get())
+        self.window.display_report(
+            dict(profile="parameters", group="all", passed=False, fatal="超时")
+        )
+        self.assertFalse(self.window.parameter_page.snapshots)
+
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window
         self.bind(6)

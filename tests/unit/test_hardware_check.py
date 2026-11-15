@@ -251,6 +251,25 @@ class HardwareHostTest(unittest.TestCase):
         self.assertNotIn("0.5A", hw.result_rows(report)[8][2])
         self.assertFalse(any(kind in (116, 117, 118, 127) for kind, _, _ in port.sent))
 
+    def test_resistance_only_stops_without_dynamic_commands(self):
+        for fault in ("", "resistance_missing"):
+            with self.subTest(fault=fault):
+                port = Port(fault=fault, measurements=True)
+                report = hw.run_check(port, 6, resistance_only=True)
+                self.assertTrue(report["stop_confirmed"])
+                self.assertEqual(report["scope"], "static_resistance")
+                self.assertEqual(report["subset_passed"], not bool(fault))
+                self.assertFalse(any(kind in (116, 117, 118) for kind, _, _ in port.sent))
+                self.assertTrue(any(kind == 110 for kind, _, _ in port.sent))
+                self.assertEqual(hw.result_rows(report)[9][3], "不在本轮范围")
+
+    def test_resistance_only_cancel_during_measurement_still_stops(self):
+        port = Port(measurements=True)
+        report = hw.run_check(port, 6, resistance_only=True, stopped=lambda: port.stage == 6)
+        self.assertTrue(report["stop_confirmed"])
+        self.assertFalse(report["subset_passed"])
+        self.assertFalse(any(kind in (116, 117, 118) for kind, _, _ in port.sent))
+
     def test_current_labels_follow_device_firmware(self):
         for version, currents, label in (
             (0x01080B, [0.5, 1.0], "0.5A/1A"),

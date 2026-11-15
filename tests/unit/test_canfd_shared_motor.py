@@ -511,6 +511,79 @@ class SharedMotorTests(unittest.TestCase):
         )
         self.assertFalse(self.window.parameter_page.snapshots)
 
+    def test_stale_status_no_longer_looks_normal(self):
+        self.window.set_current_motor(
+            6, self.uid, "测试", role=1, state=5, mode=0, faults=0, checked_at=time.time() - 6
+        )
+        self.assertIn("过期", self.window.device_state.get())
+        self.assertNotIn("空闲", self.window.device_state.get())
+
+    def test_heartbeat_only_uses_connected_idle_session(self):
+        self.bind(6)
+        w = self.window
+        w.cancel_status_timer()
+        submitted = []
+        w.can_session = SimpleNamespace(
+            connected=True,
+            cancel=threading.Event(),
+            process=SimpleNamespace(is_alive=lambda: True),
+            submit=lambda settings, out: submitted.append((settings, out)) or object(),
+        )
+        with patch.object(w.root, "after"):
+            w.status_heartbeat()
+            self.assertEqual(len(submitted), 1)
+            self.assertEqual(submitted[0][0]["profile"], "device_status")
+            self.assertIsNone(submitted[0][1])
+            self.assertTrue(w.auto_status_task)
+            w.status_heartbeat()
+            self.assertEqual(len(submitted), 1)
+            w.process = None
+            w.can_session.connected = False
+            w.status_heartbeat()
+            self.assertEqual(len(submitted), 1)
+        w.status_timer = None
+        w.can_session = None
+
+    def test_resistance_mode_does_not_require_dynamic_fields(self):
+        self.bind(6)
+        w = self.window
+        w.check_mode.set("静态＋相电阻")
+        w.check_fields["travel"].delete(0, "end")
+        settings = self.capture_start("hardware")
+        self.assertTrue(settings["resistance_only"])
+        self.assertIsNone(settings["drive"])
+
+    def test_parameter_rows_distinguish_device_draft_and_persistence(self):
+        self.bind(6)
+        page = self.window.parameter_page
+        rows = {
+            i: dict(raw=1000, access=3, revision=7, saved_revision=7, flags=1)
+            for i in (11, 12, 13, 14)
+        }
+        report = dict(
+            profile="parameters",
+            action="read",
+            group="current",
+            node=6,
+            uid=self.uid,
+            passed=True,
+            revision=7,
+            rows=rows,
+        )
+        self.window.display_report(report)
+        self.assertEqual(page.readbacks[11].get(), "1")
+        self.assertEqual(page.value_states[11].get(), "已保存")
+        page.entries[11].delete(0, "end")
+        page.entries[11].insert(0, "1.5")
+        page.update_value_state(11)
+        self.assertEqual(page.readbacks[11].get(), "1")
+        self.assertEqual(page.value_states[11].get(), "有未写入修改")
+        page.entries[11].delete(0, "end")
+        page.entries[11].insert(0, "1")
+        rows[11].update(flags=3, saved_revision=6)
+        page.update_value_state(11)
+        self.assertEqual(page.value_states[11].get(), "RAM值 / 保存未确认")
+
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window
         self.bind(6)

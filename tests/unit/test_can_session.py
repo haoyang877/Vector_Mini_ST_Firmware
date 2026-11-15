@@ -101,6 +101,25 @@ class SessionTests(unittest.TestCase):
                 worker.join(2)
             self.assertFalse(worker.is_alive())
 
+    def test_status_refresh_without_record_directory_reuses_connection(self):
+        requests, events, cancel = queue.Queue(), queue.Queue(), threading.Event()
+        config = dict(profile="device_status", node=6, expected_uid="01" * 12, bus={})
+        requests.put((1, config, None))
+        requests.put((2, config, None))
+        requests.put((3, dict(profile="can_shutdown"), None))
+        with (
+            patch.object(session, "ControlCanFd", Port),
+            patch.object(session.os, "add_dll_directory", return_value=nullcontext()),
+            patch.object(session, "read_device_status", return_value=dict(node=6)) as read,
+        ):
+            session.run_session(Path("sdk.dll"), requests, events, cancel)
+        first, second, closed = (events.get_nowait() for _ in range(3))
+        self.assertTrue(first[2]["passed"] and second[2]["passed"] and closed[2]["passed"])
+        self.assertFalse(first[2]["connection_reused"])
+        self.assertTrue(second[2]["connection_reused"])
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual((Port.opened, Port.closed), (1, 1))
+
     def test_old_messages_cannot_complete_new_task(self):
         endpoint = SimpleNamespace(
             events=queue.Queue(),

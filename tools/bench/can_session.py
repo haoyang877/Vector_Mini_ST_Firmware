@@ -5,7 +5,7 @@ import multiprocessing as mp
 import os
 import queue
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -64,8 +64,12 @@ def run_session(dll: Path, requests: Any, events: Any, cancel: Any) -> None:
                 else:
                     port, reused = connection.open(dll, settings["bus"])
                     opened = time.monotonic()
-                    with (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream:
-                        bus = TraceBus(port, stream)
+                    with (
+                        (out / "frames.csv").open("w", newline="", encoding="utf-8")
+                        if out is not None
+                        else nullcontext(None)
+                    ) as stream:
+                        bus = TraceBus(port, stream) if stream is not None else port
                         if mode == "parameters":
                             report = run_parameters(
                                 bus,

@@ -313,3 +313,5 @@
 - [常驻 CAN 与参数刷新](2026-11-14-persistent-can.md)：1.18.0，PR通过，实际设备刷新耗时待验证。
 
 - [检测版本与刷新优化](2026-11-15-hardware-version-and-refresh.md)：1.18.1，右轮升级和只读全参验证、Release通过。
+
+- [状态、参数对照与检测分阶段](2026-11-15-status-parameters-stages.md)：1.19.0，PR通过，待用户实机验证。

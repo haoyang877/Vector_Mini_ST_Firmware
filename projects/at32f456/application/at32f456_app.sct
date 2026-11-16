@@ -1,5 +1,5 @@
 ; 普通APP：与调试APP采用相同SRAM快环布局，避免Flash等待触发20kHz超时。
-; 热代码按快拍职责选择；数据紧随代码，含4KiB栈及邮箱总分配限制48KiB。
+; 热代码按快拍职责选择；数据紧随代码，含4KiB栈及32 B邮箱的总预算为64 KiB。
 LR_IROM1 0x08000000 0x0001C000 {
   ER_IROM1 0x08000000 0x0001C000 {
     *.o (RESET, +First)
@@ -88,5 +88,5 @@ LR_IROM1 0x08000000 0x0001C000 {
   RW_IRAM1 AlignExpr(ImageLimit(ER_FAST), 8) 0x0000F000 {
     .ANY (+RW +ZI)
   }
-  ScatterAssert(ImageLimit(RW_IRAM1) <= 0x2000BFE0)
+  ScatterAssert(ImageLimit(RW_IRAM1) <= 0x2000FFE0)
 }

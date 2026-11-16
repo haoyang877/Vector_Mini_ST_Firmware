@@ -229,7 +229,7 @@ class At32TargetTests(unittest.TestCase):
                 ):
                     self.assertIn(f"{obj} (+RO)", fast)
                 self.assertIn("mcu_temperature_sensing.o (+RO)", flash)
-                self.assertIn("0x2000BFE0", text)
+                self.assertIn("ScatterAssert(ImageLimit(RW_IRAM1) <= 0x2000FFE0)", text)
                 self.assertIn("encoder_calibration.o (i.EncoderCalibration_PublishLut)", flash)
                 self.assertIn("motor_state_machine.o (i.MotorStateMachine_NextState)", fast)
 

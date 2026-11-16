@@ -8,7 +8,7 @@ AT32F456 的 TMR6 监督拍先更新轴，再把主状态、当前故障及检�
 [灯语模块](../../projects/at32f456/application/status_lights.c)。模块逐拍计算逻辑亮灭，板级入口仅在输出变化时调用
 [GPIO 驱动](../../firmware/platform/bsp/mcu/at32f456/status_light_gpio.c)。
 
-### AT32F456 的 48 KiB RAM 布局
+### AT32F456 的 64 KiB RAM 预算
 
 RAM优化保持板端联合标定及所有LUT点数，APP栈为4 KiB，Loader栈保持8 KiB。输出轴配对样本仅将
 两路12位Hall整数无损打包；标定记录、关相参数暂存及硬件检测采样队列复用维护区。
@@ -16,9 +16,10 @@ RAM优化保持板端联合标定及所有LUT点数，APP栈为4 KiB，Loader栈
 记录编码覆盖原采样。互斥状态由轴状态机提供，ADC只在检测有效时写入队列。
 SRAM逐函数选择热路径，链接断言约束总分配；RTT缓冲缩短会减少可容忍的主机读取停顿。
 维护区由`MotorCalibration.storage`持有，记录、样本、检测统计及128组队列为同一union；
-电机编码器的6144 B工作区独立保留。RTT波形缓冲为512 B，仍保持非阻塞整帧丢弃。
-两种AT32 APP以`ScatterAssert`限制数据终点不超过`0x2000BFE0`，另计32 B既有邮箱；
-邮箱仍位于原ABI地址，不改变Loader契约。48 KiB 优化初版配套APP总预留48944 B，独立APP48872 B，均包含栈和32 B邮箱。
+电机编码器的6144 B工作区独立保留。RTT1 波形缓冲采用非阻塞整帧写入。
+两种 AT32 APP 的 RAM 总预算为 65,536 B，其中 32 B 计入 Loader 邮箱。
+APP 从 `0x20000000` 起最多分配 65,504 B，链接结束地址上限为 `0x2000FFE0`。
+邮箱实际位于 `0x20016FE0`，地址由 Loader ABI 固定。48 KiB 优化初版配套APP总预留48944 B，独立APP48872 B，均包含栈和32 B邮箱。
 快代码和4 kHz外环的执行位置变化尚未完成实机最坏时序验收；离线预算通过不能替代该验收。
 详见[实施与验收记录](../plans/completed/2026-11-13-at32-ram-64k-v1.md)。
 

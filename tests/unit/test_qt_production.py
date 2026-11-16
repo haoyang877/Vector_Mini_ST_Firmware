@@ -19,8 +19,9 @@ from can_session import SessionTask
 from hardware_check import direction_results, empty_report
 from production_controller import ProductionController
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QTabWidget
+from qt_production_icons import icon
 from qt_production_theme import apply_theme
 from qt_production_window import ProductionWindow
 from qt_speed_plot import SpeedPlot
@@ -182,6 +183,41 @@ class QtProductionTests(unittest.TestCase):
         self.controller.calls.clear()
         w.refresh_status()
         self.assertFalse(self.controller.calls)
+
+    def test_every_action_navigation_and_tab_has_a_valid_icon(self):
+        w = self.window
+        self.assertFalse(w.windowIcon().isNull())
+        for button in w.findChildren(QPushButton):
+            with self.subTest(button=button.text()):
+                self.assertFalse(button.icon().isNull())
+                self.assertFalse(button.icon().pixmap(20, 20).isNull())
+        for index in range(w.navigation.count()):
+            self.assertFalse(w.navigation.item(index).icon().isNull())
+        for tabs in w.findChildren(QTabWidget):
+            for index in range(tabs.count()):
+                self.assertFalse(tabs.tabIcon(index).isNull())
+        assets = Path(__file__).resolve().parents[2] / "tools/bench/assets/icons"
+        self.assertEqual(len(list(assets.glob("*.svg"))), 24)
+        for path in assets.glob("*.svg"):
+            self.assertFalse(icon(path.stem).pixmap(16, 16).isNull())
+
+    def test_primary_and_disabled_icons_have_distinct_visible_colors(self):
+        active = icon("start", emphasis=True).pixmap(20, 20, QIcon.Mode.Normal).toImage()
+        disabled = icon("start", emphasis=True).pixmap(20, 20, QIcon.Mode.Disabled).toImage()
+        active_colors = {
+            active.pixelColor(x, y).name()
+            for x in range(20)
+            for y in range(20)
+            if active.pixelColor(x, y).alpha() > 200
+        }
+        disabled_colors = {
+            disabled.pixelColor(x, y).name()
+            for x in range(20)
+            for y in range(20)
+            if disabled.pixelColor(x, y).alpha() > 200
+        }
+        self.assertIn("#ffffff", active_colors)
+        self.assertIn("#8798a9", disabled_colors)
 
     def test_native_pages_routes_and_removed_controls(self):
         w = self.window

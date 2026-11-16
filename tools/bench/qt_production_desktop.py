@@ -8,7 +8,7 @@ from pathlib import Path
 def main() -> None:
     """先处理Windows子进程入口，再加载Qt；避免工作进程创建窗口。"""
     mp.freeze_support()
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QPushButton
     from qt_production_window import ProductionWindow
 
     app = QApplication(sys.argv)
@@ -16,6 +16,7 @@ def main() -> None:
     app.setOrganizationName("Vector Mini")
     offline_smoke = len(sys.argv) == 3 and sys.argv[1] == "--offline-smoke"
     window = ProductionWindow(auto_connect=not offline_smoke)
+    app.setWindowIcon(window.windowIcon())
     window.show()
     if offline_smoke:
         # 交付包自检仅渲染控件，不发出设备命令。
@@ -38,6 +39,11 @@ def main() -> None:
                         pages=window.stack.count(),
                         hardware_contacted=False,
                         connected=window.controller.connected,
+                        window_icon_valid=not window.windowIcon().isNull(),
+                        action_icons_valid=all(
+                            not button.icon().isNull()
+                            for button in window.findChildren(QPushButton)
+                        ),
                     )
                 ),
                 encoding="utf-8",

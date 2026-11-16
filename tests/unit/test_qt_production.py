@@ -19,7 +19,9 @@ from can_session import SessionTask
 from hardware_check import direction_results, empty_report
 from production_controller import ProductionController
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
+from qt_production_theme import apply_theme
 from qt_production_window import ProductionWindow
 from qt_speed_plot import SpeedPlot
 
@@ -93,6 +95,37 @@ class QtProductionTests(unittest.TestCase):
         )
         self.window.axis.setCurrentIndex(node - 3)
         self.window.select_motor()
+
+    def test_status_fields_expand_mode_and_fault_details(self):
+        self.bind()
+        w = self.window
+        self.assertEqual(w.version_label.text(), "APP 固件：v1.8.12")
+        self.assertEqual(w.loader_label.text(), "Loader 固件：v2.3.4")
+        self.assertEqual(w.status_label.text(), "运行状态：空闲")
+        self.assertIn("未使能（模式 0）", w.mode_label.text())
+        self.assertIn("无故障（0x00000000）", w.fault_label.text())
+        w.current_motor.update(mode=2, state=8, faults=33)
+        w.render_device()
+        self.assertIn("速度闭环", w.mode_label.text())
+        self.assertIn("过流", w.fault_label.text())
+        self.assertIn("编码器", w.fault_label.text())
+        self.assertIn("0x00000021", w.fault_label.text())
+        w.current_motor.update(mode=99, state=99, checked_at=time.time() - 6)
+        w.render_device()
+        self.assertIn("已过期", w.status_label.text())
+        self.assertIn("未知模式", w.mode_label.text())
+        self.assertIn("上次读取", w.fault_label.text())
+
+    def test_light_palette_replaces_dark_system_colors(self):
+        dark = QPalette()
+        dark.setColor(QPalette.ColorRole.Window, QColor("#101010"))
+        dark.setColor(QPalette.ColorRole.Base, QColor("#000000"))
+        self.app.setProperty("production_theme", None)
+        self.app.setPalette(dark)
+        apply_theme(self.app)
+        self.assertEqual(self.app.palette().color(QPalette.ColorRole.Base).name(), "#ffffff")
+        self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window).name(), "#f2f5f9")
+        self.assertEqual(self.app.palette().color(QPalette.ColorRole.Shadow).name(), "#cdd8e4")
 
     def test_native_pages_routes_and_removed_controls(self):
         w = self.window

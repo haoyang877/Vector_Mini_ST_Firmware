@@ -59,44 +59,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qt_parameter_page import ParameterPage
+from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.0.0"
-THEME = """
-QMainWindow,QDialog { background:#f2f5f9; }
-QWidget { font-family:'Microsoft YaHei UI'; font-size:13px; color:#24354b; }
-QGroupBox { background:white; border:1px solid #dce4ed; border-radius:10px; margin-top:12px; padding:14px 12px 10px; }
-QGroupBox::title { subcontrol-origin:margin; left:14px; padding:0 5px; color:#52667e; font-weight:600; }
-QLabel#title { font-size:23px; font-weight:700; color:#132e49; }
-QLabel#subtitle { color:#75869a; font-size:12px; }
-QLabel#metric { font-size:19px; font-weight:600; color:#126c87; }
-QLabel#sectionTitle { font-size:20px; font-weight:600; color:#1c3d59; }
-QListWidget#navigation { background:#173047; color:#d3e1ed; border:0; border-radius:10px; padding:10px 6px; outline:0; }
-QListWidget#navigation::item { height:48px; padding-left:14px; border-radius:7px; margin:3px; }
-QListWidget#navigation::item:selected { background:#176f92; color:white; }
-QListWidget#navigation::item:hover { background:#244b66; }
-QPushButton { background:white; border:1px solid #cdd8e4; border-radius:6px; padding:7px 13px; min-height:19px; }
-QPushButton:hover { background:#edf5fb; border-color:#5095b5; }
-QPushButton:pressed { background:#dbeaf5; }
-QPushButton:disabled { color:#97a5b3; background:#f4f6f8; border-color:#e2e7ed; }
-QPushButton#primary { color:white; background:#126f94; border-color:#126f94; font-weight:600; }
-QPushButton#primary:disabled { color:#a5b9c3; background:#dce6eb; border-color:#dce6eb; }
-QPushButton#stop { color:#b33b45; border-color:#e4b5b9; background:#fff7f7; }
-QPushButton#stop:disabled { color:#97a5b3; border-color:#e2e7ed; background:#f4f6f8; }
-QLineEdit,QComboBox { background:white; border:1px solid #cdd8e4; border-radius:5px; padding:6px 8px; min-height:20px; }
-QLineEdit:focus,QComboBox:focus { border:1px solid #1680a8; }
-QLineEdit:read-only { background:#f3f6fa; color:#62778d; }
-QTabWidget::pane { border:0; background:white; }
-QTabBar::tab { padding:9px 17px; background:#e9eef4; border:0; margin-right:3px; color:#60748b; }
-QTabBar::tab:selected { background:white; color:#126f94; border-bottom:2px solid #126f94; }
-QTableWidget { border:1px solid #e0e6ee; background:white; gridline-color:#edf1f6; alternate-background-color:#f8fafc; selection-background-color:#dceef8; selection-color:#12384d; }
-QHeaderView::section { background:#f0f4f8; padding:8px; border:0; border-bottom:1px solid #dde5ee; font-weight:600; color:#52667e; }
-QPlainTextEdit { background:white; border:1px solid #dce4ed; border-radius:6px; padding:6px; }
-QProgressBar { border:0; border-radius:4px; background:#e3eaf1; height:8px; }
-QProgressBar::chunk { background:#169e99; border-radius:4px; }
-QScrollArea { border:0; background:transparent; }
-QSplitter::handle { background:#e0e7ef; }
-"""
+VERSION = "2.0.1"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -150,7 +116,7 @@ class ProductionWindow(QMainWindow):
         self.setWindowTitle(f"电机生产测试上位机 v{VERSION} · Qt")
         self.resize(1440, 960)
         self.setMinimumSize(1060, 740)
-        self.setStyleSheet(THEME)
+        apply_theme(QApplication.instance())
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         self.root_log = Path.home() / "CAN-Link-Test"
         self.controller = controller or ProductionController(
@@ -227,8 +193,21 @@ class ProductionWindow(QMainWindow):
         header.addWidget(current, 4)
         device = QGroupBox("设备状态")
         form = QVBoxLayout(device)
-        self.version_label = label("APP —  /  Loader —", "subtitle")
-        self.status_label = label("等待连接")
+        details = QGridLayout()
+        details.setHorizontalSpacing(18)
+        details.setVerticalSpacing(5)
+        self.version_label = label("APP 固件：—", "statusValue", True)
+        self.loader_label = label("Loader 固件：—", "statusValue", True)
+        self.status_label = label("运行状态：未读取", "statusValue", True)
+        self.mode_label = label("控制模式：未读取", "statusValue", True)
+        self.fault_label = label("故障信息：未读取", "statusValue", True)
+        details.addWidget(self.version_label, 0, 0)
+        details.addWidget(self.loader_label, 0, 1)
+        details.addWidget(self.status_label, 1, 0)
+        details.addWidget(self.mode_label, 1, 1)
+        details.addWidget(self.fault_label, 2, 0, 1, 2)
+        details.setColumnStretch(0, 1)
+        details.setColumnStretch(1, 1)
         metrics = QHBoxLayout()
         self.voltage = label("— V", "metric")
         self.current = label("— A", "metric")
@@ -242,8 +221,7 @@ class ProductionWindow(QMainWindow):
             metric.addWidget(label(caption, "subtitle"))
             metric.addWidget(widget)
             metrics.addLayout(metric)
-        form.addWidget(self.version_label)
-        form.addWidget(self.status_label)
+        form.addLayout(details)
         form.addLayout(metrics)
         foot = QHBoxLayout()
         self.last_read = label("电压 / 电流 / 电机温度", "subtitle")
@@ -605,30 +583,52 @@ class ProductionWindow(QMainWindow):
         )
         self.uid_label.setText("UID " + motor["uid"] if motor else "尚未识别设备")
         self.version_label.setText(
-            "APP "
-            + (version_text(motor["app_version"]) if motor.get("app_version") else "—")
-            + "  /  Loader "
-            + (version_text(motor["loader_version"]) if motor.get("loader_version") else "—")
+            "APP 固件："
+            + ("v" + version_text(motor["app_version"]) if motor.get("app_version") else "未读取")
+        )
+        self.loader_label.setText(
+            "Loader 固件："
+            + (
+                "v" + version_text(motor["loader_version"])
+                if motor.get("loader_version")
+                else "未读取"
+            )
         )
         stamp = motor.get("checked_at")
         stale = bool(stamp and time.time() - stamp > 5)
         error = motor.get("status_error")
-        state = (
-            "读取失败"
-            if error
-            else "数据已过期"
-            if stale
-            else "Loader · 等待升级"
-            if motor.get("role") == 2
-            else (
-                {3: "自检", 4: "标定", 5: "空闲", 6: "运行", 8: "故障"}.get(
-                    motor.get("state"), "未读取"
-                )
+        state_code, mode_code = motor.get("state"), motor.get("mode")
+        state = {3: "自检", 4: "标定", 5: "空闲", 6: "运行", 8: "故障"}.get(
+            state_code, "未读取" if state_code is None else f"未知状态（{state_code}）"
+        )
+        if motor.get("role") == 2:
+            state = "Loader · 等待升级"
+        status = "读取失败" if error else "数据已过期" if stale else state
+        self.status_label.setText("运行状态：" + status)
+        modes = {
+            0: "未使能",
+            1: "电流闭环",
+            2: "速度闭环",
+            3: "位置闭环",
+            6: "电压控制",
+            9: "开环电压",
+            10: "开环电流",
+        }
+        mode = modes.get(mode_code, "未知模式")
+        mode = "未读取" if mode_code is None else f"{mode}（模式 {mode_code}）"
+        historical = "（上次读取）" if stale or error else ""
+        self.mode_label.setText("控制模式：" + mode + historical)
+        faults = motor.get("faults")
+        self.fault_label.setText(
+            "故障信息："
+            + (
+                "未读取"
+                if faults is None
+                else f"{describe_faults(faults)}（0x{faults:08X}）" + historical
             )
         )
-        if motor.get("role") == 1 and not error and not stale:
-            state += f" · 模式{motor.get('mode', '—')} · {describe_faults(motor.get('faults', 0))}"
-        self.status_label.setText(state)
+        self.fault_label.setStyleSheet("color:#b42336;" if faults else "")
+        self.status_label.setToolTip(str(error) if error else "")
         for widget, key, unit, digits in (
             (self.voltage, "bus_voltage_v", "V", 2),
             (self.current, "bus_current_a", "A", 3),

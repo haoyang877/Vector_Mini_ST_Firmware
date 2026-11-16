@@ -48,7 +48,7 @@ try {
         Move-Item -LiteralPath $temp -Destination (Join-Path $records.FullName "$node.bin") -Force
     }
     uv run --no-sync --extra maintenance --extra desktop --with pyinstaller==6.16.0 python -m PyInstaller --noconfirm --onedir --windowed `
-        --name 电机生产测试上位机-v2.0.0 --distpath "$output/dist" --workpath "$output/build" `
+        --name 电机生产测试上位机-v2.0.1 --distpath "$output/dist" --workpath "$output/build" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
         --add-binary "${sdk};." --add-data "$root/tools/bench/five_axis_can_stability.json;." `
         --add-data "$root/shared/targets/yg_esc_v1_at32f456.json;." `
@@ -59,7 +59,7 @@ try {
         --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets `
         tools/bench/qt_production_desktop.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败 ($LASTEXITCODE)" }
-    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.0.0/电机生产测试上位机-v2.0.0.exe" -Algorithm SHA256
+    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.0.1/电机生产测试上位机-v2.0.1.exe" -Algorithm SHA256
 } finally {
     Pop-Location
 }

@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [AT32 母线与三相 ADC 原码 RTT](2026-11-16-udc-rtt.md) — 20 kHz 六槽 RTT1 和静止 YAW 板采集记录。
+
 - [AT32 重构功能合并](2026-11-16-refactor-integration.md) — APP v1.8.13、生产工作台、48 KiB RAM 与双板构建。
 
 - [AT32 状态灯模块化与 2 kHz 调度](2026-11-14-at32-status-light-module.md) — APP 和 Standalone 编译通过，28 V 右轮实板验证空闲心跳、关相检查快闪及心跳恢复。

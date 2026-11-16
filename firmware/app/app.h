@@ -49,16 +49,15 @@ void App_Start(AppContext *app);
 void App_Process(AppContext *app);
 
 /**
- * @brief 初始化位置环反馈 RTT 上行通道。
+ * @brief 初始化 ADC 快拍的 RTT 上行通道 1。
  * @note 由启用RTT的板级入口在启动采样中断前调用一次，不启相。
  */
 void RTT_Init(void);
 
 /**
- * @brief 通道 1 发送 Hall 单圈角（mrad）及 sin/cos 原码。
- * @note 仅在初始化后的 2 kHz 监督回调完成后调用；单写者，缓冲满则丢整帧，不阻塞。
- *       换算按int16饱和并截断取整，启动零偏未就绪的NaN记为0。
+ * @brief ADC 完成后向通道 1 非阻塞发送 Udc、Ibus、Ia、Ib、Ic 和本拍序号。
+ * @param sample_tick 已完成快拍的计数；线路使用低 16 位，丢帧仍推进。
  */
-void RTT_Sampling(void);
+void RTT_Sampling(uint32_t sample_tick);
 
 #endif

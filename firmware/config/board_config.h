@@ -7,6 +7,8 @@
 
 /* AT32正式工程的应用装配。 */
 #if defined(FIRMWARE_TARGET_AT32_OFF)
+/* 由板级预包含统一选择 RTT 配置，SEGGER 实现与应用共享同一缓冲布局。 */
+#include "SEGGER_RTT_Conf.h"
 #define BSP_APP_STATE_MACHINE              1
 #endif
 

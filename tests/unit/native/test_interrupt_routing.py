@@ -5,8 +5,8 @@ from run_position_servo_tests import ROOT, function_source
 
 RTT_FIXTURE = r"""
 static unsigned rtt_writes;
-void RTT_Sampling(void) {
- assert(g_app.axis.state_machine.fast_sample_ticks == rtt_writes + 1U);
+void RTT_Sampling(uint32_t tick) {
+ assert(tick == g_app.axis.state_machine.fast_sample_ticks && tick == rtt_writes + 1U);
  ++rtt_writes;
 }
 """
@@ -41,7 +41,7 @@ void MotorAxis_OuterOverrun(MotorAxis *axis) { assert(axis==&g_app.axis); ++over
 
 
 def rtt_sampling_fixture() -> str:
-    """检查通道1的帧宽、单圈角缩放及两路霍尔原码。"""
+    """验证单帧六个 int16 的通道、顺序、ADC 量化、满缓冲及序号回绕。"""
     return r"""
 #include <assert.h>
 #include <stdint.h>
@@ -49,31 +49,32 @@ def rtt_sampling_fixture() -> str:
 #include <string.h>
 #include "app.h"
 #include "bsp_adc.h"
-#include "motor_axis.h"
-static const LinearHall hall = {.val = {.angle_rad = 1.75f}};
-const MotorAxisFeedback MotorAxis_Feedback = {.linear_hall = &hall};
-static unsigned configured, position_frames;
+static unsigned configured, writes;
+static const uint16_t ticks[] = {65534, 65535, 0};
 float BspAdc_ReadRawChannel(BspAdcChannel channel) {
- assert(channel==BSP_ADC_LINEAR_HALL_SIN || channel==BSP_ADC_LINEAR_HALL_COS);
- return channel==BSP_ADC_LINEAR_HALL_SIN ? 1234 : 4095;
+ switch (channel) {
+ case BSP_ADC_BUS_VOLTAGE: return 1124;
+ case BSP_ADC_BUS_CURRENT: return 2035;
+ case BSP_ADC_PHASE_CURRENT_A: return 2045.25f;
+ case BSP_ADC_PHASE_CURRENT_B: return 2047.5f;
+ case BSP_ADC_PHASE_CURRENT_C: return 4095;
+ default: assert(0); return 0;
+ }
 }
 int SEGGER_RTT_ConfigUpBuffer(unsigned ch,const char *name,void *buf,unsigned bytes,unsigned flags) {
- assert(buf && bytes==512 && flags==0 && ch==1);
- assert(strcmp(name,"JScope_i2i2i2i2i2i2i2i2")==0);
+ assert(buf && bytes>=24 && flags==0 && ch==1);
+ assert(strcmp(name,"JScope_i2i2i2i2i2i2")==0);
  ++configured; return 0;
 }
-unsigned SEGGER_RTT_Write(unsigned ch,const void *data,unsigned bytes) {
- int16_t frame[8];
- assert(ch==1 && bytes==sizeof(frame)); memcpy(frame,data,sizeof(frame));
- for(unsigned i=0;i<5;++i) assert(frame[i]==0);
- assert(frame[5]==1750);
- assert(frame[6]==1234 && frame[7]==4095);
- ++position_frames; return bytes;
+unsigned SEGGER_RTT_WriteSkipNoLock(unsigned ch,const void *data,unsigned bytes) {
+ int16_t frame[6]; assert(ch==1 && bytes==sizeof(frame)); memcpy(frame,data,sizeof(frame));
+ assert(frame[0]==1124 && frame[1]==2035 && frame[2]==2045 && frame[3]==2048 && frame[4]==4095);
+ assert((uint16_t)frame[5]==ticks[writes]); ++writes; return writes==2U ? 0U : 1U;
 }
 int main(void) {
  RTT_Init(); assert(configured==1);
- RTT_Sampling(); assert(position_frames==1);
- puts("PASS RTT Hall angle and raw counts"); return 0;
+ for(uint32_t tick=65534;tick<=65536;++tick) RTT_Sampling(tick);
+ assert(writes==3U); puts("PASS RTT1 ADC samples and sequence wrap"); return 0;
 }
 """
 
@@ -220,9 +221,9 @@ int main(void) {
  count = 0U; fast_adc.flags = aux_adc.flags = ADC_PCCE_FLAG;
  MCU_ADC_IRQ_HANDLER(); assert(count == 4U && fast_calls == 1U && g_app.axis.state_machine.fast_sample_ticks == 1U);
  assert(trace[0] == 1U && trace[1] == 2U && trace[2] == 3U && trace[3] == 4U);
- assert(rtt_writes == 0U);
+ assert(rtt_writes == 1U);
  count = 0U; aux_adc.flags = ADC_PCCE_FLAG;
- MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 1U && rtt_writes == 0U);
+ MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 1U && rtt_writes == 1U);
  BspSystem_HandleControlInterrupt(); assert(count == 0U && control_calls == 0U);
  timer_flag = 1U; BspSystem_HandleControlInterrupt();
  assert(count == 2U && trace[0] == 4U && trace[1] == 5U && control_calls == 1U);
@@ -236,7 +237,7 @@ int main(void) {
    if(valid_samples==5) { assert(s_outer_outstanding); PendSV_Handler(); }
  }
  assert(outer_calls==1U && overruns==1U && s_outer_outstanding);
- assert(captures==8U);
+ assert(captures==8U && rtt_writes==fast_calls);
  PendSV_Handler(); assert(outer_calls==2U && !s_outer_outstanding);
  puts("PASS AT32 hardware IRQ: missing/paired events, clear-before-callback, SysTick wrap");
  return 0;

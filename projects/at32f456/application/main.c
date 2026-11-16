@@ -58,7 +58,6 @@ void BspApp_OnControlTick(void)
     {
         BspSystem_WriteStatusLights(s_lights.red, s_lights.blue);
     }
-    RTT_Sampling();
 }
 
 /** @brief 确认并清除ADC完成事件后直接执行轴快环，完成后推进健康计数。 */
@@ -68,6 +67,7 @@ void MCU_ADC_IRQ_HANDLER(void)
     {
         MotorAxis_SampleFast(&g_app.axis);
         MotorAxis_ControlFast(&g_app.axis);
+        RTT_Sampling(g_app.axis.state_machine.fast_sample_ticks);
         if (g_hardware_check_capture)
         {
             HardwareCheck_CaptureFast(&g_app.axis);

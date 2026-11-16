@@ -56,6 +56,9 @@ class HallRawCapture:
 
     def start(self, report: dict) -> None:
         version = report["app_version"]
+        if version in (0x01080E, 0x01080F):
+            self.result["error"] = "当前 APP 的 RTT1 提供母线及三相 ADC 原码，没有 Hall 原码"
+            return
         if version not in (
             0x010803,
             0x010804,

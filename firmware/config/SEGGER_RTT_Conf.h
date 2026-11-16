@@ -1,14 +1,19 @@
-#ifndef PROJECT_SEGGER_RTT_CONF_H
-#define PROJECT_SEGGER_RTT_CONF_H
+#ifndef SEGGER_RTT_CONF_H
+#define SEGGER_RTT_CONF_H
 
-/* 公用RTT项目配置：当前调用方均由前台单写，ISR只写本地采样队列。
- * 通道名和专用缓冲区由ConfigUpBuffer传入；不等待主机或屏蔽采样中断。 */
+/* 每个通道仅一个写者。AT32 APP 快拍写通道 1，所有发送均为非阻塞。 */
 #define SEGGER_RTT_LOCK()
 #define SEGGER_RTT_UNLOCK()
 #define RTT_USE_ASM 0
+#if defined(FIRMWARE_TARGET_AT32_OFF)
+#define SEGGER_RTT_MAX_NUM_UP_BUFFERS 3
+#define SEGGER_RTT_MAX_NUM_DOWN_BUFFERS 3
+#define BUFFER_SIZE_UP 64 /* AT32 APP 的通道 0 留作短消息，采样使用通道 1。 */
+#else
 #define SEGGER_RTT_MAX_NUM_UP_BUFFERS 2
 #define SEGGER_RTT_MAX_NUM_DOWN_BUFFERS 1
 #define BUFFER_SIZE_UP 1024
+#endif
 #define BUFFER_SIZE_DOWN 16
 #define SEGGER_RTT_MODE_DEFAULT SEGGER_RTT_MODE_NO_BLOCK_SKIP
 

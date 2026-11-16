@@ -522,6 +522,7 @@ def run_check(
             raise Rejected("设备忙，已确认通信")
         report["uid"] = info[:12].hex()
         report["app_version"] = int.from_bytes(info[20:24], "little")
+        report["loader_version"] = int.from_bytes(info[24:28], "little")
         report["test_currents_a"] = [1.0, 2.0] if report["app_version"] >= 0x01080C else [0.5, 1.0]
         identity = link.request(1, page=1)
         if identity == b"\x06\0\0\0":

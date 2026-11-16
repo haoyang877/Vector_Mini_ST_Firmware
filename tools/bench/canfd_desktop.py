@@ -44,11 +44,12 @@ from five_axis_can_stability import (
     version_text,
 )
 from five_axis_jlink import FIRST_FIT_AXES, run_jlink
-from hardware_check import Drive, Link, empty_report, result_rows, run_check, summarize
+from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
+from production_report import export_report, report_rows
 
-TITLE = "电机生产测试上位机 v1.19.1"
+TITLE = "电机生产测试上位机 v1.20.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -365,6 +366,16 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                     stopped=stop.is_set,
                     progress=lambda msg: events.put(("stage", msg)),
                 )
+            selection = FIRST_FIT_AXES.get(settings["node"])
+            report.update(
+                axis=selection[0] if selection else "未知",
+                model=selection[1] if selection else "未知",
+            )
+            try:
+                export_report(report, out, tool_version="1.20.0")
+                report["production_report"] = "production-report.html"
+            except (OSError, ValueError, KeyError) as exc:
+                report["report_error"] = str(exc)
             (out / "summary.json").write_text(
                 json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -425,6 +436,7 @@ class CanTestWindow:
         self.commands = None
         self.active_profile = None
         self.stop_signal = None
+        self.production_report_path = None
         self.report_dir = None
         self.close_pending = False
         self.curve_path = None
@@ -902,6 +914,10 @@ class CanTestWindow:
             buttons, text="打开本次记录", command=lambda: os.startfile(self.report_dir)
         )
         self.open_button.pack(side="left")
+        self.production_report_button = ttk.Button(
+            buttons, text="打开单台报告", command=self.open_production_report, state="disabled"
+        )
+        self.production_report_button.pack(side="left", padx=6)
         self.state = tk.StringVar(value="就绪")
         ttk.Label(buttons, textvariable=self.state).pack(side="right")
         self.text_record = ttk.Frame(self.record_area)
@@ -938,6 +954,7 @@ class CanTestWindow:
             self.hardware_table.heading(key, text=title)
             self.hardware_table.column(key, width=width, minwidth=65, stretch=key == "measured")
         self.hardware_table.tag_configure("异常", foreground="#b42318")
+        self.hardware_table.tag_configure("attention", foreground="#b42318", background="#fff0e8")
         self.hardware_table.tag_configure("正常", foreground="#16734b")
         self.hardware_table.tag_configure("未测", foreground="#8a6100")
         self.hardware_table.grid(row=0, column=0, sticky="nsew")
@@ -992,8 +1009,11 @@ class CanTestWindow:
             return
         self.update_device_summary()
         session = self.can_session
+        focus = self.root.focus_get()
+        editing = isinstance(focus, (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox))
         if (
-            self.auto_status.get()
+            not editing
+            and self.auto_status.get()
             and self.process is None
             and session is not None
             and session.connected
@@ -1020,7 +1040,6 @@ class CanTestWindow:
                 self.done = False
                 self.exit_polls = 0
                 self.next_status_refresh = time.monotonic() + 2
-                self.update_controls()
                 self.root.after(20, self.poll)
             except (RuntimeError, OSError, queue.Full) as exc:
                 session.connected = False
@@ -1365,6 +1384,9 @@ class CanTestWindow:
             text="本台完成后停止" if self.active_profile == "can_upgrade" else "停止"
         )
         self.open_button.configure(state="normal" if self.report_dir else "disabled")
+        self.production_report_button.configure(
+            state="normal" if self.production_report_path else "disabled"
+        )
         self.mode_hint.set(
             {
                 "fixed": "状态查询 · 首答 50 ms",
@@ -1374,20 +1396,36 @@ class CanTestWindow:
             + "　｜　控制器正常发送 · 应用层重试 0 次"
         )
 
+    def open_production_report(self) -> None:
+        """只打开本次已生成的报告，不沿用前一台设备的路径。"""
+        if self.production_report_path and self.production_report_path.is_file():
+            os.startfile(self.production_report_path)
+
     def show_hardware_result(self, report: dict) -> None:
         """展示本轮实测值和原始判定，缺失项保持可见。"""
         self.text_record.pack_forget()
         self.hardware_results.pack(fill="both", expand=True, pady=(8, 0))
         self.hardware_table.delete(*self.hardware_table.get_children())
-        for row in result_rows(report):
-            self.hardware_table.insert("", "end", values=row, tags=(row[3],))
+        results = report_rows(report)
+        for row in results:
+            self.hardware_table.insert(
+                "",
+                "end",
+                values=tuple(row[key] for key in ("item", "measured", "limit", "result")),
+                tags=("attention" if row["attention"] else row["result"],),
+            )
         notes = [summarize(report).splitlines()[0]]
-        for key in ("note", "measurement_note", "scope_note"):
+        for key in ("note", "measurement_note", "scope_note", "report_error"):
             if report.get(key):
                 notes.append(report[key])
         if report.get("motor_direction"):
             notes.append(report["motor_direction"]["detail"])
-        self.hardware_result_note.set("；".join(notes))
+        failures = [
+            f"{row['item']}：{row['result']}；实测 {row['measured']}；要求 {row['limit']}；{row['suggestion']}"
+            for row in results
+            if row["attention"]
+        ]
+        self.hardware_result_note.set("\n".join([*notes, *failures[:4]]))
 
     def show(self, text: str) -> None:
         self.hardware_results.pack_forget()
@@ -1521,6 +1559,19 @@ class CanTestWindow:
         parameter_action=None,
     ) -> None:
         if self.process is not None:
+            if self.auto_status_task:
+                self.pending_start = dict(
+                    scan=scan,
+                    bitrate_action=bitrate_action,
+                    calibration_kind=calibration_kind,
+                    clear_fault=clear_fault,
+                    erase_scope=erase_scope,
+                    erase_confirmed=erase_confirmed,
+                    identify_only=identify_only,
+                    status_only=status_only,
+                    parameter_action=parameter_action,
+                )
+                self.stop_signal.set()
             return
         mode = self.operation_mode(
             scan=scan,
@@ -1728,6 +1779,7 @@ class CanTestWindow:
         self.active_profile = mode
         if mode == "motor_speed":
             self.speed_plot.clear()
+        self.production_report_path = None
         self.report_dir = directory
         self.done = False
         self.exit_polls = 0
@@ -1859,6 +1911,8 @@ class CanTestWindow:
         if self.commands is not None:
             self.commands.close()
             self.commands = None
+        was_automatic = self.auto_status_task
+        self.auto_status_task = False
         self.process = None
         self.active_profile = None
         self.next_status_refresh = time.monotonic() + 2
@@ -1882,10 +1936,11 @@ class CanTestWindow:
         if self.close_pending:
             self.close()
         else:
-            self.update_controls()
+            if not was_automatic or not self.done:
+                self.update_controls()
             if self.pending_start is not None:
                 pending, self.pending_start = self.pending_start, None
-                if self.release_ok:
+                if was_automatic or self.release_ok:
                     self.start(**pending)
 
     def display_report(self, r: dict) -> None:
@@ -1928,9 +1983,17 @@ class CanTestWindow:
             if "device" in r:
                 device = dict(r["device"])
                 node, uid, role = (device.pop(key) for key in ("node", "uid", "role"))
-                self.set_current_motor(
-                    node, uid, "CAN状态读取", role=role, status_error=None, **device
-                )
+                if automatic:
+                    if self.current_motor and (self.current_node(), self.current_motor["uid"]) == (
+                        node,
+                        uid,
+                    ):
+                        self.current_motor.update(device, role=role, status_error=None)
+                        self.update_device_summary()
+                else:
+                    self.set_current_motor(
+                        node, uid, "CAN状态读取", role=role, status_error=None, **device
+                    )
                 if not automatic:
                     self.state.set("设备版本和状态已更新")
             else:
@@ -2106,6 +2169,8 @@ class CanTestWindow:
             self.progress.set(f"{self.bar['value']:.0f}%")
             return
         if r["profile"] == "hardware_check":
+            if self.report_dir and r.get("production_report") == "production-report.html":
+                self.production_report_path = self.report_dir / "production-report.html"
             if "fatal" in r:
                 self.state.set("通信异常")
                 self.show(r["fatal"])

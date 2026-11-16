@@ -9,7 +9,7 @@ import tkinter as tk
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import canfd_desktop as desktop
@@ -616,6 +616,81 @@ class SharedMotorTests(unittest.TestCase):
         w.show("测试记录")
         self.assertEqual(w.text_record.winfo_manager(), "pack")
         self.assertEqual(w.hardware_results.winfo_manager(), "")
+
+    def test_auto_status_does_not_rewrite_selection_controls_or_draft(self):
+        self.bind(6)
+        w = self.window
+        w.auto_status_task = True
+        entry = w.parameter_page.entries[11]
+        entry.configure(state="normal")
+        entry.insert(0, "1.234")
+        with (
+            patch.object(w, "set_current_motor") as select,
+            patch.object(w, "update_controls") as controls,
+        ):
+            w.display_report(
+                dict(
+                    profile="device_status",
+                    device=dict(
+                        node=6,
+                        uid=self.uid,
+                        role=1,
+                        state=5,
+                        mode=0,
+                        faults=0,
+                        checked_at=time.time(),
+                        bus_voltage_v=28,
+                    ),
+                )
+            )
+        select.assert_not_called()
+        controls.assert_not_called()
+        self.assertEqual(entry.get(), "1.234")
+        self.assertIn("28.00", w.device_measurements.get())
+
+    def test_edit_focus_defers_automatic_query(self):
+        self.bind(6)
+        w = self.window
+        w.cancel_status_timer()
+        session = SimpleNamespace(
+            connected=True, process=SimpleNamespace(is_alive=lambda: True), submit=Mock()
+        )
+        w.can_session = session
+        with (
+            patch.object(w.root, "focus_get", return_value=w.parameter_page.entries[11]),
+            patch.object(w.root, "after"),
+        ):
+            w.status_heartbeat()
+        session.submit.assert_not_called()
+        w.can_session = None
+        w.status_timer = None
+
+    def test_manual_request_waits_for_active_automatic_read(self):
+        self.bind(6)
+        w = self.window
+        w.auto_status_task = True
+        w.process = object()
+        w.stop_signal = threading.Event()
+        w.start(parameter_action=("current", False))
+        self.assertEqual(w.pending_start["parameter_action"], ("current", False))
+        self.assertTrue(w.stop_signal.is_set())
+        w.process = None
+
+    def test_hardware_report_is_exported_only_to_this_job_directory(self):
+        w = self.window
+        report = desktop.empty_report(6)
+        report.update(scope="static", uid=self.uid, stage=4, communication="正常")
+        from production_report import export_report
+
+        export_report(report, w.report_dir, tool_version="test")
+        report["production_report"] = "production-report.html"
+        w.display_report(report)
+        self.assertTrue(w.production_report_path.is_file())
+        self.assertEqual(w.production_report_path.parent, w.report_dir)
+        self.assertTrue((w.report_dir / "production-report.csv").is_file())
+        self.assertTrue((w.report_dir / "production-report.json").is_file())
+        w.update_controls()
+        self.assertFalse(w.production_report_button.instate(["disabled"]))
 
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window

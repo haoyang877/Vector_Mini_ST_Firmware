@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
-from canfd_desktop import CHECK_DEFAULTS, hardware_check_fields
 from hardware_check import reserve_counters
+from production_backend import CHECK_DEFAULTS, hardware_check_fields
 
 
 class HardwareCheckFieldsTests(unittest.TestCase):

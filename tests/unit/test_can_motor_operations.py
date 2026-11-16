@@ -12,9 +12,9 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_motor_operations as ops
-import canfd_desktop as desktop
 import hardware_check as hardware
-from canfd_desktop import motor_speed_fields
+import production_backend as desktop
+from production_backend import motor_speed_fields
 
 
 class Endpoint:

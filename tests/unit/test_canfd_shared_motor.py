@@ -1063,7 +1063,7 @@ class SharedMotorTests(unittest.TestCase):
 
 class CurrentMotorIdentityTests(unittest.TestCase):
     def test_replaced_device_rejected_before_motion(self):
-        with patch.object(desktop, "Link") as link:
+        with patch("production_backend.Link") as link:
             link.return_value.request.return_value = bytes(32)
             with self.assertRaisesRegex(ValueError, "UID已改变"):
                 desktop.check_current_motor(None, dict(node=7, expected_uid="01" * 12))

@@ -41,9 +41,14 @@ int main(int argc, char **argv)
         assert(sim_adc[0].channels[rank] == rank);
     }
     assert(sim_adc[0].sample_times[0] == ADC_SAMPLETIME_12_5);
-    assert(sim_adc[1].channels[3] == 3 && sim_adc[1].sample_times[3] == ADC_SAMPLETIME_24_5);
-    assert(sim_adc[1].channels[0] == 4 && sim_adc[1].sample_times[0] == ADC_SAMPLETIME_92_5);
-    assert(sim_adc[1].length == 4 && sim_adc[1].channels[1] == 5 && sim_adc[1].channels[2] == 6);
+    for (unsigned rank = 0; rank < 4; ++rank)
+    {
+        assert(sim_adc[1].channels[rank] == rank + 3U);
+        assert(sim_adc[1].sample_times[rank] == ADC_SAMPLETIME_47_5);
+    }
+    assert(sim_adc[1].length == 4);
+    /* ADC2: 4*(47.5+12.5)=240周期；ADC1: 3*4*(12.5+12.5)=300周期。 */
+    assert(4U * 60U < 3U * 4U * 25U);
     assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);
@@ -63,16 +68,16 @@ int main(int argc, char **argv)
     assert(BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
     ADC1->pdt4 = 0;
-    ADC2->pdt4 = 1206;
+    ADC2->pdt1 = 1206;
     assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 1206);
-    ADC2->pdt1 = 1999;
-    ADC2->pdt2 = 1234;
-    ADC2->pdt3 = 2345;
+    ADC2->pdt2 = 1999;
+    ADC2->pdt3 = 1234;
+    ADC2->pdt4 = 2345;
     assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT) == 1999);
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN) == 1234);
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS) == 2345);
-    ADC2->pdt2 = 0;
-    ADC2->pdt3 = 4095;
+    ADC2->pdt3 = 0;
+    ADC2->pdt4 = 4095;
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN) == 0);
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS) == 4095);
     ADC2->odt = 372;

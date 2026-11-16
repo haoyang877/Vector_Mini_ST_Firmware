@@ -78,23 +78,23 @@ void McuAdc_Init(void)
     adc_preempt_conversion_trigger_set(
         MCU_ADC_FAST, MCU_ADC_FAST_TRIGGER, ADC_PREEMPT_TRIG_EDGE_NONE);
     adc_convert_fail_auto_abort_enable(MCU_ADC_FAST, TRUE);
-    adc_preempt_channel_length_set(MCU_ADC_AUX, MCU_ADC_BUS_VOLTAGE_RANK);
+    /* 四路单采共 4 us，早于三相四倍采样的 5 us 完成。 */
+    adc_preempt_channel_length_set(MCU_ADC_AUX,
+                                   1U + BSP_ENABLED_BUS_CURRENT + 2U * BSP_ENABLED_LINEAR_HALL);
+    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_VOLTAGE_CHANNEL, 1U, ADC_SAMPLETIME_47_5);
 #if BSP_ENABLED_BUS_CURRENT
-    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_CURRENT_CHANNEL, 1U, ADC_SAMPLETIME_92_5);
+    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_CURRENT_CHANNEL, 2U, ADC_SAMPLETIME_47_5);
 #endif
 #if BSP_ENABLED_LINEAR_HALL
     adc_preempt_channel_set(MCU_ADC_AUX,
                             MCU_ADC_LINEAR_HALL_SIN_CHANNEL,
-                            BSP_ENABLED_BUS_CURRENT + 1U,
-                            ADC_SAMPLETIME_24_5);
+                            BSP_ENABLED_BUS_CURRENT + 2U,
+                            ADC_SAMPLETIME_47_5);
     adc_preempt_channel_set(MCU_ADC_AUX,
                             MCU_ADC_LINEAR_HALL_COS_CHANNEL,
-                            BSP_ENABLED_BUS_CURRENT + 2U,
-                            ADC_SAMPLETIME_24_5);
+                            BSP_ENABLED_BUS_CURRENT + 3U,
+                            ADC_SAMPLETIME_47_5);
 #endif
-    /* 母线电压排在 Hall 后面，保留两路 Hall 的采样时刻。 */
-    adc_preempt_channel_set(
-        MCU_ADC_AUX, MCU_ADC_BUS_VOLTAGE_CHANNEL, MCU_ADC_BUS_VOLTAGE_RANK, ADC_SAMPLETIME_24_5);
     adc_preempt_oversample_enable(MCU_ADC_AUX, FALSE);
     adc_preempt_conversion_trigger_set(
         MCU_ADC_AUX, MCU_ADC_FAST_TRIGGER, ADC_PREEMPT_TRIG_EDGE_NONE);

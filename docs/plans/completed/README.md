@@ -1,5 +1,8 @@
 # 已完成计划记录
 
+- [ADC1 末路电压最短采样](2026-11-16-adc1-voltage-last.md)：v1.8.22，四倍电压换算、30 rad/s验收流程。
+- [ADC2 电压92.5周期](2026-11-16-adc2-voltage-92cycles.md)：v1.8.21，现已由ADC1末路方案替代。
+
 - [ADC2 四路等长采样](2026-11-16-adc-voltage-isolation.md)：APP v1.8.20 顺序、结果槽、47.5 周期采样及验证流程。
 
 - [每轮检测阈值配置](2026-11-16-hall-trend-threshold.md)：APP1.8.17/工具2.1.6，外置JSON、原子下发确认及霍尔40%判据。

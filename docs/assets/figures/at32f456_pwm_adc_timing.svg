@@ -57,20 +57,20 @@
       <rect x="570.083" y="422" width="2.708" height="17"/>
   </g>
   <text x="24" y="468">4　PA3 · 母线电压</text>
-  <text x="591" y="468" class="caption">27.50～29.167 µs · 4次</text>
-  <rect x="575.5" y="456" width="21.667" height="17" fill="#bce1da"/>
-  <rect x="575.500" y="456" width="2.708" height="17" fill="#187961"/>
-  <rect x="580.917" y="456" width="2.708" height="17" fill="#187961"/>
-  <rect x="586.333" y="456" width="2.708" height="17" fill="#187961"/>
-  <rect x="591.750" y="456" width="2.708" height="17" fill="#187961"/>
+  <text x="591" y="468" class="caption">27.50～28.50 µs · 4次</text>
+  <rect x="575.5" y="456" width="13" height="17" fill="#bce1da"/>
+  <rect x="575.5" y="456" width="0.542" height="17" fill="#187961"/>
+  <rect x="578.75" y="456" width="0.542" height="17" fill="#187961"/>
+  <rect x="582.0" y="456" width="0.542" height="17" fill="#187961"/>
+  <rect x="585.25" y="456" width="0.542" height="17" fill="#187961"/>
   <text x="24" y="501" class="caption">ADC2 抢占组 · 每路1次</text>
   <g id="adc2-rank1"><text x="24" y="527">1　PA4 · 母线电流</text><rect x="510.5" y="515" width="13" height="17" fill="#f2d8ac"/><rect x="510.5" y="515" width="10.292" height="17" fill="#a16318"/><text x="591" y="527" class="caption">22.50～23.50 µs</text></g>
   <g id="adc2-rank2"><text x="24" y="561">2　PA5 · Hall A/sin</text><rect x="523.5" y="549" width="13" height="17" fill="#f2d8ac"/><rect x="523.5" y="549" width="10.292" height="17" fill="#a16318"/><text x="591" y="561" class="caption">23.50～24.50 µs</text></g>
   <g id="adc2-rank3"><text x="24" y="595">3　PA6 · Hall B/cos</text><rect x="536.5" y="583" width="13" height="17" fill="#f2d8ac"/><rect x="536.5" y="583" width="10.292" height="17" fill="#a16318"/><text x="591" y="595" class="caption">24.50～25.50 µs</text></g>
   <g transform="translate(0 144)">
   <text x="24" y="486">快环 / FOC 写入预算</text>
-  <rect x="597.167" y="466" width="270.833" height="28" fill="url(#budget)"/>
-  <text x="721" y="485" text-anchor="middle">≤ 20.833 µs</text>
+  <rect x="588.5" y="466" width="279.5" height="28" fill="url(#budget)"/>
+  <text x="721" y="485" text-anchor="middle">≤ 21.50 µs</text>
   <text x="24" y="535">新比较值装载</text>
   <path d="M218 531H868" stroke="#a5b1bb"/>
   <circle cx="868" cy="531" r="5" fill="#2269a4"/>

@@ -49,6 +49,31 @@ def report_rows(report: dict) -> list[dict]:
     return rows
 
 
+def failure_summary(report: dict) -> str:
+    """区分设备异常、缺失结果和执行错误，列出本轮数值与排查建议。"""
+    rows = report_rows(report)
+    failed = [row for row in rows if row["attention"] and row["result"] != "未测"]
+    missing = [row["item"] for row in rows if row["result"] == "未测"]
+    lines = [
+        report[key]
+        for key in ("fatal", "note", "measurement_note", "resistance_note", "report_error")
+        if report.get(key)
+    ]
+    if report.get("communication") != "正常":
+        lines.insert(0, "通信未通过，不能判定本轮合格。")
+    if report.get("scope") != "static" and not report.get("stop_confirmed"):
+        lines.insert(0, "未取得关相确认；请先确认设备已停止。")
+    if failed:
+        lines.append(f"异常 {len(failed)} 项：")
+        lines.extend(
+            f"{row['item']} · {row['result']}；实测 {row['measured']}；要求 {row['limit']}；{row['suggestion']}"
+            for row in failed
+        )
+    if missing:
+        lines.append("未测 " + str(len(missing)) + " 项：" + "、".join(missing))
+    return "\n".join(lines) or "本轮未发现异常，最终结论以范围判定为准。"
+
+
 def build_report(report: dict, *, tool_version: str, created_at: str) -> dict:
     """仅本轮完整且无异常的已请求范围可通过；结果来自设备，不推断未测项。"""
     scope = report.get("scope", "full" if report.get("drive") else "static")
@@ -100,6 +125,7 @@ def build_report(report: dict, *, tool_version: str, created_at: str) -> dict:
         scope=scope,
         scope_name=SCOPE_NAMES.get(scope, scope),
         verdict="本范围通过" if passed else "未通过 / 未完成",
+        failure_summary=failure_summary(report),
         notes=[
             report[key]
             for key in ("fatal", "note", "measurement_note", "scope_note")
@@ -174,6 +200,7 @@ def export_report(report: dict, out: Path, *, tool_version: str) -> Path:
         f"<h2>{escape(data['scope_name'])}：{escape(data['verdict'])}</h2>"
         "<p>仅代表本次所选范围，不代替整机出厂验收。型号来自操作选择。</p>"
         f"<dl>{metadata}</dl><p>{escape('；'.join(data['notes']))}</p>"
+        f"<h3>本轮摘要</h3><pre style='white-space:pre-wrap'>{escape(data['failure_summary'])}</pre>"
         "<table><tr><th>项目</th><th>实测值</th><th>判定范围</th><th>结果</th><th>排查建议</th>"
         f"</tr>{rows}</table></html>"
     )

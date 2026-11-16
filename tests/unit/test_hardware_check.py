@@ -241,6 +241,34 @@ class HardwareHostTest(unittest.TestCase):
         )
         return result, port
 
+    def test_phase_events_follow_scope_and_keep_snapshots(self):
+        events = []
+        report, _ = self.check(phase_progress=events.append)
+        self.assertEqual(events[0]["communication"], "进行中")
+        self.assertEqual(events[0]["static"], "待执行")
+        self.assertEqual(report["phase_states"]["static"], "已完成")
+        self.assertEqual(report["phase_states"]["resistance"], "本轮不测")
+        self.assertEqual(report["phase_states"]["dynamic"], "本轮不测")
+        report, port = self.check(fault="no_resistance", drive=True)
+        self.assertEqual(report["phase_states"]["communication"], "未完成")
+        self.assertEqual(report["phase_states"]["static"], "未执行")
+        self.assertFalse(any(kind in (116, 117, 118, 127) for kind, _, _ in port.sent))
+
+    def test_cancel_keeps_phase_incomplete_and_confirms_stop(self):
+        port = Port(measurements=True)
+        events = []
+        report = hw.run_check(
+            port,
+            6,
+            resistance_only=True,
+            stopped=lambda: port.stage == 6,
+            phase_progress=events.append,
+        )
+        self.assertEqual(report["phase_states"]["resistance"], "未完成")
+        self.assertEqual(report["phase_states"]["dynamic"], "本轮不测")
+        self.assertTrue(report["stop_confirmed"])
+        self.assertFalse(report["subset_passed"])
+
     def test_missing_resistance_is_explicit_and_never_starts_detection(self):
         port = Port(fault="no_resistance", version=0x010808)
         report = hw.run_check(port, 4, drive=hw.Drive(1, 2, 700, 5))

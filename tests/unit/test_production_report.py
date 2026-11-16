@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 from hardware_check import direction_results, empty_report
-from production_report import build_report, export_report, report_rows
+from production_report import build_report, export_report, failure_summary, report_rows
 
 
 class ReportTests(unittest.TestCase):
@@ -66,6 +66,21 @@ class ReportTests(unittest.TestCase):
         self.assertIn("26.80", row["measured"])
         self.assertIn("27～29", row["limit"])
         self.assertIn("电源", row["suggestion"])
+
+    def test_summary_separates_failure_missing_and_excluded(self):
+        report = self.report()
+        report["board_items"][4] = 2
+        report["board_items"][0] = 0
+        report["measurements"]["4"] = dict(samples=20, values=[26.8, 28, 1, 0])
+        direction_results(report)
+        summary = failure_summary(report)
+        self.assertIn("异常 1 项", summary)
+        self.assertIn("26.80", summary)
+        self.assertIn("27～29", summary)
+        self.assertIn("未测 1 项：Ia", summary)
+        self.assertNotIn("电机角动态", summary)
+        report["scope"] = "full"
+        self.assertIn("未取得关相确认", failure_summary(report))
 
     def test_exports_same_uid_and_rows_escapes_html(self):
         report = self.report()

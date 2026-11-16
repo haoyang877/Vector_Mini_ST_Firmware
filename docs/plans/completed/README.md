@@ -321,3 +321,5 @@
 - [生产报告与无干扰刷新](2026-11-16-production-reports.md)：1.20.0，单台报告、异常定位和编辑保护，PR通过。
 
 - [生产工作台导航重排](2026-11-16-production-navigation.md)：1.21.0，维护优先、保留通信，PR通过。
+
+- [首次烧录与生产检测进度](2026-11-16-first-install-production-progress.md)：v1.22.0，离线PR通过，待用户实机测试。

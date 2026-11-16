@@ -498,7 +498,11 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
         save()
         events.put(("stage", line))
 
+    def phase(key):
+        events.put(("install_phase", key))
+
     try:
+        phase("identify")
         import pylink
 
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -574,6 +578,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                 record = b""
                 if identity["node"] is None:
                     if node is None:
+                        phase("select")
                         report.update(success=True, needs_initial_setup=True)
                         stage("已识别待初装板，请在烧录页选择实际电机类型后初始化并烧录")
                         return
@@ -598,6 +603,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                     raise ValueError("该板已有电机参数，拒绝覆盖为初装配置")
                 report["swd_khz"] = select_flash_speed(probe, target, stage, blank=bool(record))
                 stage(f"SWD 试读通过，当前时钟 {report['swd_khz']} kHz")
+                phase("flash")
                 program_motor(
                     probe,
                     target,
@@ -610,6 +616,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                     record,
                     force=settings.get("force_reflash", False),
                 )
+                phase("verify")
                 if settings.get("restart_after_flash", False):
                     stage("Loader、APP 和保护区已核验，正在通过 J-Link 复位芯片")
                     report.pop("cpu_halted", None)

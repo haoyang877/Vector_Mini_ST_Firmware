@@ -489,6 +489,7 @@ def run_check(
     counter_db=COUNTER_DB,
     stopped=lambda: False,
     progress=lambda _: None,
+    phase_progress=lambda _: None,
 ):
     """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
     link = Link(bus, node, timeout_s=0.5)
@@ -499,6 +500,18 @@ def run_check(
     powered = bool(drive) or resistance_only
     report["scope"] = "static_resistance" if resistance_only else "full" if drive else "static"
     active_run = None
+    phases = dict.fromkeys(
+        ("communication", "static", "resistance", "dynamic", "finalize"), "待执行"
+    )
+    if not powered:
+        phases["resistance"] = "本轮不测"
+    if not drive or resistance_only:
+        phases["dynamic"] = "本轮不测"
+    report["phase_states"] = phases
+
+    def phase(key, state="进行中"):
+        phases[key] = state
+        phase_progress(phases.copy())
 
     def refresh():
         current = link.board()
@@ -507,6 +520,7 @@ def run_check(
         report.update(current)
 
     try:
+        phase("communication")
         progress("检查主控与板端通信")
         for _ in range(3):
             try:
@@ -557,9 +571,11 @@ def run_check(
             raise Rejected("实测环境温度不在 0～60 °C，工况不满足")
         if drive and (not features & (1 << 13) or not modes & (1 << 10)):
             raise Rejected("驱动需要模式 10 和运动租约")
+        phase("communication", "已完成")
         previous_run = link.board()["run_id"]
         if stopped():
             raise Rejected("操作员停止")
+        phase("static")
         start = struct.pack("<4BI", 2, 1, 3 if powered else 1, 0, previous_run)
         start_seq = (link.sequence + 1) & 65535
         link.sequence = start_seq
@@ -578,7 +594,9 @@ def run_check(
                 raise Rejected("静态采集已取消或超时")
             time.sleep(0.012)
             refresh()
+        phase("static", "未完成" if report["stage"] == 5 else "已完成")
         if powered and report["stage"] == 6:
+            phase("resistance")
             currents = " / ".join(f"{value:g}A" for value in report["test_currents_a"])
             progress(f"相电阻：AB/BC/CA 正反向 {currents} 测量")
             deadline = time.monotonic() + 27
@@ -587,6 +605,7 @@ def run_check(
                     raise Rejected("相电阻测量已取消或超时")
                 time.sleep(0.012)
                 refresh()
+            phase("resistance", "未完成" if report["stage"] == 5 else "已完成")
         if resistance_only and report["stage"] == 2:
             progress("静态和相电阻采集完成，正在停止并确认关相；不执行动态检测")
             confirm_stop(link, report)
@@ -600,6 +619,7 @@ def run_check(
                 )
             except (OSError, sqlite3.Error) as exc:
                 raise Rejected(f"无法保存本轮运动计数：{exc}") from exc
+            phase("dynamic")
             progress("低速正向、停稳、反向")
             # 运动中保持50ms请求期限，避免一次长等待耗尽500ms板端租约。
             link.timeout_s = 0.05
@@ -614,11 +634,15 @@ def run_check(
                     raise Rejected("关相后未取得最终板端报告")
                 time.sleep(0.01)
                 refresh()
+            phase("dynamic", "已完成" if report["stage"] == 4 else "未完成")
         if report["stage"] == 5 and not (resistance_only and report.get("stop_confirmed")):
             report["note"] = "板端中止，未完成项目保留未测"
         if report["stage"] in (4, 5):
             read_temperature(link, report, ambient)
     except (Rejected, ValueError, TimeoutError, OSError) as exc:
+        for key, state in phases.copy().items():
+            if state == "进行中":
+                phase(key, "未完成")
         report["note"] = str(exc)
         if isinstance(exc, (TimeoutError, OSError, ValueError)):
             report["communication"] = "异常"
@@ -627,6 +651,8 @@ def run_check(
                 refresh()
             except (Rejected, ValueError, TimeoutError, OSError):
                 pass
+    phase("finalize")
+    progress("确认关相并读取本轮结果")
     if active_run is not None and powered and not report.get("stop_confirmed"):
         try:
             confirm_stop(link, report)
@@ -667,6 +693,15 @@ def run_check(
         )
         report["motor_direction"] = {}
         report["scope_note"] = "本轮仅静态和相电阻；动态检测未执行"
+    phase(
+        "finalize",
+        "已完成"
+        if not report.get("measurement_note") and (not powered or report.get("stop_confirmed"))
+        else "未完成",
+    )
+    for key, state in phases.copy().items():
+        if state == "待执行":
+            phase(key, "未执行")
     return report
 
 

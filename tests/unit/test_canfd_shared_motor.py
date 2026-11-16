@@ -71,6 +71,58 @@ class SharedMotorTests(unittest.TestCase):
     def bind(self, node=7):
         self.window.set_current_motor(node, self.uid, "测试识别", role=1)
 
+    def test_install_requires_identity_and_selection_before_page_flash(self):
+        w = self.window
+        w.hex_path = Path("mock.hex")
+        w.update_controls()
+        self.assertTrue(w.install_flash.instate(["disabled"]))
+        w.identity = dict(node=None, uid=self.uid, serial=123)
+        w.update_controls()
+        self.assertTrue(w.install_flash.instate(["disabled"]))
+        w.initial_axis.set(next(label for label, node in w.axis_choices.items() if node == 5))
+        w.select_initial_axis()
+        self.assertFalse(w.install_flash.instate(["disabled"]))
+        self.assertEqual(self.capture_start("jlink")["first_fit_node"], 5)
+        self.assertIsNone(w.install_verified_uid)
+
+    def test_install_navigation_needs_successful_version_readback(self):
+        w = self.window
+        report = dict(
+            profile="jlink_flash",
+            success=True,
+            app_started=True,
+            identity=dict(node=4, uid=self.uid, serial=123),
+            steps=[],
+            elapsed_s=1,
+        )
+        w.display_report(report)
+        self.assertIsNone(w.install_verified_uid)
+        self.assertTrue(w.go_detection.instate(["disabled"]))
+        report["can_test"] = dict(
+            version_verified=True, device_versions=dict(app=0x01080C, loader=0x020304)
+        )
+        w.display_report(report)
+        w.update_controls()
+        self.assertEqual(w.install_verified_uid, self.uid)
+        self.assertFalse(w.go_detection.instate(["disabled"]))
+        self.assertIn("回读通过", w.install_phase.get())
+        w.install_verified_uid = "another-device"
+        w.update_controls()
+        self.assertTrue(w.go_detection.instate(["disabled"]))
+
+    def test_hardware_phase_progress_and_summary_reset(self):
+        w = self.window
+        w.show_hardware_phases(
+            dict(communication="已完成", static="进行中", resistance="本轮不测", dynamic="本轮不测")
+        )
+        self.assertEqual(w.progress.get(), "1/3 阶段")
+        self.assertIn("进行中", w.hardware_phases["static"][1].get())
+        w.hardware_failure.set("上轮失败")
+        self.bind()
+        self.capture_start("hardware")
+        self.assertNotIn("上轮", w.hardware_failure.get())
+        self.assertIn("等待本轮结果", w.hardware_failure_label.get("1.0", "end"))
+
     def test_fault_clear_uses_current_motor_from_any_page(self):
         w = self.window
         self.assertTrue(w.clear_fault_button.instate(["disabled"]))

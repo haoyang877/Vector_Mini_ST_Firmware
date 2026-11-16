@@ -127,6 +127,62 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window).name(), "#f2f5f9")
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Shadow).name(), "#cdd8e4")
 
+    def test_scan_selects_only_online_motor_then_reads_status(self):
+        w = self.window
+        self.controller.connected = True
+        motor = dict(
+            node=7,
+            uid=self.uid,
+            role=1,
+            state=5,
+            faults=0,
+            app_version=0x01080E,
+            loader_version=0x020304,
+        )
+        with patch("qt_production_window.QTimer.singleShot") as scheduled:
+            w.on_completed(dict(profile="can_scan", motors=[motor], issues=[]), None, True)
+        self.assertEqual(w.node(), 7)
+        self.assertEqual(w.current_motor["uid"], self.uid)
+        self.assertIn("v1.8.14", w.version_label.text())
+        scheduled.assert_called_once()
+        w.read_selected_status()
+        request = self.controller.calls[-1][0]
+        self.assertEqual(request["profile"], "device_status")
+        self.assertEqual(request["node"], 7)
+        self.assertEqual(request["expected_uid"], self.uid)
+
+    def test_multiple_scan_keeps_selected_online_node(self):
+        w = self.window
+        motors = [dict(node=n, uid=str(n) * 24, role=1) for n in (4, 6, 7)]
+        with patch("qt_production_window.QTimer.singleShot"):
+            w.on_completed(dict(profile="can_scan", motors=motors), None, True)
+        self.assertEqual(w.node(), 6)
+        self.assertIsNotNone(w.current_motor)
+        w.on_completed(dict(profile="can_scan", motors=[]), None, True)
+        self.assertIsNone(w.current_motor)
+        self.assertFalse(self.controller.calls)
+
+    def test_missing_jlink_does_not_discard_can_device(self):
+        self.bind(7)
+        self.window.launch(dict(profile="jlink_identify"))
+        self.controller.busy = False
+        self.window.display_install(
+            dict(profile="jlink_identify", success=False, fatal="没有J-Link")
+        )
+        self.assertEqual(self.window.current_motor["uid"], self.uid)
+        self.assertIsNone(self.window.identity)
+
+    def test_initial_scan_once_and_explicit_disconnect_no_retry(self):
+        w = self.window
+        w.initial_scan()
+        self.assertEqual(self.controller.calls[-1][0]["profile"], "can_scan")
+        self.assertTrue(self.controller.calls[-1][2])
+        self.controller.busy = False
+        self.controller.connected = False
+        self.controller.calls.clear()
+        w.refresh_status()
+        self.assertFalse(self.controller.calls)
+
     def test_native_pages_routes_and_removed_controls(self):
         w = self.window
         self.assertEqual(w.stack.count(), 5)

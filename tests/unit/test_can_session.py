@@ -101,6 +101,28 @@ class SessionTests(unittest.TestCase):
                 worker.join(2)
             self.assertFalse(worker.is_alive())
 
+    def test_scan_and_following_status_share_one_connection(self):
+        requests, events, cancel = queue.Queue(), queue.Queue(), threading.Event()
+        requests.put((1, dict(profile="can_scan", bus={}), None))
+        requests.put(
+            (2, dict(profile="device_status", node=7, expected_uid="01" * 12, bus={}), None)
+        )
+        requests.put((3, dict(profile="can_shutdown"), None))
+        motor = dict(node=7, uid="01" * 12, role=1)
+        with (
+            patch.object(session, "ControlCanFd", Port),
+            patch.object(session.os, "add_dll_directory", return_value=nullcontext()),
+            patch.object(session, "scan_upgrade_motors", return_value=([motor], [])),
+            patch.object(session, "read_device_status", return_value=motor),
+        ):
+            session.run_session(Path("sdk.dll"), requests, events, cancel)
+        first = events.get_nowait()[2]
+        second = events.get_nowait()[2]
+        self.assertEqual(first["motors"], [motor])
+        self.assertTrue(first["passed"])
+        self.assertTrue(second["connection_reused"])
+        self.assertEqual((Port.opened, Port.closed), (1, 1))
+
     def test_status_refresh_without_record_directory_reuses_connection(self):
         requests, events, cancel = queue.Queue(), queue.Queue(), threading.Event()
         config = dict(profile="device_status", node=6, expected_uid="01" * 12, bus={})

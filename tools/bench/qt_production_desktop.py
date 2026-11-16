@@ -14,9 +14,10 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("电机生产测试上位机")
     app.setOrganizationName("Vector Mini")
-    window = ProductionWindow()
+    offline_smoke = len(sys.argv) == 3 and sys.argv[1] == "--offline-smoke"
+    window = ProductionWindow(auto_connect=not offline_smoke)
     window.show()
-    if len(sys.argv) == 3 and sys.argv[1] == "--offline-smoke":
+    if offline_smoke:
         # 交付包自检仅渲染控件，不发出设备命令。
         import json
 

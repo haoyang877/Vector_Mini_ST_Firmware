@@ -11,6 +11,7 @@ from typing import Any
 
 from can_motor_operations import TraceBus, read_device_status
 from can_parameters import run_parameters
+from can_upgrade_stress import scan_upgrade_motors
 from ports.controlcanfd import ControlCanFd
 
 
@@ -83,6 +84,24 @@ def run_session(dll: Path, requests: Any, events: Any, cancel: Any) -> None:
                                 progress=lambda done, total, task=number: events.put(
                                     (task, "parameter_progress", (done, total))
                                 ),
+                            )
+                        elif mode == "can_scan":
+
+                            def stopped():
+                                return cancel.is_set() or (
+                                    parent is not None and not parent.is_alive()
+                                )
+
+                            motors, issues = scan_upgrade_motors(
+                                bus,
+                                stopped,
+                                lambda text, task=number: events.put((task, "stage", text)),
+                            )
+                            report.update(
+                                motors=motors,
+                                issues=issues,
+                                cancelled=stopped(),
+                                passed=not stopped(),
                             )
                         elif mode == "device_status":
                             if cancel.is_set():

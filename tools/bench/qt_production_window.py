@@ -62,7 +62,7 @@ from qt_parameter_page import ParameterPage
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.0.1"
+VERSION = "2.0.2"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -111,7 +111,7 @@ def rows(widget: QTableWidget, values: list) -> None:
 class ProductionWindow(QMainWindow):
     """主线程维护当前设备与视图；设备动作交给独立控制器。"""
 
-    def __init__(self, controller=None) -> None:
+    def __init__(self, controller=None, *, auto_connect=True) -> None:
         super().__init__()
         self.setWindowTitle(f"电机生产测试上位机 v{VERSION} · Qt")
         self.resize(1440, 960)
@@ -144,6 +144,25 @@ class ProductionWindow(QMainWindow):
         self.refresh_timer.timeout.connect(self.refresh_status)
         self.refresh_timer.start()
         self.update_controls()
+        if controller is None and auto_connect:
+            QTimer.singleShot(300, self.initial_scan)
+
+    def initial_scan(self) -> None:
+        """启动仅尝试一次只读连接扫描；失败或用户断开后不循环重连。"""
+        if not self.close_ready and not self.controller.busy and self.auto_refresh.isChecked():
+            self.launch(dict(profile="can_scan"), automatic=True)
+
+    def read_selected_status(self) -> None:
+        """扫描完成后读取实际状态，先核对UID，不依赖编辑焦点或J-Link。"""
+        if (
+            not self.close_ready
+            and not self.controller.busy
+            and self.controller.connected
+            and self.current_motor
+            and self.auto_refresh.isChecked()
+        ):
+            self.next_refresh = time.monotonic() + STATUS_REFRESH_S
+            self.launch(dict(profile="device_status"), automatic=True)
 
     def build_ui(self) -> None:
         central = QWidget()
@@ -188,7 +207,7 @@ class ProductionWindow(QMainWindow):
         form.addWidget(self.axis)
         self.uid_label = label("尚未识别设备", "subtitle", True)
         form.addWidget(self.uid_label)
-        self.scan_button = button("扫描识别", lambda: self.launch(dict(profile="can_scan")))
+        self.scan_button = button("连接 / 扫描", lambda: self.launch(dict(profile="can_scan")))
         form.addWidget(self.scan_button)
         header.addWidget(current, 4)
         device = QGroupBox("设备状态")
@@ -944,7 +963,6 @@ class ProductionWindow(QMainWindow):
                 directory.mkdir(parents=True, exist_ok=False)
             if profile == "jlink_identify":
                 self.identity = self.verified_uid = None
-                self.devices.clear()
                 self.select_motor()
             self.controller.start(settings, directory, automatic=automatic)
             if not automatic and profile not in ("can_release", "can_shutdown"):
@@ -1074,6 +1092,7 @@ class ProductionWindow(QMainWindow):
                     self.select_motor()
                 else:
                     self.current_motor["status_error"] = report.get("fatal", "读取失败")
+                    self.task_status.setText(self.current_motor["status_error"])
             self.render_device()
         elif profile == "parameters":
             self.parameters.display(report)
@@ -1089,7 +1108,28 @@ class ProductionWindow(QMainWindow):
                     m["node"]: dict(m, checked_at=time.time()) for m in report.get("motors", [])
                 }
                 self.populate_upgrade_table()
+                if self.devices and (len(self.devices) == 1 or self.node() not in self.devices):
+                    with QSignalBlocker(self.axis):
+                        self.axis.setCurrentIndex(
+                            list(FIRST_FIT_AXES).index(next(iter(self.devices)))
+                        )
             self.select_motor()
+            self.task_status.setText(
+                report.get("fatal")
+                or (
+                    "扫描已取消"
+                    if report.get("cancelled")
+                    else f"发现 {len(self.devices)} 台在线设备"
+                    if self.devices
+                    else "CAN已连接，未发现节点3～7"
+                )
+            )
+            if (
+                self.devices
+                and not self.next_pending
+                and not getattr(self.controller, "pending", None)
+            ):
+                QTimer.singleShot(0, self.read_selected_status)
         elif profile.startswith("jlink_"):
             self.display_install(report)
         elif profile == "hardware_check":
@@ -1159,6 +1199,8 @@ class ProductionWindow(QMainWindow):
             )
             if profile == "hardware_check":
                 text = self.failure.toPlainText().splitlines()[0]
+            elif profile == "can_scan":
+                text = self.task_status.text()
             self.task_status.setText(text)
             self.log.appendPlainText(json.dumps(report, ensure_ascii=False, indent=2))
             if directory:
@@ -1242,7 +1284,8 @@ class ProductionWindow(QMainWindow):
         if not report.get("success"):
             if not report.get("protected_regions_verified"):
                 self.identity = None
-                self.devices.clear()
+                if report["profile"] != "jlink_identify":
+                    self.devices.clear()
                 self.select_motor()
             self.install_label.setText(report.get("fatal", "烧录未完成，请重新识别"))
 

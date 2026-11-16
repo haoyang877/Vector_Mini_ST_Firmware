@@ -10,6 +10,7 @@ from pathlib import Path
 
 from can_calibration_curves import ARCHIVE_TYPES, calibration_archive, model_directory_name
 from can_motor_operations import describe_faults, speed_value
+from can_parameters import CATALOG, GROUPS, value_text
 from five_axis_can_stability import PER_NODE, encode_frames, version_text
 from five_axis_jlink import FIRST_FIT_AXES
 from hardware_check import empty_report
@@ -64,7 +65,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.1.2"
+VERSION = "2.1.3"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -424,8 +425,10 @@ class ProductionWindow(QMainWindow):
         self.add_action(box, "选择本批 HEX", self.choose_hex, icon_name="folder")
         box.addStretch()
         content.addWidget(firmware, 1)
-        self.initial_box = QGroupBox("新板电机类型 · 必选")
+        self.initial_box = QGroupBox("2. 电机类型与轴配置")
         choices = QVBoxLayout(self.initial_box)
+        self.initial_hint = label("新板烧录前选择实际电机类型，再识别板卡。", "subtitle", True)
+        choices.addWidget(self.initial_hint)
         self.initial_choices = {}
         for node, (role, model, _) in FIRST_FIT_AXES.items():
             radio = QRadioButton(f"{role}  /  {model}  /  节点 {node}")
@@ -653,23 +656,55 @@ class ProductionWindow(QMainWindow):
         self.curve_button = button("查看补偿曲线 / 原码", self.show_curves, icon_name="chart")
         layout.addWidget(self.curve_button)
         layout.addStretch()
-        layout = self.tab_page(self.calibration, "speed", "速度调试")
-        layout.addWidget(label("速度闭环调试", "sectionTitle"))
+        layout = self.tab_page(self.calibration, "speed", "运行调试")
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        controls = QGroupBox("速度模式")
+        settings = QVBoxLayout(controls)
+        settings.setSpacing(14)
         self.add_fields(
-            layout, [("speed", "目标速度 rad/s", "3"), ("speed_limit", "速度上限 rad/s", "300")]
+            settings, [("speed", "目标速度 rad/s", "3"), ("speed_limit", "速度上限 rad/s", "300")]
         )
-        actions = QHBoxLayout()
-        self.add_action(actions, "使能速度控制", self.start_speed, True, icon_name="start")
+        self.add_action(settings, "使能速度控制", self.start_speed, True, icon_name="start")
         self.speed_update = button("更新速度目标", self.update_speed, icon_name="refresh")
-        actions.addWidget(self.speed_update)
+        settings.addWidget(self.speed_update)
         self.speed_stop = button("停止", self.controller.stop, icon_name="stop")
-        actions.addWidget(self.speed_stop)
-        actions.addStretch()
-        layout.addLayout(actions)
-        self.speed_label = label("等待速度反馈", "subtitle")
-        layout.addWidget(self.speed_label)
+        settings.addWidget(self.speed_stop)
+        self.speed_label = label("等待速度反馈", "subtitle", True)
+        settings.addWidget(self.speed_label)
+        parameters = QGroupBox("速度环参数 · 设备读回")
+        parameter_layout = QVBoxLayout(parameters)
+        self.add_action(
+            parameter_layout,
+            "读取速度环参数",
+            lambda: self.parameter_action("speed", False),
+            icon_name="refresh",
+        )
+        self.speed_parameter_status = label("尚未读取", "subtitle", True)
+        parameter_layout.addWidget(self.speed_parameter_status)
+        fields = QFormLayout()
+        fields.setVerticalSpacing(3)
+        self.speed_parameter_values = {}
+        for identifier, title in GROUPS["speed"][1]:
+            value = label("—")
+            fields.addRow(title, value)
+            self.speed_parameter_values[identifier] = value
+        parameter_layout.addLayout(fields)
+        settings.addWidget(parameters)
+        settings.addStretch()
+        control_scroll = QScrollArea()
+        control_scroll.setWidgetResizable(True)
+        control_scroll.setMinimumWidth(310)
+        control_scroll.setMaximumWidth(370)
+        control_scroll.setWidget(controls)
+        columns.addWidget(control_scroll)
+        chart = QGroupBox("实时曲线")
+        chart.setMinimumWidth(360)
+        chart_layout = QVBoxLayout(chart)
         self.plot = SpeedPlot()
-        layout.addWidget(self.plot, 1)
+        chart_layout.addWidget(self.plot)
+        columns.addWidget(chart, 1)
+        layout.addLayout(columns, 1)
 
     def build_records(self) -> None:
         page = QWidget()
@@ -824,10 +859,19 @@ class ProductionWindow(QMainWindow):
             for index in range(tabs.count()):
                 tabs.setTabEnabled(index, not busy or automatic or index == tabs.currentIndex())
         blank = self.identity is not None and self.identity.get("node") is None
-        self.initial_box.setVisible(blank)
+        configured = self.identity is not None and self.identity.get("node") is not None
+        self.initial_hint.setText(
+            "已配板：沿用以下配置，保留参数和标定数据。"
+            if configured
+            else "初装恢复：沿用原电机类型。"
+            if self.identity and "resume_node" in self.identity
+            else "新板必选：按实际电机和轴用途选择，识别后才能烧录。"
+        )
         for choice in self.initial_choices.values():
             choice.setEnabled(
-                not busy and (not self.identity or "resume_node" not in self.identity)
+                not busy
+                and not configured
+                and (not self.identity or "resume_node" not in self.identity)
             )
         selected = any(choice.isChecked() for choice in self.initial_choices.values())
         self.flash_button.setEnabled(
@@ -866,6 +910,7 @@ class ProductionWindow(QMainWindow):
         self.parameters.update_controls(
             busy and not automatic, bool(self.current_motor and self.current_motor.get("role") == 1)
         )
+        self.render_speed_parameters()
         self.open_log_button.setEnabled(self.report_dir is not None)
         self.open_report_button.setEnabled(self.report_path is not None)
         self.curve_button.setEnabled(self.curve_path is not None)
@@ -1009,6 +1054,23 @@ class ProductionWindow(QMainWindow):
             self.controller.update_speed(speed_value(self.edits["speed"].text()))
         except (ValueError, RuntimeError, queue.Full) as exc:
             self.error(str(exc) or "目标队列已满")
+
+    def render_speed_parameters(self) -> None:
+        snapshot = self.parameters.snapshots.get("speed")
+        self.speed_parameter_status.setText(
+            f"已读回 · 修订 {snapshot['revision']}" if snapshot else "尚未读取或已失效"
+        )
+        for identifier, label_widget in self.speed_parameter_values.items():
+            row = snapshot["rows"].get(identifier) if snapshot else None
+            text = "—"
+            if row:
+                text = value_text(identifier, row["raw"])
+                unit = CATALOG[identifier]["unit"]
+                if unit == "bool":
+                    text = "启用" if row["raw"] else "关闭"
+                elif unit not in ("1", ""):
+                    text += f" {unit}"
+            label_widget.setText(text)
 
     def parameter_action(self, group: str, save: bool) -> None:
         try:
@@ -1277,8 +1339,6 @@ class ProductionWindow(QMainWindow):
         elif profile == "parameters":
             self.parameters.display(report)
             if report.get("passed") and 1 in report.get("rows", {}):
-                from can_parameters import value_text
-
                 self.edits["speed_limit"].setText(value_text(1, report["rows"][1]["raw"]))
         elif profile == "can_scan":
             self.devices.clear()
@@ -1414,10 +1474,6 @@ class ProductionWindow(QMainWindow):
         if identity and (report.get("success") or report.get("protected_regions_verified")):
             self.identity = dict(identity)
             if identity.get("node") is None:
-                for choice in self.initial_choices.values():
-                    choice.setAutoExclusive(False)
-                    choice.setChecked(False)
-                    choice.setAutoExclusive(True)
                 resume = identity.get("resume_node")
                 if resume in self.initial_choices:
                     self.initial_choices[resume].setChecked(True)
@@ -1428,6 +1484,8 @@ class ProductionWindow(QMainWindow):
                 )
             else:
                 node = identity["node"]
+                if node in self.initial_choices:
+                    self.initial_choices[node].setChecked(True)
                 versions = report.get("can_test", {}).get("device_versions", {})
                 status = report.get("device_status", {})
                 motor = dict(

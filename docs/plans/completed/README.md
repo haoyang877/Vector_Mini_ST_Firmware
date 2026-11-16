@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [运行调试与首次烧录布局](2026-11-16-runtime-debug-layout.md)：工具2.1.3，曲线右置、速度环参数读回、首次烧录类型选择。
+
 - [AT32 母线与三相 ADC 原码 RTT](2026-11-16-udc-rtt.md) — 20 kHz 六槽 RTT1 和静止 YAW 板采集记录。
 
 - [AT32 重构功能合并](2026-11-16-refactor-integration.md) — APP v1.8.13、生产工作台、48 KiB RAM 与双板构建。

@@ -301,6 +301,34 @@ class QtProductionTests(unittest.TestCase):
         self.assertTrue(w.initial_choices[7].isChecked())
         self.assertTrue(all(not c.isEnabled() for c in w.initial_choices.values()))
 
+    def test_motor_type_is_visible_before_identification_and_keeps_preselection(self):
+        w = self.window
+        w.show()
+        self.app.processEvents()
+        self.assertTrue(w.initial_box.isVisible())
+        w.initial_choices[5].setChecked(True)
+        w.display_install(
+            dict(
+                profile="jlink_identify",
+                success=True,
+                identity=dict(uid=self.uid, serial=123, node=None),
+            )
+        )
+        w.update_controls()
+        self.assertTrue(w.initial_choices[5].isChecked())
+        w.display_install(
+            dict(
+                profile="jlink_identify",
+                success=True,
+                identity=dict(uid=self.uid, serial=123, node=7),
+            )
+        )
+        w.update_controls()
+        self.assertTrue(w.initial_box.isVisible())
+        self.assertTrue(w.initial_choices[7].isChecked())
+        self.assertTrue(all(not choice.isEnabled() for choice in w.initial_choices.values()))
+        w.hide()
+
     def test_flash_readback_gate_and_existing_parameter_preservation(self):
         w = self.window
         w.hex_path = Path("test.hex")
@@ -522,6 +550,35 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(w.package_label.toolTip(), str(package))
         self.assertIn("APP v1.8.16", w.upgrade_package_info.text())
         w.hide()
+
+    def test_runtime_parameters_use_device_snapshot_and_clear_for_next_motor(self):
+        self.bind()
+        w = self.window
+        rows = {
+            i: dict(raw=500, access=3, flags=1, revision=2, saved_revision=2)
+            for i in parameter_ids("speed")
+        }
+        w.on_completed(
+            dict(
+                profile="parameters",
+                group="speed",
+                action="read",
+                node=6,
+                uid=self.uid,
+                passed=True,
+                revision=2,
+                rows=rows,
+            ),
+            None,
+            False,
+        )
+        self.assertIn("0.0005", w.speed_parameter_values[16].text())
+        w.parameters.entries[16].setText("9")
+        w.update_controls()
+        self.assertIn("0.0005", w.speed_parameter_values[16].text())
+        self.assertIn("修订 2", w.speed_parameter_status.text())
+        self.bind(uid="02" * 12)
+        self.assertEqual(w.speed_parameter_values[16].text(), "—")
 
     def test_calibration_archive_speed_and_stop(self):
         self.bind()

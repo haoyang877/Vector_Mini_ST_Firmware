@@ -20,7 +20,7 @@ class SpeedPlot(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.samples = deque(maxlen=1200)
-        self.setMinimumHeight(260)
+        self.setMinimumHeight(300)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(100)
@@ -50,10 +50,10 @@ class SpeedPlot(QWidget):
         painter.drawText(14, 23, "最近30秒   蓝色：参考   青色：反馈")
         end = max(30, self.samples[-1]["elapsed_s"] if self.samples else 30)
         begin = end - 30
-        left, right = 108, self.width() - 20
-        height = (self.height() - 55) / 3
+        left, right = 68, self.width() - 20
+        height = (self.height() - 70) / 3
         for index, (label, reference, feedback) in enumerate(CHANNELS):
-            top, bottom = 42 + index * height, 32 + (index + 1) * height
+            top, bottom = 58 + index * height, 32 + (index + 1) * height
             values = [
                 point[key]
                 for point in self.samples
@@ -64,13 +64,13 @@ class SpeedPlot(QWidget):
             margin = max((high - low) * 0.1, 0.01)
             low, high = low - margin, high + margin
             painter.setPen(QColor("#64748b"))
-            painter.drawText(12, int((top + bottom) / 2), label)
+            painter.drawText(left, int(top - 8), label)
             for fraction in (0, 0.5, 1):
                 y = bottom - fraction * (bottom - top)
                 painter.setPen(QColor("#e6edf4"))
                 painter.drawLine(QPointF(left, y), QPointF(right, y))
                 painter.setPen(QColor("#64748b"))
-                painter.drawText(65, int(y), f"{low + fraction * (high - low):.2g}")
+                painter.drawText(12, int(y + 4), f"{low + fraction * (high - low):.2g}")
             for key, color in ((reference, "#5685e6"), (feedback, "#009b92")):
                 pen = QPen(QColor(color), 1.6)
                 if key == reference:

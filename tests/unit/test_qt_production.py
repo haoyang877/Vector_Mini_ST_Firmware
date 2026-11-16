@@ -120,6 +120,35 @@ class QtProductionTests(unittest.TestCase):
         self.assertIn("未知模式", w.mode_label.text())
         self.assertIn("上次读取", w.fault_label.text())
 
+    def test_input_widths_follow_field_content_across_pages(self):
+        w = self.window
+        for key, entry in w.edits.items():
+            limit = 720 if key == "payload" else 200 if key in ("specimen", "serial") else 120
+            self.assertLessEqual(entry.maximumWidth(), limit, key)
+        self.assertGreater(w.edits["payload"].maximumWidth(), w.edits["can_id"].maximumWidth())
+        for entry in w.parameters.entries.values():
+            self.assertLessEqual(entry.maximumWidth(), 180)
+        for combo in (w.check_mode, w.test_mode, w.target_data, w.target_nominal):
+            self.assertLessEqual(combo.maximumWidth(), 260)
+
+    def test_header_groups_faults_and_equal_measurement_tiles(self):
+        w = self.window
+        w.show()
+        self.app.processEvents()
+        self.assertTrue(w.fault_icon.isHidden())
+        self.assertTrue(w.voltage.property("unavailable"))
+        self.assertEqual(w.last_read.text(), "等待设备连接")
+        self.bind()
+        w.current_motor.update(bus_voltage_v=28.35, bus_current_a=0.01, motor_temperature_c=25)
+        w.render_device()
+        self.app.processEvents()
+        tiles = [widget.parentWidget() for widget in (w.voltage, w.current, w.temperature)]
+        self.assertLessEqual(max(t.width() for t in tiles) - min(t.width() for t in tiles), 1)
+        self.assertFalse(w.voltage.property("unavailable"))
+        self.assertFalse(w.fault_icon.isHidden())
+        self.assertGreater(w.fault_label.y(), w.mode_label.y())
+        w.hide()
+
     def test_light_palette_replaces_dark_system_colors(self):
         dark = QPalette()
         dark.setColor(QPalette.ColorRole.Window, QColor("#101010"))
@@ -461,6 +490,38 @@ class QtProductionTests(unittest.TestCase):
         request = self.controller.calls[-1][0]
         self.assertEqual(request["targets"], [dict(node=7, uid=self.uid)])
         self.assertFalse(request["single_frame_writes"])
+
+    def test_upgrade_page_keeps_compact_controls_and_separate_device_details(self):
+        self.bind(7)
+        w = self.window
+        w.navigation.setCurrentRow(0)
+        w.maintenance.setCurrentWidget(w.pages["upgrade"])
+        w.populate_upgrade_table()
+        w.resize(1440, 960)
+        w.show()
+        self.app.processEvents()
+        self.assertLessEqual(w.edits["rounds"].width(), 80)
+        self.assertLess(
+            w.edits["rounds"].mapToGlobal(w.edits["rounds"].rect().topLeft()).x(),
+            w.upgrade_table.mapToGlobal(w.upgrade_table.rect().topLeft()).x(),
+        )
+        self.assertEqual(w.upgrade_table.item(0, 3).text(), "在线 · APP")
+        self.assertEqual(w.upgrade_table.item(0, 4).text(), "v1.8.12")
+        self.assertEqual(w.upgrade_table.item(0, 5).text(), "v2.3.4")
+        w.on_event("axis_status", (7, "APP 已持久确认"))
+        self.assertEqual(w.upgrade_table.item(0, 6).text(), "APP 已持久确认")
+        self.assertEqual(w.upgrade_table.item(0, 4).text(), "v1.8.12")
+        package = Path(self.temp.name) / "can-app"
+        package.mkdir()
+        (package / "package.json").write_text(
+            '{"image_version":67600,"loader_version":131844}', encoding="utf-8"
+        )
+        w.package_path = package
+        w.update_upgrade_package()
+        self.assertEqual(w.package_label.text(), "升级包：can-app")
+        self.assertEqual(w.package_label.toolTip(), str(package))
+        self.assertIn("APP v1.8.16", w.upgrade_package_info.text())
+        w.hide()
 
     def test_calibration_archive_speed_and_stop(self):
         self.bind()

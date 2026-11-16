@@ -64,7 +64,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -211,6 +211,7 @@ class ProductionWindow(QMainWindow):
         header.addWidget(connection, 3)
         current = QGroupBox("当前电机")
         form = QVBoxLayout(current)
+        form.setSpacing(10)
         self.axis = combo(
             [f"{role} · {model} · 节点 {node}" for node, (role, model, _) in FIRST_FIT_AXES.items()]
         )
@@ -222,8 +223,9 @@ class ProductionWindow(QMainWindow):
         self.scan_button = button(
             "连接 / 扫描", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
         )
-        form.addWidget(self.scan_button)
-        header.addWidget(current, 4)
+        form.addWidget(self.scan_button, 0, Qt.AlignmentFlag.AlignLeft)
+        form.addStretch()
+        header.addWidget(current, 3)
         device = QGroupBox("设备状态")
         form = QVBoxLayout(device)
         details = QGridLayout()
@@ -243,7 +245,6 @@ class ProductionWindow(QMainWindow):
         self.fault_icon.setFixedSize(20, 20)
         fault_row.addWidget(self.fault_icon)
         fault_row.addWidget(self.fault_label, 1)
-        details.addLayout(fault_row, 2, 1)
         details.setColumnStretch(0, 2)
         details.setColumnStretch(1, 3)
         metrics = QHBoxLayout()
@@ -255,7 +256,11 @@ class ProductionWindow(QMainWindow):
             (self.current, "母线电流"),
             (self.temperature, "电机温度"),
         ):
-            metric = QVBoxLayout()
+            tile = QWidget()
+            tile.setObjectName("telemetryTile")
+            metric = QVBoxLayout(tile)
+            metric.setContentsMargins(10, 8, 10, 8)
+            metric.setSpacing(6)
             caption_row = QHBoxLayout()
             badge = QLabel()
             badge.setPixmap(
@@ -272,11 +277,12 @@ class ProductionWindow(QMainWindow):
             caption_row.addStretch()
             metric.addLayout(caption_row)
             metric.addWidget(widget)
-            metrics.addLayout(metric)
+            metrics.addWidget(tile, 1)
         form.addLayout(details)
+        form.addLayout(fault_row)
         form.addLayout(metrics)
         foot = QHBoxLayout()
-        self.last_read = label("电压 / 电流 / 电机温度", "subtitle")
+        self.last_read = label("等待设备连接", "subtitle")
         foot.addWidget(self.last_read, 1)
         self.status_button = button(
             "刷新", lambda: self.launch(dict(profile="device_status")), icon_name="refresh"
@@ -287,7 +293,7 @@ class ProductionWindow(QMainWindow):
         foot.addWidget(self.status_button)
         foot.addWidget(self.fault_button)
         form.addLayout(foot)
-        header.addWidget(device, 5)
+        header.addWidget(device, 6)
         root.addLayout(header)
         self.flow_label = label(self.flow.summary(None), "subtitle", True)
         root.addWidget(self.flow_label)
@@ -385,6 +391,9 @@ class ProductionWindow(QMainWindow):
         form.setSpacing(10)
         for key, title, value in definitions:
             widget = QLineEdit(str(value))
+            widget.setMaximumWidth(
+                720 if key == "payload" else 200 if key in ("specimen", "serial") else 120
+            )
             self.edits[key] = widget
             form.addRow(title, widget)
         layout.addLayout(form)
@@ -448,34 +457,51 @@ class ProductionWindow(QMainWindow):
         layout.addStretch()
         layout = self.tab_page(self.maintenance, "upgrade", "CAN 固件升级")
         layout.addWidget(label("CAN 固件升级", "sectionTitle"))
+        upgrade_body = QHBoxLayout()
+        settings = QGroupBox("升级操作")
+        settings.setMinimumWidth(240)
+        settings.setMaximumWidth(300)
+        settings_layout = QVBoxLayout(settings)
         self.package_path = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
             else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.16/app-package"
         )
-        self.package_label = label("配套 APP v1.8.16 升级包", wrap=True)
-        layout.addWidget(self.package_label)
-        self.add_action(layout, "选择升级包目录", self.choose_package, icon_name="folder")
-        self.batch_upgrade = QCheckBox("批量升级已扫描的设备")
-        layout.addWidget(self.batch_upgrade)
-        self.add_fields(layout, [("rounds", "每台升级次数", "1")])
-        self.single_frame = QCheckBox("兼容单帧写入")
-        layout.addWidget(self.single_frame)
-        self.upgrade_table = table(["选择", "节点 / 电机", "UID", "状态"])
-        layout.addWidget(self.upgrade_table, 1)
-        actions = QHBoxLayout()
+        self.package_label = label("", wrap=True)
+        settings_layout.addWidget(self.package_label)
+        self.add_action(settings_layout, "选择升级包目录", self.choose_package, icon_name="folder")
         self.add_action(
-            actions, "扫描在线设备", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
+            settings_layout,
+            "扫描在线设备",
+            lambda: self.launch(dict(profile="can_scan")),
+            icon_name="scan",
         )
+        self.batch_upgrade = QCheckBox("批量升级已扫描的设备")
+        settings_layout.addWidget(self.batch_upgrade)
+        self.add_fields(settings_layout, [("rounds", "每台升级次数", "1")])
+        self.edits["rounds"].setFixedWidth(72)
+        self.single_frame = QCheckBox("兼容单帧写入")
+        settings_layout.addWidget(self.single_frame)
         self.add_action(
-            actions,
+            settings_layout,
             "开始 CAN 升级",
             lambda: self.launch(dict(profile="can_upgrade")),
             True,
             icon_name="upgrade",
         )
-        actions.addStretch()
-        layout.addLayout(actions)
+        settings_layout.addStretch()
+        devices = QGroupBox("连接与固件信息")
+        devices_layout = QVBoxLayout(devices)
+        self.upgrade_package_info = label("", "subtitle", True)
+        devices_layout.addWidget(self.upgrade_package_info)
+        self.upgrade_table = table(
+            ["选择", "节点 / 电机", "UID", "连接", "APP 固件", "Loader 固件", "升级状态"]
+        )
+        devices_layout.addWidget(self.upgrade_table, 1)
+        upgrade_body.addWidget(settings)
+        upgrade_body.addWidget(devices, 1)
+        layout.addLayout(upgrade_body, 1)
+        self.update_upgrade_package()
         layout = self.tab_page(self.maintenance, "communication", "通信测试")
         layout.addWidget(label("通信测试", "sectionTitle"))
         self.communication_tabs = QTabWidget()
@@ -483,6 +509,7 @@ class ProductionWindow(QMainWindow):
         page = QWidget()
         panel = QVBoxLayout(page)
         self.test_mode = combo(MODES)
+        self.test_mode.setMaximumWidth(260)
         panel.addWidget(self.test_mode)
         self.multi_query = QCheckBox("多节点查询")
         panel.addWidget(self.multi_query)
@@ -510,6 +537,8 @@ class ProductionWindow(QMainWindow):
         layout.addWidget(label("维护操作", "sectionTitle"))
         self.target_nominal = combo(("500K", "1M"), "1M")
         self.target_data = combo(RATES, "5M")
+        self.target_nominal.setMaximumWidth(120)
+        self.target_data.setMaximumWidth(120)
         form = QFormLayout()
         form.addRow("目标仲裁速率", self.target_nominal)
         form.addRow("目标数据速率", self.target_data)
@@ -549,6 +578,7 @@ class ProductionWindow(QMainWindow):
         self.check_mode = combo(
             ("关相静态", "静态＋相电阻", "静态和双向驱动"), CHECK_DEFAULTS["mode"]
         )
+        self.check_mode.setMaximumWidth(260)
         panel.addWidget(self.check_mode)
         self.add_fields(
             panel,
@@ -756,6 +786,7 @@ class ProductionWindow(QMainWindow):
                 "warning" if faults is None or stale or error else "fail" if faults else "pass"
             ).pixmap(20, 20)
         )
+        self.fault_icon.setVisible(faults is not None)
         self.status_label.setToolTip(str(error) if error else "")
         for widget, key, unit, digits in (
             (self.voltage, "bus_voltage_v", "V", 2),
@@ -764,10 +795,13 @@ class ProductionWindow(QMainWindow):
         ):
             value = motor.get(key) if not stale and not error and motor.get("role") == 1 else None
             widget.setText(f"{value:.{digits}f} {unit}" if value is not None else "— " + unit)
+            widget.setProperty("unavailable", value is None)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
         self.last_read.setText(
             "读取 " + datetime.fromtimestamp(stamp).strftime("%H:%M:%S")
             if stamp
-            else "电压 / 电流 / 电机温度"
+            else "等待设备连接"
         )
         self.flow_label.setText(self.flow.summary(motor.get("uid")))
 
@@ -869,7 +903,19 @@ class ProductionWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "选择包含 image.bin 和 manifest.bin 的目录")
         if path:
             self.package_path = Path(path)
-            self.package_label.setText(str(self.package_path))
+            self.update_upgrade_package()
+
+    def update_upgrade_package(self) -> None:
+        """路径只显示末级目录，完整路径留在提示；版本来自实际升级包元数据。"""
+        self.package_label.setText("升级包：" + self.package_path.name)
+        self.package_label.setToolTip(str(self.package_path))
+        try:
+            metadata = json.loads((self.package_path / "package.json").read_text(encoding="utf-8"))
+            app = version_text(int(metadata["image_version"]))
+            loader = version_text(int(metadata["loader_version"]))
+            self.upgrade_package_info.setText(f"目标固件：APP v{app}  ·  Loader v{loader}")
+        except (OSError, ValueError, KeyError, TypeError):
+            self.upgrade_package_info.setText("目标固件：未读取有效升级包，请选择目录")
 
     def fill_query(self) -> None:
         identifier, data = encode_frames(self.node(), 108, b"", 1)[0]
@@ -1155,7 +1201,7 @@ class ProductionWindow(QMainWindow):
             node, text = value
             for row in range(self.upgrade_table.rowCount()):
                 if self.upgrade_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == node:
-                    self.upgrade_table.item(row, 3).setText(text)
+                    self.upgrade_table.item(row, 6).setText(text)
         elif tag == "motor_feedback":
             self.plot.append(value)
             self.speed_label.setText(
@@ -1420,7 +1466,17 @@ class ProductionWindow(QMainWindow):
         rows(
             self.upgrade_table,
             [
-                ["", f"{m['node']} · {AXES[m['node']]}", m["uid"], "在线"]
+                [
+                    "",
+                    f"{m['node']} · {AXES[m['node']]}",
+                    m["uid"],
+                    "在线 · Loader" if m.get("role") == 2 else "在线 · APP",
+                    "v" + version_text(m["app_version"]) if m.get("app_version") else "未读取",
+                    "v" + version_text(m["loader_version"])
+                    if m.get("loader_version")
+                    else "未读取",
+                    "待升级",
+                ]
                 for m in self.devices.values()
             ],
         )

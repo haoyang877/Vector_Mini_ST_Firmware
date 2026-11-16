@@ -75,6 +75,7 @@ class ParameterPage(QWidget):
                 )
                 value, state = QLabel("—"), QLabel("未读取")
                 entry = QLineEdit()
+                entry.setMaximumWidth(180)
                 entry.setReadOnly(True)
                 entry.textEdited.connect(lambda _text, i=identifier: self.update_value_state(i))
                 table.setCellWidget(row, 1, value)

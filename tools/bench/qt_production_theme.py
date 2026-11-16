@@ -13,6 +13,8 @@ QLabel#subtitle { color:#60758b; font-size:12px; }
 QLabel { background:transparent; border:0; }
 QLabel#statusValue { color:#253f58; font-weight:600; }
 QLabel#metric { font-size:19px; font-weight:600; color:#126c87; }
+QLabel#metric[unavailable="true"] { color:#8798a9; }
+QWidget#telemetryTile { background:#f3f7fa; border:1px solid #e3ebf2; border-radius:7px; }
 QLabel#sectionTitle { font-size:20px; font-weight:600; color:#1c3d59; }
 QListWidget#navigation { background:#e8eef5; color:#334b62; border:0; border-radius:10px; padding:10px 6px; outline:0; }
 QListWidget#navigation::item { height:48px; padding-left:14px; border-radius:7px; margin:3px; }

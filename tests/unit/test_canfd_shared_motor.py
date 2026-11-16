@@ -117,7 +117,7 @@ class SharedMotorTests(unittest.TestCase):
     def test_fault_names_display_and_clear_readback_update_identity(self):
         w = self.window
         w.set_current_motor(6, self.uid, "扫描", role=1, state=8, faults=32)
-        self.assertIn("编码器故障", w.current_motor_label.get())
+        self.assertIn("编码器故障", w.device_state.get())
         w.display_report(
             dict(
                 profile="clear_fault",
@@ -131,7 +131,7 @@ class SharedMotorTests(unittest.TestCase):
                 detail=0,
             )
         )
-        self.assertIn("无故障", w.current_motor_label.get())
+        self.assertIn("无故障", w.device_state.get())
         self.assertIn("清除前：编码器故障", w.output.get("1.0", "end"))
         self.assertEqual(w.current_motor["faults"], 0)
 
@@ -583,6 +583,39 @@ class SharedMotorTests(unittest.TestCase):
         rows[11].update(flags=3, saved_revision=6)
         page.update_value_state(11)
         self.assertEqual(page.value_states[11].get(), "RAM值 / 保存未确认")
+
+    def test_production_title_measurements_and_adjustable_record(self):
+        w = self.window
+        self.assertIn("电机生产测试上位机", self.root.title())
+        w.set_current_motor(
+            6,
+            self.uid,
+            "测试",
+            role=1,
+            state=5,
+            mode=0,
+            faults=0,
+            checked_at=time.time(),
+            bus_voltage_v=28.12,
+            bus_current_a=1.23,
+            motor_temperature_c=23.56,
+        )
+        self.assertIn("28.12 V", w.device_measurements.get())
+        self.assertIn("1.230 A", w.device_measurements.get())
+        self.assertIn("23.56 °C", w.device_measurements.get())
+        w.current_motor["checked_at"] -= 6
+        w.update_device_summary()
+        self.assertNotIn("28.12", w.device_measurements.get())
+        self.assertIn("—", w.device_measurements.get())
+        self.assertEqual(len(w.workspace.panes()), 2)
+        self.assertEqual(int(w.output.cget("height")), 12)
+        self.assertEqual(w.clear_fault_button.master.master.cget("text"), "3. 设备状态")
+        self.assertEqual(w.tabs.master, w.task_area)
+        self.assertEqual(w.output.master, w.text_record)
+        self.assertTrue(w.output.cget("yscrollcommand"))
+        w.show("测试记录")
+        self.assertEqual(w.text_record.winfo_manager(), "pack")
+        self.assertEqual(w.hardware_results.winfo_manager(), "")
 
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window

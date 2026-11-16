@@ -45,9 +45,26 @@ def read_device_status(bus, node: int, expected_uid: str) -> dict:
     if identity[22] == 1:
         status = link.status()
         result.update(
-            state=status[43], mode=status[44], faults=int.from_bytes(status[4:8], "little")
+            state=status[43],
+            mode=status[44],
+            faults=int.from_bytes(status[4:8], "little"),
+            **status_measurements(status),
         )
     return result
+
+
+def status_measurements(status: bytes) -> dict:
+    """解析108中的母线电压、电流和电机NTC，缺失有效位/无效哨兵均保留为空。"""
+    flags = int.from_bytes(status[24:26], "little")
+    values = {}
+    for key, offset, bit, scale in (
+        ("bus_voltage_v", 26, 4, 100),
+        ("bus_current_a", 28, 5, 1000),
+        ("motor_temperature_c", 36, 9, 100),
+    ):
+        raw = struct.unpack_from("<h", status, offset)[0]
+        values[key] = raw / scale if flags & (1 << bit) and raw != -32768 else None
+    return values
 
 
 def speed_feedback(status: bytes, target: float, elapsed_s: float) -> dict:
@@ -60,6 +77,7 @@ def speed_feedback(status: bytes, target: float, elapsed_s: float) -> dict:
         state=status[43],
         mode=status[44],
         faults=int.from_bytes(status[4:8], "little"),
+        **status_measurements(status),
     )
     for key, offset, bit, fmt in (
         ("reference_position_rad", 8, 0, "i"),
@@ -517,6 +535,9 @@ def run_speed_control(
                 "state",
                 "mode",
                 "faults",
+                "bus_voltage_v",
+                "bus_current_a",
+                "motor_temperature_c",
             )
             writer = csv.DictWriter(stream, fieldnames=columns)
             writer.writeheader()

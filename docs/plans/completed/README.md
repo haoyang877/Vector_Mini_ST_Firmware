@@ -315,3 +315,5 @@
 - [检测版本与刷新优化](2026-11-15-hardware-version-and-refresh.md)：1.18.1，右轮升级和只读全参验证、Release通过。
 
 - [状态、参数对照与检测分阶段](2026-11-15-status-parameters-stages.md)：1.19.0，PR通过，待用户实机验证。
+
+- [生产测试界面整理](2026-11-16-production-ui.md)：中文名称、母线电压/电流/NTC、可调记录区，离线验证通过。

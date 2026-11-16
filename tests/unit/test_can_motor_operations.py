@@ -369,6 +369,38 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertGreater(abs(samples[0]["position_rad"]), 10000)
         self.assertIsNone(motor_speed_fields(dict(speed="3", lease="0", target="0"))["travel"])
 
+    def test_status_measurements_use_correct_fields_and_valid_bits(self):
+        original = self.endpoint.status
+
+        def status():
+            data = bytearray(original())
+            struct.pack_into("<H", data, 24, (1 << 4) | (1 << 5) | (1 << 9))
+            struct.pack_into("<h", data, 26, 2812)
+            struct.pack_into("<h", data, 28, -1234)
+            struct.pack_into("<h", data, 34, 5000)
+            struct.pack_into("<h", data, 36, 2356)
+            return bytes(data)
+
+        self.endpoint.status = status
+        values = ops.read_device_status(None, 6, "01" * 12)
+        self.assertEqual(values["bus_voltage_v"], 28.12)
+        self.assertEqual(values["bus_current_a"], -1.234)
+        self.assertEqual(values["motor_temperature_c"], 23.56)
+        data = bytearray(status())
+        struct.pack_into("<H", data, 24, 0)
+        self.assertEqual(
+            ops.status_measurements(data),
+            dict(bus_voltage_v=None, bus_current_a=None, motor_temperature_c=None),
+        )
+        struct.pack_into("<H", data, 24, (1 << 4) | (1 << 5) | (1 << 9))
+        struct.pack_into("<h", data, 26, -32768)
+        struct.pack_into("<h", data, 28, -32768)
+        struct.pack_into("<h", data, 36, -32768)
+        self.assertEqual(
+            ops.status_measurements(data),
+            dict(bus_voltage_v=None, bus_current_a=None, motor_temperature_c=None),
+        )
+
     def test_actual_device_summary_and_complete_csv_channels(self):
         device = ops.read_device_status(None, 6, "01" * 12)
         self.assertEqual((device["app_version"], device["loader_version"]), (0, 0))

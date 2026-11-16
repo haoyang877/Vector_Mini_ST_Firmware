@@ -48,7 +48,7 @@ from hardware_check import Drive, Link, empty_report, result_rows, run_check, su
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 
-TITLE = "CAN FD 通信测试 v1.19.0"
+TITLE = "电机生产测试上位机 v1.19.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -440,35 +440,45 @@ class CanTestWindow:
         self.scanning = False
         frame = ttk.Frame(root, padding=16)
         frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="电机生产测试上位机", font=("Microsoft YaHei UI", 17, "bold")).pack(
+            anchor="w", pady=(0, 8)
+        )
         header = ttk.Frame(frame)
-        header.pack(fill="x")
-        connection = ttk.Frame(header)
-        connection.pack(side="left", fill="x", expand=True)
-        summary = ttk.LabelFrame(header, text="当前设备", padding=10)
-        summary.pack(side="right", fill="both", padx=(12, 0))
+        header.pack(fill="x", pady=(0, 8))
+        header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=1)
+        header.columnconfigure(2, weight=1)
+        connection = ttk.LabelFrame(header, text="1. 通信连接", padding=8)
+        connection.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        motor_panel = ttk.LabelFrame(header, text="2. 当前电机", padding=8)
+        motor_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 8))
+        summary = ttk.LabelFrame(header, text="3. 设备状态", padding=8)
+        summary.grid(row=0, column=2, sticky="nsew")
         self.device_versions = tk.StringVar(value="APP：—    Loader：—")
         self.device_state = tk.StringVar(value="状态：未读取")
+        self.device_measurements = tk.StringVar(
+            value="母线电压：— V    母线电流：— A\n电机温度：— °C"
+        )
         self.device_checked = tk.StringVar(value="读取设备后显示实际版本与状态")
         ttk.Label(summary, textvariable=self.device_versions).pack(anchor="w")
-        ttk.Label(summary, textvariable=self.device_state, wraplength=310).pack(anchor="w", pady=4)
+        ttk.Label(summary, textvariable=self.device_state, wraplength=360).pack(anchor="w", pady=2)
+        ttk.Label(summary, textvariable=self.device_measurements).pack(anchor="w", pady=2)
         ttk.Label(summary, textvariable=self.device_checked).pack(anchor="w")
+        state_actions = ttk.Frame(summary)
+        state_actions.pack(anchor="w", pady=(5, 0))
         self.status_refresh = ttk.Button(
-            summary, text="刷新状态", command=lambda: self.start(status_only=True)
+            state_actions, text="刷新状态", command=lambda: self.start(status_only=True)
         )
-        self.status_refresh.pack(anchor="e", pady=(5, 0))
-        self.can_disconnect = ttk.Button(summary, text="断开 CAN", command=self.release_can)
-        self.can_disconnect.pack(anchor="e", pady=(3, 0))
+        self.status_refresh.pack(side="left")
+        self.clear_fault_button = ttk.Button(
+            state_actions, text="清除故障", command=lambda: self.start(clear_fault=True)
+        )
+        self.clear_fault_button.pack(side="left", padx=(6, 0))
+        self.can_disconnect = ttk.Button(connection, text="断开 CAN", command=self.release_can)
         self.auto_status = tk.BooleanVar(value=True)
-        ttk.Checkbutton(summary, text="连接后自动刷新（2秒）", variable=self.auto_status).pack(
-            anchor="e"
-        )
         self.connection_state = tk.StringVar(value="CAN：未连接")
-        ttk.Label(summary, textvariable=self.connection_state).pack(anchor="e")
-        ttk.Label(connection, text="CAN FD 通信测试", font=("Microsoft YaHei UI", 17, "bold")).pack(
-            anchor="w"
-        )
         top = ttk.Frame(connection)
-        top.pack(fill="x", pady=(6, 12))
+        top.pack(fill="x")
 
         def combo(parent, label, values, default, width):
             ttk.Label(parent, text=label).pack(side="left")
@@ -478,22 +488,31 @@ class CanTestWindow:
             self.controls.append((w, "readonly"))
             return var
 
-        self.channel = combo(top, "USB-CAN 通道", ("1", "2"), "1", 3)
-        self.nominal = combo(top, "仲裁段", ("500K", "1M"), "1M", 6)
-        self.data = combo(top, "数据段", tuple(RATES), "5M", 6)
-        ttk.Label(top, text="ISO FD + BRS").pack(side="left")
+        self.channel = combo(top, "通道", ("1", "2"), "1", 3)
+        rates = ttk.Frame(connection)
+        rates.pack(fill="x", pady=5)
+        self.nominal = combo(rates, "仲裁段", ("500K", "1M"), "1M", 5)
+        self.data = combo(rates, "数据段", tuple(RATES), "5M", 5)
+        ttk.Label(connection, text="ISO CAN FD · BRS").pack(anchor="w")
+        link_actions = ttk.Frame(connection)
+        link_actions.pack(fill="x", pady=4)
+        self.can_disconnect.pack(in_=link_actions, side="left")
+        ttk.Label(link_actions, textvariable=self.connection_state).pack(side="left", padx=8)
+        ttk.Checkbutton(connection, text="连接后自动刷新（2秒）", variable=self.auto_status).pack(
+            anchor="w"
+        )
         self.axis_choices = {
             f"{role} · {model} · 节点 {node}": node
             for node, (role, model, _) in FIRST_FIT_AXES.items()
         }
-        motor_row = ttk.Frame(connection)
+        motor_row = ttk.Frame(motor_panel)
         motor_row.pack(fill="x", pady=(0, 8))
         self.motor_axis = combo(
             motor_row,
-            "当前电机",
+            "电机",
             tuple(self.axis_choices),
             next(label for label, node in self.axis_choices.items() if node == 6),
-            28,
+            26,
         )
         self.motor_selector = next(
             child for child in motor_row.winfo_children() if isinstance(child, ttk.Combobox)
@@ -502,14 +521,20 @@ class CanTestWindow:
         scan_motor = ttk.Button(motor_row, text="扫描识别", command=lambda: self.start(scan=True))
         scan_motor.pack(side="left")
         self.controls.append((scan_motor, "normal"))
-        self.clear_fault_button = ttk.Button(
-            motor_row, text="清除故障", command=lambda: self.start(clear_fault=True)
+        self.current_motor_label = tk.StringVar(value="未识别；请选择电机后扫描。")
+        ttk.Label(motor_panel, textvariable=self.current_motor_label, wraplength=370).pack(
+            anchor="w", pady=4
         )
-        self.clear_fault_button.pack(side="left", padx=8)
-        self.current_motor_label = tk.StringVar(value="未识别；烧录后自动沿用轴类型和节点。")
-        ttk.Label(connection, textvariable=self.current_motor_label).pack(anchor="w", pady=(0, 6))
-        self.tabs = ttk.Notebook(frame)
-        self.tabs.pack(fill="x")
+        self.workspace = ttk.Panedwindow(frame, orient="vertical")
+        self.workspace.pack(fill="both", expand=True)
+        self.task_area = ttk.Frame(self.workspace)
+        self.record_area = ttk.LabelFrame(
+            self.workspace, text="运行记录 / 检测结果（拖动上方分隔条调整）", padding=6
+        )
+        self.workspace.add(self.task_area, weight=3)
+        self.workspace.add(self.record_area, weight=2)
+        self.tabs = ttk.Notebook(self.task_area)
+        self.tabs.pack(fill="both", expand=True)
         self.pages = {}
         for key, title in (
             ("jlink", "J-Link 烧录"),
@@ -861,14 +886,14 @@ class CanTestWindow:
         w.pack(side="left", padx=1)
         self.controls.append((w, "normal"))
         self.fill_query(6)
-        bar = ttk.Frame(frame)
+        bar = ttk.Frame(self.task_area)
         bar.pack(fill="x", pady=(12, 5))
         self.bar = ttk.Progressbar(bar, maximum=100)
         self.bar.pack(side="left", fill="x", expand=True)
         self.progress = tk.StringVar(value="0%")
         ttk.Label(bar, textvariable=self.progress, width=8, anchor="e").pack(side="left")
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill="x")
+        buttons = ttk.Frame(self.task_area)
+        buttons.pack(side="bottom", fill="x")
         self.start_button = ttk.Button(buttons, text="开始测试", command=self.start)
         self.start_button.pack(side="left")
         self.stop_button = ttk.Button(buttons, text="停止", command=self.stop)
@@ -879,11 +904,22 @@ class CanTestWindow:
         self.open_button.pack(side="left")
         self.state = tk.StringVar(value="就绪")
         ttk.Label(buttons, textvariable=self.state).pack(side="right")
+        self.text_record = ttk.Frame(self.record_area)
+        self.text_record.pack(fill="both", expand=True)
         self.output = tk.Text(
-            frame, height=8, wrap="word", state="disabled", font=("Microsoft YaHei UI", 10)
+            self.text_record,
+            height=12,
+            wrap="word",
+            state="disabled",
+            font=("Microsoft YaHei UI", 10),
         )
-        self.output.pack(fill="both", expand=True, pady=(8, 0))
-        self.hardware_results = ttk.Frame(frame)
+        record_scroll = ttk.Scrollbar(
+            self.text_record, orient="vertical", command=self.output.yview
+        )
+        self.output.configure(yscrollcommand=record_scroll.set)
+        record_scroll.pack(side="right", fill="y")
+        self.output.pack(side="left", fill="both", expand=True)
+        self.hardware_results = ttk.Frame(self.record_area)
         self.hardware_result_note = tk.StringVar()
         ttk.Label(
             self.hardware_results, textvariable=self.hardware_result_note, wraplength=940
@@ -912,6 +948,12 @@ class CanTestWindow:
         self.hardware_table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
         grid.rowconfigure(0, weight=1)
         grid.columnconfigure(0, weight=1)
+        buttons.pack_forget()
+        buttons.pack(side="bottom", fill="x")
+        bar.pack_forget()
+        bar.pack(side="bottom", fill="x", pady=(8, 5))
+        self.tabs.pack_forget()
+        self.tabs.pack(fill="both", expand=True)
         self.mode.trace_add("write", lambda *_: self.update_controls())
         self.motor_axis.trace_add("write", self.select_current_motor)
         for var in (self.channel, self.nominal, self.data):
@@ -922,11 +964,23 @@ class CanTestWindow:
         self.update_controls()
         self.status_timer = self.root.after(500, self.status_heartbeat)
         self.root.bind("<Destroy>", self.cancel_status_timer, add="+")
+        self.split_timer = self.root.after(150, self.place_record_split)
+
+    def place_record_split(self) -> None:
+        """首次布局分配约四成高度给记录区，后续位置交由用户拖动。"""
+        self.split_timer = None
+        self.root.update_idletasks()
+        height = self.workspace.winfo_height()
+        if height > 100:
+            self.workspace.sashpos(0, round(height * 0.60))
 
     def cancel_status_timer(self, event=None) -> None:
         """关闭或销毁主窗口时撤销定时回调，避免访问已销毁控件。"""
         if event is not None and event.widget is not self.root:
             return
+        if getattr(self, "split_timer", None) is not None:
+            self.root.after_cancel(self.split_timer)
+            self.split_timer = None
         if self.status_timer is not None:
             self.root.after_cancel(self.status_timer)
             self.status_timer = None
@@ -1058,12 +1112,7 @@ class CanTestWindow:
             self.identity = None
         if self.current_motor:
             self.current_motor_label.set(
-                f"UID {self.current_motor['uid']}　来源：{self.current_motor['source']}"
-                + (
-                    f"　{upgrade_motor_status(self.current_motor)}"
-                    if self.current_motor.get("role") == 1
-                    else ""
-                )
+                f"UID {self.current_motor['uid']}\n来源：{self.current_motor['source']}"
             )
         else:
             self.current_motor_label.set("当前轴尚未识别；可先烧录或点击扫描识别。")
@@ -1124,6 +1173,24 @@ class CanTestWindow:
             state += f" · 模式{motor.get('mode', '—')} · {describe_faults(motor.get('faults', 0))}"
         else:
             state = "未读取"
+        current_values = not stale and not motor.get("status_error") and motor.get("role") == 1
+
+        def measured(key, unit):
+            value = motor.get(key) if current_values else None
+            return (
+                (f"{value:.3f} {unit}" if key == "bus_current_a" else f"{value:.2f} {unit}")
+                if value is not None
+                else f"— {unit}"
+            )
+
+        self.device_measurements.set(
+            "母线电压："
+            + measured("bus_voltage_v", "V")
+            + "    母线电流："
+            + measured("bus_current_a", "A")
+            + "\n电机温度："
+            + measured("motor_temperature_c", "°C")
+        )
         self.device_state.set("状态：" + state)
         stamp = motor.get("checked_at")
         self.device_checked.set(
@@ -1309,7 +1376,7 @@ class CanTestWindow:
 
     def show_hardware_result(self, report: dict) -> None:
         """展示本轮实测值和原始判定，缺失项保持可见。"""
-        self.output.pack_forget()
+        self.text_record.pack_forget()
         self.hardware_results.pack(fill="both", expand=True, pady=(8, 0))
         self.hardware_table.delete(*self.hardware_table.get_children())
         for row in result_rows(report):
@@ -1324,7 +1391,7 @@ class CanTestWindow:
 
     def show(self, text: str) -> None:
         self.hardware_results.pack_forget()
-        self.output.pack(fill="both", expand=True, pady=(8, 0))
+        self.text_record.pack(fill="both", expand=True)
         self.output.configure(state="normal")
         self.output.delete("1.0", "end")
         self.output.insert("end", text)
@@ -1751,6 +1818,9 @@ class CanTestWindow:
                 self.speed_plot.append(msg)
                 if self.current_motor:
                     self.current_motor.update(
+                        bus_voltage_v=msg.get("bus_voltage_v"),
+                        bus_current_a=msg.get("bus_current_a"),
+                        motor_temperature_c=msg.get("motor_temperature_c"),
                         state=msg["state"],
                         mode=msg["mode"],
                         faults=msg["faults"],

@@ -1,5 +1,7 @@
 # 历史交付与候选记录
 
+- [生产上位机 v2.0.2 / Loader v2.3.4 / APP v1.8.15](production-v2.0.2-app-v1.8.15.md)：滤波母线电压判定及 Windows 配套包。
+
 - [CAN-Link-Test1.16.0](can-link-test-v1.16.0-20261113.md)：参数读写四组及速度页布局，配套APP1.8.8。
 
 - [APP1.8.7 / 上位机1.14.1大包](can-link-test-v1.14.1-app-v1.8.7-20261113.md)：合入ROLL标定PI，更新内置固件和RTT兼容。

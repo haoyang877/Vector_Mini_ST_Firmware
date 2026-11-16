@@ -35,21 +35,22 @@ int main(int argc, char **argv)
     assert(sim_analog_pins == 0xFFU);
     assert(sim_adc_common.div == ADC_HCLK_DIV_3 && !sim_adc_common.tempervintrv_state);
     assert(sim_adc[0].enabled && sim_adc[1].enabled);
-    assert(sim_adc[0].length == 3);
+    assert(sim_adc[0].length == 4);
     for (unsigned rank = 0; rank < 3; rank++)
     {
         assert(sim_adc[0].channels[rank] == rank);
     }
     assert(sim_adc[0].sample_times[0] == ADC_SAMPLETIME_12_5);
-    for (unsigned rank = 0; rank < 4; ++rank)
+    assert(sim_adc[0].channels[3] == ADC_CHANNEL_3);
+    assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_2_5);
+    for (unsigned rank = 0; rank < 3; ++rank)
     {
-        assert(sim_adc[1].channels[rank] == rank + 3U);
-        assert(sim_adc[1].sample_times[rank] ==
-               (rank == 0U ? ADC_SAMPLETIME_92_5 : ADC_SAMPLETIME_47_5));
+        assert(sim_adc[1].channels[rank] == rank + 4U);
+        assert(sim_adc[1].sample_times[rank] == ADC_SAMPLETIME_47_5);
     }
-    assert(sim_adc[1].length == 4);
-    /* ADC2: (92.5+12.5)+3*(47.5+12.5)=285周期；ADC1为300周期。 */
-    assert(105U + 3U * 60U < 3U * 4U * 25U);
+    assert(sim_adc[1].length == 3);
+    /* ADC1: 3*4*25+4*15=360周期(6us)；ADC2为180周期(3us)。 */
+    assert(3U * 60U < 3U * 4U * 25U + 4U * 15U);
     assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);
@@ -68,17 +69,16 @@ int main(int argc, char **argv)
     sim_adc[0].flags = sim_adc[1].flags = ADC_PCCE_FLAG;
     assert(BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
-    ADC1->pdt4 = 0;
-    ADC2->pdt1 = 1206;
-    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 1206);
-    ADC2->pdt2 = 1999;
-    ADC2->pdt3 = 1234;
-    ADC2->pdt4 = 2345;
+    ADC1->pdt4 = 4825;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 1206.25f);
+    ADC2->pdt1 = 1999;
+    ADC2->pdt2 = 1234;
+    ADC2->pdt3 = 2345;
     assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT) == 1999);
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN) == 1234);
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS) == 2345);
-    ADC2->pdt3 = 0;
-    ADC2->pdt4 = 4095;
+    ADC2->pdt2 = 0;
+    ADC2->pdt3 = 4095;
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_SIN) == 0);
     assert(BspAdc_ReadRawChannel(BSP_ADC_LINEAR_HALL_COS) == 4095);
     ADC2->odt = 372;

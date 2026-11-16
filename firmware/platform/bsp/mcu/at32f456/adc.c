@@ -66,33 +66,34 @@ void McuAdc_Init(void)
     adc_base_config(MCU_ADC_FAST, &base);
     adc_resolution_set(MCU_ADC_FAST, ADC_RESOLUTION_12B);
     adc_resolution_set(MCU_ADC_AUX, ADC_RESOLUTION_12B);
-    adc_preempt_channel_length_set(MCU_ADC_FAST, 3U);
+    adc_preempt_channel_length_set(MCU_ADC_FAST, 4U);
     const adc_channel_select_type fast_channels[] = {
         MCU_ADC_PHASE_A_CHANNEL, MCU_ADC_PHASE_B_CHANNEL, MCU_ADC_PHASE_C_CHANNEL};
     for (uint8_t rank = 1U; rank <= 3U; ++rank)
     {
         adc_preempt_channel_set(MCU_ADC_FAST, fast_channels[rank - 1U], rank, ADC_SAMPLETIME_12_5);
     }
+    /* 母线电压跟随相电流使用四倍累加，最短采样共增加 1 us。 */
+    adc_preempt_channel_set(MCU_ADC_FAST, MCU_ADC_BUS_VOLTAGE_CHANNEL, 4U, ADC_SAMPLETIME_2_5);
     adc_oversample_ratio_shift_set(MCU_ADC_FAST, ADC_OVERSAMPLE_RATIO_4, ADC_OVERSAMPLE_SHIFT_0);
     adc_preempt_oversample_enable(MCU_ADC_FAST, TRUE);
     adc_preempt_conversion_trigger_set(
         MCU_ADC_FAST, MCU_ADC_FAST_TRIGGER, ADC_PREEMPT_TRIG_EDGE_NONE);
     adc_convert_fail_auto_abort_enable(MCU_ADC_FAST, TRUE);
-    /* 电压延长建立时间；四路共 4.75 us，早于三相四倍采样的 5 us 完成。 */
+    /* ADC2 仅保留母线电流和两路 Hall，共 3 us。 */
     adc_preempt_channel_length_set(MCU_ADC_AUX,
-                                   1U + BSP_ENABLED_BUS_CURRENT + 2U * BSP_ENABLED_LINEAR_HALL);
-    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_VOLTAGE_CHANNEL, 1U, ADC_SAMPLETIME_92_5);
+                                   BSP_ENABLED_BUS_CURRENT + 2U * BSP_ENABLED_LINEAR_HALL);
 #if BSP_ENABLED_BUS_CURRENT
-    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_CURRENT_CHANNEL, 2U, ADC_SAMPLETIME_47_5);
+    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_CURRENT_CHANNEL, 1U, ADC_SAMPLETIME_47_5);
 #endif
 #if BSP_ENABLED_LINEAR_HALL
     adc_preempt_channel_set(MCU_ADC_AUX,
                             MCU_ADC_LINEAR_HALL_SIN_CHANNEL,
-                            BSP_ENABLED_BUS_CURRENT + 2U,
+                            BSP_ENABLED_BUS_CURRENT + 1U,
                             ADC_SAMPLETIME_47_5);
     adc_preempt_channel_set(MCU_ADC_AUX,
                             MCU_ADC_LINEAR_HALL_COS_CHANNEL,
-                            BSP_ENABLED_BUS_CURRENT + 3U,
+                            BSP_ENABLED_BUS_CURRENT + 2U,
                             ADC_SAMPLETIME_47_5);
 #endif
     adc_preempt_oversample_enable(MCU_ADC_AUX, FALSE);
@@ -183,7 +184,7 @@ float BspAdc_ReadRawChannel(BspAdcChannel channel)
     case BSP_ADC_PHASE_CURRENT_C:
         return (float)MCU_ADC_PHASE_C_RESULT * BSP_ADC_SUM_TO_COUNTS;
     case BSP_ADC_BUS_VOLTAGE:
-        return (float)MCU_ADC_BUS_VOLTAGE_RESULT;
+        return (float)MCU_ADC_BUS_VOLTAGE_RESULT * BSP_ADC_SUM_TO_COUNTS;
 #if BSP_ENABLED_BUS_CURRENT
     case BSP_ADC_BUS_CURRENT:
         return (float)MCU_ADC_BUS_CURRENT_RESULT;

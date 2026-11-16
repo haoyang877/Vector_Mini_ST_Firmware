@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="916" height="926" viewBox="0 0 916 926" role="img" aria-labelledby="title desc">
   <title id="title">AT32F456 全部 ADC 通道、PWM 与快环时序</title>
-  <desc id="desc">TMR1 在 22.50 µs 同时触发 ADC1 三相电流和 ADC2 母线电压、母线电流、Hall A、Hall B。TMR6 独立每 500 µs 触发 ADC2 普通组 PA7 电机温度，图下部以该触发为零点。</desc>
+  <desc id="desc">TMR1 在 22.50 µs 同时触发 ADC1 三相电流及末路母线电压和 ADC2 母线电流、Hall A、Hall B。TMR6 独立每 500 µs 触发 ADC2 普通组 PA7 电机温度，图下部以该触发为零点。</desc>
   <defs>
     <pattern id="budget" width="9" height="9" patternUnits="userSpaceOnUse">
       <rect width="9" height="9" fill="#ecf1fa"/><path d="M-3 3L3 -3M0 9L9 0M6 12L12 6" stroke="#a8b9d7"/>
@@ -56,37 +56,21 @@
       <rect x="564.667" y="422" width="2.708" height="17"/>
       <rect x="570.083" y="422" width="2.708" height="17"/>
   </g>
-  <g transform="translate(0 32)">
-    <text x="24" y="434" class="caption">ADC2 抢占组 · 每路 1 次</text>
-  <g id="adc2-rank1">
-    <text x="24" y="457">1　PA3 · 母线电压</text>
-    <rect x="510.500" y="445" width="22.750" height="17" fill="#f2d8ac"/>
-    <rect x="510.500" y="445" width="20.042" height="17" fill="#a16318"/>
-    <text x="591" y="457" class="caption">22.50～24.25 µs</text>
-  </g>
-  <g id="adc2-rank2">
-    <text x="24" y="491">2　PA4 · 母线电流</text>
-    <rect x="533.250" y="479" width="13.000" height="17" fill="#f2d8ac"/>
-    <rect x="533.250" y="479" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="491" class="caption">24.25～25.25 µs</text>
-  </g>
-  <g id="adc2-rank3">
-    <text x="24" y="525">3　PA5 · Hall A/sin</text>
-    <rect x="546.250" y="513" width="13.000" height="17" fill="#f2d8ac"/>
-    <rect x="546.250" y="513" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="525" class="caption">25.25～26.25 µs</text>
-  </g>
-  <g id="adc2-rank4">
-    <text x="24" y="559">4　PA6 · Hall B/cos</text>
-    <rect x="559.250" y="547" width="13.000" height="17" fill="#f2d8ac"/>
-    <rect x="559.250" y="547" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="559" class="caption">26.25～27.25 µs</text>
-  </g>
-  </g>
+  <text x="24" y="468">4　PA3 · 母线电压</text>
+  <text x="591" y="468" class="caption">27.50～28.50 µs · 4次</text>
+  <rect x="575.5" y="456" width="13" height="17" fill="#bce1da"/>
+  <rect x="575.5" y="456" width="0.542" height="17" fill="#187961"/>
+  <rect x="578.75" y="456" width="0.542" height="17" fill="#187961"/>
+  <rect x="582.0" y="456" width="0.542" height="17" fill="#187961"/>
+  <rect x="585.25" y="456" width="0.542" height="17" fill="#187961"/>
+  <text x="24" y="501" class="caption">ADC2 抢占组 · 每路1次</text>
+  <g id="adc2-rank1"><text x="24" y="527">1　PA4 · 母线电流</text><rect x="510.5" y="515" width="13" height="17" fill="#f2d8ac"/><rect x="510.5" y="515" width="10.292" height="17" fill="#a16318"/><text x="591" y="527" class="caption">22.50～23.50 µs</text></g>
+  <g id="adc2-rank2"><text x="24" y="561">2　PA5 · Hall A/sin</text><rect x="523.5" y="549" width="13" height="17" fill="#f2d8ac"/><rect x="523.5" y="549" width="10.292" height="17" fill="#a16318"/><text x="591" y="561" class="caption">23.50～24.50 µs</text></g>
+  <g id="adc2-rank3"><text x="24" y="595">3　PA6 · Hall B/cos</text><rect x="536.5" y="583" width="13" height="17" fill="#f2d8ac"/><rect x="536.5" y="583" width="10.292" height="17" fill="#a16318"/><text x="591" y="595" class="caption">24.50～25.50 µs</text></g>
   <g transform="translate(0 144)">
   <text x="24" y="486">快环 / FOC 写入预算</text>
-  <rect x="575.5" y="466" width="292.5" height="28" fill="url(#budget)"/>
-  <text x="721" y="485" text-anchor="middle">≤ 22.50 µs</text>
+  <rect x="588.5" y="466" width="279.5" height="28" fill="url(#budget)"/>
+  <text x="721" y="485" text-anchor="middle">≤ 21.50 µs</text>
   <text x="24" y="535">新比较值装载</text>
   <path d="M218 531H868" stroke="#a5b1bb"/>
   <circle cx="868" cy="531" r="5" fill="#2269a4"/>

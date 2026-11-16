@@ -66,6 +66,11 @@ class ReportTests(unittest.TestCase):
         self.assertIn("26.80", row["measured"])
         self.assertIn("27～29", row["limit"])
         self.assertIn("电源", row["suggestion"])
+        self.assertNotIn("滤波", row["limit"])
+        report["app_version"] = 0x01080F
+        row = next(row for row in report_rows(report) if row["item"] == "母线电压")
+        self.assertIn("滤波母线电压 27～29 V", row["limit"])
+        self.assertIn("26.80", row["measured"])
 
     def test_summary_separates_failure_missing_and_excluded(self):
         report = self.report()

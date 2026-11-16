@@ -902,10 +902,10 @@ class CanTestWindow:
         self.builtin_package = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.13/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.15/app-package"
         )
         self.upgrade_package = self.builtin_package
-        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.13")
+        self.upgrade_package_name = tk.StringVar(value="内置 APP 1.8.15")
         pkg_row = ttk.Frame(upgrade_tab)
         pkg_row.pack(anchor="w")
         ttk.Label(pkg_row, textvariable=self.upgrade_package_name).pack(side="left")
@@ -999,7 +999,7 @@ class CanTestWindow:
         )
         self.install_flash.pack(side="right", padx=5)
         ttk.Label(
-            self.swd_tab, text="内置整包：AT32F456 · Loader 2.3.4 + APP 1.8.13 · CAN FD 1M/5M"
+            self.swd_tab, text="内置整包：AT32F456 · Loader 2.3.4 + APP 1.8.15 · CAN FD 1M/5M"
         ).pack(anchor="w")
         embedded = (
             Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "firmware" / "five-axis.hex"
@@ -1441,7 +1441,7 @@ class CanTestWindow:
         self.batch_upgrade.set(False)
         self.navigate("upgrade")
         self.update_controls()
-        self.state.set("已选择当前电机和随包 APP v1.8.13；点击开始升级，保留参数和标定")
+        self.state.set("已选择当前电机和随包 APP v1.8.15；点击开始升级，保留参数和标定")
 
     def update_device_summary(self) -> None:
         motor = self.current_motor or {}
@@ -1452,9 +1452,9 @@ class CanTestWindow:
 
         app = motor.get("app_version")
         if not app:
-            hint = "先刷新状态读取实际 APP 版本；随包 APP v1.8.13 支持 1A/2A 相电阻检查。"
+            hint = "先刷新状态读取实际 APP 版本；随包 APP v1.8.15 支持 1A/2A 相电阻检查。"
         elif app < 0x010809:
-            hint = f"当前设备 APP v{version_text(app)} 不支持完整相电阻检测，请升级到随包 v1.8.13；可先做关相静态检查。"
+            hint = f"当前设备 APP v{version_text(app)} 不支持完整相电阻检测，请升级到随包 v1.8.15；可先做关相静态检查。"
         else:
             currents = "1A/2A" if app >= 0x01080C else "0.5A/1A"
             hint = f"当前设备 APP v{version_text(app)}：相电阻 {currents}，通过后执行双向动态检测；以设备能力回读为准。"

@@ -274,7 +274,7 @@ class HardwareHostTest(unittest.TestCase):
         report = hw.run_check(port, 4, drive=hw.Drive(1, 2, 700, 5))
         self.assertTrue(report["upgrade_required"])
         self.assertIn("1.8.8", report["note"])
-        self.assertIn("1.8.13", report["note"])
+        self.assertIn("1.8.15", report["note"])
         self.assertEqual(hw.result_rows(report)[8][3], "不支持")
         self.assertNotIn("0.5A", hw.result_rows(report)[8][2])
         self.assertFalse(any(kind in (116, 117, 118, 127) for kind, _, _ in port.sent))

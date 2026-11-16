@@ -562,7 +562,7 @@ def run_check(
             version = report["app_version"]
             actual = f"{version >> 16}.{(version >> 8) & 255}.{version & 255}"
             raise Rejected(
-                f"当前设备 APP v{actual} 不支持相电阻检查；请升级到随包 APP v1.8.13。"
+                f"当前设备 APP v{actual} 不支持相电阻检查；请升级到随包 APP v1.8.15。"
                 "本次未启动静态、相电阻或动态检测；也可选择关相静态检查。"
             )
         if not report["supported"]:
@@ -712,7 +712,9 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
         "RMS <10 cnt；偏置偏差 <300 cnt",
         "RMS <10 cnt；偏置偏差 <300 cnt",
         "RMS <50 cnt；偏置偏差 <300 cnt",
-        "全程 27～29 V（含边界）",
+        "滤波母线电压 27～29 V（含边界，逐拍检查）"
+        if (report.get("app_version") or 0) >= 0x01080F
+        else "全程 27～29 V（含边界）",
         "0～60 °C；有效且不超过30 ms",
         "峰峰角 <0.01°；帧有效",
         "sin/cos RMS 均 <10 cnt",

@@ -299,6 +299,7 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
         )
         curves.update(
             source="本次Flash保存表（J-Link只读回读）",
+            calibration_flags=info["calibration_flag"],
             saved_revision=revision,
             record_crc32=info["record_crc32"],
             parameter_sha256=hashlib.sha256(record).hexdigest(),

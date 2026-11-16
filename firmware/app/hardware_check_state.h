@@ -47,6 +47,8 @@ typedef struct
     uint32_t static_samples, drive_samples, voltage_samples, temperature_samples;
     uint32_t voltage_outside_samples, voltage_invalid_samples;
     uint8_t ntc_window;
+    uint8_t static_item;
+    bool static_timing_fault;
     bool hall_installed, hall_calibrated, seen_frame, have_cycles;
     int32_t last_rotor, rotor_travel, rotor_min, rotor_max;
     HardwareCheckNoiseWindow noise[6];

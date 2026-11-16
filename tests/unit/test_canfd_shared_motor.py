@@ -123,6 +123,112 @@ class SharedMotorTests(unittest.TestCase):
         self.assertNotIn("上轮", w.hardware_failure.get())
         self.assertIn("等待本轮结果", w.hardware_failure_label.get("1.0", "end"))
 
+    def test_one_second_refresh_uses_request_start_and_does_not_queue(self):
+        self.bind()
+        w = self.window
+        w.cancel_status_timer()
+        submitted = []
+        w.can_session = SimpleNamespace(
+            connected=True,
+            cancel=threading.Event(),
+            process=SimpleNamespace(is_alive=lambda: True),
+            submit=lambda *args: submitted.append(args) or object(),
+        )
+        with (
+            patch.object(desktop.time, "monotonic", return_value=10),
+            patch.object(w.root, "after"),
+        ):
+            w.status_heartbeat()
+        self.assertEqual(w.next_status_refresh, 11)
+        w.process = None
+        with (
+            patch.object(desktop.time, "monotonic", return_value=10.99),
+            patch.object(w.root, "after"),
+        ):
+            w.status_heartbeat()
+        self.assertEqual(len(submitted), 1)
+        with (
+            patch.object(desktop.time, "monotonic", return_value=11),
+            patch.object(w.root, "after"),
+        ):
+            w.status_heartbeat()
+        self.assertEqual(len(submitted), 2)
+        w.process = None
+        w.can_session = None
+        w.status_timer = None
+
+    def test_automatic_completion_does_not_add_response_time_to_interval(self):
+        self.bind()
+        w = self.window
+        endpoint = SimpleNamespace(
+            process=SimpleNamespace(is_alive=lambda: True), connected=True, events=queue.Queue()
+        )
+        task = desktop.SessionTask(endpoint, 1)
+        endpoint.events.put((1, "done", dict(profile="device_status", fatal="test")))
+        w.can_session = endpoint
+        w.process = task
+        w.events = task
+        w.auto_status_task = True
+        w.active_profile = "device_status"
+        w.next_status_refresh = 11.0
+        with (
+            patch.object(desktop.time, "monotonic", return_value=10.2),
+            patch.object(w.root, "after"),
+        ):
+            w.poll()
+        self.assertEqual(w.next_status_refresh, 11.0)
+        self.assertIsNone(w.process)
+        w.can_session = None
+
+    def test_next_device_archives_and_clears_only_device_state(self):
+        self.bind(7)
+        w = self.window
+        selected = w.motor_axis.get()
+        w.production_flow.record(
+            dict(profile="jlink_flash", uid=self.uid, success=False), "old-record"
+        )
+        w.check_fields["current"].delete(0, "end")
+        w.check_fields["current"].insert(0, "2")
+        with patch.object(desktop.Path, "home", return_value=Path(self.temp.name)):
+            w.next_device()
+        self.assertIsNone(w.current_motor)
+        self.assertIsNone(w.report_dir)
+        self.assertFalse(w.production_flow.devices)
+        self.assertEqual(w.motor_axis.get(), selected)
+        self.assertEqual(w.check_fields["current"].get(), "2")
+        self.assertNotIn("lease", w.check_fields)
+        self.assertEqual(w.current_page(), "jlink")
+        self.assertIn("待识别", w.state.get())
+        self.assertEqual(len(list(Path(self.temp.name).rglob("production-sessions/*.json"))), 1)
+
+    def test_next_device_archive_failure_preserves_identity(self):
+        self.bind()
+        w = self.window
+        w.production_flow.record(dict(profile="jlink_flash", uid=self.uid, success=False), "old")
+        with (
+            patch.object(desktop.Path, "mkdir", side_effect=OSError("disk full")),
+            patch.object(desktop.messagebox, "showerror") as error,
+        ):
+            w.next_device()
+        self.assertEqual(w.current_motor["uid"], self.uid)
+        self.assertTrue(w.production_flow.devices)
+        error.assert_called_once()
+
+    def test_next_device_does_not_interrupt_active_hardware_task(self):
+        self.bind()
+        w = self.window
+        w.process = object()
+        w.active_profile = "hardware_check"
+        w.next_device()
+        self.assertEqual(w.current_motor["uid"], self.uid)
+        self.assertFalse(w.pending_next_device)
+        w.auto_status_task = True
+        w.stop_signal = threading.Event()
+        w.next_device()
+        self.assertTrue(w.pending_next_device)
+        self.assertTrue(w.stop_signal.is_set())
+        w.process = None
+
     def test_fault_clear_uses_current_motor_from_any_page(self):
         w = self.window
         self.assertTrue(w.clear_fault_button.instate(["disabled"]))
@@ -523,17 +629,15 @@ class SharedMotorTests(unittest.TestCase):
             )
         w.can_session = None
 
-    def test_hardware_hint_and_upgrade_use_current_device(self):
-        self.window.set_current_motor(4, self.uid, "测试", role=1, app_version=0x010808)
-        self.assertIn("当前设备 APP v1.8.8", self.window.hardware_hint.get())
-        self.assertIn("不支持", self.window.hardware_hint.get())
-        self.window.open_current_upgrade()
-        self.assertEqual(self.window.current_page(), "upgrade")
-        self.assertEqual(self.window.current_node(), 4)
-        self.assertFalse(self.window.batch_upgrade.get())
-        self.assertIsNone(self.window.process)
-        self.window.set_current_motor(4, self.uid, "测试", role=1, app_version=0x01080C)
-        self.assertIn("1A/2A", self.window.hardware_hint.get())
+    def test_hardware_page_omits_redundant_hints_and_manual_counters(self):
+        w = self.window
+        self.assertFalse(hasattr(w, "hardware_hint"))
+        self.assertFalse(hasattr(w, "hardware_upgrade"))
+        self.assertNotIn("lease", w.check_fields)
+        self.assertNotIn("target", w.check_fields)
+        self.bind()
+        settings = self.capture_start("hardware")
+        self.assertEqual((settings["last_lease"], settings["last_target"]), (0, 0))
 
     def test_all_parameters_distribute_snapshots_and_keep_draft(self):
         self.bind(6)

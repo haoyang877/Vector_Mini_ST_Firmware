@@ -37,7 +37,7 @@ from production_report import export_report
 
 STATUS_REFRESH_S = 1.0
 
-TITLE = "电机生产测试上位机 v2.0.2"
+TITLE = "电机生产测试上位机 v2.1.1"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -354,6 +354,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                     stopped=stop.is_set,
                     progress=lambda msg: events.put(("stage", msg)),
                     phase_progress=lambda phases: events.put(("hardware_phases", phases)),
+                    static_progress=lambda snapshot: events.put(("hardware_static", snapshot)),
                 )
             selection = FIRST_FIT_AXES.get(settings["node"])
             report.update(
@@ -361,7 +362,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 model=selection[1] if selection else "未知",
             )
             try:
-                export_report(report, out, tool_version="2.0.2")
+                export_report(report, out, tool_version="2.1.1")
                 report["production_report"] = "production-report.html"
             except (OSError, ValueError, KeyError) as exc:
                 report["report_error"] = str(exc)

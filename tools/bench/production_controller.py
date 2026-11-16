@@ -61,6 +61,7 @@ class ProductionController(QObject):
         profile = settings["profile"]
         if self.connected and profile not in (
             "parameters",
+            "can_scan",
             "device_status",
             "can_release",
             "can_shutdown",
@@ -73,7 +74,7 @@ class ProductionController(QObject):
     def _launch(self, settings: dict, directory: Path | None, automatic: bool) -> None:
         profile = settings["profile"]
         self.commands = None
-        if profile in ("parameters", "device_status", "can_release", "can_shutdown"):
+        if profile in ("parameters", "can_scan", "device_status", "can_release", "can_shutdown"):
             if self.session and not self.session.process.is_alive():
                 self.session.dispose()
                 self.session = None

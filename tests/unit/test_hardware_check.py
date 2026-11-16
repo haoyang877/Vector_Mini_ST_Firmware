@@ -539,6 +539,41 @@ class HardwareHostTest(unittest.TestCase):
         report["resistance"].update(result=0, low_phases=0, high_phases=1, failure=10)
         self.assertIn("A相电阻偏高", hw.result_rows(report)[8][3])
 
+    def test_sequential_static_publishes_completed_items_in_order(self):
+        class SequentialPort(Port):
+            def __init__(self):
+                super().__init__(measurements=True)
+                self.completed = 0
+
+            def send(self, identifier, data):
+                node, kind, sequence, size = struct.unpack_from("<BHHI", data, 5)
+                payload = data[16 : 16 + size]
+                if kind == 127 and not payload and self.stage == 1:
+                    self.sent.append((kind, sequence, payload))
+                    self.completed += 1
+                    self.stage = 4 if self.completed == 8 else 1
+                    items = [1] * self.completed + [0] * (10 - self.completed)
+                    items[0] = 2
+                    reply = struct.pack("<HHBBI10BB", 0, 0, 2, self.stage, self.run, *items, 0)
+                    self.pending.append(response(node, kind, sequence, reply))
+                    return
+                super().send(identifier, data)
+                if kind == 2:
+                    reply = bytearray(decode_reply(*self.pending.pop(), node, kind, sequence))
+                    struct.pack_into("<I", reply, 0, struct.unpack_from("<I", reply)[0] | (1 << 22))
+                    self.pending.append(response(node, kind, sequence, reply))
+
+        port = SequentialPort()
+        snapshots = []
+        with patch("hardware_check.time.sleep"):
+            report = hw.run_check(port, 6, static_progress=snapshots.append)
+        self.assertTrue(report["sequential_static"])
+        self.assertEqual([r["static_completed"] for r in snapshots[:8]], list(range(1, 9)))
+        self.assertEqual(snapshots[0]["items"]["Ia"], "异常")
+        self.assertEqual(snapshots[0]["items"]["Ib"], "未测")
+        self.assertEqual(snapshots[7]["items"]["霍尔静态"], "正常")
+        self.assertEqual(report["measurements"]["0"]["samples"], 2000)
+
     def test_stop_paths(self):
         for fault in ("startloss", "linkloss", "travel", "stoploss", "pendingstop", "denied"):
             with self.subTest(fault=fault):

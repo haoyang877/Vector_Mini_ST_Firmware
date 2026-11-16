@@ -49,10 +49,12 @@ from hardware_check import Drive, Link, empty_report, run_check, summarize
 from motor_calibration_can import CALIBRATIONS, STATUS, CalibrationCancelled, idle, run_job
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
+from production_flow import ProductionFlow
 from production_report import build_report, export_report, failure_summary, report_rows
 from upgrade_client import UpgradeClient
 
-TITLE = "电机生产测试上位机 v1.22.1"
+STATUS_REFRESH_S = 1.0
+TITLE = "电机生产测试上位机 v1.23.0"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -117,7 +119,7 @@ def hardware_check_fields(fields: dict[str, str], driven: bool) -> dict:
     ):
         if required and not driven:
             continue
-        text = fields[key].strip()
+        text = fields.get(key, "0").strip()
         if not text:
             if required:
                 raise ValueError(f"双向测试前请填写{label}")
@@ -508,6 +510,8 @@ class CanTestWindow:
         self.exit_polls = 0
         self.auto_status_task = False
         self.next_status_refresh = 0.0
+        self.production_flow = ProductionFlow()
+        self.pending_next_device = False
         self.status_timer = None
         self.events = None
         self.commands = None
@@ -587,7 +591,7 @@ class CanTestWindow:
         link_actions.pack(fill="x", pady=4)
         self.can_disconnect.pack(in_=link_actions, side="left")
         ttk.Label(link_actions, textvariable=self.connection_state).pack(side="left", padx=8)
-        ttk.Checkbutton(connection, text="连接后自动刷新（2秒）", variable=self.auto_status).pack(
+        ttk.Checkbutton(connection, text="连接后自动刷新（1秒）", variable=self.auto_status).pack(
             anchor="w"
         )
         self.axis_choices = {
@@ -614,6 +618,16 @@ class CanTestWindow:
         ttk.Label(motor_panel, textvariable=self.current_motor_label, wraplength=370).pack(
             anchor="w", pady=4
         )
+        flow = ttk.LabelFrame(frame, text="本台生产流程（只统计本次操作记录）", padding=6)
+        flow.pack(fill="x", pady=(0, 8))
+        self.flow_summary = tk.StringVar(value=self.production_flow.summary(None))
+        ttk.Label(flow, textvariable=self.flow_summary, wraplength=950).pack(
+            side="left", fill="x", expand=True
+        )
+        self.next_device_button = ttk.Button(
+            flow, text="归档并开始下一台", command=self.next_device
+        )
+        self.next_device_button.pack(side="right", padx=6)
         self.workspace = ttk.Panedwindow(frame, orient="vertical")
         self.workspace.pack(fill="both", expand=True)
         self.task_area = ttk.Frame(self.workspace)
@@ -757,8 +771,6 @@ class CanTestWindow:
             (
                 ("leg", "单程 ms"),
                 ("travel", "两侧可用行程 °（双向必填）"),
-                ("lease", "上次续租计数"),
-                ("target", "上次目标序号"),
             ),
         ):
             box = ttk.Frame(check_tab)
@@ -770,19 +782,6 @@ class CanTestWindow:
                 entry.pack(side="left", padx=(3, 9))
                 self.check_fields[key] = entry
                 self.controls.append((entry, "normal"))
-        ttk.Label(
-            check_tab,
-            text="双向驱动前确认从起点两侧可用的输出轴行程。首次驱动填写已知计数，确认刚上电可填 0。",
-        ).pack(anchor="w")
-        self.hardware_hint = tk.StringVar()
-        ttk.Label(check_tab, textvariable=self.hardware_hint, wraplength=950).pack(anchor="w")
-        self.hardware_upgrade = ttk.Button(
-            check_tab, text="打开当前电机固件升级", command=self.open_current_upgrade
-        )
-        self.hardware_upgrade.pack(anchor="w", pady=3)
-        ttk.Label(
-            check_tab, text="静态＋相电阻会通电并可能转动对齐，结束后自动关相；不执行正反向动态。"
-        ).pack(anchor="w")
         cal_tab = self.pages["multi_calibration"]
         row = ttk.Frame(cal_tab)
         row.pack(anchor="w", pady=4)
@@ -1199,7 +1198,7 @@ class CanTestWindow:
         self.communication_tabs.bind("<<NotebookTabChanged>>", lambda _: self.update_controls())
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.update_controls()
-        self.status_timer = self.root.after(500, self.status_heartbeat)
+        self.status_timer = self.root.after(100, self.status_heartbeat)
         self.root.bind("<Destroy>", self.cancel_status_timer, add="+")
         self.split_timer = self.root.after(150, self.place_record_split)
 
@@ -1270,12 +1269,12 @@ class CanTestWindow:
                 self.auto_status_task = True
                 self.done = False
                 self.exit_polls = 0
-                self.next_status_refresh = time.monotonic() + 2
+                self.next_status_refresh = time.monotonic() + STATUS_REFRESH_S
                 self.root.after(20, self.poll)
             except (RuntimeError, OSError, queue.Full) as exc:
                 session.connected = False
                 self.current_motor["status_error"] = str(exc)
-        self.status_timer = self.root.after(500, self.status_heartbeat)
+        self.status_timer = self.root.after(100, self.status_heartbeat)
 
     def choose_hex(self) -> None:
         name = filedialog.askopenfilename(
@@ -1432,16 +1431,81 @@ class CanTestWindow:
             self.fill_query(node)
         self.previous_node = node
         self.update_device_summary()
+        self.flow_summary.set(
+            self.production_flow.summary(self.current_motor["uid"] if self.current_motor else None)
+        )
         self.update_controls()
 
-    def open_current_upgrade(self) -> None:
-        """选择当前节点的升级页；仍由用户显式启动升级。"""
-        if self.process is not None or not self.current_motor:
+    def next_device(self) -> None:
+        """先归档本次证据再清理设备缓存；不烧录、扫描或启动电机。"""
+        if self.pending_start is not None:
             return
-        self.batch_upgrade.set(False)
-        self.navigate("upgrade")
+        if self.process is not None:
+            if self.auto_status_task:
+                self.pending_next_device = True
+                self.stop_signal.set()
+            return
+        if self.production_flow.devices:
+            directory = Path.home() / "CAN-Link-Test" / "production-sessions"
+            path = directory / (datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".json")
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        dict(
+                            tool_version="1.23.0",
+                            created_at=datetime.now().isoformat(),
+                            devices=self.production_flow.devices,
+                            summaries={
+                                uid: self.production_flow.summary(uid)
+                                for uid in self.production_flow.devices
+                            },
+                        ),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except OSError as exc:
+                messagebox.showerror("归档失败，当前设备已保留", str(exc), parent=self.root)
+                return
+            item = self.record_table.insert(
+                "",
+                0,
+                values=(
+                    datetime.now().strftime("%H:%M:%S"),
+                    "生产会话归档",
+                    "—",
+                    "查看流程摘要",
+                ),
+            )
+            self.record_paths[item] = directory
+        self.production_flow = ProductionFlow()
+        self.install_verified_uid = None
+        self.identity = None
+        self.first_fit_selected = False
+        self.initial_axis.set("")
+        self.known_motors.clear()
+        self.clear_upgrade_scan()
+        self.select_current_motor()
+        self.production_report_path = None
+        self.report_dir = None
+        self.curve_path = None
+        self.archive_serial.set("")
+        self.test_serial.set("")
+        self.firmware_version.set("板端版本：尚未查询")
+        self.motor_label.set("下一台：请重新识别板卡。")
+        self.hardware_failure_label.configure(foreground="#8a6100")
+        self.hardware_table.delete(*self.hardware_table.get_children())
+        self.hardware_result_note.set("")
+        self.hardware_failure.set("下一台尚未开始检测")
+        self.show_hardware_phases({})
+        self.install_phase.set("① 识别板卡 → ② 确认电机类型 → ③ 烧录整包 → ④ 启动与回读")
+        self.install_hint.set("下一台：连接板卡后重新识别；新板仍须确认实际电机类型。")
+        self.show("上一台结果已清理；本批电机型号、连接和检测配置已保留。")
+        self.state.set("下一台待识别")
+        self.navigate("jlink")
         self.update_controls()
-        self.state.set("已选择当前电机和随包 APP v1.8.15；点击开始升级，保留参数和标定")
 
     def update_device_summary(self) -> None:
         motor = self.current_motor or {}
@@ -1450,15 +1514,6 @@ class CanTestWindow:
             value = motor.get(key)
             return "—" if value is None else "未提供" if value == 0 else "v" + version_text(value)
 
-        app = motor.get("app_version")
-        if not app:
-            hint = "先刷新状态读取实际 APP 版本；随包 APP v1.8.15 支持 1A/2A 相电阻检查。"
-        elif app < 0x010809:
-            hint = f"当前设备 APP v{version_text(app)} 不支持完整相电阻检测，请升级到随包 v1.8.15；可先做关相静态检查。"
-        else:
-            currents = "1A/2A" if app >= 0x01080C else "0.5A/1A"
-            hint = f"当前设备 APP v{version_text(app)}：相电阻 {currents}，通过后执行双向动态检测；以设备能力回读为准。"
-        self.hardware_hint.set(hint)
         self.device_versions.set(
             f"APP：{version('app_version')}    Loader：{version('loader_version')}"
         )
@@ -1586,6 +1641,9 @@ class CanTestWindow:
         self.tabs.configure(
             height=self.pages[current].winfo_reqheight() if current == "hardware" else 0
         )
+        self.next_device_button.configure(
+            state="normal" if not busy or self.auto_status_task else "disabled"
+        )
         speed_active = busy and self.active_profile == "motor_speed"
         for key, entry in self.motor_fields.items():
             entry.configure(
@@ -1606,9 +1664,6 @@ class CanTestWindow:
             else "disabled"
         )
         self.curve_button.configure(state="normal" if self.curve_path and not busy else "disabled")
-        self.hardware_upgrade.configure(
-            state="normal" if not busy and self.current_motor else "disabled"
-        )
         self.parameter_page.update_controls(
             busy, bool(self.current_motor and self.current_motor.get("role") == 1)
         )
@@ -1777,7 +1832,7 @@ class CanTestWindow:
             if row["attention"]
         ]
         self.hardware_result_note.set("\n".join([*notes, *failures[:4]]))
-        data = build_report(report, tool_version="1.22.1", created_at="")
+        data = build_report(report, tool_version="1.23.0", created_at="")
         self.hardware_failure.set(
             data["scope_name"] + " · " + data["verdict"] + "\n" + failure_summary(report)
         )
@@ -2146,8 +2201,21 @@ class CanTestWindow:
             return
         if mode == "calibration":
             self.cal_error.configure(text="")
+        self.production_flow.begin(
+            self.current_motor["uid"] if self.current_motor else (self.identity or {}).get("uid"),
+            mode,
+            kind=calibration_kind,
+            full=bool(settings.get("drive")),
+        )
+        self.flow_summary.set(
+            self.production_flow.summary(
+                self.current_motor["uid"]
+                if self.current_motor
+                else (self.identity or {}).get("uid")
+            )
+        )
         self.auto_status_task = False
-        self.next_status_refresh = time.monotonic() + 2
+        self.next_status_refresh = time.monotonic() + STATUS_REFRESH_S
         self.swd_busy = swd
         self.scanning = mode == "can_scan"
         if mode == "can_upgrade":
@@ -2317,7 +2385,8 @@ class CanTestWindow:
         self.auto_status_task = False
         self.process = None
         self.active_profile = None
-        self.next_status_refresh = time.monotonic() + 2
+        if not was_automatic:
+            self.next_status_refresh = time.monotonic() + STATUS_REFRESH_S
         if not self.done:
             self.identity = None
             self.known_motors.clear()
@@ -2344,12 +2413,24 @@ class CanTestWindow:
         else:
             if not was_automatic or not self.done:
                 self.update_controls()
+            if self.pending_next_device:
+                self.pending_next_device = False
+                self.next_device()
+                return
             if self.pending_start is not None:
                 pending, self.pending_start = self.pending_start, None
                 if was_automatic or self.release_ok:
                     self.start(**pending)
 
     def display_report(self, r: dict) -> None:
+        self.production_flow.record(r, str(self.report_dir) if self.report_dir else "")
+        self.flow_summary.set(
+            self.production_flow.summary(
+                self.current_motor["uid"]
+                if self.current_motor
+                else r.get("uid") or r.get("identity", {}).get("uid")
+            )
+        )
         if (
             not self.auto_status_task
             and self.report_dir

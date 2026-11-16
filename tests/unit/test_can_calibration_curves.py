@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_calibration_curves as curves
-import canfd_desktop as desktop
+import production_backend as desktop
 from can_calibration_capture import HallRawCapture
 
 

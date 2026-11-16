@@ -71,7 +71,7 @@ class CanBitrateHostTest(unittest.TestCase):
         except ImportError:
             self.skipTest("Tk 未安装")
         with patch.object(sys, "path", [str(ROOT / "tools/bench"), *sys.path]):
-            import canfd_desktop as desktop
+            import production_backend as desktop
 
         uid = bytes(range(12))
         targets = [{"node": n, "uid": uid.hex()} for n in (6, 7)]

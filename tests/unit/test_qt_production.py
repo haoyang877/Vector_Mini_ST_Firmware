@@ -19,8 +19,9 @@ from can_session import SessionTask
 from hardware_check import direction_results, empty_report
 from production_controller import ProductionController
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QTabWidget
+from qt_production_icons import icon
 from qt_production_theme import apply_theme
 from qt_production_window import ProductionWindow
 from qt_speed_plot import SpeedPlot
@@ -103,13 +104,16 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(w.loader_label.text(), "Loader 固件：v2.3.4")
         self.assertEqual(w.status_label.text(), "运行状态：空闲")
         self.assertIn("未使能（模式 0）", w.mode_label.text())
-        self.assertIn("无故障（0x00000000）", w.fault_label.text())
+        self.assertEqual(w.fault_label.text(), "故障信息：无故障")
         w.current_motor.update(mode=2, state=8, faults=33)
         w.render_device()
         self.assertIn("速度闭环", w.mode_label.text())
         self.assertIn("过流", w.fault_label.text())
         self.assertIn("编码器", w.fault_label.text())
-        self.assertIn("0x00000021", w.fault_label.text())
+        self.assertNotIn("0x", w.fault_label.text())
+        w.current_motor.update(faults=1 << 31)
+        w.render_device()
+        self.assertEqual(w.fault_label.text(), "故障信息：未识别故障")
         w.current_motor.update(mode=99, state=99, checked_at=time.time() - 6)
         w.render_device()
         self.assertIn("已过期", w.status_label.text())
@@ -126,6 +130,97 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Base).name(), "#ffffff")
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Window).name(), "#f2f5f9")
         self.assertEqual(self.app.palette().color(QPalette.ColorRole.Shadow).name(), "#cdd8e4")
+
+    def test_scan_selects_only_online_motor_then_reads_status(self):
+        w = self.window
+        self.controller.connected = True
+        motor = dict(
+            node=7,
+            uid=self.uid,
+            role=1,
+            state=5,
+            faults=0,
+            app_version=0x01080E,
+            loader_version=0x020304,
+        )
+        with patch("qt_production_window.QTimer.singleShot") as scheduled:
+            w.on_completed(dict(profile="can_scan", motors=[motor], issues=[]), None, True)
+        self.assertEqual(w.node(), 7)
+        self.assertEqual(w.current_motor["uid"], self.uid)
+        self.assertIn("v1.8.14", w.version_label.text())
+        scheduled.assert_called_once()
+        w.read_selected_status()
+        request = self.controller.calls[-1][0]
+        self.assertEqual(request["profile"], "device_status")
+        self.assertEqual(request["node"], 7)
+        self.assertEqual(request["expected_uid"], self.uid)
+
+    def test_multiple_scan_keeps_selected_online_node(self):
+        w = self.window
+        motors = [dict(node=n, uid=str(n) * 24, role=1) for n in (4, 6, 7)]
+        with patch("qt_production_window.QTimer.singleShot"):
+            w.on_completed(dict(profile="can_scan", motors=motors), None, True)
+        self.assertEqual(w.node(), 6)
+        self.assertIsNotNone(w.current_motor)
+        w.on_completed(dict(profile="can_scan", motors=[]), None, True)
+        self.assertIsNone(w.current_motor)
+        self.assertFalse(self.controller.calls)
+
+    def test_missing_jlink_does_not_discard_can_device(self):
+        self.bind(7)
+        self.window.launch(dict(profile="jlink_identify"))
+        self.controller.busy = False
+        self.window.display_install(
+            dict(profile="jlink_identify", success=False, fatal="没有J-Link")
+        )
+        self.assertEqual(self.window.current_motor["uid"], self.uid)
+        self.assertIsNone(self.window.identity)
+
+    def test_initial_scan_once_and_explicit_disconnect_no_retry(self):
+        w = self.window
+        w.initial_scan()
+        self.assertEqual(self.controller.calls[-1][0]["profile"], "can_scan")
+        self.assertTrue(self.controller.calls[-1][2])
+        self.controller.busy = False
+        self.controller.connected = False
+        self.controller.calls.clear()
+        w.refresh_status()
+        self.assertFalse(self.controller.calls)
+
+    def test_every_action_navigation_and_tab_has_a_valid_icon(self):
+        w = self.window
+        self.assertFalse(w.windowIcon().isNull())
+        for button in w.findChildren(QPushButton):
+            with self.subTest(button=button.text()):
+                self.assertFalse(button.icon().isNull())
+                self.assertFalse(button.icon().pixmap(20, 20).isNull())
+        for index in range(w.navigation.count()):
+            self.assertFalse(w.navigation.item(index).icon().isNull())
+        for tabs in w.findChildren(QTabWidget):
+            for index in range(tabs.count()):
+                self.assertFalse(tabs.tabIcon(index).isNull())
+        assets = Path(__file__).resolve().parents[2] / "tools/bench/assets/icons"
+        self.assertEqual(len(list(assets.glob("*.svg"))), 24)
+        for path in assets.glob("*.svg"):
+            self.assertFalse(icon(path.stem).pixmap(16, 16).isNull())
+
+    def test_primary_and_disabled_icons_have_distinct_visible_colors(self):
+        active = icon("start", emphasis=True).pixmap(20, 20, QIcon.Mode.Normal).toImage()
+        disabled = icon("start", emphasis=True).pixmap(20, 20, QIcon.Mode.Disabled).toImage()
+        active_colors = {
+            active.pixelColor(x, y).name()
+            for x in range(20)
+            for y in range(20)
+            if active.pixelColor(x, y).alpha() > 200
+        }
+        disabled_colors = {
+            disabled.pixelColor(x, y).name()
+            for x in range(20)
+            for y in range(20)
+            if disabled.pixelColor(x, y).alpha() > 200
+        }
+        self.assertIn("#ffffff", active_colors)
+        self.assertIn("#8798a9", disabled_colors)
 
     def test_native_pages_routes_and_removed_controls(self):
         w = self.window
@@ -301,11 +396,47 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(self.window.hardware_table.rowCount(), 11)
         self.assertIn("不在本轮范围", self.window.hardware_table.item(9, 3).text())
 
+    def test_sequential_static_updates_rows_before_completion(self):
+        report = empty_report(7)
+        report.update(
+            scope="full",
+            stage=1,
+            board_items=[1] + [0] * 9,
+            measurements_supported=True,
+            static_completed=1,
+        )
+        report["measurements"] = {"0": dict(samples=2000, values=[2048, 1, None, None])}
+        direction_results(report)
+        self.window.on_event("hardware_static", report)
+        self.assertEqual(self.window.hardware_table.item(0, 3).text(), "正常")
+        self.assertEqual(self.window.hardware_table.item(1, 3).text(), "未测")
+        self.assertIn("正在检测：Ib", self.window.phase_label.text())
+        self.assertIn("2048", self.window.hardware_table.item(0, 1).text())
+
     def test_worker_exit_before_hardware_report_remains_visible(self):
         self.bind()
         self.window.on_completed(dict(profile="hardware_check", fatal="进程退出"), None, False)
         self.assertIn("进程退出", self.window.failure.toPlainText())
         self.assertEqual(self.window.hardware_table.rowCount(), 11)
+
+    def test_hardware_colors_distinguish_pass_failure_and_incomplete(self):
+        report = empty_report(7)
+        report.update(
+            scope="full",
+            communication="正常",
+            stage=5,
+            board_items=[1, 0, 2, 0, 0, 0, 0, 0, 0, 0],
+            measurements_supported=True,
+        )
+        report["measurements"] = {"1": dict(samples=1, values=[2033.75, 0, None, None])}
+        direction_results(report)
+        self.window.on_completed(report, None, False)
+        for row, expected in ((0, "#18765b"), (1, "#64748b"), (2, "#b03b42")):
+            for column in range(4):
+                self.assertEqual(
+                    self.window.hardware_table.item(row, column).foreground().color().name(),
+                    expected,
+                )
 
     def test_query_modes_raw_and_upgrade_targets(self):
         self.bind(7)

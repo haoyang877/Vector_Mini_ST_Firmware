@@ -39,6 +39,13 @@ def report_rows(report: dict) -> list[dict]:
                 limit=limit,
                 result=state,
                 attention=not excluded and state != "正常",
+                outcome="excluded"
+                if excluded
+                else "failed"
+                if failure
+                else "passed"
+                if state == "正常"
+                else "pending",
                 suggestion=SUGGESTIONS.get(name, "核对原始记录。")
                 if failure
                 else "本轮未取得完整结果，请检查中止原因。"
@@ -183,7 +190,7 @@ def export_report(report: dict, out: Path, *, tool_version: str) -> Path:
         f"<dt>{escape(label)}</dt><dd>{escape(data[key])}</dd>" for key, label in fields.items()
     )
     rows = "".join(
-        ("<tr class='attention'>" if row["attention"] else "<tr>")
+        f"<tr class='{row['outcome']}'>"
         + "".join(
             f"<td>{escape(row[key])}</td>"
             for key in ("item", "measured", "limit", "result", "suggestion")
@@ -195,7 +202,8 @@ def export_report(report: dict, out: Path, *, tool_version: str) -> Path:
         "<!doctype html><html lang='zh-CN'><meta charset='utf-8'>"
         "<title>电机生产测试报告</title><style>body{font:16px sans-serif;margin:32px}"
         "table{border-collapse:collapse;width:100%}td,th{border:1px solid #bbb;padding:8px}"
-        ".attention{background:#fff0e8}dt{font-weight:bold}dd{margin-bottom:8px}"
+        ".failed{color:#b03b42;background:#fff0e8}.passed{color:#18765b}"
+        ".pending,.excluded{color:#64748b}dt{font-weight:bold}dd{margin-bottom:8px}"
         "@media print{body{margin:8px}}</style><h1>电机生产测试报告</h1>"
         f"<h2>{escape(data['scope_name'])}：{escape(data['verdict'])}</h2>"
         "<p>仅代表本次所选范围，不代替整机出厂验收。型号来自操作选择。</p>"

@@ -71,6 +71,7 @@ typedef struct
 #define PROTOCOL_FEATURE_HARDWARE_CHECK (1UL << 19U)
 #define PROTOCOL_FEATURE_HARDWARE_MEASUREMENTS (1UL << 20U)
 #define PROTOCOL_FEATURE_PHASE_RESISTANCE (1UL << 21U)
+#define PROTOCOL_FEATURE_SEQUENTIAL_STATIC (1UL << 22U)
 
 /** @brief 单轮硬件检查的值快照，通道顺序和两段旋向见 Type 127 契约。 */
 typedef struct

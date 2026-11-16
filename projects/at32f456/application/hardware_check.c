@@ -58,6 +58,7 @@ static struct
     uint8_t valid[11];
 } s_measurements;
 static void freeze_measurements(void);
+static void complete_static_item(MotorAxis *axis);
 static volatile uint32_t s_write, s_read;
 static volatile bool s_overrun;
 volatile bool g_hardware_check_capture;
@@ -234,10 +235,6 @@ static ProtocolCode build_measurement(void *context,
     {
         return PROTOCOL_RESULT_DENIED;
     }
-    if (g_hardware_check_capture)
-    {
-        return PROTOCOL_RESULT_BUSY;
-    }
     *measurement =
         (ProtocolHardwareMeasurement){.run_id = s_report.run_id, .values = {NAN, NAN, NAN, NAN}};
     if (item <= IBUS || item == HALL_STATIC)
@@ -325,6 +322,14 @@ static void freeze_measurements(void)
 {
     for (uint8_t item = 0U; item < 11U; ++item)
     {
+        if (item <= HALL_STATIC && item < s_state->static_item)
+        {
+            continue;
+        }
+        if (item <= HALL_STATIC && item > s_state->static_item)
+        {
+            continue;
+        }
         ProtocolHardwareMeasurement value;
         (void)build_measurement(NULL, item, s_report.run_id, &value);
         memcpy(s_measurements.values[item], value.values, sizeof(value.values));
@@ -347,7 +352,7 @@ static ProtocolCode read_measurement(void *context,
     {
         return PROTOCOL_RESULT_DENIED;
     }
-    if (g_hardware_check_capture)
+    if (g_hardware_check_capture && (item >= s_state->static_item || item > HALL_STATIC))
     {
         return PROTOCOL_RESULT_BUSY;
     }
@@ -514,42 +519,46 @@ static int track_trend(HardwareCheckAngleWindow *window,
 
 static void static_sample(const HardwareCheckSample *sample)
 {
-    for (unsigned i = 0U; i < 4U; ++i)
+    unsigned item = s_state->static_item;
+    if (item <= IBUS)
     {
-        accumulate(&s_state->noise[i], (int32_t)sample->current_q4[i] - 8192);
+        accumulate(&s_state->noise[item], (int32_t)sample->current_q4[item] - 8192);
     }
-    int32_t angle = (int32_t)(sample->frame >> 11U);
-    if (!frame_valid(sample->frame))
+    else if (item == ROTOR_STATIC)
     {
-        s_report.items[ROTOR_STATIC] = FAIL;
+        int32_t angle = (int32_t)(sample->frame >> 11U);
+        if (!frame_valid(sample->frame))
+        {
+            s_report.items[ROTOR_STATIC] = FAIL;
+        }
+        if (sample->frame != 0U)
+        {
+            s_state->seen_frame = true;
+        }
+        if (s_state->static_samples != 0U)
+        {
+            int32_t delta = angle - s_state->last_rotor;
+            if (delta > ROTOR_COUNTS / 2)
+            {
+                delta -= ROTOR_COUNTS;
+            }
+            else if (delta < -ROTOR_COUNTS / 2)
+            {
+                delta += ROTOR_COUNTS;
+            }
+            s_state->rotor_travel += delta;
+            if (s_state->rotor_travel < s_state->rotor_min)
+            {
+                s_state->rotor_min = s_state->rotor_travel;
+            }
+            if (s_state->rotor_travel > s_state->rotor_max)
+            {
+                s_state->rotor_max = s_state->rotor_travel;
+            }
+        }
+        s_state->last_rotor = angle;
     }
-    if (sample->frame != 0U)
-    {
-        s_state->seen_frame = true;
-    }
-    if (s_state->static_samples != 0U)
-    {
-        int32_t delta = angle - s_state->last_rotor;
-        if (delta > ROTOR_COUNTS / 2)
-        {
-            delta -= ROTOR_COUNTS;
-        }
-        else if (delta < -ROTOR_COUNTS / 2)
-        {
-            delta += ROTOR_COUNTS;
-        }
-        s_state->rotor_travel += delta;
-        if (s_state->rotor_travel < s_state->rotor_min)
-        {
-            s_state->rotor_min = s_state->rotor_travel;
-        }
-        if (s_state->rotor_travel > s_state->rotor_max)
-        {
-            s_state->rotor_max = s_state->rotor_travel;
-        }
-    }
-    s_state->last_rotor = angle;
-    if (s_state->hall_installed)
+    else if (item == HALL_STATIC && s_state->hall_installed)
     {
         for (unsigned i = 0U; i < 2U; ++i)
         {
@@ -586,31 +595,6 @@ static uint8_t temperature_result(const MotorAxis *axis)
 static void finish_static(MotorAxis *axis)
 {
     uint8_t *items = s_report.items;
-    for (unsigned i = 0U; i < 4U; ++i)
-    {
-        items[i] = noise_passes(&s_state->noise[i], i == IBUS ? 50 : 10, true) ? PASS : FAIL;
-    }
-    if (items[VBUS] != FAIL)
-    {
-        items[VBUS] = PASS;
-    }
-    int32_t span = s_state->rotor_max - s_state->rotor_min;
-    if (items[ROTOR_STATIC] != FAIL)
-    {
-        items[ROTOR_STATIC] = span > 58 ? FAIL : (s_state->seen_frame ? PASS : UNTESTED);
-    }
-    s_state->jitter_turns[0] = (float)(span + 2) / ROTOR_COUNTS;
-    if (s_state->hall_installed)
-    {
-        bool sin_ok = noise_passes(&s_state->noise[4], 10, false);
-        bool cos_ok = noise_passes(&s_state->noise[5], 10, false);
-        items[HALL_STATIC] = sin_ok && cos_ok ? PASS : FAIL;
-        /* ADC 量化及本点实测峰峰角共同构成动态裕量。 */
-        s_state->jitter_turns[1] =
-            s_state->hall_rest.max_turns - s_state->hall_rest.min_turns +
-            2.0f / (TWO_PI_F * fmaxf(1.0f, fminf(s_state->hall.sin_amp, s_state->hall.cos_amp)));
-    }
-    items[NTC] = s_state->ntc_window;
     if (s_mode == 1U || items[NTC] != PASS)
     {
         end_check(axis, items[NTC] == UNTESTED || s_mode != 1U ? ABORTED : DONE);
@@ -642,6 +626,68 @@ static void finish_static(MotorAxis *axis)
         s_report.stage = ARMED;
     }
     s_state->stage_ms = BspSystem_TimeMs();
+}
+
+/* 完成一项即冻结本项；异常不截断后续关相检查，动力准入仍统一核对全部结果。 */
+static void complete_static_item(MotorAxis *axis)
+{
+    unsigned item = s_state->static_item;
+    uint8_t result = PASS;
+    if (item <= IBUS)
+    {
+        result = noise_passes(&s_state->noise[item], item == IBUS ? 50 : 10, true) ? PASS : FAIL;
+    }
+    else if (item == VBUS)
+    {
+        result = s_state->voltage_outside_samples == 0U ? PASS : FAIL;
+    }
+    else if (item == NTC)
+    {
+        result = s_state->ntc_window == PASS ? PASS : FAIL;
+    }
+    else if (item == ROTOR_STATIC)
+    {
+        int32_t span = s_state->rotor_max - s_state->rotor_min;
+        result = s_report.items[item] != FAIL && s_state->seen_frame && span <= 58 ? PASS : FAIL;
+        s_state->jitter_turns[0] = (float)(span + 2) / ROTOR_COUNTS;
+    }
+    else if (s_state->hall_installed)
+    {
+        result = noise_passes(&s_state->noise[4], 10, false) &&
+                         noise_passes(&s_state->noise[5], 10, false)
+                     ? PASS
+                     : FAIL;
+        s_state->jitter_turns[1] =
+            s_state->hall_rest.max_turns - s_state->hall_rest.min_turns +
+            2.0f / (TWO_PI_F * fmaxf(1.0f, fminf(s_state->hall.sin_amp, s_state->hall.cos_amp)));
+    }
+    else
+    {
+        result = axis->configuration.preset != NULL ? ABSENT : UNTESTED;
+    }
+    if (s_state->static_timing_fault)
+    {
+        result = FAIL;
+    }
+    s_report.items[item] = result;
+    ProtocolHardwareMeasurement value;
+    (void)build_measurement(NULL, (uint8_t)item, s_report.run_id, &value);
+    memcpy(s_measurements.values[item], value.values, sizeof(value.values));
+    s_measurements.samples[item] = value.samples;
+    s_measurements.valid[item] = value.valid;
+    ++s_state->static_item;
+    s_state->static_samples = 0U;
+    s_state->static_timing_fault = false;
+    s_state->stage_ms = BspSystem_TimeMs();
+    if (s_state->static_item == HALL_STATIC && !s_state->hall_installed)
+    {
+        s_report.items[HALL_STATIC] = axis->configuration.preset != NULL ? ABSENT : UNTESTED;
+        ++s_state->static_item;
+    }
+    if (s_state->static_item > HALL_STATIC)
+    {
+        finish_static(axis);
+    }
 }
 
 static uint8_t measure_direction(const HardwareCheckAngleTrack *angle, float margin)
@@ -908,23 +954,30 @@ static void consume_sample(MotorAxis *axis, const HardwareCheckSample *sample)
     if (s_state->have_cycles && (sample->cycles - s_state->last_cycles > PERIOD_CYCLES * 3U / 2U ||
                                  sample->cycles == s_state->last_cycles))
     {
-        end_check(axis, ABORTED);
-        return;
+        if (s_report.stage != STATIC)
+        {
+            end_check(axis, ABORTED);
+            return;
+        }
+        s_state->static_timing_fault = true;
     }
     s_state->last_cycles = sample->cycles;
     s_state->have_cycles = true;
-    ++s_state->voltage_samples;
-    s_state->min_v = fminf(s_state->min_v, sample->voltage_v);
-    s_state->max_v = fmaxf(s_state->max_v, sample->voltage_v);
     bool supply_ok = sample->voltage_v >= 27.0f && sample->voltage_v <= 29.0f;
-    if (!supply_ok)
+    if (s_report.stage != STATIC || s_state->static_item == VBUS)
     {
-        ++s_state->voltage_outside_samples;
-        if (!isfinite(sample->voltage_v))
+        ++s_state->voltage_samples;
+        s_state->min_v = fminf(s_state->min_v, sample->voltage_v);
+        s_state->max_v = fmaxf(s_state->max_v, sample->voltage_v);
+        if (!supply_ok)
         {
-            ++s_state->voltage_invalid_samples;
+            ++s_state->voltage_outside_samples;
+            if (!isfinite(sample->voltage_v))
+            {
+                ++s_state->voltage_invalid_samples;
+            }
+            s_report.items[VBUS] = FAIL;
         }
-        s_report.items[VBUS] = FAIL;
     }
     if (s_report.stage == STATIC)
     {
@@ -936,7 +989,7 @@ static void consume_sample(MotorAxis *axis, const HardwareCheckSample *sample)
         static_sample(sample);
         if (s_state->static_samples == STATIC_SAMPLES)
         {
-            finish_static(axis);
+            complete_static_item(axis);
         }
         return;
     }
@@ -996,13 +1049,26 @@ void HardwareCheck_Process(MotorAxis *axis)
     uint8_t stage = s_report.stage;
     uint32_t timeout_ms =
         stage == STATIC ? 500U : (stage == ARMED ? 3000U : (stage == RESISTANCE ? 25000U : 8000U));
-    if (s_overrun || axis->parameters.revision != s_state->revision ||
-        now - s_state->stage_ms > timeout_ms)
+    if (axis->parameters.revision != s_state->revision ||
+        (stage != STATIC && (s_overrun || now - s_state->stage_ms > timeout_ms)))
     {
         end_check(axis, ABORTED);
         return;
     }
-    uint8_t ntc = temperature_result(axis);
+    if (stage == STATIC && (s_overrun || now - s_state->stage_ms > timeout_ms))
+    {
+        s_state->static_timing_fault = true;
+        s_read = s_write;
+        s_overrun = false;
+        s_state->have_cycles = false;
+        complete_static_item(axis);
+        return;
+    }
+    uint8_t ntc = PASS;
+    if (stage != STATIC || s_state->static_item == NTC)
+    {
+        ntc = temperature_result(axis);
+    }
     if (ntc != PASS)
     {
         /* 只在整窗完成后发布正常。无效或过期读数可立即证实故障。 */

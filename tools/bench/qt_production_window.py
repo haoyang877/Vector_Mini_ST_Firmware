@@ -27,8 +27,8 @@ from production_backend import (
 from production_controller import ProductionController
 from production_flow import ProductionFlow
 from production_report import build_report, failure_summary, report_rows
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QPixmap
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -59,10 +60,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qt_parameter_page import ParameterPage
+from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.0.2"
+VERSION = "2.1.1"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -73,8 +75,10 @@ def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
     return widget
 
 
-def button(text, callback, primary=False) -> QPushButton:
+def button(text, callback, primary=False, *, icon_name: str) -> QPushButton:
     widget = QPushButton(text)
+    widget.setIcon(icon(icon_name, emphasis=primary))
+    widget.setIconSize(ICON_SIZE)
     if primary:
         widget.setObjectName("primary")
     widget.clicked.connect(callback)
@@ -111,13 +115,14 @@ def rows(widget: QTableWidget, values: list) -> None:
 class ProductionWindow(QMainWindow):
     """主线程维护当前设备与视图；设备动作交给独立控制器。"""
 
-    def __init__(self, controller=None) -> None:
+    def __init__(self, controller=None, *, auto_connect=True) -> None:
         super().__init__()
         self.setWindowTitle(f"电机生产测试上位机 v{VERSION} · Qt")
         self.resize(1440, 960)
         self.setMinimumSize(1060, 740)
         apply_theme(QApplication.instance())
         self.resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        self.setWindowIcon(QIcon(str(self.resource / "assets/production_motor.svg")))
         self.root_log = Path.home() / "CAN-Link-Test"
         self.controller = controller or ProductionController(
             Path(os.environ.get("CONTROLCANFD_DLL", self.resource / "ControlCANFD.dll")), self
@@ -144,6 +149,25 @@ class ProductionWindow(QMainWindow):
         self.refresh_timer.timeout.connect(self.refresh_status)
         self.refresh_timer.start()
         self.update_controls()
+        if controller is None and auto_connect:
+            QTimer.singleShot(300, self.initial_scan)
+
+    def initial_scan(self) -> None:
+        """启动仅尝试一次只读连接扫描；失败或用户断开后不循环重连。"""
+        if not self.close_ready and not self.controller.busy and self.auto_refresh.isChecked():
+            self.launch(dict(profile="can_scan"), automatic=True)
+
+    def read_selected_status(self) -> None:
+        """扫描完成后读取实际状态，先核对UID，不依赖编辑焦点或J-Link。"""
+        if (
+            not self.close_ready
+            and not self.controller.busy
+            and self.controller.connected
+            and self.current_motor
+            and self.auto_refresh.isChecked()
+        ):
+            self.next_refresh = time.monotonic() + STATUS_REFRESH_S
+            self.launch(dict(profile="device_status"), automatic=True)
 
     def build_ui(self) -> None:
         central = QWidget()
@@ -155,7 +179,7 @@ class ProductionWindow(QMainWindow):
         heading.addWidget(label("电机生产测试上位机", "title"))
         heading.addWidget(label(f"PRODUCTION CONSOLE  /  v{VERSION}", "subtitle"))
         heading.addStretch()
-        self.next_button = button("归档并开始下一台", self.next_device)
+        self.next_button = button("归档并开始下一台", self.next_device, icon_name="next-device")
         heading.addWidget(self.next_button)
         root.addLayout(heading)
         header = QHBoxLayout()
@@ -173,10 +197,17 @@ class ProductionWindow(QMainWindow):
         self.auto_refresh = QCheckBox("自动刷新 · 1 秒")
         self.auto_refresh.setChecked(True)
         self.connection_label = label("CAN 未连接", "subtitle")
-        self.disconnect_button = button("断开", lambda: self.launch(dict(profile="can_release")))
+        self.disconnect_button = button(
+            "断开", lambda: self.launch(dict(profile="can_release")), icon_name="disconnect"
+        )
         form.addWidget(self.auto_refresh, 2, 0, 1, 2)
         form.addWidget(self.disconnect_button, 2, 2)
-        form.addWidget(self.connection_label, 3, 0, 1, 3)
+        connection_status = QHBoxLayout()
+        self.connection_icon = QLabel()
+        self.connection_icon.setFixedSize(20, 20)
+        connection_status.addWidget(self.connection_icon)
+        connection_status.addWidget(self.connection_label, 1)
+        form.addLayout(connection_status, 3, 0, 1, 3)
         header.addWidget(connection, 3)
         current = QGroupBox("当前电机")
         form = QVBoxLayout(current)
@@ -188,7 +219,9 @@ class ProductionWindow(QMainWindow):
         form.addWidget(self.axis)
         self.uid_label = label("尚未识别设备", "subtitle", True)
         form.addWidget(self.uid_label)
-        self.scan_button = button("扫描识别", lambda: self.launch(dict(profile="can_scan")))
+        self.scan_button = button(
+            "连接 / 扫描", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
+        )
         form.addWidget(self.scan_button)
         header.addWidget(current, 4)
         device = QGroupBox("设备状态")
@@ -202,12 +235,17 @@ class ProductionWindow(QMainWindow):
         self.mode_label = label("控制模式：未读取", "statusValue", True)
         self.fault_label = label("故障信息：未读取", "statusValue", True)
         details.addWidget(self.version_label, 0, 0)
-        details.addWidget(self.loader_label, 0, 1)
-        details.addWidget(self.status_label, 1, 0)
+        details.addWidget(self.loader_label, 1, 0)
+        details.addWidget(self.status_label, 0, 1)
         details.addWidget(self.mode_label, 1, 1)
-        details.addWidget(self.fault_label, 2, 0, 1, 2)
-        details.setColumnStretch(0, 1)
-        details.setColumnStretch(1, 1)
+        fault_row = QHBoxLayout()
+        self.fault_icon = QLabel()
+        self.fault_icon.setFixedSize(20, 20)
+        fault_row.addWidget(self.fault_icon)
+        fault_row.addWidget(self.fault_label, 1)
+        details.addLayout(fault_row, 2, 1)
+        details.setColumnStretch(0, 2)
+        details.setColumnStretch(1, 3)
         metrics = QHBoxLayout()
         self.voltage = label("— V", "metric")
         self.current = label("— A", "metric")
@@ -218,7 +256,21 @@ class ProductionWindow(QMainWindow):
             (self.temperature, "电机温度"),
         ):
             metric = QVBoxLayout()
-            metric.addWidget(label(caption, "subtitle"))
+            caption_row = QHBoxLayout()
+            badge = QLabel()
+            badge.setPixmap(
+                icon(
+                    "temperature"
+                    if caption == "电机温度"
+                    else "voltage"
+                    if caption == "母线电压"
+                    else "connect"
+                ).pixmap(18, 18)
+            )
+            caption_row.addWidget(badge)
+            caption_row.addWidget(label(caption, "subtitle"))
+            caption_row.addStretch()
+            metric.addLayout(caption_row)
             metric.addWidget(widget)
             metrics.addLayout(metric)
         form.addLayout(details)
@@ -226,8 +278,12 @@ class ProductionWindow(QMainWindow):
         foot = QHBoxLayout()
         self.last_read = label("电压 / 电流 / 电机温度", "subtitle")
         foot.addWidget(self.last_read, 1)
-        self.status_button = button("刷新", lambda: self.launch(dict(profile="device_status")))
-        self.fault_button = button("清故障", lambda: self.launch(dict(profile="clear_fault")))
+        self.status_button = button(
+            "刷新", lambda: self.launch(dict(profile="device_status")), icon_name="refresh"
+        )
+        self.fault_button = button(
+            "清故障", lambda: self.launch(dict(profile="clear_fault")), icon_name="clear-fault"
+        )
         foot.addWidget(self.status_button)
         foot.addWidget(self.fault_button)
         form.addLayout(foot)
@@ -239,9 +295,15 @@ class ProductionWindow(QMainWindow):
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigation")
         self.navigation.setFixedWidth(160)
-        self.navigation.addItems(
-            ["01  设备维护", "02  生产检测", "03  电机标定", "04  参数配置", "05  测试记录"]
-        )
+        self.navigation.setIconSize(QSize(22, 22))
+        for name, text in (
+            ("maintenance", "设备维护"),
+            ("hardware-test", "生产检测"),
+            ("calibration", "电机标定"),
+            ("parameters", "参数配置"),
+            ("records", "测试记录"),
+        ):
+            self.navigation.addItem(QListWidgetItem(icon(name), text))
         self.navigation.currentRowChanged.connect(self.change_page)
         body.addWidget(self.navigation)
         self.splitter = QSplitter(Qt.Orientation.Vertical)
@@ -273,12 +335,18 @@ class ProductionWindow(QMainWindow):
         footer.addWidget(self.progress)
         self.task_status = label("就绪", "subtitle", True)
         footer.addWidget(self.task_status, 1)
-        self.open_log_button = button("本次记录", lambda: self.open_path(self.report_dir))
+        self.open_log_button = button(
+            "本次记录", lambda: self.open_path(self.report_dir), icon_name="folder"
+        )
         footer.addWidget(self.open_log_button)
         footer.addWidget(
-            button("收起 / 展开日志", lambda: self.log.setVisible(not self.log.isVisible()))
+            button(
+                "收起 / 展开日志",
+                lambda: self.log.setVisible(not self.log.isVisible()),
+                icon_name="records",
+            )
         )
-        self.stop_button = button("停止", self.controller.stop)
+        self.stop_button = button("停止", self.controller.stop, icon_name="stop")
         self.stop_button.setObjectName("stop")
         footer.addWidget(self.stop_button)
         root.addLayout(footer)
@@ -290,11 +358,24 @@ class ProductionWindow(QMainWindow):
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(12)
         self.pages[name] = page
-        tabs.addTab(page, title)
+        tabs.addTab(
+            page,
+            icon(
+                {
+                    "jlink": "flash",
+                    "upgrade": "upgrade",
+                    "communication": "communication",
+                    "advanced": "maintenance",
+                    "calibration": "calibration",
+                    "speed": "chart",
+                }[name]
+            ),
+            title,
+        )
         return layout
 
-    def add_action(self, layout, text, callback, primary=False):
-        widget = button(text, callback, primary)
+    def add_action(self, layout, text, callback, primary=False, *, icon_name: str):
+        widget = button(text, callback, primary, icon_name=icon_name)
         self.action_buttons.append(widget)
         layout.addWidget(widget)
         return widget
@@ -324,14 +405,14 @@ class ProductionWindow(QMainWindow):
         content = QHBoxLayout()
         firmware = QGroupBox("本批固件")
         box = QVBoxLayout(firmware)
-        box.addWidget(label("APP 1.8.15   +   Loader 2.3.4", "metric"))
+        box.addWidget(label("APP 1.8.16   +   Loader 2.3.4", "metric"))
         box.addWidget(label("AT32F456  ·  CAN FD 1M / 5M", "subtitle"))
         self.hex_path = self.resource / "firmware/five-axis.hex"
         if not self.hex_path.is_file():
             self.hex_path = None
         self.hex_label = label("内置统一整包" if self.hex_path else "尚未选择本批 HEX", wrap=True)
         box.addWidget(self.hex_label)
-        self.add_action(box, "选择本批 HEX", self.choose_hex)
+        self.add_action(box, "选择本批 HEX", self.choose_hex, icon_name="folder")
         box.addStretch()
         content.addWidget(firmware, 1)
         self.initial_box = QGroupBox("新板电机类型 · 必选")
@@ -346,12 +427,21 @@ class ProductionWindow(QMainWindow):
         layout.addLayout(content)
         actions = QHBoxLayout()
         self.identify_button = self.add_action(
-            actions, "1. 识别板卡", lambda: self.launch(dict(profile="jlink_identify"))
+            actions,
+            "1. 识别板卡",
+            lambda: self.launch(dict(profile="jlink_identify")),
+            icon_name="scan",
         )
         self.flash_button = self.add_action(
-            actions, "3. 烧录整包并校验", lambda: self.launch(dict(profile="jlink_flash")), True
+            actions,
+            "3. 烧录整包并校验",
+            lambda: self.launch(dict(profile="jlink_flash")),
+            True,
+            icon_name="flash",
         )
-        self.go_detection = button("进入生产检测  →", lambda: self.navigation.setCurrentRow(1))
+        self.go_detection = button(
+            "进入生产检测  →", lambda: self.navigation.setCurrentRow(1), icon_name="hardware-test"
+        )
         actions.addWidget(self.go_detection)
         actions.addStretch()
         layout.addLayout(actions)
@@ -361,11 +451,11 @@ class ProductionWindow(QMainWindow):
         self.package_path = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.15/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.16/app-package"
         )
-        self.package_label = label("配套 APP v1.8.15 升级包", wrap=True)
+        self.package_label = label("配套 APP v1.8.16 升级包", wrap=True)
         layout.addWidget(self.package_label)
-        self.add_action(layout, "选择升级包目录", self.choose_package)
+        self.add_action(layout, "选择升级包目录", self.choose_package, icon_name="folder")
         self.batch_upgrade = QCheckBox("批量升级已扫描的设备")
         layout.addWidget(self.batch_upgrade)
         self.add_fields(layout, [("rounds", "每台升级次数", "1")])
@@ -374,9 +464,15 @@ class ProductionWindow(QMainWindow):
         self.upgrade_table = table(["选择", "节点 / 电机", "UID", "状态"])
         layout.addWidget(self.upgrade_table, 1)
         actions = QHBoxLayout()
-        self.add_action(actions, "扫描在线设备", lambda: self.launch(dict(profile="can_scan")))
         self.add_action(
-            actions, "开始 CAN 升级", lambda: self.launch(dict(profile="can_upgrade")), True
+            actions, "扫描在线设备", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
+        )
+        self.add_action(
+            actions,
+            "开始 CAN 升级",
+            lambda: self.launch(dict(profile="can_upgrade")),
+            True,
+            icon_name="upgrade",
         )
         actions.addStretch()
         layout.addLayout(actions)
@@ -399,16 +495,16 @@ class ProductionWindow(QMainWindow):
             self.query_checks[node] = check
         panel.addLayout(picks)
         self.add_fields(panel, [("count", "每节点笔数", "1000"), ("rate", "总笔 / 秒", "50")])
-        self.add_action(panel, "开始通信测试", self.start_query, True)
+        self.add_action(panel, "开始通信测试", self.start_query, True, icon_name="communication")
         panel.addStretch()
-        self.communication_tabs.addTab(page, "通信压测")
+        self.communication_tabs.addTab(page, icon("communication"), "通信压测")
         page = QWidget()
         panel = QVBoxLayout(page)
         self.add_fields(panel, [("can_id", "CAN ID · HEX", ""), ("payload", "数据 · HEX", "")])
-        self.add_action(panel, "填入当前电机状态查询", self.fill_query)
-        self.add_action(panel, "发送一帧", self.send_frame, True)
+        self.add_action(panel, "填入当前电机状态查询", self.fill_query, icon_name="refresh")
+        self.add_action(panel, "发送一帧", self.send_frame, True, icon_name="communication")
         panel.addStretch()
-        self.communication_tabs.addTab(page, "协议发送")
+        self.communication_tabs.addTab(page, icon("connect"), "协议发送")
         self.fill_query()
         layout = self.tab_page(self.maintenance, "advanced", "高级维护")
         layout.addWidget(label("维护操作", "sectionTitle"))
@@ -420,19 +516,22 @@ class ProductionWindow(QMainWindow):
         layout.addLayout(form)
         actions = QHBoxLayout()
         self.add_action(
-            actions, "读取波特率", lambda: self.launch(dict(profile="can_bitrate", set=None))
+            actions,
+            "读取波特率",
+            lambda: self.launch(dict(profile="can_bitrate", set=None)),
+            icon_name="refresh",
         )
-        self.add_action(actions, "保存波特率", self.save_bitrate)
+        self.add_action(actions, "保存波特率", self.save_bitrate, icon_name="save")
         actions.addStretch()
         layout.addLayout(actions)
         layout.addWidget(
             label("擦除前必须识别当前芯片。操作会保存备份，擦除后需重新烧录。", wrap=True)
         )
         self.erase_app = self.add_action(
-            layout, "擦除 APP · 保留参数和 Loader", lambda: self.erase("app")
+            layout, "擦除 APP · 保留参数和 Loader", lambda: self.erase("app"), icon_name="warning"
         )
         self.erase_all = self.add_action(
-            layout, "整片擦除 · 含参数和身份", lambda: self.erase("all")
+            layout, "整片擦除 · 含参数和身份", lambda: self.erase("all"), icon_name="warning"
         )
         layout.addStretch()
 
@@ -461,13 +560,23 @@ class ProductionWindow(QMainWindow):
                 ("travel", "两侧可用行程 °", "360"),
             ],
         )
-        self.hardware_start = self.add_action(panel, "开始本轮检测", self.start_hardware, True)
-        self.open_report_button = button("打开单台报告", lambda: self.open_path(self.report_path))
+        self.hardware_start = self.add_action(
+            panel, "开始本轮检测", self.start_hardware, True, icon_name="start"
+        )
+        self.open_report_button = button(
+            "打开单台报告", lambda: self.open_path(self.report_path), icon_name="records"
+        )
         panel.addWidget(self.open_report_button)
         panel.addStretch()
         splitter.addWidget(settings)
         result = QWidget()
         panel = QVBoxLayout(result)
+        result_title = QHBoxLayout()
+        self.result_icon = QLabel()
+        self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
+        result_title.addWidget(self.result_icon)
+        result_title.addWidget(label("本轮检测结果", "statusValue"), 1)
+        panel.addLayout(result_title)
         self.failure = QPlainTextEdit()
         self.failure.setReadOnly(True)
         self.failure.setMaximumHeight(110)
@@ -492,9 +601,18 @@ class ProductionWindow(QMainWindow):
         )
         actions = QHBoxLayout()
         self.add_action(
-            actions, "编码器 / Hall 角度标定并保存", lambda: self.start_calibration(1), True
+            actions,
+            "编码器 / Hall 角度标定并保存",
+            lambda: self.start_calibration(1),
+            True,
+            icon_name="calibration",
         )
-        self.add_action(actions, "电角零位标定并保存", lambda: self.start_calibration(2))
+        self.add_action(
+            actions,
+            "电角零位标定并保存",
+            lambda: self.start_calibration(2),
+            icon_name="calibration",
+        )
         actions.addStretch()
         layout.addLayout(actions)
         layout.addWidget(
@@ -502,7 +620,7 @@ class ProductionWindow(QMainWindow):
         )
         self.calibration_result = label("等待标定", wrap=True)
         layout.addWidget(self.calibration_result)
-        self.curve_button = button("查看补偿曲线 / 原码", self.show_curves)
+        self.curve_button = button("查看补偿曲线 / 原码", self.show_curves, icon_name="chart")
         layout.addWidget(self.curve_button)
         layout.addStretch()
         layout = self.tab_page(self.calibration, "speed", "速度调试")
@@ -511,10 +629,10 @@ class ProductionWindow(QMainWindow):
             layout, [("speed", "目标速度 rad/s", "3"), ("speed_limit", "速度上限 rad/s", "300")]
         )
         actions = QHBoxLayout()
-        self.add_action(actions, "使能速度控制", self.start_speed, True)
-        self.speed_update = button("更新速度目标", self.update_speed)
+        self.add_action(actions, "使能速度控制", self.start_speed, True, icon_name="start")
+        self.speed_update = button("更新速度目标", self.update_speed, icon_name="refresh")
         actions.addWidget(self.speed_update)
-        self.speed_stop = button("停止", self.controller.stop)
+        self.speed_stop = button("停止", self.controller.stop, icon_name="stop")
         actions.addWidget(self.speed_stop)
         actions.addStretch()
         layout.addLayout(actions)
@@ -531,7 +649,9 @@ class ProductionWindow(QMainWindow):
         title = QHBoxLayout()
         title.addWidget(label("测试记录", "sectionTitle"))
         title.addStretch()
-        title.addWidget(button("打开历史记录目录", lambda: self.open_path(self.root_log)))
+        title.addWidget(
+            button("打开历史记录目录", lambda: self.open_path(self.root_log), icon_name="folder")
+        )
         layout.addLayout(title)
         self.record_table = table(["时间", "任务", "节点", "结果"])
         self.record_table.cellDoubleClicked.connect(
@@ -581,6 +701,9 @@ class ProductionWindow(QMainWindow):
         self.connection_label.setText(
             "CAN 已连接 · ISO FD + BRS" if self.controller.connected else "CAN 未连接"
         )
+        self.connection_icon.setPixmap(
+            icon("connect" if self.controller.connected else "disconnect").pixmap(20, 20)
+        )
         self.uid_label.setText("UID " + motor["uid"] if motor else "尚未识别设备")
         self.version_label.setText(
             "APP 固件："
@@ -624,10 +747,15 @@ class ProductionWindow(QMainWindow):
             + (
                 "未读取"
                 if faults is None
-                else f"{describe_faults(faults)}（0x{faults:08X}）" + historical
+                else describe_faults(faults, include_codes=False) + historical
             )
         )
         self.fault_label.setStyleSheet("color:#b42336;" if faults else "")
+        self.fault_icon.setPixmap(
+            icon(
+                "warning" if faults is None or stale or error else "fail" if faults else "pass"
+            ).pixmap(20, 20)
+        )
         self.status_label.setToolTip(str(error) if error else "")
         for widget, key, unit, digits in (
             (self.voltage, "bus_voltage_v", "V", 2),
@@ -944,7 +1072,6 @@ class ProductionWindow(QMainWindow):
                 directory.mkdir(parents=True, exist_ok=False)
             if profile == "jlink_identify":
                 self.identity = self.verified_uid = None
-                self.devices.clear()
                 self.select_motor()
             self.controller.start(settings, directory, automatic=automatic)
             if not automatic and profile not in ("can_release", "can_shutdown"):
@@ -966,6 +1093,7 @@ class ProductionWindow(QMainWindow):
                 if profile == "motor_speed":
                     self.plot.clear()
                 if profile == "hardware_check":
+                    self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
                     self.failure.setPlainText("本轮检测进行中，等待结果")
                     self.hardware_table.setRowCount(0)
                 self.update_controls()
@@ -1002,6 +1130,14 @@ class ProductionWindow(QMainWindow):
             total = sum(v != "本轮不测" for v in value.values())
             self.progress.setValue(
                 int(100 * sum(v == "已完成" for v in value.values()) / max(1, total))
+            )
+        elif tag == "hardware_static":
+            self.display_hardware_rows(value)
+            completed = value["static_completed"]
+            names = ("Ia", "Ib", "Ic", "母线电流", "母线电压", "电机 NTC", "主编码器", "霍尔")
+            self.phase_label.setText(
+                f"静态检查 {completed}/8 · "
+                + (f"正在检测：{names[completed]}" if completed < 8 else "静态项目已完成")
             )
         elif tag == "parameter_progress":
             done, total = value
@@ -1043,6 +1179,22 @@ class ProductionWindow(QMainWindow):
                 )
                 self.render_device()
 
+    def display_hardware_rows(self, report: dict) -> None:
+        """同轮逐项快照和终态报告共用数值、判定与颜色投影。"""
+        rows(
+            self.hardware_table,
+            [[r[k] for k in ("item", "measured", "limit", "result")] for r in report_rows(report)],
+        )
+        for row, result in enumerate(report_rows(report)):
+            color = {
+                "passed": "#18765b",
+                "failed": "#b03b42",
+                "pending": "#64748b",
+                "excluded": "#64748b",
+            }[result["outcome"]]
+            for col in range(4):
+                self.hardware_table.item(row, col).setForeground(QColor(color))
+
     def on_completed(self, report: dict, directory: Path | None, automatic: bool) -> None:
         profile = report["profile"]
         if profile in ("can_release", "can_shutdown"):
@@ -1074,6 +1226,7 @@ class ProductionWindow(QMainWindow):
                     self.select_motor()
                 else:
                     self.current_motor["status_error"] = report.get("fatal", "读取失败")
+                    self.task_status.setText(self.current_motor["status_error"])
             self.render_device()
         elif profile == "parameters":
             self.parameters.display(report)
@@ -1089,27 +1242,41 @@ class ProductionWindow(QMainWindow):
                     m["node"]: dict(m, checked_at=time.time()) for m in report.get("motors", [])
                 }
                 self.populate_upgrade_table()
+                if self.devices and (len(self.devices) == 1 or self.node() not in self.devices):
+                    with QSignalBlocker(self.axis):
+                        self.axis.setCurrentIndex(
+                            list(FIRST_FIT_AXES).index(next(iter(self.devices)))
+                        )
             self.select_motor()
+            self.task_status.setText(
+                report.get("fatal")
+                or (
+                    "扫描已取消"
+                    if report.get("cancelled")
+                    else f"发现 {len(self.devices)} 台在线设备"
+                    if self.devices
+                    else "CAN已连接，未发现节点3～7"
+                )
+            )
+            if (
+                self.devices
+                and not self.next_pending
+                and not getattr(self.controller, "pending", None)
+            ):
+                QTimer.singleShot(0, self.read_selected_status)
         elif profile.startswith("jlink_"):
             self.display_install(report)
         elif profile == "hardware_check":
             if report.get("production_report") and directory:
                 self.report_path = directory / report["production_report"]
             data = build_report(report, tool_version=VERSION, created_at="")
+            self.result_icon.setPixmap(
+                icon("pass" if data["verdict"] == "本范围通过" else "fail").pixmap(20, 20)
+            )
             self.failure.setPlainText(
                 data["scope_name"] + " · " + data["verdict"] + "\n" + failure_summary(report)
             )
-            rows(
-                self.hardware_table,
-                [
-                    [r[k] for k in ("item", "measured", "limit", "result")]
-                    for r in report_rows(report)
-                ],
-            )
-            for row, result in enumerate(report_rows(report)):
-                if result["attention"]:
-                    for col in range(4):
-                        self.hardware_table.item(row, col).setForeground(QColor("#b03b42"))
+            self.display_hardware_rows(report)
             if report.get("phase_states"):
                 self.on_event("hardware_phases", report["phase_states"])
         elif profile in ("motor_calibration", "motor_speed"):
@@ -1159,6 +1326,8 @@ class ProductionWindow(QMainWindow):
             )
             if profile == "hardware_check":
                 text = self.failure.toPlainText().splitlines()[0]
+            elif profile == "can_scan":
+                text = self.task_status.text()
             self.task_status.setText(text)
             self.log.appendPlainText(json.dumps(report, ensure_ascii=False, indent=2))
             if directory:
@@ -1242,7 +1411,8 @@ class ProductionWindow(QMainWindow):
         if not report.get("success"):
             if not report.get("protected_regions_verified"):
                 self.identity = None
-                self.devices.clear()
+                if report["profile"] != "jlink_identify":
+                    self.devices.clear()
                 self.select_motor()
             self.install_label.setText(report.get("fatal", "烧录未完成，请重新识别"))
 
@@ -1295,6 +1465,7 @@ class ProductionWindow(QMainWindow):
         self.report_dir = self.report_path = self.curve_path = None
         self.upgrade_table.setRowCount(0)
         self.hardware_table.setRowCount(0)
+        self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
         self.failure.setPlainText("下一台尚未开始检测")
         self.calibration_result.setText("等待标定")
         self.phase_label.setText("通信 → 静态 → 相电阻 → 双向动态 → 关相 / 结果")
@@ -1325,7 +1496,9 @@ class ProductionWindow(QMainWindow):
         ):
             path = self.curve_path.parent / filename
             if path.is_file():
-                actions.addWidget(button(title, lambda _=False, p=path: self.open_path(p)))
+                actions.addWidget(
+                    button(title, lambda _=False, p=path: self.open_path(p), icon_name="chart")
+                )
         layout.addLayout(actions)
         scroll = QScrollArea()
         image = QLabel()

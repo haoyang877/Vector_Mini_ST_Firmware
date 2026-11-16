@@ -56,6 +56,34 @@ class ReportTests(unittest.TestCase):
             build_report(report, tool_version="x", created_at="x")["verdict"], "未通过 / 未完成"
         )
 
+    def test_mixed_outcomes_and_unmeasured_resistance(self):
+        report = self.report()
+        report["scope"] = "full"
+        report["board_items"][:3] = [1, 0, 2]
+        report["resistance"] = dict(
+            result=0,
+            nominal_ohm=0,
+            phase_ohm=[None] * 3,
+            line_ohm=[None] * 3,
+            open_phases=0,
+            low_phases=0,
+            high_phases=0,
+            open_lines=0,
+            failure=0,
+        )
+        direction_results(report)
+        rows = report_rows(report)
+        self.assertEqual([row["outcome"] for row in rows[:3]], ["passed", "pending", "failed"])
+        self.assertIn("50%～150%", rows[8]["limit"])
+        self.assertNotIn("0.0000", rows[8]["limit"])
+        self.assertEqual(rows[8]["result"], "未测")
+        with tempfile.TemporaryDirectory() as folder:
+            text = export_report(report, Path(folder), tool_version="test").read_text(
+                encoding="utf-8"
+            )
+            for outcome in ("passed", "pending", "failed"):
+                self.assertIn(f"<tr class='{outcome}'>", text)
+
     def test_failure_keeps_measured_value_limits_and_suggestion(self):
         report = self.report()
         report["board_items"][4] = 2

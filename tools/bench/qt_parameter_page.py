@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from qt_production_icons import ICON_SIZE, icon
 
 
 class ParameterPage(QWidget):
@@ -31,6 +32,8 @@ class ParameterPage(QWidget):
         layout = QVBoxLayout(self)
         top = QHBoxLayout()
         read = QPushButton("读取全部参数")
+        read.setIcon(icon("refresh"))
+        read.setIconSize(ICON_SIZE)
         read.clicked.connect(lambda: action("all", False))
         top.addWidget(read)
         top.addStretch()
@@ -47,6 +50,8 @@ class ParameterPage(QWidget):
             actions = QHBoxLayout()
             for save, text in ((False, "读取本组"), (True, "写入并保存")):
                 button = QPushButton(text)
+                button.setIcon(icon("save" if save else "refresh"))
+                button.setIconSize(ICON_SIZE)
                 button.clicked.connect(lambda _=False, g=group, s=save: action(g, s))
                 actions.addWidget(button)
                 self.buttons.append((button, group, save))
@@ -80,7 +85,7 @@ class ParameterPage(QWidget):
                 self.value_states[identifier] = state
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             body.addWidget(table)
-            self.tabs.addTab(panel, title)
+            self.tabs.addTab(panel, icon("parameters"), title)
         self.update_controls(False, False)
 
     def update_value_state(self, identifier: int) -> None:

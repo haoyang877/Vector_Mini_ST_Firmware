@@ -152,7 +152,7 @@ static void tick(bool fresh)
 
 static void window(void)
 {
-    for (unsigned i = 0; i < 2000U; ++i)
+    for (unsigned i = 0; i < 16000U; ++i)
     {
         tick(true);
     }
@@ -163,7 +163,7 @@ static void static_cases(void)
     for (unsigned k = 0; k < 8U; ++k)
     {
         begin(1U, 1);
-        for (unsigned i = 0; i < 2000; ++i)
+        for (unsigned i = 0; i < 16000; ++i)
         {
             int sign = i % 2 ? 1 : -1;
             s_adc[BSP_ADC_PHASE_CURRENT_A] = 2048.0f + sign * (k & 1U ? 10.0f : 9.75f);
@@ -189,7 +189,7 @@ static void static_cases(void)
     for (unsigned k = 0; k < sizeof(s_bus_rms) / sizeof(s_bus_rms[0]); ++k)
     {
         begin(1U, 1);
-        for (unsigned i = 0; i < 2000U; ++i)
+        for (unsigned i = 0; i < 16000U; ++i)
         {
             s_adc[BSP_ADC_BUS_CURRENT] = (float)(2048 + (i % 2U ? 1 : -1) * s_bus_rms[k]);
             tick(true);
@@ -203,7 +203,7 @@ static void static_cases(void)
     for (unsigned k = 0; k < sizeof(s_bus_means) / sizeof(s_bus_means[0]); ++k)
     {
         begin(1U, 1);
-        for (unsigned i = 0; i < 2000U; ++i)
+        for (unsigned i = 0; i < 16000U; ++i)
         {
             s_adc[BSP_ADC_BUS_CURRENT] = (float)(s_bus_means[k] + (i % 2U ? 49 : -49));
             tick(true);
@@ -238,15 +238,16 @@ static void static_cases(void)
         {
             s_axis.motor_temperature.celsius = NAN;
         }
-        for (unsigned i = 0; i < 2000; ++i)
+        for (unsigned i = 0; i < 16000; ++i)
         {
-            s_axis.foc.bus_voltage_filtered_v = i == 123 ? (k == 7 ? 29.01f : 26.99f) : 28.0f;
+            s_axis.foc.bus_voltage_filtered_v =
+                i % 2000U == 123U ? (k == 7 ? 29.01f : 26.99f) : 28.0f;
             tick(k != 6);
         }
         ProtocolHardwareReport r = report();
         assert(r.stage == 5 && r.items[4] == 2 && r.items[8] == 0);
-        assert(r.items[5] == (k == 3 || k == 4 ? 0 : (k == 5 || k == 6 ? 2 : 1)));
-        assert(r.items[6] == (k == 0 ? 0 : (k == 1 || k == 2 ? 2 : 1)));
+        assert(r.items[5] == (k >= 3 && k <= 6 ? 2 : 1));
+        assert(r.items[6] == (k <= 2 ? 2 : 1));
         assert(r.items[7] == (k == 8 ? 0 : 3) && r.items[9] == r.items[7]);
     }
 }
@@ -465,7 +466,7 @@ static void can_loopback(void)
     assert(!s_tx_sent && report().run_id == 1U);
     service_frame(host_start, 32U, false);
     assert(s_tx_sent && report().run_id == 2U && report().stage == 1U && s_off);
-    for (unsigned i = 0; i < 2000U; ++i)
+    for (unsigned i = 0; i < 16000U; ++i)
     {
         if (i == 500U)
         {
@@ -509,7 +510,7 @@ static void measurement_cases(void)
     ProtocolHardwareMeasurement m;
     begin(1U, 1);
     assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_BUSY);
-    for (unsigned i = 0; i < 2000U; ++i)
+    for (unsigned i = 0; i < 16000U; ++i)
     {
         s_adc[BSP_ADC_PHASE_CURRENT_A] = 2050.0f + (i % 2 ? 4.0f : -4.0f);
         s_axis.hall_samples[0].sin_counts = (uint16_t)(2048 + (i % 2 ? 2 : -2));
@@ -549,10 +550,14 @@ static void measurement_cases(void)
     assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
     assert(m.samples == 100 && m.values[0] == 2050 && m.values[1] == 4);
     begin(1U, 0);
+    for (unsigned i = 0U; i < 8000U; ++i)
+    {
+        tick(true);
+    }
     s_axis.foc.bus_voltage_filtered_v = NAN;
     tick(true);
     s_axis.foc.bus_voltage_filtered_v = 28.0f;
-    for (unsigned i = 1U; i < 2000U; ++i)
+    for (unsigned i = 1U; i < 6000U; ++i)
     {
         tick(true);
     }
@@ -605,6 +610,35 @@ static void resistance_cases(void)
     s_axis.state_machine.stop_pending = false;
 }
 
+/* 同轮逐项冻结；后项异常不能抹去前项结果，也不能提前进入动力阶段。 */
+static void sequential_static_cases(void)
+{
+    begin(3U, 1);
+    s_adc[BSP_ADC_PHASE_CURRENT_A] = 2400.0f;
+    s_axis.motor_temperature.celsius = -52.0f;
+    s_frame = frame(77, 2U);
+    ProtocolHardwareMeasurement value;
+    for (unsigned item = 0U; item < 8U; ++item)
+    {
+        assert(s_check.measure(&s_axis, (uint8_t)item, s_run, &value) == PROTOCOL_RESULT_BUSY);
+        for (unsigned sample = 0U; sample < 2000U; ++sample)
+        {
+            tick(true);
+        }
+        ProtocolHardwareReport current = report();
+        assert(current.items[item] == (item == 0U || item == 5U || item == 6U ? 2U : 1U));
+        assert(s_check.measure(&s_axis, (uint8_t)item, s_run, &value) == PROTOCOL_RESULT_OK);
+        assert(value.samples > 0U && s_off);
+        if (item < 7U)
+        {
+            assert(current.stage == 1U && current.items[item + 1U] == 0U);
+        }
+        assert(s_check.measure(&s_axis, 0U, s_run, &value) == PROTOCOL_RESULT_OK);
+        assert(value.samples == 2000U && value.values[0] == 2400.0f);
+    }
+    assert(report().stage == 5U && !g_hardware_check_capture && s_stops == 0U);
+}
+
 int main(void)
 {
     s_check = HardwareCheck_Bind(&s_axis);
@@ -616,15 +650,17 @@ int main(void)
     for (unsigned age = 30; age <= 31; ++age)
     {
         begin(1U, 1);
-        for (unsigned i = 0; i < 1999; ++i)
+        for (unsigned i = 0; i < 11999; ++i)
         {
             tick(true);
         }
         s_axis.motor_temperature.sample_ms = (s_ticks + 1U) / 20U - age;
         tick(false);
         assert(report().items[5] == (age == 30 ? 1 : 2));
+        window();
     }
     resistance_cases();
+    sequential_static_cases();
     motion_cases();
     static const unsigned s_cos_edges[] = {94U, 95U, 4000U, 4001U};
     for (unsigned i = 0; i < 4U; ++i)
@@ -642,18 +678,24 @@ int main(void)
     tick(true);
     s_cycles += AT32_CORE_HZ / FOC_FREQ;
     tick(true);
-    assert(report().stage == 5 && report().items[0] == 0);
+    assert(report().stage == 1 && report().items[0] == 0);
+    window();
+    assert(report().stage == 4 && report().items[0] == 2 && report().items[1] == 1);
     begin(1U, 1);
     for (unsigned i = 0; i < 150; ++i)
     {
         HardwareCheck_CaptureFast(&s_axis);
     }
     HardwareCheck_Process(&s_axis);
-    assert(report().stage == 5);
+    assert(report().stage == 1 && report().items[0] == 2);
+    window();
+    assert(report().stage == 4 && report().items[1] == 1);
     begin(1U, 1);
     s_ticks += 12000;
     HardwareCheck_Process(&s_axis);
-    assert(report().stage == 5);
+    assert(report().stage == 1 && report().items[0] == 2);
+    window();
+    assert(report().stage == 4);
     assert(!s_axis.state_machine.maintenance_capture && !g_hardware_check_capture);
     ProtocolHardwareReport saved = report();
     ProtocolHardwareReport rejected;

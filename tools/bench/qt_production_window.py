@@ -64,7 +64,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.0.3"
+VERSION = "2.0.4"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -235,17 +235,17 @@ class ProductionWindow(QMainWindow):
         self.mode_label = label("控制模式：未读取", "statusValue", True)
         self.fault_label = label("故障信息：未读取", "statusValue", True)
         details.addWidget(self.version_label, 0, 0)
-        details.addWidget(self.loader_label, 0, 1)
-        details.addWidget(self.status_label, 1, 0)
+        details.addWidget(self.loader_label, 1, 0)
+        details.addWidget(self.status_label, 0, 1)
         details.addWidget(self.mode_label, 1, 1)
         fault_row = QHBoxLayout()
         self.fault_icon = QLabel()
         self.fault_icon.setFixedSize(20, 20)
         fault_row.addWidget(self.fault_icon)
         fault_row.addWidget(self.fault_label, 1)
-        details.addLayout(fault_row, 2, 0, 1, 2)
-        details.setColumnStretch(0, 1)
-        details.setColumnStretch(1, 1)
+        details.addLayout(fault_row, 2, 1)
+        details.setColumnStretch(0, 2)
+        details.setColumnStretch(1, 3)
         metrics = QHBoxLayout()
         self.voltage = label("— V", "metric")
         self.current = label("— A", "metric")

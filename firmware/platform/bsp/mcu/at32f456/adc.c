@@ -73,8 +73,8 @@ void McuAdc_Init(void)
     {
         adc_preempt_channel_set(MCU_ADC_FAST, fast_channels[rank - 1U], rank, ADC_SAMPLETIME_12_5);
     }
-    /* 母线电压跟随相电流使用四倍累加，最短采样共增加 1 us。 */
-    adc_preempt_channel_set(MCU_ADC_FAST, MCU_ADC_BUS_VOLTAGE_CHANNEL, 4U, ADC_SAMPLETIME_2_5);
+    /* 母线电压跟随相电流使用四倍累加，12.5周期采样共增加约1.667 us。 */
+    adc_preempt_channel_set(MCU_ADC_FAST, MCU_ADC_BUS_VOLTAGE_CHANNEL, 4U, ADC_SAMPLETIME_12_5);
     adc_oversample_ratio_shift_set(MCU_ADC_FAST, ADC_OVERSAMPLE_RATIO_4, ADC_OVERSAMPLE_SHIFT_0);
     adc_preempt_oversample_enable(MCU_ADC_FAST, TRUE);
     adc_preempt_conversion_trigger_set(

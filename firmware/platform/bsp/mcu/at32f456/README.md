@@ -30,7 +30,7 @@ PA5/PA6 的 sin/cos 与相电流共用 TMR1 的 20 kHz 触发，每路只转换�
 两板编码器在各自MCU的encoder_spi.c直接实现Begin和ReadAngle，可选16/21位单圈计数；
 现有控制环使用65536计数域，无CRC/超时/事务状态。
 PA7 电机 NTC 使用 2 kHz 普通组，直接从 ADC2 普通结果寄存器读取。
-APP v1.8.22 PA3母线电压为ADC1抢占组第4路，2.5周期、四倍累加并乘0.25；整组6us。
+APP v1.8.23 PA3母线电压为ADC1抢占组第4路，12.5周期、四倍累加并乘0.25；整组约6.667us。
 ADC2依次为母线电流、Hall A/B，47.5周期单采，整组3us；ADC1普通组未使用。
 
 AT32 CAN硬件运行和RX IRQ在本目录can.c，直接实现统一BspCan接口。

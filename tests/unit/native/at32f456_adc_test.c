@@ -42,15 +42,15 @@ int main(int argc, char **argv)
     }
     assert(sim_adc[0].sample_times[0] == ADC_SAMPLETIME_12_5);
     assert(sim_adc[0].channels[3] == ADC_CHANNEL_3);
-    assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_2_5);
+    assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_12_5);
     for (unsigned rank = 0; rank < 3; ++rank)
     {
         assert(sim_adc[1].channels[rank] == rank + 4U);
         assert(sim_adc[1].sample_times[rank] == ADC_SAMPLETIME_47_5);
     }
     assert(sim_adc[1].length == 3);
-    /* ADC1: 3*4*25+4*15=360周期(6us)；ADC2为180周期(3us)。 */
-    assert(3U * 60U < 3U * 4U * 25U + 4U * 15U);
+    /* ADC1: 4*4*25=400周期(约6.667us)；ADC2为180周期(3us)。 */
+    assert(3U * 60U < 4U * 4U * 25U);
     assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);

@@ -8,6 +8,7 @@ QMainWindow,QDialog { background:#f2f5f9; }
 QWidget { font-family:'Microsoft YaHei UI'; font-size:13px; color:#24354b; }
 QGroupBox { background:white; border:1px solid #dce4ed; border-radius:10px; margin-top:12px; padding:14px 12px 10px; }
 QGroupBox::title { subcontrol-origin:margin; left:14px; padding:0 5px; color:#52667e; font-weight:600; }
+QGroupBox#compactHeader { padding:6px 8px 4px; }
 QLabel#title { font-size:23px; font-weight:700; color:#132e49; }
 QLabel#subtitle { color:#60758b; font-size:12px; }
 QLabel { background:transparent; border:0; }

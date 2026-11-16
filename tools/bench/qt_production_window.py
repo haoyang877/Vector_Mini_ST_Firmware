@@ -60,12 +60,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from qt_calibration_preview import CalibrationPreview
 from qt_parameter_page import ParameterPage
 from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.1.3"
+VERSION = "2.1.4"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -184,51 +185,62 @@ class ProductionWindow(QMainWindow):
         heading.addWidget(self.next_button)
         root.addLayout(heading)
         header = QHBoxLayout()
-        connection = QGroupBox("通信连接")
-        form = QGridLayout(connection)
+        connection = QGroupBox("连接与当前电机")
+        connection.setObjectName("compactHeader")
+        form = QVBoxLayout(connection)
+        form.setContentsMargins(8, 8, 8, 6)
+        form.setSpacing(6)
+        self.axis = combo(
+            [f"{role} · {model} · 节点 {node}" for node, (role, model, _) in FIRST_FIT_AXES.items()]
+        )
+        self.axis.setCurrentIndex(3)
+        self.axis.currentIndexChanged.connect(self.select_motor)
+        self.scan_button = button(
+            "连接 / 扫描", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
+        )
+        selection = QHBoxLayout()
+        selection.addWidget(self.axis, 1)
+        selection.addWidget(self.scan_button)
+        form.addLayout(selection)
+        self.uid_label = label("尚未识别设备", "subtitle", True)
+        form.addWidget(self.uid_label)
         self.channel = combo(("1", "2"))
         self.nominal = combo(("500K", "1M"), "1M")
         self.data_rate = combo(RATES, "5M")
-        for col, (text, widget) in enumerate(
-            (("通道", self.channel), ("仲裁段", self.nominal), ("数据段", self.data_rate))
+        rates = QHBoxLayout()
+        rates.setSpacing(6)
+        for text, widget, width in (
+            ("通道", self.channel, 64),
+            ("仲裁段", self.nominal, 84),
+            ("数据段", self.data_rate, 84),
         ):
-            form.addWidget(label(text), 0, col)
-            form.addWidget(widget, 1, col)
+            rates.addWidget(label(text))
+            widget.setFixedWidth(width)
+            rates.addWidget(widget)
             widget.currentTextChanged.connect(self.connection_changed)
+        rates.addStretch()
+        form.addLayout(rates)
         self.auto_refresh = QCheckBox("自动刷新 · 1 秒")
         self.auto_refresh.setChecked(True)
         self.connection_label = label("CAN 未连接", "subtitle")
         self.disconnect_button = button(
             "断开", lambda: self.launch(dict(profile="can_release")), icon_name="disconnect"
         )
-        form.addWidget(self.auto_refresh, 2, 0, 1, 2)
-        form.addWidget(self.disconnect_button, 2, 2)
         connection_status = QHBoxLayout()
         self.connection_icon = QLabel()
         self.connection_icon.setFixedSize(20, 20)
         connection_status.addWidget(self.connection_icon)
-        connection_status.addWidget(self.connection_label, 1)
-        form.addLayout(connection_status, 3, 0, 1, 3)
-        header.addWidget(connection, 3)
-        current = QGroupBox("当前电机")
-        form = QVBoxLayout(current)
-        form.setSpacing(10)
-        self.axis = combo(
-            [f"{role} · {model} · 节点 {node}" for node, (role, model, _) in FIRST_FIT_AXES.items()]
-        )
-        self.axis.setCurrentIndex(3)
-        self.axis.currentIndexChanged.connect(self.select_motor)
-        form.addWidget(self.axis)
-        self.uid_label = label("尚未识别设备", "subtitle", True)
-        form.addWidget(self.uid_label)
-        self.scan_button = button(
-            "连接 / 扫描", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
-        )
-        form.addWidget(self.scan_button, 0, Qt.AlignmentFlag.AlignLeft)
-        form.addStretch()
-        header.addWidget(current, 3)
+        connection_status.addWidget(self.connection_label)
+        connection_status.addStretch()
+        connection_status.addWidget(self.auto_refresh)
+        connection_status.addWidget(self.disconnect_button)
+        form.addLayout(connection_status)
+        header.addWidget(connection, 5)
         device = QGroupBox("设备状态")
+        device.setObjectName("compactHeader")
         form = QVBoxLayout(device)
+        form.setContentsMargins(8, 8, 8, 6)
+        form.setSpacing(4)
         details = QGridLayout()
         details.setHorizontalSpacing(18)
         details.setVerticalSpacing(5)
@@ -259,8 +271,8 @@ class ProductionWindow(QMainWindow):
         ):
             tile = QWidget()
             tile.setObjectName("telemetryTile")
-            metric = QVBoxLayout(tile)
-            metric.setContentsMargins(10, 8, 10, 8)
+            metric = QHBoxLayout(tile)
+            metric.setContentsMargins(8, 6, 8, 6)
             metric.setSpacing(6)
             caption_row = QHBoxLayout()
             badge = QLabel()
@@ -294,7 +306,7 @@ class ProductionWindow(QMainWindow):
         foot.addWidget(self.status_button)
         foot.addWidget(self.fault_button)
         form.addLayout(foot)
-        header.addWidget(device, 6)
+        header.addWidget(device, 7)
         root.addLayout(header)
         self.flow_label = label(self.flow.summary(None), "subtitle", True)
         root.addWidget(self.flow_label)
@@ -628,34 +640,48 @@ class ProductionWindow(QMainWindow):
         self.calibration = QTabWidget()
         self.stack.addWidget(self.calibration)
         layout = self.tab_page(self.calibration, "calibration", "角度与零位")
-        layout.addWidget(label("电机标定", "sectionTitle"))
+        columns = QHBoxLayout()
+        columns.setSpacing(16)
+        settings = QGroupBox("标定信息")
+        settings.setMinimumWidth(330)
+        settings.setMaximumWidth(380)
+        controls = QVBoxLayout(settings)
+        controls.setSpacing(14)
+        controls.addWidget(label("电机标定", "sectionTitle"))
         self.add_fields(
-            layout, [("specimen", "样机序列号", "0001"), ("serial", "测试序列号", "0001")]
+            controls, [("specimen", "样机序列号", "0001"), ("serial", "测试序列号", "0001")]
         )
-        actions = QHBoxLayout()
         self.add_action(
-            actions,
+            controls,
             "编码器 / Hall 角度标定并保存",
             lambda: self.start_calibration(1),
             True,
             icon_name="calibration",
         )
         self.add_action(
-            actions,
+            controls,
             "电角零位标定并保存",
             lambda: self.start_calibration(2),
             icon_name="calibration",
         )
-        actions.addStretch()
-        layout.addLayout(actions)
-        layout.addWidget(
+        controls.addWidget(
             label("完成后回读 Flash 保存状态；减速轴沿用固件的联合标定流程。", "subtitle", True)
         )
         self.calibration_result = label("等待标定", wrap=True)
-        layout.addWidget(self.calibration_result)
-        self.curve_button = button("查看补偿曲线 / 原码", self.show_curves, icon_name="chart")
-        layout.addWidget(self.curve_button)
-        layout.addStretch()
+        controls.addWidget(self.calibration_result)
+        controls.addStretch()
+        columns.addWidget(settings)
+        chart = QGroupBox("补偿曲线")
+        chart_layout = QVBoxLayout(chart)
+        self.curve_button = button("查看原图 / 原码", self.show_curves, icon_name="chart")
+        chart_actions = QHBoxLayout()
+        chart_actions.addStretch()
+        chart_actions.addWidget(self.curve_button)
+        chart_layout.addLayout(chart_actions)
+        self.calibration_preview = CalibrationPreview()
+        chart_layout.addWidget(self.calibration_preview, 1)
+        columns.addWidget(chart, 1)
+        layout.addLayout(columns, 1)
         layout = self.tab_page(self.calibration, "speed", "运行调试")
         columns = QHBoxLayout()
         columns.setSpacing(16)
@@ -751,6 +777,9 @@ class ProductionWindow(QMainWindow):
                 (self.node(), self.current_motor["uid"]) if self.current_motor else None
             )
             self.plot.clear()
+            self.curve_path = None
+            self.calibration_preview.display(None)
+            self.calibration_result.setText("等待标定")
             self.edits["speed_limit"].setText(str(AXIS_SPEED_LIMITS[self.node()]))
         if self.identity and (
             self.identity.get("node") not in (None, self.node())
@@ -1200,6 +1229,10 @@ class ProductionWindow(QMainWindow):
                     self.verified_uid = None
                 if profile == "motor_speed":
                     self.plot.clear()
+                if profile == "motor_calibration":
+                    self.curve_path = None
+                    self.calibration_preview.display(None)
+                    self.calibration_result.setText("标定进行中，等待保存及曲线导出")
                 if profile == "hardware_check":
                     self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
                     self.failure.setPlainText("本轮检测进行中，等待结果")
@@ -1388,6 +1421,7 @@ class ProductionWindow(QMainWindow):
         elif profile in ("motor_calibration", "motor_speed"):
             if report.get("curves") and directory:
                 self.curve_path = directory / report["curves"]["png"]
+                self.calibration_preview.display(self.curve_path)
             if profile == "motor_calibration":
                 text = (
                     "标定完成并保存" if report.get("passed") else report.get("fatal", "标定未完成")

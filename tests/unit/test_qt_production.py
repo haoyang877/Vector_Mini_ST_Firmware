@@ -19,7 +19,7 @@ from can_session import SessionTask
 from hardware_check import direction_results, empty_report
 from production_controller import ProductionController
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtGui import QColor, QIcon, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QTabWidget
 from qt_production_icons import icon
 from qt_production_theme import apply_theme
@@ -135,6 +135,8 @@ class QtProductionTests(unittest.TestCase):
         w = self.window
         w.show()
         self.app.processEvents()
+        self.assertIs(w.axis.parentWidget(), w.channel.parentWidget())
+        self.assertLess(w.axis.parentWidget().height(), 190)
         self.assertTrue(w.fault_icon.isHidden())
         self.assertTrue(w.voltage.property("unavailable"))
         self.assertEqual(w.last_read.text(), "等待设备连接")
@@ -579,6 +581,39 @@ class QtProductionTests(unittest.TestCase):
         self.assertIn("修订 2", w.speed_parameter_status.text())
         self.bind(uid="02" * 12)
         self.assertEqual(w.speed_parameter_values[16].text(), "—")
+
+    def test_calibration_embeds_curve_and_clears_previous_motor(self):
+        self.bind()
+        w = self.window
+        picture = QPixmap(1000, 1500)
+        picture.fill(QColor("white"))
+        path = Path(self.temp.name) / "curve.png"
+        self.assertTrue(picture.save(str(path)))
+        w.navigation.setCurrentRow(2)
+        w.calibration.setCurrentIndex(0)
+        w.resize(1280, 900)
+        w.show()
+        self.app.processEvents()
+        w.on_completed(
+            dict(
+                profile="motor_calibration", passed=True, uid=self.uid, curves=dict(png=path.name)
+            ),
+            path.parent,
+            False,
+        )
+        self.app.processEvents()
+        self.assertFalse(w.calibration_preview.image.isNull())
+        self.assertTrue(w.curve_button.isEnabled())
+        self.assertLessEqual(
+            w.calibration_preview.label.width(), w.calibration_preview.viewport().width()
+        )
+        self.assertGreater(w.calibration_preview.verticalScrollBar().maximum(), 0)
+        self.bind(uid="02" * 12)
+        self.assertTrue(w.calibration_preview.image.isNull())
+        self.assertIsNone(w.curve_path)
+        w.calibration_preview.display(path.parent / "missing.png")
+        self.assertIn("无法读取", w.calibration_preview.label.text())
+        w.hide()
 
     def test_calibration_archive_speed_and_stop(self):
         self.bind()

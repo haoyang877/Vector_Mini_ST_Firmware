@@ -767,7 +767,8 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
     measured, limit, state = "未测", f"标称相电阻的50%～150%（含边界）；{currents}", "未测"
     if resistance:
         nominal = resistance["nominal_ohm"]
-        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；{currents}"
+        if nominal > 0:
+            limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；{currents}"
 
         def values(names, readings):
             return " / ".join(

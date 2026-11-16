@@ -64,7 +64,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.0.4"
+VERSION = "2.0.5"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -1260,9 +1260,14 @@ class ProductionWindow(QMainWindow):
                 ],
             )
             for row, result in enumerate(report_rows(report)):
-                if result["attention"]:
-                    for col in range(4):
-                        self.hardware_table.item(row, col).setForeground(QColor("#b03b42"))
+                color = {
+                    "passed": "#18765b",
+                    "failed": "#b03b42",
+                    "pending": "#64748b",
+                    "excluded": "#64748b",
+                }[result["outcome"]]
+                for col in range(4):
+                    self.hardware_table.item(row, col).setForeground(QColor(color))
             if report.get("phase_states"):
                 self.on_event("hardware_phases", report["phase_states"])
         elif profile in ("motor_calibration", "motor_speed"):

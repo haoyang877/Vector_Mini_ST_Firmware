@@ -399,6 +399,25 @@ class QtProductionTests(unittest.TestCase):
         self.assertIn("进程退出", self.window.failure.toPlainText())
         self.assertEqual(self.window.hardware_table.rowCount(), 11)
 
+    def test_hardware_colors_distinguish_pass_failure_and_incomplete(self):
+        report = empty_report(7)
+        report.update(
+            scope="full",
+            communication="正常",
+            stage=5,
+            board_items=[1, 0, 2, 0, 0, 0, 0, 0, 0, 0],
+            measurements_supported=True,
+        )
+        report["measurements"] = {"1": dict(samples=1, values=[2033.75, 0, None, None])}
+        direction_results(report)
+        self.window.on_completed(report, None, False)
+        for row, expected in ((0, "#18765b"), (1, "#64748b"), (2, "#b03b42")):
+            for column in range(4):
+                self.assertEqual(
+                    self.window.hardware_table.item(row, column).foreground().color().name(),
+                    expected,
+                )
+
     def test_query_modes_raw_and_upgrade_targets(self):
         self.bind(7)
         w = self.window

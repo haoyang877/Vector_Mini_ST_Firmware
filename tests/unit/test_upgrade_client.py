@@ -286,7 +286,7 @@ class UpgradeClientTests(unittest.TestCase):
         window.withdraw()
         self.addCleanup(window.destroy)
         ui = CanTestWindow(window)
-        ui.tabs.select(ui.pages["upgrade"])
+        ui.navigate("upgrade")
         ui.batch_upgrade.set(True)
         motors = [
             dict(

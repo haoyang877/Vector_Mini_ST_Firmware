@@ -36,7 +36,7 @@ class SharedMotorTests(unittest.TestCase):
     def capture_start(self, page, **options):
         window = self.window
         window.update_controls()
-        window.tabs.select(window.pages[page])
+        window.navigate(page)
         launched = []
 
         def process(**kwargs):
@@ -180,7 +180,7 @@ class SharedMotorTests(unittest.TestCase):
         w = self.window
         self.assertEqual(
             [w.tabs.tab(tab, "text") for tab in w.tabs.tabs()],
-            ["J-Link 烧录", "硬件测试", "通信测试", "角度标定", "升级压测", "速度控制", "参数读写"],
+            ["设备维护", "生产检测", "电机标定", "参数配置", "测试记录"],
         )
         expected = dict(
             jlink="jlink_flash",
@@ -192,10 +192,10 @@ class SharedMotorTests(unittest.TestCase):
             parameters="parameters",
         )
         for page, mode in expected.items():
-            w.tabs.select(w.pages[page])
+            w.navigate(page)
             self.assertEqual(w.operation_mode(), mode)
             self.assertEqual(w.operation_mode(scan=True), "can_scan")
-        w.tabs.select(w.pages["communication"])
+        w.navigate("communication")
         w.communication_tabs.select(w.raw_tab)
         self.assertEqual(w.operation_mode(), "manual")
 
@@ -359,7 +359,7 @@ class SharedMotorTests(unittest.TestCase):
         w = self.window
         self.bind(6)
         self.assertEqual(set(w.motor_fields), {"speed", "limit"})
-        w.tabs.select(w.pages["speed"])
+        w.navigate("speed")
         w.update_controls()
         self.assertEqual(w.start_button.winfo_manager(), "")
         self.assertEqual(w.stop_button.winfo_manager(), "")
@@ -368,14 +368,14 @@ class SharedMotorTests(unittest.TestCase):
         self.assertEqual((settings["last_lease"], settings["last_target"]), (0, 0))
         w.process = None
         w.update_controls()
-        w.tabs.select(w.pages["hardware"])
+        w.navigate("hardware")
         w.update_controls()
         self.assertEqual(w.start_button.winfo_manager(), "pack")
 
     def test_parameter_task_keeps_ui_responsive_until_done(self):
         self.bind(6)
         w = self.window
-        w.tabs.select(w.pages["parameters"])
+        w.navigate("parameters")
         events = queue.Queue()
         events.close = lambda: None
         alive = [True]
@@ -692,6 +692,52 @@ class SharedMotorTests(unittest.TestCase):
         w.update_controls()
         self.assertFalse(w.production_report_button.instate(["disabled"]))
 
+    def test_maintenance_default_and_nested_routes_keep_all_tools(self):
+        w = self.window
+        self.assertEqual(w.current_page(), "jlink")
+        self.assertEqual(
+            [w.maintenance_tabs.tab(t, "text") for t in w.maintenance_tabs.tabs()],
+            ["整包烧录", "CAN 固件升级", "通信测试", "高级维护"],
+        )
+        w.navigate("communication")
+        self.assertEqual(w.operation_mode(), "fixed")
+        w.communication_tabs.select(w.raw_tab)
+        self.assertEqual(w.operation_mode(), "manual")
+        w.navigate("advanced")
+        self.assertEqual(w.operation_mode(), "none")
+        self.assertEqual(w.operation_mode(bitrate_action="read"), "can_bitrate")
+        self.assertEqual(w.operation_mode(erase_scope="app"), "jlink_erase")
+        self.assertEqual(w.erase_row.master, w.pages["advanced"])
+        w.navigate("speed")
+        self.assertEqual(w.operation_mode(), "motor_speed")
+        w.navigate("records")
+        self.assertEqual(w.operation_mode(), "none")
+        w.navigate("hardware")
+        self.assertIsNone(w.process, "导航不可启动设备操作")
+
+    def test_log_fold_preserves_text_and_detection_is_in_main_page(self):
+        w = self.window
+        w.show("保留日志")
+        w.toggle_log()
+        self.assertEqual(len(w.workspace.panes()), 1)
+        self.assertIn("保留日志", w.output.get("1.0", "end"))
+        w.toggle_log()
+        self.assertEqual(len(w.workspace.panes()), 2)
+        self.assertEqual(w.hardware_results.master, w.pages["hardware"])
+
+    def test_records_capture_result_without_starting_devices(self):
+        w = self.window
+        w.display_report(
+            dict(profile="parameters", group="current", passed=False, fatal="测试", node=4)
+        )
+        rows = w.record_table.get_children()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(w.record_paths[rows[0]], w.report_dir)
+        w.navigate("records")
+        self.assertIsNone(w.process)
+        w.start()
+        self.assertIsNone(w.process)
+
     def test_parameter_snapshot_edit_and_changed_uid(self):
         w = self.window
         self.bind(6)
@@ -850,12 +896,12 @@ class SharedMotorTests(unittest.TestCase):
 
     def test_busy_state_keeps_only_active_page_enabled(self):
         w = self.window
-        w.tabs.select(w.pages["hardware"])
+        w.navigate("hardware")
         w.process = object()
         w.update_controls()
-        for key, page in w.pages.items():
+        for key, page in w.sections.items():
             self.assertEqual(
-                w.tabs.tab(page, "state"), "normal" if key == "hardware" else "disabled"
+                w.tabs.tab(page, "state"), "normal" if key == "production" else "disabled"
             )
 
 

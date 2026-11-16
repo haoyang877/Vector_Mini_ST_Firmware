@@ -323,3 +323,5 @@
 - [生产工作台导航重排](2026-11-16-production-navigation.md)：1.21.0，维护优先、保留通信，PR通过。
 
 - [首次烧录与生产检测进度](2026-11-16-first-install-production-progress.md)：v1.22.0，离线PR通过，待用户实机测试。
+
+- [单台流程、下一台和1秒刷新](2026-11-16-production-flow.md)：v1.23.0，PR通过，检测页按用户截图精简。

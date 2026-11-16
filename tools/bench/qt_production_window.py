@@ -66,7 +66,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.1.4"
+VERSION = "2.1.5"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -568,15 +568,27 @@ class ProductionWindow(QMainWindow):
         self.add_action(actions, "保存波特率", self.save_bitrate, icon_name="save")
         actions.addStretch()
         layout.addLayout(actions)
-        layout.addWidget(
-            label("擦除前必须识别当前芯片。操作会保存备份，擦除后需重新烧录。", wrap=True)
+        erase_box = QGroupBox("Flash 擦除 · J-Link / SWD")
+        erase_layout = QVBoxLayout(erase_box)
+        self.erase_identify = self.add_action(
+            erase_layout,
+            "识别擦除目标（J-Link）",
+            lambda: self.launch(dict(profile="jlink_identify")),
+            icon_name="scan",
         )
+        self.erase_status = label("", "subtitle", True)
+        erase_layout.addWidget(self.erase_status)
+        erase_layout.addWidget(label("操作前保存备份；擦除后需重新烧录。", wrap=True))
         self.erase_app = self.add_action(
-            layout, "擦除 APP · 保留参数和 Loader", lambda: self.erase("app"), icon_name="warning"
+            erase_layout,
+            "擦除 APP · 保留参数和 Loader",
+            lambda: self.erase("app"),
+            icon_name="warning",
         )
         self.erase_all = self.add_action(
-            layout, "整片擦除 · 含参数和身份", lambda: self.erase("all"), icon_name="warning"
+            erase_layout, "整片擦除 · 含参数和身份", lambda: self.erase("all"), icon_name="warning"
         )
+        layout.addWidget(erase_box)
         layout.addStretch()
 
     def build_hardware(self) -> None:
@@ -947,6 +959,20 @@ class ProductionWindow(QMainWindow):
         self.erase_app.setEnabled(
             not busy and self.identity is not None and self.identity.get("node") is not None
         )
+        self.erase_status.setText(
+            "当前任务进行中，结束后可识别或擦除。"
+            if busy
+            else "请连接一只 J-Link，点击上方识别目标。CAN连接不能代替SWD识别。"
+            if not self.identity
+            else f"已识别 UID {self.identity['uid']} · "
+            + (
+                "空白板：可整片擦除，无可擦除的APP配置。"
+                if self.identity.get("node") is None
+                else f"节点 {self.identity['node']}，可选择擦除范围。"
+            )
+        )
+        self.erase_app.setToolTip(self.erase_status.text())
+        self.erase_all.setToolTip(self.erase_status.text())
         self.render_device()
 
     def refresh_status(self) -> None:

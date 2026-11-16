@@ -666,6 +666,34 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(w.current_motor["uid"], self.uid)
         self.assertEqual(self.controller.stops, 0)
 
+    def test_erase_page_identifies_swd_target_independently_of_can(self):
+        self.bind()
+        w = self.window
+        self.assertFalse(w.erase_all.isEnabled())
+        self.assertIn("J-Link", w.erase_status.text())
+        w.erase_identify.click()
+        self.assertEqual(self.controller.calls[-1][0]["profile"], "jlink_identify")
+        self.assertNotIn("erase_confirmed", self.controller.calls[-1][0])
+        self.controller.done(
+            dict(
+                profile="jlink_identify",
+                success=True,
+                identity=dict(uid=self.uid, node=6, serial=123),
+            )
+        )
+        self.assertTrue(w.erase_app.isEnabled())
+        self.assertTrue(w.erase_all.isEnabled())
+        self.assertIn(self.uid, w.erase_status.text())
+        self.controller.done(
+            dict(
+                profile="jlink_identify",
+                success=True,
+                identity=dict(uid=self.uid, node=None, serial=123),
+            )
+        )
+        self.assertFalse(w.erase_app.isEnabled())
+        self.assertTrue(w.erase_all.isEnabled())
+
     def test_erase_requires_explicit_confirmation(self):
         w = self.window
         w.identity = dict(uid=self.uid, node=6, serial=123)

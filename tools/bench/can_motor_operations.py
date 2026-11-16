@@ -93,7 +93,7 @@ def speed_feedback(status: bytes, target: float, elapsed_s: float) -> dict:
     return row
 
 
-def describe_faults(bits: int) -> str:
+def describe_faults(bits: int, *, include_codes: bool = True) -> str:
     """按APP线路位解析类别；共享位不推断唯一内部故障，保留未知位。"""
     names = []
     known = 0
@@ -113,7 +113,7 @@ def describe_faults(bits: int) -> str:
         if bits & (1 << bit):
             names.append(name)
     if bits & ~known:
-        names.append(f"未知故障位0x{bits & ~known:08X}")
+        names.append(f"未知故障位0x{bits & ~known:08X}" if include_codes else "未识别故障")
     return "、".join(names) if names else "无故障"
 
 

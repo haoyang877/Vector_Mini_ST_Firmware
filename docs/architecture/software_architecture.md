@@ -159,3 +159,5 @@ G431 的 Loader 端口用 RX 中断和环形队列接收，跟踪三个发送槽
 ### 相电阻与硬件测量存储（2026-11-13）
 
 硬件检测统计及队列借用MotorCalibration.storage.hardware_check；同轮相电阻任务使用独立的workspace.resistance，两个区不重叠。maintenance_capture阻止外部标定和记录编码，内部PHASE_RESISTANCE允许使用既有功率生命周期。检测结束先将全部实测页冻结到紧凑缓存，再释放维护区；后续参数或LUT操作不得改变已完成报告。
+
+APP1.8.15的静态检查状态仍归板级hardware_check，按八项独立窗口推进；逐项冻结缓存与实时读页契约见[顺序静态扩展](../protocols/README.md#顺序静态扩展app1815caps-bit22)。单项失败不释放维护区，所有静态项完成后统一判断动力准入。无新增并发写入者或堆分配。

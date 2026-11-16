@@ -1,5 +1,5 @@
 ﻿param([Parameter(Mandatory = $true)][string]$Dll, [string]$FirmwareHex,
-      [string]$CanPackage = "outputs/AT32F456-FULL-v1.8.12/app-package",
+      [string]$CanPackage = "outputs/AT32F456-FULL-v1.8.15/app-package",
       [string[]]$PitchThermal = @('3','3','3600','0.8','0.7','1','0.5'),
       [string[]]$YawThermal = @('3','3','3600','0.8','0.7','1','0.5'))
 $ErrorActionPreference = "Stop"
@@ -50,7 +50,7 @@ try {
     uv run --no-sync --extra desktop python tools/build/make_desktop_icon.py --source tools/bench/assets/production_motor.svg --output "$output/resources/production_motor.ico"
     if ($LASTEXITCODE -ne 0) { throw "应用图标生成失败" }
     uv run --no-sync --extra maintenance --extra desktop --with pyinstaller==6.16.0 python -m PyInstaller --noconfirm --onedir --windowed `
-        --name 电机生产测试上位机-v2.0.5 --distpath "$output/dist" --workpath "$output/build" `
+        --name 电机生产测试上位机-v2.1.0 --distpath "$output/dist" --workpath "$output/build" `
         --icon "$($firmware.FullName)/production_motor.ico" --add-data "$root/tools/bench/assets;assets" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
         --add-binary "${sdk};." --add-data "$root/tools/bench/five_axis_can_stability.json;." `
@@ -62,7 +62,7 @@ try {
         --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets `
         tools/bench/qt_production_desktop.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败 ($LASTEXITCODE)" }
-    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.0.5/电机生产测试上位机-v2.0.5.exe" -Algorithm SHA256
+    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.1.0/电机生产测试上位机-v2.1.0.exe" -Algorithm SHA256
 } finally {
     Pop-Location
 }

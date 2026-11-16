@@ -490,6 +490,7 @@ def run_check(
     stopped=lambda: False,
     progress=lambda _: None,
     phase_progress=lambda _: None,
+    static_progress=lambda _: None,
 ):
     """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
     link = Link(bus, node, timeout_s=0.5)
@@ -557,6 +558,7 @@ def run_check(
         report["supported"] = bool(features & (1 << 19))
         report["measurements_supported"] = bool(features & (1 << 20))
         report["resistance_supported"] = bool(features & (1 << 21))
+        report["sequential_static"] = bool(features & (1 << 22))
         if powered and not report["resistance_supported"]:
             report["upgrade_required"] = True
             version = report["app_version"]
@@ -587,13 +589,39 @@ def run_check(
             raise Rejected("启动应答不属于预期检测轮次")
         active_run = current["run_id"]
         report.update(current)
-        progress("关相采集 100 ms 静态窗口")
-        deadline = time.monotonic() + 1
+        sequential = report["sequential_static"]
+        progress("逐项关相静态检查，每项 100 ms" if sequential else "关相采集 100 ms 静态窗口")
+        report["measurements"] = {}
+        next_item = 0
+
+        def publish_static():
+            nonlocal next_item
+            while next_item < 8:
+                if report["board_items"][next_item] == 0:
+                    break
+                try:
+                    page = link.measurement(next_item, active_run)
+                except Rejected:
+                    # 当前项可先锁存异常；数值页到该项采样结束才开放。
+                    break
+                report["measurements"][str(next_item)] = page
+                next_item += 1
+            snapshot = dict(
+                report, measurements=report["measurements"].copy(), static_completed=next_item
+            )
+            direction_results(snapshot)
+            static_progress(snapshot)
+
+        deadline = time.monotonic() + (6 if sequential else 1)
         while report["stage"] == 1:
             if stopped() or time.monotonic() > deadline:
                 raise Rejected("静态采集已取消或超时")
             time.sleep(0.012)
             refresh()
+            if sequential:
+                publish_static()
+        if sequential:
+            publish_static()
         phase("static", "未完成" if report["stage"] == 5 else "已完成")
         if powered and report["stage"] == 6:
             phase("resistance")
@@ -664,7 +692,7 @@ def run_check(
             report["resistance"] = link.resistance(active_run)
         except (Rejected, ValueError, TimeoutError, OSError) as exc:
             report["resistance_note"] = str(exc)
-    report["measurements"] = {}
+    report.setdefault("measurements", {})
     if not report.get("measurements_supported"):
         report["measurement_note"] = "当前固件未提供测试数值，判定结果保留"
     elif report["stage"] not in (4, 5) or (powered and not report.get("stop_confirmed")):

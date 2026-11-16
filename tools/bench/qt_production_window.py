@@ -64,7 +64,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.0.5"
+VERSION = "2.1.0"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -405,7 +405,7 @@ class ProductionWindow(QMainWindow):
         content = QHBoxLayout()
         firmware = QGroupBox("本批固件")
         box = QVBoxLayout(firmware)
-        box.addWidget(label("APP 1.8.12   +   Loader 2.3.4", "metric"))
+        box.addWidget(label("APP 1.8.15   +   Loader 2.3.4", "metric"))
         box.addWidget(label("AT32F456  ·  CAN FD 1M / 5M", "subtitle"))
         self.hex_path = self.resource / "firmware/five-axis.hex"
         if not self.hex_path.is_file():
@@ -451,9 +451,9 @@ class ProductionWindow(QMainWindow):
         self.package_path = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.12/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.15/app-package"
         )
-        self.package_label = label("配套 APP v1.8.12 升级包", wrap=True)
+        self.package_label = label("配套 APP v1.8.15 升级包", wrap=True)
         layout.addWidget(self.package_label)
         self.add_action(layout, "选择升级包目录", self.choose_package, icon_name="folder")
         self.batch_upgrade = QCheckBox("批量升级已扫描的设备")
@@ -747,7 +747,7 @@ class ProductionWindow(QMainWindow):
             + (
                 "未读取"
                 if faults is None
-                else f"{describe_faults(faults)}（0x{faults:08X}）" + historical
+                else describe_faults(faults, include_codes=False) + historical
             )
         )
         self.fault_label.setStyleSheet("color:#b42336;" if faults else "")
@@ -1131,6 +1131,14 @@ class ProductionWindow(QMainWindow):
             self.progress.setValue(
                 int(100 * sum(v == "已完成" for v in value.values()) / max(1, total))
             )
+        elif tag == "hardware_static":
+            self.display_hardware_rows(value)
+            completed = value["static_completed"]
+            names = ("Ia", "Ib", "Ic", "母线电流", "母线电压", "电机 NTC", "主编码器", "霍尔")
+            self.phase_label.setText(
+                f"静态检查 {completed}/8 · "
+                + (f"正在检测：{names[completed]}" if completed < 8 else "静态项目已完成")
+            )
         elif tag == "parameter_progress":
             done, total = value
             self.progress.setValue(int(100 * done / max(1, total)))
@@ -1170,6 +1178,22 @@ class ProductionWindow(QMainWindow):
                     status_error=None,
                 )
                 self.render_device()
+
+    def display_hardware_rows(self, report: dict) -> None:
+        """同轮逐项快照和终态报告共用数值、判定与颜色投影。"""
+        rows(
+            self.hardware_table,
+            [[r[k] for k in ("item", "measured", "limit", "result")] for r in report_rows(report)],
+        )
+        for row, result in enumerate(report_rows(report)):
+            color = {
+                "passed": "#18765b",
+                "failed": "#b03b42",
+                "pending": "#64748b",
+                "excluded": "#64748b",
+            }[result["outcome"]]
+            for col in range(4):
+                self.hardware_table.item(row, col).setForeground(QColor(color))
 
     def on_completed(self, report: dict, directory: Path | None, automatic: bool) -> None:
         profile = report["profile"]
@@ -1252,22 +1276,7 @@ class ProductionWindow(QMainWindow):
             self.failure.setPlainText(
                 data["scope_name"] + " · " + data["verdict"] + "\n" + failure_summary(report)
             )
-            rows(
-                self.hardware_table,
-                [
-                    [r[k] for k in ("item", "measured", "limit", "result")]
-                    for r in report_rows(report)
-                ],
-            )
-            for row, result in enumerate(report_rows(report)):
-                color = {
-                    "passed": "#18765b",
-                    "failed": "#b03b42",
-                    "pending": "#64748b",
-                    "excluded": "#64748b",
-                }[result["outcome"]]
-                for col in range(4):
-                    self.hardware_table.item(row, col).setForeground(QColor(color))
+            self.display_hardware_rows(report)
             if report.get("phase_states"):
                 self.on_event("hardware_phases", report["phase_states"])
         elif profile in ("motor_calibration", "motor_speed"):

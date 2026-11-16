@@ -104,13 +104,16 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(w.loader_label.text(), "Loader 固件：v2.3.4")
         self.assertEqual(w.status_label.text(), "运行状态：空闲")
         self.assertIn("未使能（模式 0）", w.mode_label.text())
-        self.assertIn("无故障（0x00000000）", w.fault_label.text())
+        self.assertEqual(w.fault_label.text(), "故障信息：无故障")
         w.current_motor.update(mode=2, state=8, faults=33)
         w.render_device()
         self.assertIn("速度闭环", w.mode_label.text())
         self.assertIn("过流", w.fault_label.text())
         self.assertIn("编码器", w.fault_label.text())
-        self.assertIn("0x00000021", w.fault_label.text())
+        self.assertNotIn("0x", w.fault_label.text())
+        w.current_motor.update(faults=1 << 31)
+        w.render_device()
+        self.assertEqual(w.fault_label.text(), "故障信息：未识别故障")
         w.current_motor.update(mode=99, state=99, checked_at=time.time() - 6)
         w.render_device()
         self.assertIn("已过期", w.status_label.text())
@@ -392,6 +395,23 @@ class QtProductionTests(unittest.TestCase):
         self.assertIn("27～29", self.window.failure.toPlainText())
         self.assertEqual(self.window.hardware_table.rowCount(), 11)
         self.assertIn("不在本轮范围", self.window.hardware_table.item(9, 3).text())
+
+    def test_sequential_static_updates_rows_before_completion(self):
+        report = empty_report(7)
+        report.update(
+            scope="full",
+            stage=1,
+            board_items=[1] + [0] * 9,
+            measurements_supported=True,
+            static_completed=1,
+        )
+        report["measurements"] = {"0": dict(samples=2000, values=[2048, 1, None, None])}
+        direction_results(report)
+        self.window.on_event("hardware_static", report)
+        self.assertEqual(self.window.hardware_table.item(0, 3).text(), "正常")
+        self.assertEqual(self.window.hardware_table.item(1, 3).text(), "未测")
+        self.assertIn("正在检测：Ib", self.window.phase_label.text())
+        self.assertIn("2048", self.window.hardware_table.item(0, 1).text())
 
     def test_worker_exit_before_hardware_report_remains_visible(self):
         self.bind()

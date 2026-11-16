@@ -60,27 +60,27 @@
     <text x="24" y="434" class="caption">ADC2 抢占组 · 每路 1 次</text>
   <g id="adc2-rank1">
     <text x="24" y="457">1　PA3 · 母线电压</text>
-    <rect x="510.500" y="445" width="13" height="17" fill="#f2d8ac"/>
-    <rect x="510.500" y="445" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="457" class="caption">22.50～23.50 µs</text>
+    <rect x="510.500" y="445" width="22.750" height="17" fill="#f2d8ac"/>
+    <rect x="510.500" y="445" width="20.042" height="17" fill="#a16318"/>
+    <text x="591" y="457" class="caption">22.50～24.25 µs</text>
   </g>
   <g id="adc2-rank2">
     <text x="24" y="491">2　PA4 · 母线电流</text>
-    <rect x="523.500" y="479" width="13" height="17" fill="#f2d8ac"/>
-    <rect x="523.500" y="479" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="491" class="caption">23.50～24.50 µs</text>
+    <rect x="533.250" y="479" width="13.000" height="17" fill="#f2d8ac"/>
+    <rect x="533.250" y="479" width="10.292" height="17" fill="#a16318"/>
+    <text x="591" y="491" class="caption">24.25～25.25 µs</text>
   </g>
   <g id="adc2-rank3">
     <text x="24" y="525">3　PA5 · Hall A/sin</text>
-    <rect x="536.500" y="513" width="13" height="17" fill="#f2d8ac"/>
-    <rect x="536.500" y="513" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="525" class="caption">24.50～25.50 µs</text>
+    <rect x="546.250" y="513" width="13.000" height="17" fill="#f2d8ac"/>
+    <rect x="546.250" y="513" width="10.292" height="17" fill="#a16318"/>
+    <text x="591" y="525" class="caption">25.25～26.25 µs</text>
   </g>
   <g id="adc2-rank4">
     <text x="24" y="559">4　PA6 · Hall B/cos</text>
-    <rect x="549.500" y="547" width="13" height="17" fill="#f2d8ac"/>
-    <rect x="549.500" y="547" width="10.292" height="17" fill="#a16318"/>
-    <text x="591" y="559" class="caption">25.50～26.50 µs</text>
+    <rect x="559.250" y="547" width="13.000" height="17" fill="#f2d8ac"/>
+    <rect x="559.250" y="547" width="10.292" height="17" fill="#a16318"/>
+    <text x="591" y="559" class="caption">26.25～27.25 µs</text>
   </g>
   </g>
   <g transform="translate(0 144)">

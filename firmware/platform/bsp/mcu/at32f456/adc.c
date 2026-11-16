@@ -78,10 +78,10 @@ void McuAdc_Init(void)
     adc_preempt_conversion_trigger_set(
         MCU_ADC_FAST, MCU_ADC_FAST_TRIGGER, ADC_PREEMPT_TRIG_EDGE_NONE);
     adc_convert_fail_auto_abort_enable(MCU_ADC_FAST, TRUE);
-    /* 四路单采共 4 us，早于三相四倍采样的 5 us 完成。 */
+    /* 电压延长建立时间；四路共 4.75 us，早于三相四倍采样的 5 us 完成。 */
     adc_preempt_channel_length_set(MCU_ADC_AUX,
                                    1U + BSP_ENABLED_BUS_CURRENT + 2U * BSP_ENABLED_LINEAR_HALL);
-    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_VOLTAGE_CHANNEL, 1U, ADC_SAMPLETIME_47_5);
+    adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_VOLTAGE_CHANNEL, 1U, ADC_SAMPLETIME_92_5);
 #if BSP_ENABLED_BUS_CURRENT
     adc_preempt_channel_set(MCU_ADC_AUX, MCU_ADC_BUS_CURRENT_CHANNEL, 2U, ADC_SAMPLETIME_47_5);
 #endif

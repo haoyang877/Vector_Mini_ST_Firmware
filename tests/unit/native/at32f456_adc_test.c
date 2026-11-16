@@ -44,11 +44,12 @@ int main(int argc, char **argv)
     for (unsigned rank = 0; rank < 4; ++rank)
     {
         assert(sim_adc[1].channels[rank] == rank + 3U);
-        assert(sim_adc[1].sample_times[rank] == ADC_SAMPLETIME_47_5);
+        assert(sim_adc[1].sample_times[rank] ==
+               (rank == 0U ? ADC_SAMPLETIME_92_5 : ADC_SAMPLETIME_47_5));
     }
     assert(sim_adc[1].length == 4);
-    /* ADC2: 4*(47.5+12.5)=240周期；ADC1: 3*4*(12.5+12.5)=300周期。 */
-    assert(4U * 60U < 3U * 4U * 25U);
+    /* ADC2: (92.5+12.5)+3*(47.5+12.5)=285周期；ADC1为300周期。 */
+    assert(105U + 3U * 60U < 3U * 4U * 25U);
     assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);

@@ -76,7 +76,7 @@
 #define MCU_ADC_PHASE_B_RESULT (MCU_ADC_FAST->pdt2)
 #define MCU_ADC_PHASE_C_RESULT (MCU_ADC_FAST->pdt3)
 
-/* ADC2 抢占序列：PA3电压、PA4电流、PA5/6 Hall A/B，四路均单采47.5周期。
+/* ADC2 抢占序列：PA3电压、PA4电流、PA5/6 Hall A/B，电压单采92.5周期，其余47.5周期。
  * ADC2 普通组只采 PA7 电机 NTC。结果槽必须与 adc.c 的顺序同步。 */
 #define MCU_ADC_AUX ADC2
 #define MCU_ADC_AUX_CLOCK CRM_ADC2_PERIPH_CLOCK

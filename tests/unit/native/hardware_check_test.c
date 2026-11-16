@@ -108,6 +108,7 @@ static void begin(unsigned mode, int installation)
     s_axis.motor_temperature.valid = true;
     s_axis.motor_temperature.celsius = 25.0f;
     s_axis.foc.bus_voltage_v = 28.0f;
+    s_axis.foc.bus_voltage_filtered_v = 28.0f;
     s_axis.linear_hall = (LinearHall){.sin_off_counts = 2048,
                                       .cos_off_counts = 2048,
                                       .sin_amp = 1800,
@@ -172,7 +173,7 @@ static void static_cases(void)
             s_axis.hall_samples[0].sin_counts = (uint16_t)(2048 + sign * (k & 2U ? 10 : 9));
             s_axis.hall_samples[0].cos_counts = (uint16_t)(3600 + sign * (k & 4U ? 10 : 9));
             s_frame = frame(i % 2 ? -1 : (k & 1U ? 58 : 57), 0);
-            s_axis.foc.bus_voltage_v = i % 2 ? 27.0f : 29.0f;
+            s_axis.foc.bus_voltage_filtered_v = i % 2 ? 27.0f : 29.0f;
             s_axis.motor_temperature.celsius = i % 2 ? 0.0f : 60.0f;
             tick(true);
         }
@@ -239,7 +240,7 @@ static void static_cases(void)
         }
         for (unsigned i = 0; i < 2000; ++i)
         {
-            s_axis.foc.bus_voltage_v = i == 123 ? (k == 7 ? 29.01f : 26.99f) : 28.0f;
+            s_axis.foc.bus_voltage_filtered_v = i == 123 ? (k == 7 ? 29.01f : 26.99f) : 28.0f;
             tick(k != 6);
         }
         ProtocolHardwareReport r = report();
@@ -303,7 +304,7 @@ static void motion_cases(void)
             else
             {
                 assert(report().stage == 3 && report().items[9] != 2);
-                s_axis.foc.bus_voltage_v = 30.0f;
+                s_axis.foc.bus_voltage_filtered_v = 30.0f;
                 tick(true);
             }
             continue;
@@ -363,7 +364,7 @@ static void motion_cases(void)
         }
         if (k == 6)
         {
-            s_axis.foc.bus_voltage_v = 29.001f;
+            s_axis.foc.bus_voltage_filtered_v = 29.001f;
             tick(true);
             assert(report().stage == 5 && report().items[4] == 2 && s_stops == 1);
             continue;
@@ -512,13 +513,15 @@ static void measurement_cases(void)
     {
         s_adc[BSP_ADC_PHASE_CURRENT_A] = 2050.0f + (i % 2 ? 4.0f : -4.0f);
         s_axis.hall_samples[0].sin_counts = (uint16_t)(2048 + (i % 2 ? 2 : -2));
-        s_axis.foc.bus_voltage_v = i % 2 ? 27.5f : 28.5f;
+        s_axis.foc.bus_voltage_v = i == 100U ? 30.0f : 28.0f;
+        s_axis.foc.bus_voltage_filtered_v = i % 2 ? 27.5f : 28.5f;
         tick(true);
     }
     assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
     assert(m.run_id == s_run && m.samples == 2000 && m.valid == 3);
     assert(m.values[0] == 2050 && m.values[1] == 4);
     assert(s_check.measure(&s_axis, 4, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(report().items[4] == 1U && m.samples == 2000U);
     assert(m.valid == 15 && m.values[0] == 27.5f && m.values[1] == 28.5f && m.values[2] == 0 &&
            m.values[3] == 0);
     assert(s_check.measure(&s_axis, 5, s_run, &m) == PROTOCOL_RESULT_OK);
@@ -546,7 +549,16 @@ static void measurement_cases(void)
     assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
     assert(m.samples == 100 && m.values[0] == 2050 && m.values[1] == 4);
     begin(1U, 0);
-    window();
+    s_axis.foc.bus_voltage_filtered_v = NAN;
+    tick(true);
+    s_axis.foc.bus_voltage_filtered_v = 28.0f;
+    for (unsigned i = 1U; i < 2000U; ++i)
+    {
+        tick(true);
+    }
+    assert(report().items[4] == 2U);
+    assert(s_check.measure(&s_axis, 4, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.samples == 2000U && m.values[2] == 1.0f && m.values[3] == 1.0f);
     assert(s_check.measure(&s_axis, 7, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
     assert(s_check.measure(&s_axis, 10, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
 }
@@ -578,7 +590,7 @@ static void resistance_cases(void)
         assert(report().stage == (result == 1U ? 2U : 5U));
         if (result == 1U)
         {
-            s_axis.foc.bus_voltage_v = 30.0f;
+            s_axis.foc.bus_voltage_filtered_v = 30.0f;
             tick(true);
         }
         assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_OK);
@@ -587,7 +599,7 @@ static void resistance_cases(void)
     }
     begin(3U, 1);
     window();
-    s_axis.foc.bus_voltage_v = 26.0f;
+    s_axis.foc.bus_voltage_filtered_v = 26.0f;
     tick(true);
     assert(report().stage == 5U && s_stops > 0U);
     s_axis.state_machine.stop_pending = false;
@@ -623,7 +635,7 @@ int main(void)
         s_axis.hall_samples[0].cos_counts = (uint16_t)s_cos_edges[i];
         tick(true);
         assert((report().items[9] == 2) == (i == 0 || i == 3));
-        s_axis.foc.bus_voltage_v = 30.0f;
+        s_axis.foc.bus_voltage_filtered_v = 30.0f;
         tick(true);
     }
     begin(1U, 1);

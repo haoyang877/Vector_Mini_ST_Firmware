@@ -74,7 +74,7 @@ void HardwareCheck_CaptureFast(MotorAxis *axis)
     HardwareCheckSample *sample = &value;
     sample->cycles = BspSystem_CycleCount();
     sample->frame = BspEncoder_ReadCompletedFrame();
-    sample->voltage_v = axis->foc.bus_voltage_v;
+    sample->voltage_v = axis->foc.bus_voltage_filtered_v;
     sample->epoch = axis->state_machine.epoch;
     sample->powered = !axis->hardware->power.phases_disabled();
     sample->open_current = axis->motor.control_mode == MOTOR_CONTROL_OPEN_CURRENT &&

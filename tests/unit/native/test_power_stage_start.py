@@ -42,6 +42,7 @@ static struct {uint32_t ARR,CCR1,CCR2,CCR3,CCER,BDTR,CR1,pr,c2dt,c3dt,c4dt,cctrl
                 "BspPwm_SetDuty",
                 "BspPwm_SetPhaseDuty",
                 "BspPwm_Enable",
+                "BspPwm_SelectPhases",
                 "BspPwm_Disable",
                 "BspPwm_ArePhasesDisabled",
             )
@@ -54,6 +55,17 @@ int main(void) {
         BspPwm_Enable();
         assert(CHANNELS==(initial|EXPECTED_MASK)); assert(MASTER==(0x12345678U|32768U));
         assert(CONTROL==0x11 && PERIOD==4500 && !BspPwm_ArePhasesDisabled());
+        for (unsigned mask=3;mask<=6;mask++) {
+            if(mask==4) continue;
+            BspPwm_SelectPhases((uint8_t)mask);
+            unsigned selected=((mask&1)?MCU_PWM_PHASE_A_MASK:0) |
+                              ((mask&2)?MCU_PWM_PHASE_B_MASK:0) |
+                              ((mask&4)?MCU_PWM_PHASE_C_MASK:0);
+            assert(CHANNELS==((initial&~EXPECTED_MASK)|selected));
+            assert(MASTER==(0x12345678U|32768U));
+        }
+        BspPwm_Enable();
+        assert(CHANNELS==(initial|EXPECTED_MASK));
         BspPwm_Disable();
         assert(CHANNELS==(initial&~EXPECTED_MASK)); assert(MASTER==(0x12345678U&~32768U));
         assert(CONTROL==0x11 && BspPwm_ArePhasesDisabled());

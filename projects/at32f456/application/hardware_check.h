@@ -16,7 +16,7 @@ ProtocolHardwareCheck HardwareCheck_Bind(MotorAxis *axis);
 /** @brief 发布已完成的 ADC、SPI 与同拍功率状态，单生产者不等待。
  * @param axis 本板的轴，只能在 ADC 完成事件尾部调用。
  */
-void HardwareCheck_CaptureFast(const MotorAxis *axis);
+void HardwareCheck_CaptureFast(MotorAxis *axis);
 
 /** @brief 前台消费快照、推进检查并在本轮拥有的驱动异常时请求停机。
  * @param axis 绑定的同一根轴，不在中断调用。

@@ -60,6 +60,19 @@ void MotorStateMachine_RequestStop(MotorStateMachine *machine)
     s_off = true;
 }
 
+/* 模拟状态机受理；算法精度由独立RL测试覆盖。 */
+MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machine,
+                                                        MotorCalibrationType type)
+{
+    assert(type == MOTOR_CALIBRATION_PHASE_RESISTANCE);
+    machine->state = MOTOR_STATE_CALIBRATION;
+    ++machine->epoch;
+    machine->calibration_result_epoch = machine->epoch;
+    machine->calibration_result = MOTOR_CALIBRATION_RESULT_RUNNING;
+    s_off = false;
+    return MOTOR_CONTROL_ACCEPTED;
+}
+
 static uint32_t frame(int32_t angle, unsigned status)
 {
     uint32_t data = (((uint32_t)angle & 0x1fffffU) << 3U) | status;
@@ -113,6 +126,7 @@ static void begin(unsigned mode, int installation)
     ++s_seq;
     uint32_t previous = report().run_id;
     assert(s_check.handle(&s_axis, mode, s_seq, previous, &r) == PROTOCOL_RESULT_ACCEPTED);
+    assert(s_axis.state_machine.maintenance_capture);
     s_run = r.run_id;
     assert(s_run == previous + 1U && r.stage == 1U);
     assert(s_check.handle(&s_axis, mode, s_seq, previous, &r) == PROTOCOL_RESULT_ACCEPTED);
@@ -383,7 +397,7 @@ static void motion_cases(void)
 }
 
 /* 这两帧由实际主控编码器生成，按字节穿过生产 RX IRQ、前台及 TX 再交回主控。 */
-extern const uint8_t host_start[32], host_read[20], host_measure[32];
+extern const uint8_t host_start[32], host_read[20], host_measure[32], host_resistance[32];
 static ProtocolEndpoint s_endpoint;
 static BspCanFrame s_rx, s_tx;
 static bool s_rx_pending, s_tx_sent;
@@ -424,6 +438,21 @@ static void service_frame(const uint8_t *wire, unsigned length, bool corrupt)
     Protocol_Process(&s_endpoint, BspSystem_TimeMs());
 }
 
+/* 固定业务快照供新协议黄金向量验证，检测数据所有权另由resistance_cases覆盖。 */
+static ProtocolCode
+resistance_vector(void *context, uint32_t expected, ProtocolHardwareResistance *value)
+{
+    (void)context;
+    assert(expected == 2U);
+    *value = (ProtocolHardwareResistance){
+        .run_id = 2U,
+        .result = 3U,
+        .low_phases = 4U,
+        .valid = 63U,
+        .values = {1.905f, 1.905f, 1.905f, 0.2f, 3.81f, 2.105f, 2.105f}};
+    return PROTOCOL_RESULT_OK;
+}
+
 static void can_loopback(void)
 {
     begin(1U, 1);
@@ -461,6 +490,16 @@ static void can_loopback(void)
         printf("%02x", s_tx.data[i]);
     }
     puts("");
+    s_endpoint.hardware_check.resistance = resistance_vector;
+    service_frame(host_resistance, 32U, false);
+    assert(s_tx_sent && s_tx.length == 64U);
+    printf("CAN_RESISTANCE ");
+    for (unsigned i = 0U; i < s_tx.length; ++i)
+    {
+        printf("%02x", s_tx.data[i]);
+    }
+    puts("");
+    s_endpoint.hardware_check.resistance = s_check.resistance;
 }
 
 /* 合成有偏置/噪声的完整静态窗口，验证公开数值与判定采用同一批样本。 */
@@ -489,6 +528,12 @@ static void measurement_cases(void)
     assert(s_check.measure(&s_axis, 8, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
     assert(s_check.measure(&s_axis, 4, s_run - 1U, &m) == PROTOCOL_RESULT_DENIED);
     assert(s_check.measure(&s_axis, 11, s_run, &m) == PROTOCOL_RESULT_BAD_FIELD);
+    /* 后续标定/参数可以覆盖共享维护区，但旧数值必须保持同轮一致。 */
+    memset(&s_axis.calibration.storage, 0xA5, sizeof(s_axis.calibration.storage));
+    assert(s_check.measure(&s_axis, 0, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.samples == 2000 && m.values[0] == 2050 && m.values[1] == 4);
+    assert(s_check.measure(&s_axis, 4, s_run, &m) == PROTOCOL_RESULT_OK);
+    assert(m.values[0] == 27.5f && m.values[1] == 28.5f);
     begin(1U, 1);
     for (unsigned i = 0; i < 100U; ++i)
     {
@@ -504,6 +549,48 @@ static void measurement_cases(void)
     window();
     assert(s_check.measure(&s_axis, 7, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
     assert(s_check.measure(&s_axis, 10, s_run, &m) == PROTOCOL_RESULT_OK && m.valid == 0);
+}
+
+/* 新流程必须在测量正常后才允许动态；失败快照只在本轮终态可读。 */
+static void resistance_cases(void)
+{
+    for (unsigned result = 1U; result <= 3U; ++result)
+    {
+        begin(3U, 1);
+        window();
+        assert(report().stage == 6U && !s_off);
+        ProtocolHardwareResistance values;
+        assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_DENIED);
+        s_axis.calibration.resistance_epoch = s_axis.state_machine.epoch;
+        s_axis.calibration.workspace.resistance.report =
+            (PhaseResistanceReport){.result = (uint8_t)result,
+                                    .nominal_ohm = 1.905f,
+                                    .valid = 63U,
+                                    .phase_ohm = {1.905f, 1.905f, 1.905f},
+                                    .line_ohm = {3.81f, 3.81f, 3.81f},
+                                    .open_phases = result == 2U ? 2U : 0U,
+                                    .low_phases = result == 3U ? 4U : 0U};
+        s_axis.state_machine.calibration_result = MOTOR_CALIBRATION_RESULT_COMPLETED;
+        s_axis.state_machine.state = MOTOR_STATE_IDLE;
+        ++s_axis.state_machine.epoch;
+        s_off = true;
+        tick(true);
+        assert(report().stage == (result == 1U ? 2U : 5U));
+        if (result == 1U)
+        {
+            s_axis.foc.bus_voltage_v = 30.0f;
+            tick(true);
+        }
+        assert(s_check.resistance(&s_axis, s_run, &values) == PROTOCOL_RESULT_OK);
+        assert(values.result == result && values.values[1] == 1.905f);
+        assert(s_check.resistance(&s_axis, s_run - 1U, &values) == PROTOCOL_RESULT_DENIED);
+    }
+    begin(3U, 1);
+    window();
+    s_axis.foc.bus_voltage_v = 26.0f;
+    tick(true);
+    assert(report().stage == 5U && s_stops > 0U);
+    s_axis.state_machine.stop_pending = false;
 }
 
 int main(void)
@@ -525,6 +612,7 @@ int main(void)
         tick(false);
         assert(report().items[5] == (age == 30 ? 1 : 2));
     }
+    resistance_cases();
     motion_cases();
     static const unsigned s_cos_edges[] = {94U, 95U, 4000U, 4001U};
     for (unsigned i = 0; i < 4U; ++i)
@@ -554,6 +642,20 @@ int main(void)
     s_ticks += 12000;
     HardwareCheck_Process(&s_axis);
     assert(report().stage == 5);
+    assert(!s_axis.state_machine.maintenance_capture && !g_hardware_check_capture);
+    ProtocolHardwareReport saved = report();
+    ProtocolHardwareReport rejected;
+    s_axis.state_machine.calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
+    assert(s_check.handle(&s_axis, 1U, ++s_seq, saved.run_id, &rejected) == PROTOCOL_RESULT_BUSY);
+    assert(!g_hardware_check_capture);
+    s_axis.state_machine.calibration_type = MOTOR_CALIBRATION_NONE;
+    memset(&s_axis.calibration.storage, 0x5a, sizeof(s_axis.calibration.storage));
+    ProtocolHardwareReport retained = report();
+    assert(retained.run_id == saved.run_id && retained.stage == saved.stage);
+    assert(!memcmp(retained.items, saved.items, sizeof(saved.items)));
+    begin(1U, 1);
+    window();
+    assert(!s_axis.state_machine.maintenance_capture && !g_hardware_check_capture);
     puts("PASS AT32 hardware check: static edges, full DMA frames, two driven legs, ownership, "
          "loss and STOP");
     return 0;

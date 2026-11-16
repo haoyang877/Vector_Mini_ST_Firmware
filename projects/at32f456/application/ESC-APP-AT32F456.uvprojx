@@ -1545,6 +1545,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>phase_resistance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\calibration\phase_resistance.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_fault.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\protection\motor_fault.c</FilePath>
@@ -1854,9 +1859,9 @@
               <FilePath>..\..\..\firmware\platform\bsp\mcu\at32f456\boot_loader.c</FilePath>
             </File>
             <File>
-              <FileName>startup_at32f456_app.s</FileName>
+              <FileName>startup_at32f456_ram48.s</FileName>
               <FileType>2</FileType>
-              <FilePath>startup_at32f456_app.s</FilePath>
+              <FilePath>startup_at32f456_ram48.s</FilePath>
             </File>
           </Files>
         </Group>

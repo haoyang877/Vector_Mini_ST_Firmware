@@ -149,3 +149,57 @@ class ParameterTests(unittest.TestCase):
             report = self.run_operation(snapshot=snapshot, **kwargs)
             self.assertFalse(report["passed"])
             self.assertFalse(any(kind in (121, 122) for kind, _ in self.endpoint.calls))
+
+    def test_read_progress_and_cancel_between_parameters(self):
+        progress = []
+        report = self.run_operation(
+            progress=lambda done, total: progress.append((done, total)),
+            stopped=lambda: len(progress) == 2,
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(progress, [(1, 4), (2, 4)])
+        self.assertEqual(sum(kind == 120 for kind, _ in self.endpoint.calls), 2)
+        self.assertFalse(any(kind in (121, 122) for kind, _ in self.endpoint.calls))
+        self.assertGreaterEqual(report["elapsed_s"], 0)
+
+    def test_cancel_before_start_does_not_access_device(self):
+        report = self.run_operation(stopped=lambda: True)
+        self.assertFalse(report["passed"])
+        self.assertEqual(self.endpoint.calls, [])
+
+    def test_read_all_has_one_identity_check_and_one_revision(self):
+        self.endpoint.values = {i: 1000 for i in parameters.parameter_ids("all")}
+        progress = []
+        with patch.object(parameters, "Link", return_value=self.endpoint):
+            report = parameters.run_parameters(
+                None,
+                6,
+                "01" * 12,
+                "all",
+                progress=lambda done, total: progress.append((done, total)),
+            )
+        self.assertTrue(report["passed"], report)
+        self.assertEqual(len(report["rows"]), 30)
+        self.assertEqual(progress[-1], (30, 30))
+        self.assertEqual(sum(kind == 1 for kind, _ in self.endpoint.calls), 2)
+        self.assertEqual(sum(kind == 2 for kind, _ in self.endpoint.calls), 1)
+        self.assertEqual(sum(kind == 120 for kind, _ in self.endpoint.calls), 30)
+        self.assertFalse(any(kind in (121, 122) for kind, _ in self.endpoint.calls))
+
+    def test_all_read_never_accepts_write(self):
+        with patch.object(parameters, "Link", return_value=self.endpoint):
+            report = parameters.run_parameters(None, 6, "01" * 12, "all", changes={11: 100})
+        self.assertFalse(report["passed"])
+        self.assertEqual(self.endpoint.calls, [])
+
+    def test_changed_revision_during_all_read_is_not_published(self):
+        self.endpoint.values = {i: 1000 for i in parameters.parameter_ids("all")}
+
+        def progress(done, total):
+            if done == 5:
+                self.endpoint.revision += 1
+
+        with patch.object(parameters, "Link", return_value=self.endpoint):
+            report = parameters.run_parameters(None, 6, "01" * 12, "all", progress=progress)
+        self.assertFalse(report["passed"])
+        self.assertNotIn("rows", report)

@@ -36,8 +36,6 @@ typedef struct
     LinearHall linear_hall;
     OutputEncoder output_encoder;
 
-    /* 启动装载和停机前台保存串行复用，避免再分配整条记录。 */
-    MotorAxisRecord record;
     ParameterPersistence parameters;
 #if BSP_ENABLED_LINEAR_HALL
     /* 外环选定读槽后，ADC 只更新另一槽。两槽均在启动时清零。 */

@@ -8,6 +8,31 @@ AT32F456 的 TMR6 监督拍先更新轴，再把主状态、当前故障及检�
 [灯语模块](../../projects/at32f456/application/status_lights.c)。模块逐拍计算逻辑亮灭，板级入口仅在输出变化时调用
 [GPIO 驱动](../../firmware/platform/bsp/mcu/at32f456/status_light_gpio.c)。
 
+### AT32F456 的 48 KiB RAM 布局
+
+RAM优化保持板端联合标定及所有LUT点数，APP栈为4 KiB，Loader栈保持8 KiB。输出轴配对样本仅将
+两路12位Hall整数无损打包；标定记录、关相参数暂存及硬件检测采样队列复用维护区。
+检测占用时拒绝标定和使用该区的参数操作；报告保留在独立状态中。构表结束后才允许
+记录编码覆盖原采样。互斥状态由轴状态机提供，ADC只在检测有效时写入队列。
+SRAM逐函数选择热路径，链接断言约束总分配；RTT缓冲缩短会减少可容忍的主机读取停顿。
+维护区由`MotorCalibration.storage`持有，记录、样本、检测统计及128组队列为同一union；
+电机编码器的6144 B工作区独立保留。RTT波形缓冲为512 B，仍保持非阻塞整帧丢弃。
+两种AT32 APP以`ScatterAssert`限制数据终点不超过`0x2000BFE0`，另计32 B既有邮箱；
+邮箱仍位于原ABI地址，不改变Loader契约。48 KiB 优化初版配套APP总预留48944 B，独立APP48872 B，均包含栈和32 B邮箱。
+快代码和4 kHz外环的执行位置变化尚未完成实机最坏时序验收；离线预算通过不能替代该验收。
+详见[实施与验收记录](../plans/completed/2026-11-13-at32-ram-64k-v1.md)。
+
+型号配置事务只常驻原始请求和已验证的回复摘要，准备与提交在停机前台
+借用`MotorCalibration.workspace.parameters`重建完整配置。原请求保留未量化的输入整数，
+重新执行相同构造和换算；保存页不读取可被标定或参数维护覆盖的工作区。
+标定发布在电机LUT安装、释放采样工作区后，用同区的`publication_hall`保存候选。
+输出轴拟合只备份24 B观测值，初始化/记录编码原位清零，避免四个约2 KiB的栈副本。
+APP专用启动包装器设置4 KiB栈，共享启动文件及Loader默认值仍为8 KiB；向量不变。
+48 KiB 优化初版按前台回调、三级IRQ嵌套、FP异常帧及汇编余量核算3496 B，
+在4096 B中余600 B。该预算保留函数指针和汇编假设，尚无实测栈水位结论。
+检测报告与幂等身份独立保留；完整统计只有检测占用期间有效，后续维护会覆盖。
+详见[48 KiB优化及预算审计](../plans/completed/2026-11-13-at32-ram-48k-v1.md)。
+
 AT32F456 的硬件检测统计由板级前台维护；ADC 只发布同拍原码样本。
 APP v1.8.1 的旋转验收按 50 ms 展开角均值判断整体趋势，单拍角增量只作诊断。
 窗口、两段轨迹和停稳证据均属于本轮 RAM 会话，不写参数。上位机沿用 Type127 v2
@@ -134,3 +159,7 @@ G431 的 Loader 端口用 RX 中断和环形队列接收，跟踪三个发送槽
 | 启动或绑定顺序 | 双板各自的独立与配套 APP 均可初始化；失败分支关相，独立 APP 不注册升级服务 | [编排用例](../../tests/unit/native/test_app_orchestration.py) |
 | 轴对象或外环交接 | 两个模拟实例分别绑定 PWM 和记录槽；状态、输出及标定写入只归各自实例；过时代际无法恢复旧输出 | [实例隔离](../../tests/unit/native/test_app_instances.py)、[状态机用例](../../tests/unit/native/test_run_state.py) |
 | Loader 端口或链接输入 | 错误票据、链路故障、越界写入被拒绝；镜像、参数区和身份页边界与对应工程一致 | [G431 运行时模型](../../tests/unit/native/test_loader_runtime.py)、[AT32 端口模型](../../tests/unit/native/test_at32_loader.py) |
+
+### 相电阻与硬件测量存储（2026-11-13）
+
+硬件检测统计及队列借用MotorCalibration.storage.hardware_check；同轮相电阻任务使用独立的workspace.resistance，两个区不重叠。maintenance_capture阻止外部标定和记录编码，内部PHASE_RESISTANCE允许使用既有功率生命周期。检测结束先将全部实测页冻结到紧凑缓存，再释放维护区；后续参数或LUT操作不得改变已完成报告。

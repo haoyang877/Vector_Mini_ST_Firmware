@@ -270,3 +270,8 @@ int main(void)
          "rejection, 3A and lease stop");
     return 0;
 }
+
+void BspPwm_SelectPhases(uint8_t mask)
+{
+    (void)mask;
+}

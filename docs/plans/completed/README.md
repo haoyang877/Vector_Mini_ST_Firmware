@@ -1,5 +1,7 @@
 # 已完成计划记录
 
+- [AT32 重构功能合并](2026-11-16-refactor-integration.md) — APP v1.8.13、生产工作台、48 KiB RAM 与双板构建。
+
 - [AT32 状态灯模块化与 2 kHz 调度](2026-11-14-at32-status-light-module.md) — APP 和 Standalone 编译通过，28 V 右轮实板验证空闲心跳、关相检查快闪及心跳恢复。
 
 - [AT32 红蓝状态灯](2026-11-13-at32-status-lights.md)：双目标编译通过，28 V 右轮实板验证检查快闪及空闲心跳。
@@ -301,3 +303,31 @@
 - [BSP最小直接实现](2026-10-26-minimal-bsp-v1.md)：删除17个文件，九工程及Loader、PR/release和AT32关相验证通过。
 
 - [输出轴绝对位置与启动恢复](2026-11-06-output-encoder-v1.md)：直驱/整数减速实现、OEN1 存储、双板编译及 PITCH 100 圈联合标定、9 点复位与实际断电恢复通过；release 两项既有测试失败保留。
+
+- [AT32 RAM 64 KiB](2026-11-13-at32-ram-64k-v1.md)：两种APP离线预算通过，保留板端标定；目标板时序待验。
+
+- [AT32 RAM 48 KiB](2026-11-13-at32-ram-48k-v1.md)：完整采样/精度、维护区复用、APP 4 KiB栈与自动预算审计。
+- [输出轴采样分块差值验证](2026-11-13-output-sample-block-delta-v1.md)：两板等价对照通过，跨度反例与回退容量不满足固定RAM缩减，未修改固件。
+
+- [相电阻检测及资源优化合并](2026-11-13-phase-resistance-check.md)
+- [最新重构分支RAM优化移植](2026-11-13-at32-ram-latest-v1.md)
+
+- [自由转子相电阻与耗时优化](2026-11-13-phase-resistance-free-rotor.md)
+
+- [相电阻1A/2A档位](2026-11-13-phase-resistance-1a-2a.md)
+
+- [参数刷新响应优化](2026-11-14-parameter-refresh.md)：v1.17.4，后台线程、进度和停止；PR通过，实机耗时待验证。
+
+- [常驻 CAN 与参数刷新](2026-11-14-persistent-can.md)：1.18.0，PR通过，实际设备刷新耗时待验证。
+
+- [检测版本与刷新优化](2026-11-15-hardware-version-and-refresh.md)：1.18.1，右轮升级和只读全参验证、Release通过。
+
+- [状态、参数对照与检测分阶段](2026-11-15-status-parameters-stages.md)：1.19.0，PR通过，待用户实机验证。
+
+- [生产测试界面整理](2026-11-16-production-ui.md)：中文名称、母线电压/电流/NTC、可调记录区，离线验证通过。
+
+- [生产报告与无干扰刷新](2026-11-16-production-reports.md)：1.20.0，单台报告、异常定位和编辑保护，PR通过。
+
+- [生产工作台导航重排](2026-11-16-production-navigation.md)：1.21.0，维护优先、保留通信，PR通过。
+
+- [首次烧录与生产检测进度](2026-11-16-first-install-production-progress.md)：v1.22.0，离线PR通过，待用户实机测试。

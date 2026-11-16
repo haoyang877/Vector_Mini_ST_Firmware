@@ -6,6 +6,7 @@
 #define BSP_PWM_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -26,6 +27,13 @@ extern "C"
      * @note 不检查许可或读回结果，不维护软件状态。
      */
     void BspPwm_Enable(void);
+
+    /**
+     * @brief 选择已获功率许可的测量相，关闭其余相的上下桥。
+     * @param mask 位0/1/2为ABC，只允许3、5、6。
+     * @note 仅在占空比为中点、电流消退后由标定快环调用；不改变主输出许可。
+     */
+    void BspPwm_SelectPhases(uint8_t mask);
 
     /** @brief 直接关闭主输出和六路通道位，保留比较值与计数器。 */
     void BspPwm_Disable(void);

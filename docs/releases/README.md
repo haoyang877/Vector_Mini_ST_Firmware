@@ -50,3 +50,9 @@
 - [轮电机2mΩ交付记录](wheel-motor-2mohm-no-damper-v1.0.0.md)
 
 当前规则见[发布标准](../guides/firmware_release_standard.md)，当前证据缺口见[计划索引](../plans/active/README.md)。
+
+- [相电阻检测测试包APP1.8.9](phase-resistance-app-v1.8.9-20261113.md)
+
+- [自由转子相电阻测试包APP1.8.11](phase-resistance-app-v1.8.11-20261113.md)
+
+- [相电阻1A/2A测试包APP1.8.12](phase-resistance-app-v1.8.12-20261113.md)

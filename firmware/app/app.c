@@ -249,6 +249,10 @@ static bool configure_protocol_device_info(AppContext *app)
     if (app->endpoint.hardware_check.handle != NULL)
     {
         capabilities.features |= PROTOCOL_FEATURE_HARDWARE_CHECK;
+        if (app->endpoint.hardware_check.resistance != NULL)
+        {
+            capabilities.features |= PROTOCOL_FEATURE_PHASE_RESISTANCE;
+        }
         if (app->endpoint.hardware_check.measure != NULL)
         {
             capabilities.features |= PROTOCOL_FEATURE_HARDWARE_MEASUREMENTS;

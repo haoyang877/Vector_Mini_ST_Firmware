@@ -216,6 +216,15 @@ class CalibrationCurvesTests(unittest.TestCase):
         self.assertEqual(shifted["samples"], 2)
         self.assertEqual((shifted["prefix_bytes"], shifted["suffix_bytes"]), (2, 1))
 
+    def test_resistance_firmware_retains_raw_capture_format(self):
+        for version in (0x01080B, 0x01080C):
+            capture = HallRawCapture(self.out)
+            capture.ready.set()
+            with patch("can_calibration_capture.threading.Thread") as thread:
+                capture.start({"app_version": version, "uid": "test"})
+            thread.return_value.start.assert_called_once()
+            self.assertNotIn("error", capture.result)
+
     def test_raw_capture_rejects_partial_frames_and_unknown_firmware(self):
         (self.out / "hall-raw.bin").write_bytes(b"123")
         self.assertIn("error", HallRawCapture(self.out).finish())

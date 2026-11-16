@@ -12,7 +12,16 @@ def main():
     _, poll = encode_frames(6, 127, b"", 0x43)[0]
     source = (ROOT / "tests/unit/native/hardware_check_test.c").read_text(encoding="utf-8")
     _, measure = encode_frames(6, 127, bytes.fromhex("0202000002000000"), 0x44)[0]
-    for name, data in (("host_start", start), ("host_read", poll), ("host_measure", measure)):
+    resistance_golden = json.loads(
+        (ROOT / "tests/fixtures/protocol/phase_resistance_v1.json").read_text()
+    )
+    resistance_request = bytes.fromhex(resistance_golden["request_frame"])
+    for name, data in (
+        ("host_start", start),
+        ("host_read", poll),
+        ("host_measure", measure),
+        ("host_resistance", resistance_request),
+    ):
         source += f"\nconst uint8_t {name}[] = {{" + ",".join(map(str, data)) + "};\n"
     run_c(
         args,
@@ -35,6 +44,23 @@ def main():
         ],
     )
     log = (args.out / "hardware_check.log").read_text(encoding="utf-8")
+    resistance_reply = bytes.fromhex(
+        next(line.split()[1] for line in log.splitlines() if line.startswith("CAN_RESISTANCE "))
+    )
+    assert resistance_reply.hex() == resistance_golden["response_frame"]
+
+    class ResistanceReplay:
+        def send(self, identifier, data):
+            assert (identifier, data) == (0x0CEF0602, resistance_request)
+
+        def receive(self, timeout):
+            return 0x0CEF0206, resistance_reply
+
+    resistance_link = Link(ResistanceReplay(), 6)
+    resistance_link.sequence = 0x44
+    parsed = resistance_link.resistance(2)
+    assert parsed["result"] == 3 and parsed["low_phases"] == 4
+    assert abs(parsed["phase_ohm"][2] - 0.2) < 1e-6
     response = bytes.fromhex(
         next(line.split()[1] for line in log.splitlines() if line.startswith("CAN_HW_REPORT "))
     )

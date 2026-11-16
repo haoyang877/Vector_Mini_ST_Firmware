@@ -1,4 +1,4 @@
-; AT32F456完整APP启动：向量/异常入口沿用已锁定SDK，独立栈8KiB、无堆。
+; AT32F456共享启动：向量/异常入口沿用SDK，默认Loader栈8KiB；APP由包装器设栈。
 ; 导出栈边界用于只读水位诊断；不修改SDK原文件，旧板/台架不使用本文件。
 ;**************************************************************************
 ;* @file     startup_at32f45x.s
@@ -13,7 +13,11 @@
 ;   <o> Stack Size (in Bytes) <0x0-0xFFFFFFFF:8>
 ; </h>
 
+                IF :DEF:APP_STACK_BYTES
+Stack_Size      EQU     APP_STACK_BYTES
+                ELSE
 Stack_Size      EQU     0x00002000
+                ENDIF
 
                 AREA    STACK, NOINIT, READWRITE, ALIGN=3
                 EXPORT  __at32f456_stack_bottom

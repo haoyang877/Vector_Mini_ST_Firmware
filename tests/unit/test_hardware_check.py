@@ -24,7 +24,8 @@ def response(node, kind, seq, data):
 
 
 class Port:
-    def __init__(self, fault="", measurements=False):
+    def __init__(self, fault="", measurements=False, version=0x01080C):
+        self.version = version
         self.measurements = measurements
         self.fault = fault
         self.pending = []
@@ -54,12 +55,17 @@ class Port:
                 reply[20:23] = bytes((1, node, 2 if self.fault == "loader" else 1))
                 if self.fault == "unprovisioned":
                     reply[20] = 0
+            if not page:
+                struct.pack_into("<I", reply, 20, self.version)
             if self.fault == "busy":
                 reply = b"\x06\0\0\0"
         elif kind == 2:
             reply = struct.pack(
                 "<I6H",
-                0 if self.fault == "legacy" else 0xFFD00 | (int(self.measurements) << 20),
+                0
+                if self.fault == "legacy"
+                else (0x2FFD00 | (int(self.measurements) << 20))
+                & (~(1 << 21) if self.fault == "no_resistance" else 0xFFFFFFFF),
                 0x64E,
                 64,
                 46,
@@ -68,6 +74,30 @@ class Port:
                 500,
             )
         elif kind == 127:
+            if payload and payload[1] == 3:
+                reply = struct.pack(
+                    "<HH4BI4B7f",
+                    0,
+                    0,
+                    2,
+                    2 if self.fault == "resistance_missing" else 1,
+                    2 if self.fault == "resistance_missing" else 0,
+                    0,
+                    self.run,
+                    0,
+                    3 if self.fault == "resistance_missing" else 0,
+                    0,
+                    63,
+                    1.905,
+                    1.905,
+                    1.905,
+                    1.905,
+                    3.81,
+                    3.81,
+                    3.81,
+                )
+                self.pending.append(response(node, kind, seq, reply))
+                return
             if payload and payload[1] == 2:
                 _, _, item, _, expected = struct.unpack("<4BI", payload)
                 assert not self.running and expected == self.run
@@ -91,11 +121,13 @@ class Port:
                     if self.fault == "start127loss":
                         return
             elif self.stage == 1:
-                self.stage = (2 if self.mode == 2 else 4) if self.fault != "hot" else 5
-            items = [1] * 8 + [0, 0] if self.stage in (2, 3, 4, 5) else [0] * 10
+                self.stage = (6 if self.mode == 3 else 4) if self.fault != "hot" else 5
+            elif self.stage == 6:
+                self.stage = 5 if self.fault == "resistance_missing" else 2
+            items = [1] * 8 + [0, 0] if self.stage in (2, 3, 4, 5, 6) else [0] * 10
             if self.fault == "hot" and self.stage == 5:
                 items[5] = 0
-            if self.mode == 2 and self.stage == 4:
+            if self.mode == 3 and self.stage == 4:
                 items[8:] = [1, 1]
                 if self.fault == "reversed":
                     items[8] = 2
@@ -208,6 +240,72 @@ class HardwareHostTest(unittest.TestCase):
             port, 6, drive=config, previous=0, previous_target=0, counter_db=self.db, **kwargs
         )
         return result, port
+
+    def test_phase_events_follow_scope_and_keep_snapshots(self):
+        events = []
+        report, _ = self.check(phase_progress=events.append)
+        self.assertEqual(events[0]["communication"], "进行中")
+        self.assertEqual(events[0]["static"], "待执行")
+        self.assertEqual(report["phase_states"]["static"], "已完成")
+        self.assertEqual(report["phase_states"]["resistance"], "本轮不测")
+        self.assertEqual(report["phase_states"]["dynamic"], "本轮不测")
+        report, port = self.check(fault="no_resistance", drive=True)
+        self.assertEqual(report["phase_states"]["communication"], "未完成")
+        self.assertEqual(report["phase_states"]["static"], "未执行")
+        self.assertFalse(any(kind in (116, 117, 118, 127) for kind, _, _ in port.sent))
+
+    def test_cancel_keeps_phase_incomplete_and_confirms_stop(self):
+        port = Port(measurements=True)
+        events = []
+        report = hw.run_check(
+            port,
+            6,
+            resistance_only=True,
+            stopped=lambda: port.stage == 6,
+            phase_progress=events.append,
+        )
+        self.assertEqual(report["phase_states"]["resistance"], "未完成")
+        self.assertEqual(report["phase_states"]["dynamic"], "本轮不测")
+        self.assertTrue(report["stop_confirmed"])
+        self.assertFalse(report["subset_passed"])
+
+    def test_missing_resistance_is_explicit_and_never_starts_detection(self):
+        port = Port(fault="no_resistance", version=0x010808)
+        report = hw.run_check(port, 4, drive=hw.Drive(1, 2, 700, 5))
+        self.assertTrue(report["upgrade_required"])
+        self.assertIn("1.8.8", report["note"])
+        self.assertIn("1.8.13", report["note"])
+        self.assertEqual(hw.result_rows(report)[8][3], "不支持")
+        self.assertNotIn("0.5A", hw.result_rows(report)[8][2])
+        self.assertFalse(any(kind in (116, 117, 118, 127) for kind, _, _ in port.sent))
+
+    def test_resistance_only_stops_without_dynamic_commands(self):
+        for fault in ("", "resistance_missing"):
+            with self.subTest(fault=fault):
+                port = Port(fault=fault, measurements=True)
+                report = hw.run_check(port, 6, resistance_only=True)
+                self.assertTrue(report["stop_confirmed"])
+                self.assertEqual(report["scope"], "static_resistance")
+                self.assertEqual(report["subset_passed"], not bool(fault))
+                self.assertFalse(any(kind in (116, 117, 118) for kind, _, _ in port.sent))
+                self.assertTrue(any(kind == 110 for kind, _, _ in port.sent))
+                self.assertEqual(hw.result_rows(report)[9][3], "不在本轮范围")
+
+    def test_resistance_only_cancel_during_measurement_still_stops(self):
+        port = Port(measurements=True)
+        report = hw.run_check(port, 6, resistance_only=True, stopped=lambda: port.stage == 6)
+        self.assertTrue(report["stop_confirmed"])
+        self.assertFalse(report["subset_passed"])
+        self.assertFalse(any(kind in (116, 117, 118) for kind, _, _ in port.sent))
+
+    def test_current_labels_follow_device_firmware(self):
+        for version, currents, label in (
+            (0x01080B, [0.5, 1.0], "0.5A/1A"),
+            (0x01080C, [1.0, 2.0], "1A/2A"),
+        ):
+            report = hw.run_check(Port(version=version), 6)
+            self.assertEqual(report["test_currents_a"], currents)
+            self.assertIn(label, hw.result_rows(report)[8][2])
 
     def test_measurement_pages_preserve_results_and_render_values(self):
         port = Port(measurements=True)
@@ -414,17 +512,41 @@ class HardwareHostTest(unittest.TestCase):
         self.assertTrue(r["communication_reliability_passed"])
         self.assertEqual(sum(kind == 117 for kind, _, _ in bus.sent), 1)
 
+    def test_missing_phase_prevents_dynamic_start(self):
+        report, bus = self.check("resistance_missing", True)
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(report["stage"], 5)
+        self.assertNotIn(117, [kind for kind, _, _ in bus.sent])
+        self.assertIn("B相回路缺相", hw.result_rows(report)[8][3])
+
+    def test_resistance_values_and_fault_details(self):
+        report, bus = self.check("", True)
+        row = next(row for row in hw.result_rows(report) if row[0] == "相电阻")
+        self.assertEqual(row[3], "正常")
+        self.assertIn("1.9050", row[1])
+        self.assertIn("0.9525", row[2])
+        self.assertTrue(
+            any(
+                kind == 127 and payload[1:3] == bytes((1, 3))
+                for kind, _, payload in bus.sent
+                if payload
+            )
+        )
+        report["resistance"].update(result=2, open_phases=2, open_lines=3)
+        self.assertIn("B相回路缺相", hw.result_rows(report)[8][3])
+        report["resistance"].update(result=3, open_phases=0, open_lines=0, low_phases=4)
+        self.assertIn("C相电阻异常小", hw.result_rows(report)[8][3])
+        report["resistance"].update(result=0, low_phases=0, high_phases=1, failure=10)
+        self.assertIn("A相电阻偏高", hw.result_rows(report)[8][3])
+
     def test_stop_paths(self):
         for fault in ("startloss", "linkloss", "travel", "stoploss", "pendingstop", "denied"):
             with self.subTest(fault=fault):
                 r, bus = self.check(fault, True)
                 self.assertTrue(r["note"])
                 self.assertIn(117, [k for k, _, _ in bus.sent])
-                if fault == "denied":
-                    self.assertNotIn(110, [k for k, _, _ in bus.sent])
-                else:
-                    self.assertIn(110, [k for k, _, _ in bus.sent])
-                    self.assertEqual(r["stop_confirmed"], fault not in ("stoploss", "pendingstop"))
+                self.assertIn(110, [k for k, _, _ in bus.sent])
+                self.assertEqual(r["stop_confirmed"], fault not in ("stoploss", "pendingstop"))
                 if fault == "pendingstop":
                     self.assertEqual(r["communication"], "正常")
                 if fault in ("linkloss", "startloss", "stoploss"):

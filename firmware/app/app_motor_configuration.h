@@ -3,12 +3,12 @@
 #include "motor_axis.h"
 #include "yg_protocol.h"
 
-/** @brief 前台独占的型号配置事务；pending 是待重启配置，不替代当前活动轴配置。 */
+/** @brief 前台独占的型号配置事务；pending_reply是稳定查询摘要，原始请求用于停机前台重建配置。 */
 typedef struct
 {
     MotorAxis *axis;
     ProtocolEndpoint *endpoint;
-    MotorConfiguration pending;
+    ProtocolMotorConfigurationReply pending_reply;
     ProtocolMotorConfigurationRequest saved_request;
     uint32_t previous_revision, saved_revision, restart_at_ms, prepare_number;
     bool prepared, saved, storage_failed, restart_requested;

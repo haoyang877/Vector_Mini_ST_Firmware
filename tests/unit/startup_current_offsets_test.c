@@ -73,21 +73,22 @@ void Param_StoreOutputEncoder(MotorAxisRecord *record,
                               const OutputEncoder *encoder,
                               const LinearHall *hall)
 {
-    assert(record == &axis.record && encoder != NULL);
+    assert(record == &axis.calibration.storage.record && encoder != NULL);
 }
 void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration)
 {
-    assert(param == &axis.record.motor && configuration == &axis.configuration);
+    assert(param == &axis.calibration.storage.record.motor && configuration == &axis.configuration);
 }
 void Param_StoreLinearHall(InterfaceParam *param, const LinearHall *hall)
 {
-    assert(param == &axis.record.motor && hall != NULL);
+    assert(param == &axis.calibration.storage.record.motor && hall != NULL);
 }
 BspResult BspFlash_Write(const void *data, size_t length)
 {
     assert(output_off &&
            axis.state_machine.calibration_handoff == MOTOR_CALIBRATION_AWAITING_PUBLICATION);
-    assert(data == &axis.record && length == sizeof(axis.record));
+    assert(data == &axis.calibration.storage.record &&
+           length == sizeof(axis.calibration.storage.record));
     return BSP_OK;
 }
 
@@ -884,9 +885,13 @@ static void test_calibration_dispatch_and_publication(void)
     update_hall_on_unlock = true;
     MotorAxis_OuterTick(&axis);
     assert(!update_hall_on_unlock);
-    assert(axis.calibration.output_calibration.samples[0].motor_counts == 1234);
-    assert(axis.calibration.output_calibration.samples[0].sin_counts == 100 &&
-           axis.calibration.output_calibration.samples[0].cos_counts == 600);
+    assert(OutputEncoder_CalibGetSample(&axis.calibration.storage.output_calibration, 0)
+               .motor_counts == 1234);
+    assert(
+        OutputEncoder_CalibGetSample(&axis.calibration.storage.output_calibration, 0).sin_counts ==
+            100 &&
+        OutputEncoder_CalibGetSample(&axis.calibration.storage.output_calibration, 0).cos_counts ==
+            600);
     hall_raw_sin = 3500;
     hall_raw_cos = 3600;
     MotorAxis_SampleFast(&axis);
@@ -933,17 +938,19 @@ static void test_calibration_dispatch_and_publication(void)
     MotorAxis_OuterTick(&axis);
     simulated_calibration_outcome.result = MOTOR_TASK_COMPLETED;
     assert(MotorCalibration_StepFast(&axis.calibration).result == MOTOR_TASK_COMPLETED);
-    axis.calibration.output_calibration.count = OUTPUT_ENCODER_CAL_SAMPLES;
+    axis.calibration.storage.output_calibration.count = OUTPUT_ENCODER_CAL_SAMPLES;
     memset(&axis.configuration.device.encoder, 0, sizeof(axis.configuration.device.encoder));
     for (unsigned i = 0; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
         int32_t counts =
             (int32_t)(i * pitch.gear_ratio * 65536.0f * 1.01f / (OUTPUT_ENCODER_CAL_SAMPLES - 1U));
         float h = (float)counts * (_2PI / (65536.0f * pitch.gear_ratio));
-        axis.calibration.output_calibration.samples[i] =
+        OutputEncoder_CalibSetSample(
+            &axis.calibration.storage.output_calibration,
+            i,
             (OutputEncoderCalibSample){counts,
                                        (uint16_t)(1800.0f - 1600.0f * sinf(h)),
-                                       (uint16_t)(2100.0f + 1400.0f * cosf(h))};
+                                       (uint16_t)(2100.0f + 1400.0f * cosf(h))});
     }
     axis.state_machine.calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
     MotorCalibration_ProcessPublication(&axis.calibration);

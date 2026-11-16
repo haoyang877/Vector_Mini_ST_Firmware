@@ -339,12 +339,12 @@ int main(void) {
  assert(calibration.hall_sweep.sin_min==200 && calibration.hall_sweep.cos_max==3600);
  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
  memset(s_motor_configuration.device.encoder.linearization_lut_q15,0,sizeof s_motor_configuration.device.encoder.linearization_lut_q15);
- calibration.output_calibration.count=OUTPUT_ENCODER_CAL_SAMPLES;
+ calibration.storage.output_calibration.count=OUTPUT_ENCODER_CAL_SAMPLES;
  for(unsigned i=0;i<OUTPUT_ENCODER_CAL_SAMPLES;++i) {
   int32_t counts=(int32_t)(i*ratio*65536.0f*1.01f/(OUTPUT_ENCODER_CAL_SAMPLES-1U));
   float h=(float)counts*(6.283185307f/(65536.0f*ratio));
-  calibration.output_calibration.samples[i]=(OutputEncoderCalibSample){counts,
-   (uint16_t)(1800-1600*sinf(h)),(uint16_t)(2100+1500*cosf(h))};
+  OutputEncoder_CalibSetSample(&calibration.storage.output_calibration, i, (OutputEncoderCalibSample){counts,
+   (uint16_t)(1800-1600*sinf(h)),(uint16_t)(2100+1500*cosf(h))});
  }
  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
  MotorCalibration_ProcessPublication(&calibration);

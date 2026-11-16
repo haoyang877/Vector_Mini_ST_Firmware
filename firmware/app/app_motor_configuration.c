@@ -71,6 +71,50 @@ static bool describe(const MotorConfiguration *config,
     return true;
 }
 
+/* preset来自已校验的节点，工作区只在关相前台借用。 */
+static bool build_candidate(const ProtocolMotorConfigurationRequest *request,
+                            const MotorAxisPreset *preset,
+                            MotorConfiguration *candidate)
+{
+    bool default_heat = true;
+    float heat_values[7];
+    for (unsigned i = 0; i < 7U; ++i)
+    {
+        default_heat = default_heat && request->thermal[i] == 0;
+        heat_values[i] = request->thermal[i] * (i < 3U ? 0.001f : 0.000001f);
+    }
+    MotorWindingThermalConfig heat = {heat_values[0],
+                                      heat_values[1],
+                                      heat_values[2],
+                                      heat_values[3],
+                                      heat_values[4],
+                                      heat_values[5],
+                                      heat_values[6]};
+    float travel = preset->output_travel_limit_rad * preset->gear_ratio;
+    if (!Param_CreateAxis(request->node,
+                          -travel,
+                          travel,
+                          request->speed_mrad_s * 0.001f,
+                          default_heat ? NULL : &heat,
+                          candidate))
+    {
+        return false;
+    }
+    candidate->configuration_confirmed = true;
+    return true;
+}
+
+/* 摘要经过prepare校验；不从量化后的回复重建持久化浮点值。 */
+static void describe_pending(const AppMotorConfiguration *service,
+                             uint32_t revision,
+                             bool saved,
+                             ProtocolMotorConfigurationReply *reply)
+{
+    *reply = service->pending_reply;
+    reply->revision = revision;
+    reply->flags = (uint8_t)((reply->flags & ~8U) | (saved ? 8U : 0U));
+}
+
 static bool same_request(const ProtocolMotorConfigurationRequest *left,
                          const ProtocolMotorConfigurationRequest *right)
 {
@@ -82,7 +126,8 @@ static bool same_request(const ProtocolMotorConfigurationRequest *left,
 static bool stopped(MotorAxis *axis)
 {
     MotorStatus status;
-    return axis->state_machine.state == MOTOR_STATE_IDLE && !axis->state_machine.stop_pending &&
+    return !axis->state_machine.maintenance_capture &&
+           axis->state_machine.state == MOTOR_STATE_IDLE && !axis->state_machine.stop_pending &&
            !axis->state_machine.start_pending &&
            axis->state_machine.calibration_handoff == MOTOR_CALIBRATION_NO_HANDOFF &&
            axis->motor.fault_code == MOTOR_FAULT_NONE &&
@@ -106,13 +151,20 @@ static void configure(void *context,
             reply->status = PROTOCOL_UNSUPPORTED;
             return;
         }
-        const MotorConfiguration *config =
-            request->page == 1U ? &service->pending : &axis->configuration;
         uint32_t revision = request->page == 1U ? service->saved_revision
                             : service->saved    ? service->previous_revision
                                                 : axis->parameters.stored_record_crc;
-        reply->status =
-            describe(config, revision, service->saved, reply) ? PROTOCOL_OK : PROTOCOL_FAILED;
+        if (request->page == 1U)
+        {
+            describe_pending(service, revision, true, reply);
+            reply->status = PROTOCOL_OK;
+        }
+        else
+        {
+            reply->status = describe(&axis->configuration, revision, service->saved, reply)
+                                ? PROTOCOL_OK
+                                : PROTOCOL_FAILED;
+        }
         if (service->storage_failed)
         {
             reply->flags |= 16U;
@@ -153,11 +205,17 @@ static void configure(void *context,
         }
         if (service->saved)
         {
-            (void)describe(&service->pending, service->saved_revision, true, reply);
+            describe_pending(service, service->saved_revision, true, reply);
             reply->status = PROTOCOL_OK;
             return;
         }
         if (!stopped(axis) || service->saved_request.revision != axis->parameters.stored_record_crc)
+        {
+            return;
+        }
+        MotorConfiguration *candidate = &axis->calibration.workspace.parameters;
+        const MotorAxisPreset *preset = MotorAxisProfile_ForNode(service->saved_request.node);
+        if (!build_candidate(&service->saved_request, preset, candidate))
         {
             return;
         }
@@ -166,19 +224,26 @@ static void configure(void *context,
             return;
         }
         service->previous_revision = service->saved_request.revision;
-        service->pending.device.can_bitrate_profile =
-            axis->configuration.device.can_bitrate_profile;
-        Param_Upload(&axis->record.motor, &service->pending);
-        memset(&axis->record.output, 0, sizeof(axis->record.output));
-        uint32_t expected = Crc32_Compute(&axis->record, sizeof(axis->record), 0U);
+        candidate->device.can_bitrate_profile = axis->configuration.device.can_bitrate_profile;
+        Param_Upload(&axis->calibration.storage.record.motor, candidate);
+        memset(&axis->calibration.storage.record.output,
+               0,
+               sizeof(axis->calibration.storage.record.output));
+        uint32_t expected = Crc32_Compute(
+            &axis->calibration.storage.record, sizeof(axis->calibration.storage.record), 0U);
         uint32_t mask = BspSystem_EnterCritical();
         bool off = axis->state_machine.state == MOTOR_STATE_IDLE &&
                    axis->motor.fault_code == MOTOR_FAULT_NONE &&
                    axis->hardware->power.phases_disabled();
-        bool stored = off &&
-                      axis->hardware->write_record(&axis->record, sizeof(axis->record)) == BSP_OK &&
-                      axis->hardware->read_record(&axis->record, sizeof(axis->record)) == BSP_OK &&
-                      expected == Crc32_Compute(&axis->record, sizeof(axis->record), 0U);
+        bool stored =
+            off &&
+            axis->hardware->write_record(&axis->calibration.storage.record,
+                                         sizeof(axis->calibration.storage.record)) == BSP_OK &&
+            axis->hardware->read_record(&axis->calibration.storage.record,
+                                        sizeof(axis->calibration.storage.record)) == BSP_OK &&
+            expected == Crc32_Compute(&axis->calibration.storage.record,
+                                      sizeof(axis->calibration.storage.record),
+                                      0U);
         BspSystem_ExitCritical(mask);
         if (!stored)
         {
@@ -187,9 +252,9 @@ static void configure(void *context,
             return;
         }
         service->saved = true;
-        service->saved_revision = axis->record.motor.record_crc32;
+        service->saved_revision = axis->calibration.storage.record.motor.record_crc32;
         axis->parameters.stored_record_crc = service->saved_revision;
-        (void)describe(&service->pending, service->saved_revision, true, reply);
+        describe_pending(service, service->saved_revision, true, reply);
         reply->status = PROTOCOL_OK;
         return;
     }
@@ -197,10 +262,10 @@ static void configure(void *context,
     {
         reply->status =
             same_request(request, &service->saved_request) ? PROTOCOL_OK : PROTOCOL_BUSY;
-        if (reply->status == PROTOCOL_OK &&
-            !describe(&service->pending, service->prepare_number, true, reply))
+        if (reply->status == PROTOCOL_OK)
         {
-            reply->status = PROTOCOL_FAILED;
+            describe_pending(service, service->prepare_number, true, reply);
+            reply->status = PROTOCOL_OK;
         }
         return;
     }
@@ -220,42 +285,18 @@ static void configure(void *context,
         reply->status = PROTOCOL_INVALID_ARGUMENT;
         return;
     }
-    bool default_heat = true;
-    float heat_values[7];
-    for (unsigned i = 0; i < 7U; ++i)
-    {
-        default_heat = default_heat && request->thermal[i] == 0;
-        heat_values[i] = request->thermal[i] * (i < 3U ? 0.001f : 0.000001f);
-    }
-    MotorWindingThermalConfig heat = {heat_values[0],
-                                      heat_values[1],
-                                      heat_values[2],
-                                      heat_values[3],
-                                      heat_values[4],
-                                      heat_values[5],
-                                      heat_values[6]};
     if (service->prepared && same_request(request, &service->saved_request))
     {
-        (void)describe(&service->pending, service->prepare_number, false, reply);
+        describe_pending(service, service->prepare_number, false, reply);
         reply->flags |= 32U;
         reply->status = PROTOCOL_OK;
         return;
     }
     /* 新候选可能验证失败，先撤销旧票据，不能用旧提交请求保存半更新的候选。 */
     service->prepared = false;
-    float travel = preset->output_travel_limit_rad * preset->gear_ratio;
-    if (!Param_CreateAxis(request->node,
-                          -travel,
-                          travel,
-                          request->speed_mrad_s * 0.001f,
-                          default_heat ? NULL : &heat,
-                          &service->pending))
-    {
-        reply->status = PROTOCOL_OUT_OF_RANGE;
-        return;
-    }
-    service->pending.configuration_confirmed = true;
-    if (!describe(&service->pending, 0U, false, reply))
+    MotorConfiguration *candidate = &axis->calibration.workspace.parameters;
+    if (!build_candidate(request, preset, candidate) ||
+        !describe(candidate, 0U, false, &service->pending_reply))
     {
         reply->status = PROTOCOL_OUT_OF_RANGE;
         return;
@@ -271,7 +312,7 @@ static void configure(void *context,
     }
     service->prepared = true;
     service->saved_request = *request;
-    (void)describe(&service->pending, service->prepare_number, false, reply);
+    describe_pending(service, service->prepare_number, false, reply);
     reply->flags |= 32U;
     reply->status = PROTOCOL_OK;
 }

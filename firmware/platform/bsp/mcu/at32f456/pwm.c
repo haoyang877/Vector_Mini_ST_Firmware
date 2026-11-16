@@ -106,6 +106,14 @@ void BspPwm_SetPhaseDuty(BspPwmPhase phase, float duty)
     }
 }
 
+void BspPwm_SelectPhases(uint8_t mask)
+{
+    uint32_t channels = ((mask & 1U) != 0U ? MCU_PWM_PHASE_A_MASK : 0U) |
+                        ((mask & 2U) != 0U ? MCU_PWM_PHASE_B_MASK : 0U) |
+                        ((mask & 4U) != 0U ? MCU_PWM_PHASE_C_MASK : 0U);
+    MCU_PWM_TIMER->cctrl = (MCU_PWM_TIMER->cctrl & ~MCU_PWM_PHASE_CHANNEL_MASK) | channels;
+}
+
 void BspPwm_Enable(void)
 {
     /* 六路相通道及互补输出，最后开放主输出。 */

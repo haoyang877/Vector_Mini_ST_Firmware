@@ -225,10 +225,11 @@ class At32TargetTests(unittest.TestCase):
                     "pi_controller.o",
                     "motor_current.o",
                     "motor_voltage.o",
-                    "mcu_temperature_sensing.o",
                     "encoder_feedback.o",
                 ):
                     self.assertIn(f"{obj} (+RO)", fast)
+                self.assertIn("mcu_temperature_sensing.o (+RO)", flash)
+                self.assertIn("0x2000BFE0", text)
                 self.assertIn("encoder_calibration.o (i.EncoderCalibration_PublishLut)", flash)
                 self.assertIn("motor_state_machine.o (i.MotorStateMachine_NextState)", fast)
 
@@ -250,7 +251,14 @@ class At32TargetTests(unittest.TestCase):
             vendor[vendor.index("__Vectors       DCD") :],
         )
         project = (base / "ESC-APP-AT32F456-Standalone.uvprojx").read_text(encoding="utf8")
-        self.assertIn("<FilePath>startup_at32f456_app.s</FilePath>", project)
+        self.assertIn("<FilePath>startup_at32f456_ram48.s</FilePath>", project)
+        wrapper = (base / "startup_at32f456_ram48.s").read_text(encoding="utf8")
+        self.assertIn("APP_STACK_BYTES EQU     0x00001000", wrapper)
+        self.assertIn("GET     startup_at32f456_app.s", wrapper)
+        loader = (ROOT / "loader/targets/yg_esc_v1_at32f456/ESC-LOADER-AT32F456.uvprojx").read_text(
+            encoding="utf8"
+        )
+        self.assertNotIn("startup_at32f456_ram48.s", loader)
 
     def test_app_off_links_shared_application_and_explicit_board(self):
         project = ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx"

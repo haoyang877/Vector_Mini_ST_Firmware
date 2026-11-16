@@ -26,6 +26,7 @@
 | app/motor_axis.c | 单份配置、运行对象、采样/控制/标定调度 |
 | app/motor_state_machine.c | 本轴五态、会话与功率许可、目标写入、外环输入与结果、反馈快照 |
 | app/motor_calibration.c | 标定快拍、关相发布、停稳计时和保存 |
+| app/hardware_check_state.h | 检测值类型及队列布局；供轴维护区复用，没有独立函数或全局状态 |
 | app/app_loader.c | 进入 Loader 的停机票据、超时和镜像确认 |
 | motor/control | 位置/速度外环、控制模式、PI、FOC 与无感启动 |
 | motor/sensing | 电流零偏、物理量读取、母线滤波和 MCU 温度 |

@@ -44,12 +44,47 @@ typedef struct
 
 typedef struct
 {
-    OutputEncoderCalibSample samples[OUTPUT_ENCODER_CAL_SAMPLES];
+    int32_t sample_motor_counts[OUTPUT_ENCODER_CAL_SAMPLES];
+    uint8_t sample_hall_counts[OUTPUT_ENCODER_CAL_SAMPLES][3];
     int32_t motor_counts, first_counts, step_counts;
     uint16_t previous_q15, count;
     int64_t motor_sum_counts;
     uint32_t sin_sum_counts, cos_sum_counts, sample_count;
 } OutputEncoderCalib;
+
+/**
+ * @brief 无损读取一组标定区间均值。
+ * @param cal 已采样的标定工作区。
+ * @param index 小于count的样本编号。
+ * @return 原32位电机计数与两路12位Hall整数。
+ */
+static inline OutputEncoderCalibSample OutputEncoder_CalibGetSample(const OutputEncoderCalib *cal,
+                                                                    unsigned index)
+{
+    const uint8_t *hall = cal->sample_hall_counts[index];
+    return (OutputEncoderCalibSample){
+        cal->sample_motor_counts[index],
+        (uint16_t)((uint16_t)hall[0] | ((uint16_t)(hall[1] & 15U) << 8U)),
+        (uint16_t)((uint16_t)(hall[1] >> 4U) | ((uint16_t)hall[2] << 4U))};
+}
+
+/**
+ * @brief 无损存入一组标定区间均值，不改变采样计数。
+ * @param cal 调用方独占的标定工作区。
+ * @param index 小于OUTPUT_ENCODER_CAL_SAMPLES的样本编号。
+ * @param sample 电机连续计数与两路0..4095的Hall区间整数均值。
+ * @note 两路Hall由12位ADC采集；不能用于存储滤波后的分数计数。
+ */
+static inline void OutputEncoder_CalibSetSample(OutputEncoderCalib *cal,
+                                                unsigned index,
+                                                OutputEncoderCalibSample sample)
+{
+    cal->sample_motor_counts[index] = sample.motor_counts;
+    uint8_t *hall = cal->sample_hall_counts[index];
+    hall[0] = (uint8_t)sample.sin_counts;
+    hall[1] = (uint8_t)((sample.sin_counts >> 8U) | ((sample.cos_counts & 15U) << 4U));
+    hall[2] = (uint8_t)(sample.cos_counts >> 4U);
+}
 
 /**
  * @brief 初始化输出轴反馈，减速比为 1 时使用直驱编码器。

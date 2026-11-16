@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_motor_operations as ops
@@ -369,6 +369,38 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertGreater(abs(samples[0]["position_rad"]), 10000)
         self.assertIsNone(motor_speed_fields(dict(speed="3", lease="0", target="0"))["travel"])
 
+    def test_status_measurements_use_correct_fields_and_valid_bits(self):
+        original = self.endpoint.status
+
+        def status():
+            data = bytearray(original())
+            struct.pack_into("<H", data, 24, (1 << 4) | (1 << 5) | (1 << 9))
+            struct.pack_into("<h", data, 26, 2812)
+            struct.pack_into("<h", data, 28, -1234)
+            struct.pack_into("<h", data, 34, 5000)
+            struct.pack_into("<h", data, 36, 2356)
+            return bytes(data)
+
+        self.endpoint.status = status
+        values = ops.read_device_status(None, 6, "01" * 12)
+        self.assertEqual(values["bus_voltage_v"], 28.12)
+        self.assertEqual(values["bus_current_a"], -1.234)
+        self.assertEqual(values["motor_temperature_c"], 23.56)
+        data = bytearray(status())
+        struct.pack_into("<H", data, 24, 0)
+        self.assertEqual(
+            ops.status_measurements(data),
+            dict(bus_voltage_v=None, bus_current_a=None, motor_temperature_c=None),
+        )
+        struct.pack_into("<H", data, 24, (1 << 4) | (1 << 5) | (1 << 9))
+        struct.pack_into("<h", data, 26, -32768)
+        struct.pack_into("<h", data, 28, -32768)
+        struct.pack_into("<h", data, 36, -32768)
+        self.assertEqual(
+            ops.status_measurements(data),
+            dict(bus_voltage_v=None, bus_current_a=None, motor_temperature_c=None),
+        )
+
     def test_actual_device_summary_and_complete_csv_channels(self):
         device = ops.read_device_status(None, 6, "01" * 12)
         self.assertEqual((device["app_version"], device["loader_version"]), (0, 0))
@@ -400,6 +432,51 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertEqual(float(rows[0]["actual_rad_s"]), 3)
         self.assertIn("reference_iq_a", rows[0])
         self.assertIn("reference_speed_rad_s", rows[0])
+
+    def test_speed_csv_batches_flush_and_preserves_all_rows(self):
+        import csv
+
+        samples, streams = [], []
+        clock = [0.0]
+        original_open = Path.open
+
+        def open_trace(path, *args, **kwargs):
+            stream = original_open(path, *args, **kwargs)
+            if path.name == "speed.csv" and args and args[0] == "w":
+                wrapped = MagicMock(wraps=stream)
+                wrapped.__enter__.return_value = wrapped
+                wrapped.__exit__.side_effect = stream.__exit__
+                streams.append(wrapped)
+                return wrapped
+            return stream
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            with (
+                patch.object(Path, "open", open_trace),
+                patch.object(ops.time, "monotonic", side_effect=lambda: clock[0]),
+                patch.object(ops.time, "sleep", side_effect=sleep),
+            ):
+                report = ops.run_speed_control(
+                    None,
+                    6,
+                    3,
+                    None,
+                    queue.Queue(),
+                    out,
+                    counter_db=out / "counter.db",
+                    stopped=lambda: len(samples) == 12,
+                    feedback=samples.append,
+                )
+            with (out / "speed.csv").open(newline="", encoding="utf-8") as stream:
+                rows = list(csv.DictReader(stream))
+        self.assertTrue(report["passed"] and report["stop_confirmed"])
+        self.assertEqual(len(rows), 12)
+        self.assertGreater(streams[0].flush.call_count, 0)
+        self.assertLessEqual(streams[0].flush.call_count, 3)
 
     def test_worker_detects_lost_gui_parent(self):
         with (

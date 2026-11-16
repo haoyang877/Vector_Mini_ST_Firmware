@@ -6,6 +6,7 @@
 #include "axis_config.h"
 #include "bsp_system.h"
 #include "encoder_calibration.h"
+#include "phase_resistance.h"
 #include "motor_control.h"
 #include "motor_fault.h"
 #include "motor_sensing.h"
@@ -200,7 +201,8 @@ static bool calibration_requires_power(MotorCalibrationType calibration_type)
 {
     return calibration_type == MOTOR_CALIBRATION_ENCODER_LINEARIZATION ||
            calibration_type == MOTOR_CALIBRATION_ELECTRICAL_ZERO ||
-           calibration_type == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO;
+           calibration_type == MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO ||
+           calibration_type == MOTOR_CALIBRATION_PHASE_RESISTANCE;
 }
 
 static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibrationType kind)
@@ -216,6 +218,14 @@ static bool inputs_allow_calibration(MotorStateMachine *machine, MotorCalibratio
         return true;
     }
     const MotorConfiguration *config = machine->drive.configuration;
+    if (kind == MOTOR_CALIBRATION_PHASE_RESISTANCE &&
+        (machine->drive.power->select_phases == NULL ||
+         config->application.current_limit_a < PHASE_RESISTANCE_HIGH_CURRENT_A ||
+         !(config->model.motor_phase_resistance_ohm > 0.0f) ||
+         !(config->model.motor_d_inductance_h > 0.0f)))
+    {
+        return false;
+    }
     if (kind == MOTOR_CALIBRATION_ENCODER_LINEARIZATION && config->preset != NULL)
     {
         const SensorlessStartupConfig *startup = config->preset->startup;
@@ -765,7 +775,8 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machi
         return MOTOR_CONTROL_OUT_OF_RANGE;
     }
     if (calibration_type <= MOTOR_CALIBRATION_NONE ||
-        calibration_type > MOTOR_CALIBRATION_MECHANICAL_ZERO)
+        (calibration_type > MOTOR_CALIBRATION_MECHANICAL_ZERO &&
+         calibration_type != MOTOR_CALIBRATION_PHASE_RESISTANCE))
     {
         return MOTOR_CONTROL_INVALID;
     }
@@ -775,7 +786,9 @@ MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *machi
     {
         result = MOTOR_CONTROL_FAULT;
     }
-    else if (machine->parameters_updating || machine->start_pending || machine->stop_pending ||
+    else if ((machine->maintenance_capture &&
+              calibration_type != MOTOR_CALIBRATION_PHASE_RESISTANCE) ||
+             machine->parameters_updating || machine->start_pending || machine->stop_pending ||
              machine->starts_locked || !EncoderCalibration_IsIdle(machine->drive.calibration))
     {
         result = MOTOR_CONTROL_BUSY;
@@ -842,6 +855,13 @@ void MotorStateMachine_FinishFastTick(MotorStateMachine *machine,
         revoke_enable_and_request_stop(machine);
         break;
     case MOTOR_TASK_COMPLETED:
+        if (machine->calibration_type == MOTOR_CALIBRATION_PHASE_RESISTANCE)
+        {
+            (void)transition_motor_state(machine, MOTOR_STATE_EVENT_COMPLETE);
+            break;
+        }
+        /* 其他标定仍需发布和保存。 */
+        /* fall through */
     case MOTOR_TASK_FINALIZE:
         if (machine->state == MOTOR_STATE_CALIBRATION &&
             machine->calibration_type != MOTOR_CALIBRATION_NONE &&

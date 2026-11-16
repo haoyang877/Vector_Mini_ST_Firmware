@@ -29,7 +29,7 @@ ITEMS = (
     "霍尔动态",
 )
 STATES = ("未测", "正常", "异常", "未装")
-STAGES = ("未开始", "静态采样", "待驱动", "驱动中", "结束", "中止")
+STAGES = ("未开始", "静态采样", "待驱动", "驱动中", "结束", "中止", "相电阻测量")
 COUNTER_DB = Path.home() / "CAN-Link-Test" / "hardware-check.sqlite3"
 
 
@@ -140,6 +140,36 @@ class Link:
             "samples": int.from_bytes(data[12:16], "little"),
             "values": [v if data[6] & (1 << i) else None for i, v in enumerate(values)],
         }
+
+    def resistance(self, run_id: int) -> dict:
+        """读取相电阻终态；有效位外的值保持缺失。"""
+        data = self.request(127, struct.pack("<4BI", 2, 3, 0, 0, run_id))
+        if len(data) == 4:
+            raise Rejected("相电阻结果读取被拒绝")
+        if (
+            len(data) != 44
+            or data[:5] != bytes((0, 0, 0, 0, 2))
+            or int.from_bytes(data[8:12], "little") != run_id
+            or data[5] > 3
+            or data[14] > 10
+            or data[15] & ~63
+            or any(data[i] & ~7 for i in (6, 7, 12, 13))
+        ):
+            raise ValueError("相电阻结果格式或轮次无效")
+        values = struct.unpack_from("<7f", data, 16)
+        if not all(math.isfinite(v) for v in values) or values[0] < 0:
+            raise ValueError("相电阻结果包含无效数值")
+        return dict(
+            result=data[5],
+            open_phases=data[6],
+            low_phases=data[7],
+            high_phases=data[12],
+            open_lines=data[13],
+            failure=data[14],
+            nominal_ohm=values[0],
+            phase_ohm=[v if data[15] & (1 << i) else None for i, v in enumerate(values[1:4])],
+            line_ohm=[v if data[15] & (8 << i) else None for i, v in enumerate(values[4:])],
+        )
 
 
 @dataclass
@@ -452,12 +482,14 @@ def run_check(
     node,
     *,
     drive=None,
+    resistance_only=False,
     ambient=None,
     previous=None,
     previous_target=None,
     counter_db=COUNTER_DB,
     stopped=lambda: False,
     progress=lambda _: None,
+    phase_progress=lambda _: None,
 ):
     """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
     link = Link(bus, node, timeout_s=0.5)
@@ -465,7 +497,21 @@ def run_check(
     report["reply_timeout_ms"] = 500
     if drive:
         report["drive"] = vars(drive).copy()
+    powered = bool(drive) or resistance_only
+    report["scope"] = "static_resistance" if resistance_only else "full" if drive else "static"
     active_run = None
+    phases = dict.fromkeys(
+        ("communication", "static", "resistance", "dynamic", "finalize"), "待执行"
+    )
+    if not powered:
+        phases["resistance"] = "本轮不测"
+    if not drive or resistance_only:
+        phases["dynamic"] = "本轮不测"
+    report["phase_states"] = phases
+
+    def phase(key, state="进行中"):
+        phases[key] = state
+        phase_progress(phases.copy())
 
     def refresh():
         current = link.board()
@@ -474,6 +520,7 @@ def run_check(
         report.update(current)
 
     try:
+        phase("communication")
         progress("检查主控与板端通信")
         for _ in range(3):
             try:
@@ -488,6 +535,9 @@ def run_check(
         if len(info) == 4:
             raise Rejected("设备忙，已确认通信")
         report["uid"] = info[:12].hex()
+        report["app_version"] = int.from_bytes(info[20:24], "little")
+        report["loader_version"] = int.from_bytes(info[24:28], "little")
+        report["test_currents_a"] = [1.0, 2.0] if report["app_version"] >= 0x01080C else [0.5, 1.0]
         identity = link.request(1, page=1)
         if identity == b"\x06\0\0\0":
             raise Rejected("身份页忙")
@@ -506,16 +556,27 @@ def run_check(
         features, modes = struct.unpack_from("<IH", caps)
         report["supported"] = bool(features & (1 << 19))
         report["measurements_supported"] = bool(features & (1 << 20))
+        report["resistance_supported"] = bool(features & (1 << 21))
+        if powered and not report["resistance_supported"]:
+            report["upgrade_required"] = True
+            version = report["app_version"]
+            actual = f"{version >> 16}.{(version >> 8) & 255}.{version & 255}"
+            raise Rejected(
+                f"当前设备 APP v{actual} 不支持相电阻检查；请升级到随包 APP v1.8.13。"
+                "本次未启动静态、相电阻或动态检测；也可选择关相静态检查。"
+            )
         if not report["supported"]:
             raise Rejected("该 APP 未提供硬件功能检测")
         if ambient is not None and (not math.isfinite(ambient) or not 0 <= ambient <= 60):
             raise Rejected("实测环境温度不在 0～60 °C，工况不满足")
         if drive and (not features & (1 << 13) or not modes & (1 << 10)):
             raise Rejected("驱动需要模式 10 和运动租约")
+        phase("communication", "已完成")
         previous_run = link.board()["run_id"]
         if stopped():
             raise Rejected("操作员停止")
-        start = struct.pack("<4BI", 2, 1, 2 if drive else 1, 0, previous_run)
+        phase("static")
+        start = struct.pack("<4BI", 2, 1, 3 if powered else 1, 0, previous_run)
         start_seq = (link.sequence + 1) & 65535
         link.sequence = start_seq
         try:
@@ -533,7 +594,23 @@ def run_check(
                 raise Rejected("静态采集已取消或超时")
             time.sleep(0.012)
             refresh()
-        if drive and report["stage"] == 2:
+        phase("static", "未完成" if report["stage"] == 5 else "已完成")
+        if powered and report["stage"] == 6:
+            phase("resistance")
+            currents = " / ".join(f"{value:g}A" for value in report["test_currents_a"])
+            progress(f"相电阻：AB/BC/CA 正反向 {currents} 测量")
+            deadline = time.monotonic() + 27
+            while report["stage"] == 6:
+                if stopped() or time.monotonic() > deadline:
+                    raise Rejected("相电阻测量已取消或超时")
+                time.sleep(0.012)
+                refresh()
+            phase("resistance", "未完成" if report["stage"] == 5 else "已完成")
+        if resistance_only and report["stage"] == 2:
+            progress("静态和相电阻采集完成，正在停止并确认关相；不执行动态检测")
+            confirm_stop(link, report)
+            refresh()
+        if drive and not resistance_only and report["stage"] == 2:
             if stopped():
                 raise Rejected("操作员停止")
             try:
@@ -542,6 +619,7 @@ def run_check(
                 )
             except (OSError, sqlite3.Error) as exc:
                 raise Rejected(f"无法保存本轮运动计数：{exc}") from exc
+            phase("dynamic")
             progress("低速正向、停稳、反向")
             # 运动中保持50ms请求期限，避免一次长等待耗尽500ms板端租约。
             link.timeout_s = 0.05
@@ -556,11 +634,15 @@ def run_check(
                     raise Rejected("关相后未取得最终板端报告")
                 time.sleep(0.01)
                 refresh()
-        if report["stage"] == 5:
+            phase("dynamic", "已完成" if report["stage"] == 4 else "未完成")
+        if report["stage"] == 5 and not (resistance_only and report.get("stop_confirmed")):
             report["note"] = "板端中止，未完成项目保留未测"
         if report["stage"] in (4, 5):
             read_temperature(link, report, ambient)
     except (Rejected, ValueError, TimeoutError, OSError) as exc:
+        for key, state in phases.copy().items():
+            if state == "进行中":
+                phase(key, "未完成")
         report["note"] = str(exc)
         if isinstance(exc, (TimeoutError, OSError, ValueError)):
             report["communication"] = "异常"
@@ -569,10 +651,23 @@ def run_check(
                 refresh()
             except (Rejected, ValueError, TimeoutError, OSError):
                 pass
+    phase("finalize")
+    progress("确认关相并读取本轮结果")
+    if active_run is not None and powered and not report.get("stop_confirmed"):
+        try:
+            confirm_stop(link, report)
+            refresh()
+        except (Rejected, ValueError, TimeoutError, OSError) as exc:
+            report["note"] = f"{report.get('note', '')}；{exc}"
+    if active_run is not None and powered and report.get("stop_confirmed"):
+        try:
+            report["resistance"] = link.resistance(active_run)
+        except (Rejected, ValueError, TimeoutError, OSError) as exc:
+            report["resistance_note"] = str(exc)
     report["measurements"] = {}
     if not report.get("measurements_supported"):
         report["measurement_note"] = "当前固件未提供测试数值，判定结果保留"
-    elif report["stage"] not in (4, 5) or (drive and not report.get("stop_confirmed")):
+    elif report["stage"] not in (4, 5) or (powered and not report.get("stop_confirmed")):
         report["measurement_note"] = "本轮尚未结束或关相未确认，未读取数值"
     else:
         try:
@@ -583,7 +678,30 @@ def run_check(
     report["communication_timeouts"] = link.timeouts.copy()
     report["communication_reliability_passed"] = not link.timeouts
     report["status_busy_replies"] = link.status_busy_replies
+    if resistance_only:
+        report["board_items"][8:] = [0, 0]
+        report["directions"] = 0
     direction_results(report)
+    if resistance_only:
+        report["subset_passed"] = bool(
+            report.get("stop_confirmed")
+            and all(v == 1 or (i == 7 and v == 3) for i, v in enumerate(report["board_items"][:8]))
+            and report.get("resistance", {}).get("result") == 1
+            and report.get("resistance", {}).get("failure") == 0
+            and not report.get("note")
+            and not report.get("measurement_note")
+        )
+        report["motor_direction"] = {}
+        report["scope_note"] = "本轮仅静态和相电阻；动态检测未执行"
+    phase(
+        "finalize",
+        "已完成"
+        if not report.get("measurement_note") and (not powered or report.get("stop_confirmed"))
+        else "未完成",
+    )
+    for key, state in phases.copy().items():
+        if state == "待执行":
+            phase(key, "未执行")
     return report
 
 
@@ -641,7 +759,61 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
                 )
         if page.get("samples", 0) > 0 and state == "未测":
             measured += "（部分采样，未完成判定）"
+        if item >= 8 and report.get("scope") in ("static", "static_resistance"):
+            measured, state = "本轮未执行", "不在本轮范围"
         rows.append((name, measured, limits[item], state))
+    resistance = report.get("resistance")
+    currents = "/".join(f"{value:g}A" for value in report.get("test_currents_a", (1.0, 2.0)))
+    measured, limit, state = "未测", f"标称相电阻的50%～150%（含边界）；{currents}", "未测"
+    if resistance:
+        nominal = resistance["nominal_ohm"]
+        limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；{currents}"
+
+        def values(names, readings):
+            return " / ".join(
+                f"{name}={'—' if v is None else f'{v:.4f} Ω'}"
+                for name, v in zip(names, readings, strict=True)
+            )
+
+        measured = values(("A", "B", "C"), resistance["phase_ohm"])
+        measured += "；线间 " + values(("AB", "BC", "CA"), resistance["line_ohm"])
+        faults = []
+        for key, label, names in (
+            ("open_phases", "相回路缺相", "ABC"),
+            ("low_phases", "相电阻异常小", "ABC"),
+            ("high_phases", "相电阻偏高", "ABC"),
+        ):
+            faults.extend(
+                name + label for i, name in enumerate(names) if resistance[key] & (1 << i)
+            )
+        if resistance["open_lines"]:
+            loops = [
+                name
+                for i, name in enumerate(("AB", "BC", "CA"))
+                if resistance["open_lines"] & (1 << i)
+            ]
+            faults.append("/".join(loops) + "回路开路/未建立电流")
+        failures = (
+            "",
+            "过流",
+            "转子位移超过0.5°",
+            "电流未稳定/超时",
+            "无效测量",
+            "检测取消或保护中止",
+            "三相电流不平衡",
+            "母线电压异常",
+            "启动条件不满足",
+            "正反向结果不一致",
+            "阻值偏高",
+        )
+        if resistance["failure"]:
+            faults.append(failures[resistance["failure"]])
+        state = "正常" if resistance["result"] == 1 and not faults else "；".join(faults) or "未测"
+    elif report.get("resistance_supported") is False:
+        measured, limit, state = "当前固件不支持，未执行", "需升级支持相电阻检查的固件", "不支持"
+    elif report.get("resistance_note"):
+        measured = report["resistance_note"]
+    rows.insert(8, ("相电阻", measured, limit, state))
     return rows
 
 

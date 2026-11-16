@@ -157,7 +157,9 @@ class CalibrationDesktopTests(unittest.TestCase):
         window.withdraw()
         self.addCleanup(window.destroy)
         ui = desktop.CanTestWindow(window)
-        ui.tabs.select(ui.pages["multi_calibration"])
+        ui.navigate("multi_calibration")
+        self.assertEqual(ui.current_page(), "multi_calibration")
+        self.assertEqual(ui.operation_mode(scan=True), "calibration_scan")
         ui.update_controls()
         self.assertTrue(ui.start_button.instate(["disabled"]))
         ui.display_report(
@@ -176,6 +178,7 @@ class CalibrationDesktopTests(unittest.TestCase):
             ui.start()
             job = ctx.return_value.Process.call_args.kwargs
             self.assertIs(job["target"], desktop.acquire)
+            self.assertIs(job["args"][-1], ui.zero_ready)
             self.assertEqual(job["args"][0]["kinds"], [2])
             self.assertEqual(job["args"][0]["uid"], self.settings["uid"])
         self.fail_kind = 2

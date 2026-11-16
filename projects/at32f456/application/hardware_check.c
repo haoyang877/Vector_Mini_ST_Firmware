@@ -51,6 +51,8 @@ static PhaseResistanceReport s_resistance;
 static uint32_t s_previous_run;
 static uint16_t s_start_sequence;
 static uint8_t s_mode;
+static uint16_t s_limits[CHECK_LIMIT_COUNT] = CHECK_LIMIT_DEFAULTS;
+static uint32_t s_limits_revision;
 static struct
 {
     float values[11][4];
@@ -127,11 +129,11 @@ static void end_check(MotorAxis *axis, uint8_t stage)
     }
 }
 
-static ProtocolCode handle_request(void *context,
-                                   uint8_t mode,
-                                   uint16_t sequence,
-                                   uint32_t expected_run,
-                                   ProtocolHardwareReport *report)
+static ProtocolCode start_request(void *context,
+                                  uint8_t mode,
+                                  uint16_t sequence,
+                                  uint32_t expected_run,
+                                  ProtocolHardwareReport *report)
 {
     MotorAxis *axis = context;
     if (mode == 0U)
@@ -197,6 +199,95 @@ static ProtocolCode handle_request(void *context,
     g_hardware_check_capture = true;
     *report = s_report;
     return PROTOCOL_RESULT_ACCEPTED;
+}
+
+static ProtocolCode handle_request(void *context,
+                                   uint8_t mode,
+                                   uint16_t sequence,
+                                   uint32_t expected_run,
+                                   ProtocolHardwareReport *report)
+{
+    if (mode != 0U && s_limits_revision != 0U && expected_run == s_previous_run &&
+        sequence == s_start_sequence)
+    {
+        return PROTOCOL_RESULT_DENIED;
+    }
+    ProtocolCode code = start_request(context, mode, sequence, expected_run, report);
+    if (mode != 0U && code == PROTOCOL_RESULT_ACCEPTED)
+    {
+        static const uint16_t defaults[CHECK_LIMIT_COUNT] = CHECK_LIMIT_DEFAULTS;
+        memcpy(s_limits, defaults, sizeof(s_limits));
+        s_limits_revision = 0U;
+    }
+    return code;
+}
+
+static void classify_resistance(void)
+{
+    /* 电流/电压/稳定性等测量失败不重判；这里只应用本轮阻值合格范围。 */
+    if (s_limits_revision == 0U || s_resistance.open_lines != 0U ||
+        (s_resistance.valid & 7U) != 7U ||
+        (s_resistance.failure != 0U && s_resistance.failure != 10U))
+    {
+        return;
+    }
+    s_resistance.low_phases = s_resistance.high_phases = 0U;
+    for (unsigned i = 0U; i < 3U; ++i)
+    {
+        float scaled = 1000.0f * s_resistance.phase_ohm[i];
+        if (scaled < (float)s_limits[CHECK_RESISTANCE_MIN_PERMILLE] * s_resistance.nominal_ohm)
+        {
+            s_resistance.low_phases |= (uint8_t)(1U << i);
+        }
+        if (scaled > (float)s_limits[CHECK_RESISTANCE_MAX_PERMILLE] * s_resistance.nominal_ohm)
+        {
+            s_resistance.high_phases |= (uint8_t)(1U << i);
+        }
+    }
+    s_resistance.result =
+        s_resistance.low_phases != 0U ? 3U : (s_resistance.high_phases == 0U ? 1U : 0U);
+    s_resistance.failure = s_resistance.high_phases != 0U ? 10U : 0U;
+}
+
+static ProtocolCode start_configured(void *context,
+                                     uint8_t mode,
+                                     uint16_t sequence,
+                                     uint32_t expected_run,
+                                     uint32_t revision,
+                                     const uint16_t limits[16],
+                                     ProtocolHardwareReport *report)
+{
+    static const uint16_t minimums[CHECK_LIMIT_COUNT] = CHECK_LIMIT_MINIMUMS;
+    static const uint16_t maximums[CHECK_LIMIT_COUNT] = CHECK_LIMIT_MAXIMUMS;
+    for (unsigned i = 0U; i < CHECK_LIMIT_COUNT; ++i)
+    {
+        if (limits[i] < minimums[i] || limits[i] > maximums[i])
+        {
+            return PROTOCOL_RESULT_BAD_FIELD;
+        }
+    }
+    if (revision == 0U || limits[CHECK_BUS_MIN_MV] >= limits[CHECK_BUS_MAX_MV] ||
+        limits[CHECK_TEMPERATURE_MIN_OFFSET_DECI_C] >=
+            limits[CHECK_TEMPERATURE_MAX_OFFSET_DECI_C] ||
+        limits[CHECK_HALL_RAW_MIN] >= limits[CHECK_HALL_RAW_MAX] ||
+        limits[CHECK_RESISTANCE_MIN_PERMILLE] >= limits[CHECK_RESISTANCE_MAX_PERMILLE])
+    {
+        return PROTOCOL_RESULT_BAD_FIELD;
+    }
+    if (s_report.run_id != 0U && expected_run == s_previous_run && sequence == s_start_sequence)
+    {
+        if (revision != s_limits_revision || memcmp(limits, s_limits, sizeof(s_limits)) != 0)
+        {
+            return PROTOCOL_RESULT_DENIED;
+        }
+    }
+    ProtocolCode code = start_request(context, mode, sequence, expected_run, report);
+    if (code == PROTOCOL_RESULT_ACCEPTED)
+    {
+        memcpy(s_limits, limits, sizeof(s_limits));
+        s_limits_revision = revision;
+    }
+    return code;
 }
 
 /* 只有同一主站受理的模式 10、同一 127 启动序号才将本检查绑定到运动代际。 */
@@ -395,6 +486,7 @@ ProtocolHardwareCheck HardwareCheck_Bind(MotorAxis *axis)
     s_state = &axis->calibration.storage.hardware_check.state;
     return (ProtocolHardwareCheck){.context = axis,
                                    .handle = handle_request,
+                                   .start_configured = start_configured,
                                    .started = observe_start,
                                    .measure = read_measurement,
                                    .resistance = read_resistance};
@@ -428,8 +520,9 @@ noise_passes(HardwareCheckNoiseWindow *window, int32_t rms_limit_counts, bool ch
     window->mean_counts = 2048.0f + (float)sum / (4.0f * (float)n);
     window->rms_counts = sqrtf((float)variance) / (4.0f * (float)n);
     int64_t rms_limit_q4 = 4 * n * rms_limit_counts;
+    int64_t bias_limit_q4 = 4 * n * s_limits[CHECK_CURRENT_BIAS_COUNTS];
     return variance < rms_limit_q4 * rms_limit_q4 &&
-           (!check_bias || (sum > -1200 * n && sum < 1200 * n));
+           (!check_bias || (sum > -bias_limit_q4 && sum < bias_limit_q4));
 }
 
 static float hall_turns(const HardwareCheckSample *sample)
@@ -585,11 +678,17 @@ static uint8_t temperature_result(const MotorAxis *axis)
         s_state->maximum_temperature_c = fmaxf(s_state->maximum_temperature_c, temperature.celsius);
         ++s_state->temperature_samples;
     }
-    if (!temperature.valid || !isfinite(temperature.celsius) || now - temperature.sample_ms > 30U)
+    if (!temperature.valid || !isfinite(temperature.celsius) ||
+        now - temperature.sample_ms > s_limits[CHECK_TEMPERATURE_MAX_AGE_MS])
     {
         return FAIL;
     }
-    return temperature.celsius >= 0.0f && temperature.celsius <= 60.0f ? PASS : UNTESTED;
+    return temperature.celsius >=
+                       (float)s_limits[CHECK_TEMPERATURE_MIN_OFFSET_DECI_C] / 10.0f - 100.0f &&
+                   temperature.celsius <=
+                       (float)s_limits[CHECK_TEMPERATURE_MAX_OFFSET_DECI_C] / 10.0f - 100.0f
+               ? PASS
+               : UNTESTED;
 }
 
 static void finish_static(MotorAxis *axis)
@@ -635,7 +734,12 @@ static void complete_static_item(MotorAxis *axis)
     uint8_t result = PASS;
     if (item <= IBUS)
     {
-        result = noise_passes(&s_state->noise[item], item == IBUS ? 50 : 10, true) ? PASS : FAIL;
+        result =
+            noise_passes(&s_state->noise[item],
+                         s_limits[item == IBUS ? CHECK_BUS_RMS_COUNTS : CHECK_PHASE_RMS_COUNTS],
+                         true)
+                ? PASS
+                : FAIL;
     }
     else if (item == VBUS)
     {
@@ -648,13 +752,16 @@ static void complete_static_item(MotorAxis *axis)
     else if (item == ROTOR_STATIC)
     {
         int32_t span = s_state->rotor_max - s_state->rotor_min;
-        result = s_report.items[item] != FAIL && s_state->seen_frame && span <= 58 ? PASS : FAIL;
+        result = s_report.items[item] != FAIL && s_state->seen_frame &&
+                         span <= s_limits[CHECK_ROTOR_STATIC_MAX_COUNTS]
+                     ? PASS
+                     : FAIL;
         s_state->jitter_turns[0] = (float)(span + 2) / ROTOR_COUNTS;
     }
     else if (s_state->hall_installed)
     {
-        result = noise_passes(&s_state->noise[4], 10, false) &&
-                         noise_passes(&s_state->noise[5], 10, false)
+        result = noise_passes(&s_state->noise[4], s_limits[CHECK_HALL_RMS_COUNTS], false) &&
+                         noise_passes(&s_state->noise[5], s_limits[CHECK_HALL_RMS_COUNTS], false)
                      ? PASS
                      : FAIL;
         s_state->jitter_turns[1] =
@@ -728,8 +835,11 @@ static void finish_drive(MotorAxis *axis)
             {
                 *item = FAIL;
             }
-            if (directions[leg] != 0U && directions[leg] != 3U &&
-                agreed * 3U < (forward + backward) * 2U)
+            uint32_t windows = forward + backward;
+            bool insufficient =
+                sensor == 1U ? agreed * 1000U <= windows * s_limits[CHECK_HALL_TREND_PERMILLE]
+                             : agreed * 3000U < windows * s_limits[CHECK_MOTOR_TREND_PER_3000];
+            if (directions[leg] != 0U && directions[leg] != 3U && insufficient)
             {
                 *item = FAIL;
             }
@@ -795,7 +905,7 @@ static void drive_sample(MotorAxis *axis, const HardwareCheckSample *sample)
             {
                 s_state->hall_max[i] = raw;
             }
-            if (raw < 95U || raw > 4000U)
+            if (raw < s_limits[CHECK_HALL_RAW_MIN] || raw > s_limits[CHECK_HALL_RAW_MAX])
             {
                 items[HALL_DRIVE] = FAIL;
                 invalid_sample = true;
@@ -963,7 +1073,8 @@ static void consume_sample(MotorAxis *axis, const HardwareCheckSample *sample)
     }
     s_state->last_cycles = sample->cycles;
     s_state->have_cycles = true;
-    bool supply_ok = sample->voltage_v >= 27.0f && sample->voltage_v <= 29.0f;
+    bool supply_ok = sample->voltage_v >= (float)s_limits[CHECK_BUS_MIN_MV] / 1000.0f &&
+                     sample->voltage_v <= (float)s_limits[CHECK_BUS_MAX_MV] / 1000.0f;
     if (s_report.stage != STATIC || s_state->static_item == VBUS)
     {
         ++s_state->voltage_samples;
@@ -1102,6 +1213,7 @@ void HardwareCheck_Process(MotorAxis *axis)
         if (axis->calibration.resistance_epoch == s_state->resistance_epoch)
         {
             s_resistance = axis->calibration.workspace.resistance.report;
+            classify_resistance();
         }
         if (axis->state_machine.calibration_result_epoch != s_state->resistance_epoch ||
             axis->state_machine.calibration_result != MOTOR_CALIBRATION_RESULT_COMPLETED)

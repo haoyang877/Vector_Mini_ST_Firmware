@@ -63,7 +63,7 @@ class HardwareCheckFieldsTests(unittest.TestCase):
             ("travel", "NaN", "可用行程.*有限数值"),
             ("frequency", "inf", "电频.*有限数值"),
             ("leg", "1500.5", "单程时间.*整数"),
-            ("ambient", "70", "室温.*0～60"),
+            ("ambient", "130", "室温.*-40～120"),
             ("lease", "-1", "续租计数.*0～"),
             ("target", "65536", "目标序号.*0～65535"),
         ):

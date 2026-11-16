@@ -129,6 +129,8 @@ def build_report(report: dict, *, tool_version: str, created_at: str) -> dict:
         app_version=version("app_version"),
         loader_version=version("loader_version"),
         run_id=report.get("run_id"),
+        threshold_revision=report.get("threshold_config", {}).get("revision", "固件内置"),
+        threshold_sha256=report.get("threshold_config", {}).get("sha256", "—"),
         scope=scope,
         scope_name=SCOPE_NAMES.get(scope, scope),
         verdict="本范围通过" if passed else "未通过 / 未完成",
@@ -184,6 +186,8 @@ def export_report(report: dict, out: Path, *, tool_version: str) -> Path:
         "app_version": "APP版本",
         "loader_version": "Loader版本",
         "run_id": "检测轮次",
+        "threshold_revision": "阈值配置版本",
+        "threshold_sha256": "阈值文件SHA-256",
         "scope_name": "测试范围",
     }
     metadata = "".join(

@@ -2,6 +2,7 @@
 #define YG_PROTOCOL_H
 
 #include "yg_protocol_common.h"
+#include "../../shared/protocol/hardware_check_limits.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -72,6 +73,7 @@ typedef struct
 #define PROTOCOL_FEATURE_HARDWARE_MEASUREMENTS (1UL << 20U)
 #define PROTOCOL_FEATURE_PHASE_RESISTANCE (1UL << 21U)
 #define PROTOCOL_FEATURE_SEQUENTIAL_STATIC (1UL << 22U)
+#define PROTOCOL_FEATURE_HARDWARE_LIMITS (1UL << 23U)
 
 /** @brief 单轮硬件检查的值快照，通道顺序和两段旋向见 Type 127 契约。 */
 typedef struct
@@ -105,6 +107,13 @@ typedef struct
                            uint16_t sequence,
                            uint32_t expected_run,
                            ProtocolHardwareReport *report);
+    ProtocolCode (*start_configured)(void *context,
+                                     uint8_t mode,
+                                     uint16_t sequence,
+                                     uint32_t expected_run,
+                                     uint32_t revision,
+                                     const uint16_t limits[16],
+                                     ProtocolHardwareReport *report);
     void (*started)(void *context, uint8_t mode, uint16_t sequence);
     ProtocolCode (*measure)(void *context,
                             uint8_t item,

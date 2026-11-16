@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "revision": 1,
+  "limits": {
+    "phase_rms_counts": 10,
+    "bus_rms_counts": 50,
+    "current_bias_counts": 300,
+    "bus_min_v": 27,
+    "bus_max_v": 29,
+    "temperature_min_c": 0,
+    "temperature_max_c": 60,
+    "temperature_max_age_ms": 30,
+    "rotor_static_max_deg": 0.01,
+    "hall_rms_counts": 10,
+    "hall_raw_min": 95,
+    "hall_raw_max": 4000,
+    "motor_trend_min_ratio": 0.6666666666666666,
+    "hall_trend_min_ratio": 0.4,
+    "resistance_min_ratio": 0.5,
+    "resistance_max_ratio": 1.5
+  }
+}

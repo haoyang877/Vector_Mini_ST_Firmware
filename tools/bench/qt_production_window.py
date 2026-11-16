@@ -14,6 +14,7 @@ from can_parameters import CATALOG, GROUPS, value_text
 from five_axis_can_stability import PER_NODE, encode_frames, version_text
 from five_axis_jlink import FIRST_FIT_AXES
 from hardware_check import empty_report
+from hardware_limits import default_path, read_limits
 from production_backend import (
     AXES,
     AXIS_SPEED_LIMITS,
@@ -66,7 +67,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.1.5"
+VERSION = "2.1.6"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -427,7 +428,7 @@ class ProductionWindow(QMainWindow):
         content = QHBoxLayout()
         firmware = QGroupBox("本批固件")
         box = QVBoxLayout(firmware)
-        box.addWidget(label("APP 1.8.16   +   Loader 2.3.4", "metric"))
+        box.addWidget(label("APP 1.8.17   +   Loader 2.3.4", "metric"))
         box.addWidget(label("AT32F456  ·  CAN FD 1M / 5M", "subtitle"))
         self.hex_path = self.resource / "firmware/five-axis.hex"
         if not self.hex_path.is_file():
@@ -480,7 +481,7 @@ class ProductionWindow(QMainWindow):
         self.package_path = (
             self.resource / "can-app"
             if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.16/app-package"
+            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.17/app-package"
         )
         self.package_label = label("", wrap=True)
         settings_layout.addWidget(self.package_label)
@@ -607,6 +608,15 @@ class ProductionWindow(QMainWindow):
         )
         self.check_mode.setMaximumWidth(260)
         panel.addWidget(self.check_mode)
+        self.add_action(
+            panel,
+            "打开检测阈值配置",
+            lambda: self.open_path(default_path()),
+            icon_name="parameters",
+        )
+        panel.addWidget(
+            label("修改JSON并保存，下次检测生效；revision用于记录配置版本。", "subtitle", True)
+        )
         self.add_fields(
             panel,
             [
@@ -1067,6 +1077,7 @@ class ProductionWindow(QMainWindow):
 
     def start_hardware(self) -> None:
         try:
+            read_limits()
             settings = hardware_check_fields(
                 {
                     key: self.edits[key].text()

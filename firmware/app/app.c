@@ -258,6 +258,10 @@ static bool configure_protocol_device_info(AppContext *app)
             capabilities.features |=
                 PROTOCOL_FEATURE_HARDWARE_MEASUREMENTS | PROTOCOL_FEATURE_SEQUENTIAL_STATIC;
         }
+        if (app->endpoint.hardware_check.start_configured != NULL)
+        {
+            capabilities.features |= PROTOCOL_FEATURE_HARDWARE_LIMITS;
+        }
     }
     uint8_t target_payload[DEVICE_IDENTITY_INFO_BYTES];
     uint8_t identity_record[DEVICE_IDENTITY_RECORD_BYTES];

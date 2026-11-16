@@ -16,11 +16,15 @@ def main():
         (ROOT / "tests/fixtures/protocol/phase_resistance_v1.json").read_text()
     )
     resistance_request = bytes.fromhex(resistance_golden["request_frame"])
+    limits_golden = json.loads(
+        (ROOT / "tests/fixtures/protocol/hardware_limits_v1.json").read_text()
+    )
     for name, data in (
         ("host_start", start),
         ("host_read", poll),
         ("host_measure", measure),
         ("host_resistance", resistance_request),
+        ("host_limits", bytes.fromhex(limits_golden["request_frame"])),
     ):
         source += f"\nconst uint8_t {name}[] = {{" + ",".join(map(str, data)) + "};\n"
     run_c(
@@ -44,6 +48,10 @@ def main():
         ],
     )
     log = (args.out / "hardware_check.log").read_text(encoding="utf-8")
+    limits_reply = next(
+        line.split()[1] for line in log.splitlines() if line.startswith("CAN_LIMITS ")
+    )
+    assert limits_reply == limits_golden["response_frame"]
     resistance_reply = bytes.fromhex(
         next(line.split()[1] for line in log.splitlines() if line.startswith("CAN_RESISTANCE "))
     )

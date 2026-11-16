@@ -359,14 +359,42 @@ static yg_protocol_result_t handle_hardware_check(ProtocolEndpoint *endpoint,
     const uint8_t *data = request->payload;
     bool read_measurement = request->payload_length == 8U && data[1] == 2U;
     bool read_resistance = request->payload_length == 8U && data[1] == 3U;
+    bool configured = request->payload_length == 44U;
+    uint16_t limits[16];
     ProtocolCode code;
     if (request->source_node != PROTOCOL_MASTER_ID)
     {
         code = PROTOCOL_RESULT_FORBIDDEN;
     }
-    else if (request->payload_length != 0U && request->payload_length != 8U)
+    else if (request->payload_length != 0U && request->payload_length != 8U && !configured)
     {
         code = PROTOCOL_RESULT_BAD_LENGTH;
+    }
+    else if (configured)
+    {
+        if (data[0] != PROTOCOL_HARDWARE_CHECK_VERSION || data[1] != 1U || data[2] < 1U ||
+            data[2] > 3U || data[3] != 1U)
+        {
+            code = PROTOCOL_RESULT_BAD_FIELD;
+        }
+        else if (endpoint->hardware_check.start_configured == NULL)
+        {
+            code = PROTOCOL_RESULT_UNSUPPORTED;
+        }
+        else
+        {
+            for (unsigned i = 0U; i < 16U; ++i)
+            {
+                limits[i] = YgProtocol_ReadU16Le(data + 12U + 2U * i);
+            }
+            code = endpoint->hardware_check.start_configured(endpoint->hardware_check.context,
+                                                             data[2],
+                                                             request->sequence,
+                                                             YgProtocol_ReadU32Le(data + 4U),
+                                                             YgProtocol_ReadU32Le(data + 8U),
+                                                             limits,
+                                                             &report);
+        }
     }
     else if (read_resistance)
     {
@@ -418,7 +446,14 @@ static yg_protocol_result_t handle_hardware_check(ProtocolEndpoint *endpoint,
                                                &report);
     }
     Protocol_WriteResult(reply, code, 0U);
-    if (code == PROTOCOL_RESULT_OK && read_resistance)
+    if (code == PROTOCOL_RESULT_ACCEPTED && configured)
+    {
+        /* 回显实际受理的完整配置；启动和配置发布在同一前台事务内完成。 */
+        memcpy(reply->data + 4U, data + 8U, 36U);
+        YgProtocol_WriteU32Le(reply->data + 40U, report.run_id);
+        reply->length = 44U;
+    }
+    else if (code == PROTOCOL_RESULT_OK && read_resistance)
     {
         reply->data[4] = PROTOCOL_HARDWARE_CHECK_VERSION;
         reply->data[5] = resistance.result;

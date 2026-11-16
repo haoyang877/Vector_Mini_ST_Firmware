@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from hardware_limits import confirm_start, read_limits, start_payload
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "host_app"))
 from ports.controlcanfd import ControlCanFd
 from upgrade_client import decode_reply, encode_frames
@@ -292,23 +294,25 @@ def direction_results(report, motor=None, hall=(0, 0)):
 
 
 def read_temperature(link, report, ambient):
+    limits = report.get("threshold_config", {}).get("limits", {})
+    low, high = limits.get("temperature_min_c", 0), limits.get("temperature_max_c", 60)
     if report["board_items"][5] == 0 and all(v in (1, 2) for v in report["board_items"][:4]):
         # 完整静态窗中的 0 表示至少一个有效 NTC 样本超界。108 读到的是最新温度。
-        report["ntc_mismatch"] = ambient is not None and 0 <= ambient <= 60
+        report["ntc_mismatch"] = ambient is not None and low <= ambient <= high
         report["note"] = (
-            "静态窗 NTC 超出 0～60 °C，已确认室温"
+            f"静态窗 NTC 超出 {low:g}～{high:g} °C，已确认室温"
             if report["ntc_mismatch"]
-            else "NTC 超出 0～60 °C，测试工况不满足"
+            else f"NTC 超出 {low:g}～{high:g} °C，测试工况不满足"
         )
     status = link.status()
     if int.from_bytes(status[24:26], "little") & (1 << 9):
         temp = struct.unpack_from("<h", status, 36)[0] / 100
         report["motor_temperature_c"] = temp
-        if report["board_items"][5] == 0 and not 0 <= temp <= 60:
-            if ambient is not None and 0 <= ambient <= 60:
+        if report["board_items"][5] == 0 and not low <= temp <= high:
+            if ambient is not None and low <= ambient <= high:
                 report["ntc_mismatch"] = True
             else:
-                report["note"] = "NTC 超出 0～60 °C，测试工况不满足"
+                report["note"] = f"NTC 超出 {low:g}～{high:g} °C，测试工况不满足"
 
 
 def drive_geometry(link, drive):
@@ -491,10 +495,13 @@ def run_check(
     progress=lambda _: None,
     phase_progress=lambda _: None,
     static_progress=lambda _: None,
+    limits=None,
 ):
     """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
     link = Link(bus, node, timeout_s=0.5)
     report = empty_report(node, ambient)
+    if limits is not None:
+        report["threshold_config"] = limits
     report["reply_timeout_ms"] = 500
     if drive:
         report["drive"] = vars(drive).copy()
@@ -559,6 +566,9 @@ def run_check(
         report["measurements_supported"] = bool(features & (1 << 20))
         report["resistance_supported"] = bool(features & (1 << 21))
         report["sequential_static"] = bool(features & (1 << 22))
+        configurable = bool(features & (1 << 23))
+        if limits is not None and not configurable:
+            raise Rejected("固件不支持检测阈值下发，请先升级APP v1.8.17；本次未启动检测")
         if powered and not report["resistance_supported"]:
             report["upgrade_required"] = True
             version = report["app_version"]
@@ -569,8 +579,11 @@ def run_check(
             )
         if not report["supported"]:
             raise Rejected("该 APP 未提供硬件功能检测")
-        if ambient is not None and (not math.isfinite(ambient) or not 0 <= ambient <= 60):
-            raise Rejected("实测环境温度不在 0～60 °C，工况不满足")
+        temperature_limits = limits["limits"] if limits else {}
+        low = temperature_limits.get("temperature_min_c", 0)
+        high = temperature_limits.get("temperature_max_c", 60)
+        if ambient is not None and (not math.isfinite(ambient) or not low <= ambient <= high):
+            raise Rejected(f"实测环境温度不在 {low:g}～{high:g} °C，工况不满足")
         if drive and (not features & (1 << 13) or not modes & (1 << 10)):
             raise Rejected("驱动需要模式 10 和运动租约")
         phase("communication", "已完成")
@@ -579,12 +592,26 @@ def run_check(
             raise Rejected("操作员停止")
         phase("static")
         start = struct.pack("<4BI", 2, 1, 3 if powered else 1, 0, previous_run)
+        if limits is not None:
+            start = start_payload(limits, 3 if powered else 1, previous_run)
         start_seq = (link.sequence + 1) & 65535
         link.sequence = start_seq
-        try:
-            current = link.board(start, start_seq)
-        except TimeoutError:
-            current = link.board(start, start_seq)
+        if limits is not None:
+            # 发送后即可能启动，双次应答丢失也必须进入取消/关相清理。
+            active_run = previous_run + 1
+            try:
+                reply = link.request(127, start, sequence=start_seq)
+            except TimeoutError:
+                reply = link.request(127, start, sequence=start_seq)
+            # 即使确认帧损坏，STOP清理也要覆盖可能已启动的这一轮。
+            confirm_start(reply, limits, previous_run)
+            current = link.board()
+            report["thresholds_confirmed"] = True
+        else:
+            try:
+                current = link.board(start, start_seq)
+            except TimeoutError:
+                current = link.board(start, start_seq)
         if current["run_id"] != previous_run + 1:
             raise Rejected("启动应答不属于预期检测轮次")
         active_run = current["run_id"]
@@ -681,7 +708,11 @@ def run_check(
                 pass
     phase("finalize")
     progress("确认关相并读取本轮结果")
-    if active_run is not None and powered and not report.get("stop_confirmed"):
+    if (
+        active_run is not None
+        and (powered or (limits is not None and not report.get("thresholds_confirmed")))
+        and not report.get("stop_confirmed")
+    ):
         try:
             confirm_stop(link, report)
             refresh()
@@ -747,8 +778,26 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
         "峰峰角 <0.01°；帧有效",
         "sin/cos RMS 均 <10 cnt",
         "去回符合命令方向；同向趋势 ≥2/3",
-        "去回方向相反；同向趋势 ≥2/3；原码95～4000",
+        "去回方向相反；同向趋势 "
+        + (">40%" if (report.get("app_version") or 0) >= 0x010811 else "≥2/3")
+        + "；原码95～4000",
     )
+    config = report.get("threshold_config")
+    if config:
+        value = config["limits"]
+        phase = f"RMS <{value['phase_rms_counts']:g} cnt；偏置偏差 <{value['current_bias_counts']:g} cnt"
+        limits = (
+            phase,
+            phase,
+            phase,
+            f"RMS <{value['bus_rms_counts']:g} cnt；偏置偏差 <{value['current_bias_counts']:g} cnt",
+            f"滤波母线电压 {value['bus_min_v']:g}～{value['bus_max_v']:g} V（含边界）",
+            f"{value['temperature_min_c']:g}～{value['temperature_max_c']:g} °C；有效且不超过{value['temperature_max_age_ms']:g} ms",
+            f"峰峰角 ≤{value['rotor_static_max_deg']:.6f}°；帧有效",
+            f"sin/cos RMS 均 <{value['hall_rms_counts']:g} cnt",
+            f"去回符合命令方向；同向趋势 ≥{value['motor_trend_min_ratio']:.1%}",
+            f"去回方向相反；同向趋势 >{value['hall_trend_min_ratio']:.1%}；原码{value['hall_raw_min']:g}～{value['hall_raw_max']:g}",
+        )
     rows = []
     measurements = report.get("measurements", {})
     for item, name in enumerate(ITEMS):
@@ -798,7 +847,11 @@ def result_rows(report: dict) -> list[tuple[str, str, str, str]]:
     if resistance:
         nominal = resistance["nominal_ohm"]
         if nominal > 0:
-            limit = f"{nominal * 0.5:.4f}～{nominal * 1.5:.4f} Ω；{currents}"
+            ratios = config["limits"] if config else {}
+            limit = (
+                f"{nominal * ratios.get('resistance_min_ratio', 0.5):.4f}～"
+                f"{nominal * ratios.get('resistance_max_ratio', 1.5):.4f} Ω；{currents}"
+            )
 
         def values(names, readings):
             return " / ".join(
@@ -890,7 +943,9 @@ def main():
     parser.add_argument("--last-target", type=int, help="首次驱动前已知的 Type 116 目标序号")
     parser.add_argument("--observe", action="store_true", help="关相后录入实际观察的两轴去回旋向")
     parser.add_argument("--out", type=Path, help="保存本轮 JSON")
+    parser.add_argument("--limits", type=Path, help="版本化检测阈值JSON，省略使用工具旁配置")
     args = parser.parse_args()
+    limits = read_limits(args.limits)
     drive = None
     if args.drive:
         if None in (args.current_a, args.frequency_hz, args.leg_ms, args.travel_deg):
@@ -914,6 +969,7 @@ def main():
                 previous=args.last_lease,
                 previous_target=args.last_target,
                 progress=print,
+                limits=limits,
             )
     except OSError as exc:
         report = empty_report(args.node, args.ambient_c, str(exc))

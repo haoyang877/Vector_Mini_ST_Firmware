@@ -31,13 +31,14 @@ from five_axis_can_stability import (
 )
 from five_axis_jlink import FIRST_FIT_AXES
 from hardware_check import Drive, Link, empty_report, run_check
+from hardware_limits import read_limits
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
 from production_report import export_report
 
 STATUS_REFRESH_S = 1.0
 
-TITLE = "电机生产测试上位机 v2.1.5"
+TITLE = "电机生产测试上位机 v2.1.6"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -113,8 +114,8 @@ def hardware_check_fields(fields: dict[str, str], driven: bool) -> dict:
     if driven:
         drive = tuple(values[key] for key in ("current", "frequency", "leg", "travel"))
         Drive(*drive)
-    if values["ambient"] is not None and not 0 <= values["ambient"] <= 60:
-        raise ValueError("实测室温须在0～60 °C内")
+    if values["ambient"] is not None and not -40 <= values["ambient"] <= 120:
+        raise ValueError("实测室温须在-40～120 °C内，检测时再按阈值配置核对")
     if values["lease"] is not None and not 0 <= values["lease"] <= 0xFFFFFFFF:
         raise ValueError("上次续租计数须在0～4294967295内")
     if values["target"] is not None and not 0 <= values["target"] <= 65535:
@@ -336,6 +337,10 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
             )
         elif settings["profile"] == "hardware_check":
+            limits = read_limits()
+            (out / "hardware_check_limits.json").write_text(
+                json.dumps(limits, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
             with (
                 (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
                 os.add_dll_directory(str(dll.parent)),
@@ -355,6 +360,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                     progress=lambda msg: events.put(("stage", msg)),
                     phase_progress=lambda phases: events.put(("hardware_phases", phases)),
                     static_progress=lambda snapshot: events.put(("hardware_static", snapshot)),
+                    limits=limits,
                 )
             selection = FIRST_FIT_AXES.get(settings["node"])
             report.update(
@@ -362,7 +368,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 model=selection[1] if selection else "未知",
             )
             try:
-                export_report(report, out, tool_version="2.1.5")
+                export_report(report, out, tool_version="2.1.6")
                 report["production_report"] = "production-report.html"
             except (OSError, ValueError, KeyError) as exc:
                 report["report_error"] = str(exc)

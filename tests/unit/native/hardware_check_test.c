@@ -279,7 +279,7 @@ static void motion_sample(int32_t rotor, int32_t actual, int override)
 
 static void motion_cases(void)
 {
-    for (unsigned k = 0; k < 20; ++k)
+    for (unsigned k = 0; k < 24; ++k)
     {
         begin(2U, k == 4 ? 0 : 1);
         s_axis.output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
@@ -370,6 +370,18 @@ static void motion_cases(void)
             assert(report().stage == 5 && report().items[4] == 2 && s_stops == 1);
             continue;
         }
+        if (k >= 20U)
+        {
+            /* 独立注入双向票数：40%边界拒绝，41%及原先不足2/3的64%通过。 */
+            static const unsigned s_agreed[] = {39U, 40U, 41U, 64U};
+            HardwareCheckState *state = &s_axis.calibration.storage.hardware_check.state;
+            for (unsigned leg = 0U; leg < 2U; ++leg)
+            {
+                HardwareCheckAngleTrack *hall = &state->legs[leg][1];
+                hall->forward_windows = leg == 0U ? s_agreed[k - 20U] : 100U - s_agreed[k - 20U];
+                hall->backward_windows = 100U - hall->forward_windows;
+            }
+        }
         /* 110 先撤销模式，监督稍后才实际关相并更换 epoch。 */
         s_axis.state_machine.stop_pending = true;
         s_axis.motor.control_mode = MOTOR_CONTROL_NONE;
@@ -386,6 +398,12 @@ static void motion_cases(void)
             continue;
         }
         assert(r.stage == 4 && s_stops == 0U);
+        if (k >= 20U)
+        {
+            assert(r.items[8] == 1U);
+            assert(r.items[9] == (k <= 21U ? 2U : 1U));
+            continue;
+        }
         if (k == 12 || k == 17)
         {
             assert(r.items[8] == 2U && r.items[9] != 0U);
@@ -398,8 +416,65 @@ static void motion_cases(void)
     }
 }
 
+static void configured_cases(void)
+{
+    begin(1U, 1);
+    window();
+    uint16_t limits[CHECK_LIMIT_COUNT] = CHECK_LIMIT_DEFAULTS;
+    limits[CHECK_PHASE_RMS_COUNTS] = 20U;
+    limits[CHECK_BUS_MIN_MV] = 26000U;
+    limits[CHECK_BUS_MAX_MV] = 30000U;
+    ProtocolHardwareReport reply;
+    uint32_t previous = s_run;
+    uint16_t sequence = ++s_seq;
+    assert(s_check.start_configured(&s_axis, 1U, sequence, previous, 42U, limits, &reply) ==
+           PROTOCOL_RESULT_ACCEPTED);
+    s_run = reply.run_id;
+    assert(s_check.start_configured(&s_axis, 1U, sequence, previous, 42U, limits, &reply) ==
+           PROTOCOL_RESULT_ACCEPTED);
+    ++limits[0];
+    assert(s_check.start_configured(&s_axis, 1U, sequence, previous, 42U, limits, &reply) ==
+           PROTOCOL_RESULT_DENIED);
+    --limits[0];
+    for (unsigned i = 0U; i < 16000U; ++i)
+    {
+        s_adc[BSP_ADC_PHASE_CURRENT_A] = i % 2U ? 2063.0f : 2033.0f;
+        s_axis.foc.bus_voltage_filtered_v = 29.5f;
+        tick(true);
+    }
+    assert(report().items[0] == 1U && report().items[4] == 1U);
+    limits[CHECK_BUS_MIN_MV] = 31000U;
+    assert(s_check.start_configured(&s_axis, 1U, ++s_seq, s_run, 43U, limits, &reply) ==
+           PROTOCOL_RESULT_BAD_FIELD);
+    limits[CHECK_BUS_MIN_MV] = 26000U;
+    limits[CHECK_RESISTANCE_MAX_PERMILLE] = 2000U;
+    assert(s_check.start_configured(&s_axis, 3U, ++s_seq, s_run, 44U, limits, &reply) ==
+           PROTOCOL_RESULT_ACCEPTED);
+    s_run = reply.run_id;
+    window();
+    assert(report().stage == 6U);
+    s_axis.calibration.resistance_epoch = s_axis.state_machine.epoch;
+    s_axis.calibration.workspace.resistance.report =
+        (PhaseResistanceReport){.nominal_ohm = 1.0f,
+                                .valid = 63U,
+                                .phase_ohm = {1.8f, 1.8f, 1.8f},
+                                .result = 0U,
+                                .failure = 10U,
+                                .high_phases = 7U};
+    s_axis.state_machine.calibration_result = MOTOR_CALIBRATION_RESULT_COMPLETED;
+    s_axis.state_machine.state = MOTOR_STATE_IDLE;
+    ++s_axis.state_machine.epoch;
+    s_off = true;
+    tick(true);
+    assert(report().stage == 2U);
+    s_axis.foc.bus_voltage_filtered_v = 31.0f;
+    tick(true);
+    assert(report().stage == 5U);
+}
+
 /* 这两帧由实际主控编码器生成，按字节穿过生产 RX IRQ、前台及 TX 再交回主控。 */
 extern const uint8_t host_start[32], host_read[20], host_measure[32], host_resistance[32];
+extern const uint8_t host_limits[64];
 static ProtocolEndpoint s_endpoint;
 static BspCanFrame s_rx, s_tx;
 static bool s_rx_pending, s_tx_sent;
@@ -502,6 +577,18 @@ static void can_loopback(void)
     }
     puts("");
     s_endpoint.hardware_check.resistance = s_check.resistance;
+    service_frame(host_limits, 64U, false);
+    assert(s_tx_sent && s_tx.length == 64U && 3U == report().run_id);
+    printf("CAN_LIMITS ");
+    for (unsigned i = 0U; i < s_tx.length; ++i)
+    {
+        printf("%02x", s_tx.data[i]);
+    }
+    puts("");
+    for (unsigned i = 0U; i < 16000U; ++i)
+    {
+        tick(true);
+    }
 }
 
 /* 合成有偏置/噪声的完整静态窗口，验证公开数值与判定采用同一批样本。 */
@@ -662,6 +749,7 @@ int main(void)
     resistance_cases();
     sequential_static_cases();
     motion_cases();
+    configured_cases();
     static const unsigned s_cos_edges[] = {94U, 95U, 4000U, 4001U};
     for (unsigned i = 0; i < 4U; ++i)
     {

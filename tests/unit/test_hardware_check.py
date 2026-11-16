@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import hardware_check as hw
+from hardware_limits import read_limits
 from upgrade_client import crc8, crc16, decode_reply, encode_frames
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,7 +65,11 @@ class Port:
                 "<I6H",
                 0
                 if self.fault == "legacy"
-                else (0x2FFD00 | (int(self.measurements) << 20))
+                else (
+                    0x2FFD00
+                    | (int(self.measurements) << 20)
+                    | ((1 << 23) if self.version >= 0x010811 else 0)
+                )
                 & (~(1 << 21) if self.fault == "no_resistance" else 0xFFFFFFFF),
                 0x64E,
                 64,
@@ -74,6 +79,17 @@ class Port:
                 500,
             )
         elif kind == 127:
+            if len(payload) == 44:
+                _, _, self.mode, _, previous, revision, *limits = struct.unpack("<4BII16H", payload)
+                assert previous == self.run
+                self.run += 1
+                self.stage = 1
+                self.start_seq = seq
+                reply = struct.pack("<HHI16HI", 1, 0, revision, *limits, self.run)
+                if self.fault == "bad_config_ack":
+                    reply = reply[:4] + bytes(4) + reply[8:]
+                self.pending.append(response(node, kind, seq, reply))
+                return
             if payload and payload[1] == 3:
                 reply = struct.pack(
                     "<HH4BI4B7f",
@@ -219,6 +235,30 @@ class Port:
 
 
 class HardwareHostTest(unittest.TestCase):
+    def test_configured_start_requires_matching_ack_and_support(self):
+        limits = read_limits()
+        old = Port(version=0x010810)
+        result = hw.run_check(old, 6, limits=limits)
+        self.assertIn("不支持检测阈值", result["note"])
+        self.assertFalse(any(kind == 127 and payload for kind, _, payload in old.sent))
+        port = Port(version=0x010811)
+        result = hw.run_check(port, 6, limits=limits)
+        self.assertTrue(result["thresholds_confirmed"])
+        self.assertEqual(result["threshold_config"]["revision"], 1)
+        self.assertTrue(any(kind == 127 and len(payload) == 44 for kind, _, payload in port.sent))
+        bad = Port("bad_config_ack", version=0x010811)
+        result = hw.run_check(bad, 6, limits=limits)
+        self.assertIn("未确认", result["note"])
+        self.assertFalse(any(kind == 117 for kind, _, _ in bad.sent))
+
+    def test_hall_trend_limit_follows_firmware_version(self):
+        for version, limit in ((0x010810, "≥2/3"), (0x010811, ">40%")):
+            report = hw.empty_report(7)
+            report["app_version"] = version
+            rows = {row[0]: row for row in hw.result_rows(report)}
+            self.assertIn(limit, rows["霍尔动态"][2])
+            self.assertIn("≥2/3", rows["电机角动态"][2])
+
     def setUp(self):
         self.clock = 0.0
         self.tmp = tempfile.TemporaryDirectory()

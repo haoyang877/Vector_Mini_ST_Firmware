@@ -12,6 +12,10 @@ from hardware_limits import confirm_start, default_path, read_limits, start_payl
 
 
 class LimitsTests(unittest.TestCase):
+    def test_missing_file_reports_configuration_error(self):
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "无法读取"):
+            read_limits(Path(tmp) / "missing.json")
+
     def test_defaults_round_trip(self):
         config = read_limits()
         payload = start_payload(config, 3, 8)

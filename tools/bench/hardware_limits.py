@@ -38,7 +38,10 @@ def default_path() -> Path:
 def read_limits(path: Path | None = None) -> dict:
     """拒绝缺项、未知项和越界，生成与实际线路量化一致的记录。"""
     path = path or default_path()
-    raw = path.read_bytes()
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"无法读取检测阈值配置 {path.name}：{exc}") from exc
     config = json.loads(raw.decode("utf-8-sig"))
     if (
         not isinstance(config, dict)

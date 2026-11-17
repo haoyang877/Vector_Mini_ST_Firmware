@@ -1,0 +1,48 @@
+@startuml hardware_check_state_machine
+skinparam defaultFontName Microsoft YaHei
+skinparam defaultFontSize 14
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #475569
+hide empty description
+title AT32F456 硬件检测阶段与电机主状态
+
+state "IDLE · 0\n检测未开始" as CHECK_IDLE #F1F5F9
+state "本轮采集中\nmaintenance_capture = true" as ACTIVE {
+    state "STATIC · 1\n关相静态" as STATIC #E0F2FE
+    state "RESISTANCE · 6\n相电阻测量" as RESISTANCE #FEF3C7
+    state "ARMED · 2\n等待显式驱动" as ARMED #E0F2FE
+    state "DRIVING · 3\n双向驱动采集" as DRIVING #DCFCE7
+    [*] --> STATIC
+    STATIC : MotorState = IDLE / FAULT（已关相）
+    RESISTANCE : MotorState = CALIBRATION，完成后回 IDLE
+    ARMED : MotorState 通常为 IDLE，等待模式10启相
+    DRIVING : MotorState = RUNNING，STOP 后回 IDLE/FAULT
+    STATIC --> RESISTANCE : 静态完成 [mode=3]\n[动力检查及标定准入通过]\n/ RequestCalibration(PHASE_RESISTANCE)
+    STATIC --> ARMED : 静态完成\n[mode=2 且动力检查通过]
+    RESISTANCE --> ARMED : 本轮标定完成且已停机\n[结果及阻值分类通过]\n/ 更新 base_epoch
+    ARMED --> DRIVING : 快采样确认本轮已启相\n[模式10，匹配 driven_epoch]\n/ 开始动态统计
+}
+state "DONE · 4\n本轮结束" as DONE #DCFCE7
+state "ABORTED · 5\n本轮中止" as ABORTED #FEE2E2
+
+[*] --> CHECK_IDLE
+CHECK_IDLE --> ACTIVE : Type127 START [准入通过]\n/ run_id++，占用维护区
+STATIC --> DONE : 静态完成 [mode=1 且 NTC 已取得判定]
+DRIVING --> DONE : STOP收尾的快采样\n[本轮关相、代际及双向证据满足]\n/ finish_drive
+ACTIVE --> ABORTED : 当前阶段的中止条件成立\n/ 停采集，必要时请求 STOP
+DONE --> ACTIVE : 新 Type127 START [准入通过]
+ABORTED --> ACTIVE : 新 Type127 START [准入通过]
+
+legend bottom
+  框内数值是 Type127 检测阶段，不是 MotorState 枚举；ACTIVE 仅为图示分组。
+  Type127 启动须同轮号、已停机且无维护冲突；重复请求按既有幂等规则处理。
+  end_check 冻结实测值、释放维护区；只对仍匹配的动力会话请求 STOP。
+  DONE 表示采集结束，项目仍可能 FAIL；结果必须按同一 run_id 和请求范围核对。
+  mode=2/3 的动力检查要求静态项正常或允许未装；后续保护、超时或会话不符等可中止。
+  Type117 模式10、同一启动序号及新代际绑定本轮；Type116 给定双向目标，Type118 续租。
+  静态＋相电阻在 ARMED 由主机 STOP，板端记 ABORTED；主机按所选范围判定结果。
+  检测终态可先于电机 STOP 收尾；ABORTED 不证明已经关相，动态趋势异常可留作单项失败。
+  SELF_TEST 仍为电机主状态占位，不参与该流程；当前仅 AT32F456 APP 注册此任务。
+endlegend
+@enduml

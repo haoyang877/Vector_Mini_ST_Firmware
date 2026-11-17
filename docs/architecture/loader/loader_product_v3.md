@@ -3,8 +3,8 @@
 核对基线：176f3c7e。本文说明两板共用的Loader设计。G431为layout 6，
 新增AT32F456CCU7为layout 7，分别编译MCU/板级端口；UART尚未实现。
 两板均采用前128 KiB中的16 KiB Loader、96 KiB APP和16 KiB参数/身份区。
-新配套包需重新构建及实机验证，不能复用旧布局的测试结论；
-操作流程及新目标边界见[双板指南](../../guides/dual_board_loader.md)。
+新配套包需按目标布局构建并验证；
+操作流程及新目标边界见[双板指南](loader_product_v3.md)。
 
 AT32的APP启动端口仅依赖BSP内部接口、共享邮箱/镜像格式和目标常量。
 这些依赖由`harness.toml`显式许可；不允许BSP依赖APP、电机或通信业务。
@@ -166,4 +166,4 @@ Flash；只写身份页，随后读回并核对保护区。失败时保持停机
 版本写入 APP 描述符，Loader 同时固化硬件修订号与自身版本；维护查询按这些镜像信息上报。
 它们不占用用户参数记录。当前硬件修订号为编译期指定，尚未从独立板卡记录自动识别。
 
-双板的维护与验证证据按目标、镜像及日期记录。G431 历史资源占用与升级批次见[优化记录](../../reports/2026-10/loader_storage_optimization_20261020.md)，AT32 的配套使用与压力测试入口见[双板指南](../../guides/dual_board_loader.md)。
+双板按各自目标、镜像和配置验证；生成产物与日志保存在outputs，发布契约见[发布标准](../../guides/firmware_release_standard.md)。

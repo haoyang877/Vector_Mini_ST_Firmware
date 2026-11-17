@@ -7,4 +7,4 @@ AT32 的 status_light_gpio.c 提供本板 APP 状态灯输出。公共 LED 框�
 板型和硬件参数在firmware/config；应用入口在projects，业务回调在firmware/app/composition。
 底层台架在tests/bench，厂商SDK保持原样，生成代码手工调整仅在USER CODE区域。
 
-详见[共用接口与职责](../../docs/architecture/platform_interface_implementations_v1.md)。
+详见[共用接口与职责](../../docs/architecture/bsp_design_rules.md#公共接口索引)。

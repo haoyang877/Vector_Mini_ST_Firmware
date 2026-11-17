@@ -28,4 +28,20 @@
 - 通信队列、重发序号与 Loader 票据分别随应用或端点存储。生产 ISR 按物理外设固定路由。同一轴的快拍、同一端点的前台消费、同一物理 Flash 的提交均按原硬件顺序串行。不同轴可在调用中嵌套，绑定独立 PWM 和参数槽时可独立提交输出。
 - `firmware/motor` 负责控制律、位置级联与编码器标定算法，`firmware/communication` 负责帧与队列，`firmware/parameters` 负责 schema14 记录编解码。新增业务时在持有相应状态的模块实现，板级只负责绑定和派发。
 
-文件名使用小写下划线，公共函数使用模块前缀和动词，私有函数使用小写下划线。每个公共头描述输入、使用时机及副作用。离线嵌套实例用例和两块板的入口均通过正常生产接口调用。[工程规范](../../STYLE.md) · [双实例回归](../../tests/unit/native/test_app_instances.py) · [板级入口与文件职责](../../docs/architecture/app_file_responsibilities_v1.md)
+文件名使用小写下划线，公共函数使用模块前缀和动词，私有函数使用小写下划线。每个公共头描述输入、使用时机及副作用。离线嵌套实例用例和两块板的入口均通过正常生产接口调用。[工程规范](../../STYLE.md) · [双实例回归](../../tests/unit/native/test_app_instances.py)
+
+## 事件阅读路径
+
+两块板各自在 main.c 持有一个应用实例。先读板级入口和组合根，再沿相关事件进入业务模块。
+
+| 入口 | 状态写入者 | 跟踪路径 |
+| --- | --- | --- |
+| 上电与前台 | AppContext | 板级 main → App_Init / App_Start / App_Process |
+| 快采样、控制、外环 | MotorAxis | ADC → SampleFast → ControlFast；监督或 PendSV → OuterTick → ReadOuterInputs / CommitOuterResult |
+| 启停与故障 | MotorStateMachine | [电机状态机](motor_state_machine.c) 在本轴上复核事件条件、操作功率并提交主状态 |
+| 标定与保存 | MotorCalibration | 关相后由前台登记 LUT 会话，ADC 在本拍读角前复核并安装，前台复核同一会话后保存参数 |
+| CAN 反馈 | ProtocolEndpoint、AppProtocol | 108 查询或 116 目标处理 → 读取所属轴一次 → 直接填写 108 或 124 回复 |
+| 请求停机 | MotorStateMachine | 110 或失能 → 撤销启相许可 → 按实际关相状态回报 |
+| 升级与试运行 | AppLoader | 56 请求锁定停机，票据实际发出后复核并交接。57 在连续健康且关相后确认镜像 |
+
+公共接口与并发约定见本页前文。控制律及编码器算法归 motor，线上格式归 communication，记录格式归 parameters。Keil 可展开板级符号 `g_app.axis` 和 `g_app.endpoint`。

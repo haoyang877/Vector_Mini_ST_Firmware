@@ -1,5 +1,9 @@
 # YG 电机工装 v1.4.3（Windows x64）
 
+核对日期：2026-11-17。本页只对应独立命令行工装；当前Qt生产界面见[操作指南](../architecture/qt_production_design_v1.md)。
+工具版本取自 `commission_motor.py`，参数规则仍为v1.2.0；随包固件由打包时所选bundle决定。
+使用前须核对本包manifest和设备回读，文件名不代替实际版本。
+
 解压整个 ZIP 到可写目录，双击 `YG-Motor-Commission-v1.4.3.exe`。随包提供 AT32F456 的 Loader + APP、参数生成器、USB-CAN FD 接口库和运行库。工位需要 SEGGER J-Link 软件及 USB 驱动、USBCANFD-200U 适配器驱动。退出占用同一适配器或探针的调试软件，连接 SWD 和 CAN FD（默认物理通道 1，1 Mbit/s / 5 Mbit/s）。
 
 ## 交付文件
@@ -7,7 +11,7 @@
 | 项目 | 文件名或位置 |
 |---|---|
 | Windows 烧录工具 | `YG-Motor-Commission-v1.4.3.exe`，文件属性和 `--version` 均显示工具版本 |
-| 固件大包 | `firmware/YG2026-ESC-FULL-AT32F456CC-debug-LOADER-v2.3.3-APP-v1.8.1-20261113.hex` |
+| 固件大包 | `firmware/*FULL*.hex`，由所选bundle提供 |
 | 六轴同向初装预设 | `parameters/` 下每轴一份，文件名含轴名、型号、节点和参数版本，如 `YG-Params-PITCH-YQ-5740-0x06-v1.2.0-preset.bin` |
 
 参数 v1.2.0 新增 Lift（0x08），其运行、标定和行程参数与 PITCH 相同。原整车地址表也将 0x08 分配给 BMS，两者共用 CAN 总线时需使用不同地址。PITCH 和 Lift 的默认运行限速为输出轴 30 rad/s，Flash 记录格式为 schema14。默认设置直接使用随包预设，自定义限速时，工装按同一版本规则生成本机记录。PITCH、Lift 和 YAW 随包预设使用 3 A 台架热参数。标定前备份和标定后读回文件名中的版本标识工装采用的参数规则，具体样机和本次内容由 UID 目录及运行记录标识。
@@ -38,4 +42,4 @@ Windows 多层解压目录支持长路径。若需沿用其他目录的安装备
 
 第二条示例适用于同向的 PITCH 台架样机。`--channel 2` 切换到 CAN 第二物理通道，`--probe` 可选择探针序号。`--check` 完全离线，校验大包与 AXF 并实际生成六轴的同向记录并与包内参数逐字节比较。其余选项见 `--help`。
 
-此版本随附 Loader v2.3.3 和 APP v1.8.1 的 debug 工装镜像；固件来源及构建状态见 firmware/summary.json。manifest.json 列出交付文件的 SHA-256。
+实际版本、固件来源及构建状态以本包firmware/summary.json为准。manifest.json 列出交付文件的 SHA-256。

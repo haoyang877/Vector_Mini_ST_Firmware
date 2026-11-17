@@ -1,10 +1,10 @@
 # APP 与 Loader 状态机设计
 
-主体按 2026-11-10 的 `the-system-refactor` 工作树核对（分支提交 `a87bc5ce`）；运行期健康与看门狗部分于 2026-11-17 更新。两板每根轴各持有一个 `MotorStateMachine`。上电进入 IDLE。第五个枚举 SELF_TEST 保留线路映射，生产代码没有迁入该状态的事件。上电电流零偏在关相 IDLE 内采样。
+本页定义当前共用APP和Loader的状态、守卫与交接。两板每根轴各持有一个 `MotorStateMachine`。上电进入 IDLE。第五个枚举 SELF_TEST 保留线路映射，生产代码没有迁入该状态的事件。上电电流零偏在关相 IDLE 内采样。
 
 ## APP 电机状态与功率许可
 
-APP1.6.2增加上位机位置会话策略：仅Type117显式不限位标志通过普通启动门禁后，
+上位机位置会话策略：仅Type117显式不限位标志通过普通启动门禁后，
 由本轴状态机发布`MotorControlState.host_position_unlimited`；外环快照只读此权限。
 `host_feedback_ms`由来源正确的Type108在前台续期，监督拍按无符号毫秒差检测500ms失联并停机。
 STOP、故障结束和初始化清除权限；普通RequestStart保持原行程策略。
@@ -23,6 +23,32 @@ stateDiagram-v2
     FAULT --> IDLE: 显式清错且恢复条件满足
 ```
 
+### 详细状态与执行时序图
+
+上面的 Mermaid 用于总览；详细设计使用下列 PlantUML 图源，按 2026-11-17 当前源码核对。转换标签统一写为
+`事件 [条件] / 动作`，方括号表示允许提交该转换的条件。图中描述的是当前实现，
+不新增主状态、回调或状态机框架；同名字段和调用可直接对照源码。
+
+| 图源 | 阅读重点 |
+| --- | --- |
+| [电机详细状态图](diagrams/motor_state_machine.puml) | 五个枚举、有效转换、提交条件与故障收尾；SELF_TEST 保留但未接线 |
+| [启动时序图](diagrams/motor_start_sequence.puml) | 前台受理、外环发布许可、ADC 复核及 PWM 启用读回；ACCEPTED 时仍可能为 IDLE |
+| [STOP 时序图](diagrams/motor_stop_sequence.puml) | 撤销许可、快速关相、监督或外环收尾，以及拒绝迟到的旧会话结果 |
+| [硬件检测关联状态图](diagrams/hardware_check_state_machine.puml) | Type127 的七个检测阶段及其与 IDLE、CALIBRATION、RUNNING、FAULT 的关联 |
+
+`start_pending`、`phase_enable_epoch` 和 `calibration_handoff` 都是运行字段，
+不能从图中推导为额外主状态。时序图给出合法的事件先后与分支，
+不承诺 ADC、监督、外环和前台之间不存在抢占。看门狗判据另见
+[运行期健康与看门狗](#运行期健康与看门狗)，不把 FAULT 直接画成复位。
+
+使用本地 Java 与 PlantUML，先检查语法，再导出到忽略的 `outputs`。以下命令从仓库根目录执行，
+`path/to/plantuml.jar` 替换为本机工具位置；不需要向在线渲染服务发送图源。
+
+```text
+java -jar path/to/plantuml.jar -charset UTF-8 -checkonly docs/architecture/diagrams/*.puml
+java -jar path/to/plantuml.jar -charset UTF-8 -tsvg -o ../../../outputs/state-machine-diagrams docs/architecture/diagrams/*.puml
+```
+
 | 主线 | 谁提出 | 何时改变主状态 |
 | --- | --- | --- |
 | 空闲 → 运行 | 前台受理启动，登记模式、起始目标和会话 | 外环发布启相意图，ADC 拍首复核本会话、采样、模式、STOP 和故障。只有 PWM 启相且读回确认后，才提交 `RUN` |
@@ -31,6 +57,60 @@ stateDiagram-v2
 | 标定 → 空闲 | 快拍报告算法完成 | 先关相。需要安装 LUT 时由 ADC 在读角前复核会话；前台复核并保存，成功后由监督拍提交 `COMPLETE`。联合标定在同一会话转入电零位 |
 | 任意状态 → 故障 | 保护逻辑锁存故障，或启相关相确认失败 | 快环看到故障立即抑制功率，慢拍处理故障并提交 `FAULT`。故障锁存和主状态写入发生在各自的执行上下文 |
 | 故障 → 空闲 | 前台显式 CLEAR | 必须关相、输入有效、故障源满足恢复条件。若原子清故障字失败则恢复 `FAULT`；成功只回空闲，启动需重新请求 |
+
+## 硬件检测阶段与电机主状态
+
+AT32F456 APP 的硬件检测由独立任务维护 `s_report.stage`，通过 Type127 显式启动和查询。
+它与每轴 `MotorStateMachine.state` 同时存在；电机 `SELF_TEST` 枚举仍为占位，
+不能据此判断硬件检测是否实现。当前 STM32G4 入口未注册该检测任务。
+[板端检测实现](../../projects/at32f456/application/hardware_check.c) ·
+[详细关联图](diagrams/hardware_check_state_machine.puml)
+
+```mermaid
+stateDiagram-v2
+    [*] --> CHECK_IDLE
+    CHECK_IDLE: IDLE 0：检测未开始
+    STATIC: STATIC 1：关相静态，电机保持 IDLE/FAULT
+    RESISTANCE: RESISTANCE 6：测阻，电机进入 CALIBRATION
+    ARMED: ARMED 2：待驱动，电机通常为 IDLE
+    DRIVING: DRIVING 3：已启相，电机为 RUNNING
+    DONE: DONE 4：采集结束，按项目判定
+    ABORTED: ABORTED 5：检测中止，关相另行确认
+    CHECK_IDLE --> STATIC: Type127 受理新一轮
+    STATIC --> DONE: mode1，静态完成且NTC取得判定
+    STATIC --> RESISTANCE: mode3，动力检查和标定准入通过
+    STATIC --> ARMED: mode2，动力检查通过
+    RESISTANCE --> ARMED: 本轮测阻通过且关相收尾完成
+    ARMED --> DRIVING: 本轮模式10启相采样确认
+    DRIVING --> DONE: STOP收尾，双向和代际证据满足
+    STATIC --> ABORTED: 当前阶段中止条件成立
+    RESISTANCE --> ABORTED: 当前阶段中止条件成立
+    ARMED --> ABORTED: 取消、超时或会话不符等
+    DRIVING --> ABORTED: 保护、超时或会话不符等
+    DONE --> STATIC: Type127 受理下一轮
+    ABORTED --> STATIC: Type127 受理下一轮
+```
+
+| 检测阶段 | 电机状态及推进条件 |
+| --- | --- |
+| `IDLE=0` | 检测报告初值，和电机 `IDLE=0` 属于不同枚举；上电不自动开始检测。 |
+| `STATIC=1` | Type127 要求轴已停机、无启停待办或维护冲突，接受已关相的 IDLE 或 FAULT。保持原主状态，逐项采集电流、母线、NTC、转子和 Hall；静态异常项不直接截断后续静态采集。 |
+| `RESISTANCE=6` | mode3 在静态动力检查通过后请求 `PHASE_RESISTANCE` 标定；仍须从无故障 IDLE 通过正常准入，进入 CALIBRATION。测量完成、关相收尾及本轮阻值分类通过后转 ARMED。 |
+| `ARMED=2` | 通常保持 IDLE，等待 Type117 模式10。受理必须匹配本轮启动序号及新运动代际，随后 ADC 复核启相；仅收到受理回复不代表已进入 DRIVING。 |
+| `DRIVING=3` | 已采到本轮开环电流模式的启相证据，电机处于 RUNNING；Type116 给定正向、保持、反向，Type118 续租。STOP 收尾后的快采样还须满足本轮代际和双向采集证据才结束检测。 |
+| `DONE=4` / `ABORTED=5` | 冻结实测值，停止采集并释放维护区；仍匹配本轮动力会话且未停机时请求 STOP。终态与电机收尾不是原子操作，需另外确认数字关相；电机最终可为 IDLE 或 FAULT。 |
+
+`DONE` 只表示采集结束，单项结果仍可能异常；`ABORTED` 也不等同于所有已测项失败。
+Qt 工具的“静态＋相电阻”在 ARMED 主动 STOP，板端可记为 ABORTED，
+主机按静态和测阻范围的完整证据判断通过，动态项保持未测。
+每轮结果绑定 `run_id`，不能拼接不同轮次。检测阶段、项目判据和阈值的线路契约见
+[AT32F456 硬件功能检测](../protocols/README.md#at32f456-硬件功能检测-v2)，
+主机范围判定见 [Qt 生产工具](qt_production_design_v1.md)。
+
+ADC 中断通过 `HardwareCheck_CaptureFast` 有界入队，前台通过 `HardwareCheck_Process`
+推进阶段和发布报告；`maintenance_capture` 在采集期间占用维护区，与参数事务和其他标定互斥，
+本轮相电阻按已有特例借用标定执行器。任务绑定和调度见
+[AT32F456 入口](../../projects/at32f456/application/main.c)。
 
 ## 从 IDLE 判断请求能否受理
 
@@ -78,6 +158,19 @@ stateDiagram-v2
 
 CLEAR 由前台执行。先核对实际关相、输入有效、标定会话空闲、配置合法及故障源恢复，再用原子比较交换清除已检查的故障字；期间若故障字已改变则保留 FAULT。不同故障有不同恢复条件：过流需要监督拍累计恢复时间，电压故障要求滤波母线回到使能窗口，编码器故障要求新鲜采样和编码器在线。关相读回失败导致的 `fault_locked` 阻止普通 CLEAR。[恢复判据](../../firmware/motor/protection/motor_fault.c)
 
+## 标定执行与结果发布
+
+两板 APP 的 160 请求支持编码器线性化、电气零位和机械零位。协议适配层把 kind 1、2、6 映射为内部标定类型；本轴状态机受理并建立会话后进入 CALIBRATION。受理回复中的 ticket 记录请求，持久化走以下路径。[标定命令](../protocols/README.md#parameters) · [命令映射](../../firmware/app/app_protocol.c)
+
+| 上下文 | 所属模块 | 转交条件 |
+| --- | --- | --- |
+| ADC 快拍 | `MotorAxis_ControlFast → MotorCalibration_StepFast` | LUT 和电零位在许可启相后执行，机械零位保持关相。任务报完成后，状态机关闭输出并读回，设置待发布阶段。 |
+| 前台与 ADC | `MotorCalibration_ProcessPublication / PublishLutFast` | 对 LUT，前台登记待安装的会话，带 Hall 的轴先等转子停稳；ADC 在本拍编码器读回前复核代际并安装。联合标定在原代际继续电零位。 |
+| 停机前台 | `MotorCalibration_ProcessPublication` | 准备轴记录，在最终提交前检查原代际、标定类型、STOP、故障和实际关相，再写 Flash 并回读。写入失败锁存存储故障。 |
+| 监督拍 | `MotorStateMachine_SupervisorTick` | 保存成功后消费完成事件并回 IDLE。中途停机或故障会使旧候选失效。 |
+
+完整扫圈后的 Hall 候选不合格时，保留失败原因并保存诊断记录。中途取消走 STOP，不提交部分标定。在线参数 SAVE 与自动标定保存是两个独立入口，两者的协议准入与执行结果分别核对，不以标定自动保存代替 SAVE 命令的结果。[发布实现](../../firmware/app/motor_calibration.c) · [操作与判定](../guides/calibration_process.md) · [记录布局](../../firmware/parameters/README.md#storage)
+
 ## 运行期健康与看门狗
 
 适用于两板配套 LoaderApp。电机运行许可、运行期看门狗健康和新镜像确认资格分别判断。
@@ -107,8 +200,7 @@ CRC、激活/尝试标记及 5 s 确认期限。未确认镜像的喂狗仍要�
 超出确认期限后停止喂狗，实际复位时刻取决于硬件看门狗。
 
 实际判断见[状态机健康接口](../../firmware/app/motor_state_machine.c)与
-[APP 健康检查和确认](../../firmware/app/app_loader.c)。本次修改的实现与验证状态见
-[实施记录](../plans/completed/2026-11-17-watchdog-runtime-health.md)。
+[APP 健康检查和确认](../../firmware/app/app_loader.c)。
 
 ## 从代码跟一条路径
 
@@ -157,14 +249,28 @@ Loader 先确认复位原因、功率关闭及链路条件。看门狗复位、�
 
 电机事件与抢占见[状态集成用例](../../tests/unit/native/motor_state_machine_integration_test.c)，掉电与标记组合见[Loader 内存用例](../../tests/unit/loader_upgrade_test.c)。
 
-## 相电阻检查（2026-11-13，APP1.8.9）
+## 相电阻检查
 
 完整硬件检测新增内部标定类型 PHASE_RESISTANCE。与其他有功率标定共用准入、ADC启相、STOP和故障关断；仅本检查允许BSP在零电流时选择AB、BC、CA双相，第三相上下桥均关闭。快环工作区归MotorCalibration；完成直接关相退出，不发布LUT、不写Flash。检查结果由板级检测在终态复制，失败不得进入动态。
 
-### 自由转子测阻调整（2026-11-13，APP1.8.10/1.8.11）
+### 自由转子测阻
 
-相电阻允许转子随直流磁场对齐，不按相对起点位移中止。升降流1A/s，转子及电流稳定后采样；每次极性激励最多4s，板级总看护25s。专用7A过流及原有故障/STOP仍直接关相，不改变普通运行和Flash参数。详见[实施计划](../plans/completed/2026-11-13-phase-resistance-free-rotor.md)。
+相电阻允许转子随直流磁场对齐，不按相对起点位移中止。转子及电流稳定后采样；每次极性激励最多4s，板级总看护25s。专用7A过流及原有故障/STOP仍直接关相，不改变普通运行和Flash参数。
 
-APP1.8.11仅调整测阻斜坡：每个新磁场首次升到0.5A仍1A/s；已经对齐后的升至1A及降至零用5A/s。稳定窗口、采样长度、过流和STOP不变。此优化不减少双档或双极性测量。
+当前测阻档位为1A/2A，需活动电流上限至少2A。首次对齐2A/s、同向升档5A/s、撤流10A/s，仍在转子及电流稳定后采样，7A中止及原保护不变。试验线电压上限12.5V且不超过实测母线45%，不改变运行控制及存储参数。
 
-APP1.8.12测阻档位改为1A/2A，需活动电流上限至少2A。首次对齐2A/s、同向升档5A/s、撤流10A/s，仍在转子及电流稳定后采样，7A中止及原保护不变。试验线电压上限12.5V且不超过实测母线45%，不改变运行控制及存储参数。
+## 故障与恢复边界
+
+motor_sensing产生采样资格，motor_fault锁存故障并判断恢复条件；状态机掌握功率资格及实际关相。
+快环故障不等待前台或低频监督才关闭输出。故障源消失不自动清锁存、不恢复旧目标。
+MotorFault_Report保留首个故障，协议位图由适配层构造，不直接发送内部故障枚举。
+FAULT中的CLEAR要求实际关相、有效配置和采样、标定空闲、故障源恢复且无锁定条件；
+成功仅返回IDLE。过流恢复需驻留时间，电压须回到恢复窗口，MCU温度须低于恢复门限。
+关相失败和代际耗尽等锁定故障不允许普通CLEAR绕过。
+
+母线的使能、过压/欠压和恢复阈值来自活动配置，原始值与滤波值用于各自明确的判据。
+STM32 MCU温度来自片内TS/VREF，AT32电机NTC是独立来源，不能互相替代。
+绕组热模型接口及参数保留，当前APP不调度；有效温度、模型估计和电流限额不是同一事实。
+已确认LoaderApp在普通故障但可靠关相、关键任务仍推进时可以继续维护看门狗；
+该健康策略不放宽CLEAR、重新启动或试运行镜像确认条件。
+条件的唯一实现入口为[motor_fault.c](../../firmware/motor/protection/motor_fault.c)及本页状态机。

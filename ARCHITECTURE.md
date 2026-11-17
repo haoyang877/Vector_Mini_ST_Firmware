@@ -3,7 +3,7 @@
 核对日期：2026-11-06。本文件定义稳定职责、依赖、数据所有权与运行边界。
 编程决策与命名统一见 [STYLE.md](STYLE.md)，执行与验证入口见 [AGENTS.md](AGENTS.md)。
 当前实现详图见[软件架构](docs/architecture/software_architecture.md)，
-文件归属见[代码框架](docs/architecture/code_structure.md)；历史方案不覆盖当前边界。
+文件归属见[代码框架](docs/architecture/software_architecture.md#产品及依赖)；历史方案不覆盖当前边界。
 
 ## 产品边界
 

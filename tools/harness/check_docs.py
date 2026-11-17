@@ -18,10 +18,6 @@ REQUIRED_INDEX_LINKS = (
     "protocols/",
     "guides/",
     "hardware/",
-    "analysis/",
-    "reports/",
-    "releases/",
-    "plans/",
 )
 STALE_CURRENT_PATTERNS = {
     "J-Link序号602722271": "select the probe through explicit bench configuration instead of a fixed serial",
@@ -83,7 +79,7 @@ def problems() -> list[dict]:
             "ARCHITECTURE.md",
             "AGENTS.md",
             "tests/README.md",
-        ) or relative.startswith(("docs/guides/", "docs/architecture/", "docs/plans/"))
+        ) or relative.startswith(("docs/guides/", "docs/architecture/", "docs/protocols/"))
         if is_current:
             for stale, remediation in STALE_CURRENT_PATTERNS.items():
                 if stale in text:

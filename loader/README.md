@@ -4,15 +4,13 @@
 通信使用 CAN FD（G431 固定 500K/2M，AT32F456 默认 1M/5M）、公司Type1与50..55、单槽CRC32升级，
 含持久激活门槛与一次试运行确认。配套APP支持56停机交接及57健康确认。
 目标版本与硬件修订由对应的[目标清单](../shared/targets/)维护。
-功能、128 KiB 布局及维护步骤见[双板指南](../docs/guides/dual_board_loader.md)。
-历史 G431 实机结果见[验收记录](../docs/reports/2026-10/loader_storage_optimization_20261020.md)，不能代替本轮双板验收。
+功能、128 KiB 布局及维护步骤见[双板指南](../docs/architecture/loader/loader_product_v3.md)。
+两板分别执行对应目标的构建、协议及硬件验收，不能相互替代。
 
 - [软件框图、紧凑流程图与内存分配](../docs/architecture/loader/loader_product_v3.md)
 - [更换 MCU：资料、适配步骤和验收标准](../docs/guides/loader_mcu_porting_v1.md)
-- [多目标边界改造与离线验证](../docs/reports/2026-10/loader_mcu_boundaries_20261021.md)
 - [升级线路、设备身份页及容器v3](../docs/protocols/README.md#upgrade)
-- [实施、验收与回退计划](../docs/archive/plans/2026-09-29-loader-p0-p1-v1.md)
-- [Keil 单独下载 LoaderApp 指南](../docs/guides/keil_loader_app_debug.md)
+- [Keil 单独下载 LoaderApp 指南](../docs/architecture/loader/loader_product_v3.md)
 - `core/`：单事务、5s租约、主机nonce/session与精确ACTIVATE发送票据。
 - `runtime/`：安全启动、50ms窗口、现场校验、GET_INFO与升级路由。
 - `ports/include/`：公共平台接口；`ports/stm32g4/` 与 `ports/at32f456/`：两板芯片驱动。
@@ -40,9 +38,9 @@ CAN 通道固定为 0。设备索引和通道索引不是同一个编号，不�
 不支持USB、UART、跨复位续传、旧APP回滚、维护角色或签名。
 layout 5 到 layout 6 必须通过受控 SWD 同时迁移 Loader 与 APP；不能混用旧址 APP
 或以 CAN 改写 Loader。参数仍使用[schema14](../firmware/parameters/README.md#storage)。
-AT32 早期预检和后续升级属于不同批次，验收按目标、镜像和日期查[双板指南](../docs/guides/dual_board_loader.md)。
+AT32 早期预检和后续升级属于不同批次，验收按目标、镜像和日期查[双板指南](../docs/architecture/loader/loader_product_v3.md)。
 APP 的 READY 回复必须关联队列入队位置，并等待该帧真实发送完成后才能复位；
-修复与验证见[交接队列修复计划](../docs/plans/completed/2026-10-20-loader-handoff-queue-v1.md)。
+修复与验证
 
 升级客户端的 summary.json 现含 timing：按命令统计发送耗时、回复等待和重试，失败请求也计入。
 发送耗时包含传输适配器以及外层 J-Link 检查；不能称作纯 CAN 总线耗时。

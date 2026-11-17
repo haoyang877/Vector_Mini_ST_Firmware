@@ -1,34 +1,26 @@
-# 文档入口
+# 设计文档入口
 
-## APP 与 Loader 固件设计
+长期维护当前设计、接口契约和设计输入。调试过程、阶段计划、历史报告及发布批次不在文档树保留。
 
-- [架构设计](architecture/software_architecture.md)说明两种镜像如何协作，以及前台、中断和业务模块如何分工。
-- [状态机设计](architecture/motor_state_machine_v1.md)给出电机运行与标定的转移条件，以及 Loader 下载、激活和确认的状态。
-- [通信协议设计](protocols/README.md)定义 CAN FD 帧、各镜像的命令、应答和重发语义。
-- [参数管理设计](architecture/parameter_ownership_v1.md)说明参数的来源、校验、活动对象、保存和重启恢复。
-
-具体板型和 Keil 工程见[镜像选择表](../README.md#选择板卡与固件工程)。
-
-## 主题索引
-
-| 主题 | 入口与用途 |
+| 设计主题 | 入口 |
 | --- | --- |
-| [architecture/](architecture/) | 软件职责、文件归属、状态机、控制/维护、参数与保护 |
-| [protocols/](protocols/) | 唯一现行通信协议说明 |
-| [guides/](guides/) | 当前开发、操作、标定与发布指南 |
-| [YG_MC_HOST 功能需求清单](guides/yg_mc_host_requirements_v1.md) | 当前 Rust 上位机功能、状态和验收范围 |
-| [YG_MC_HOST 软件设计说明](architecture/yg_mc_host_design_v1.md) | Rust 上位机模块边界、页面流程、通信和安全门禁 |
-| [AT32F456 五轴电机配置](guides/at32f456_five_axes.md) | 电机 ID、轴角色、型号、参数对照及后续维护 |
-| [hardware/](hardware/) | 板卡PDF、器件资料与性能曲线 |
-| [analysis/](analysis/) | 专题分析及其独立基线 |
-| [reports/](reports/) | 原始日期与基线对应的验证结论，包括失败和未测项 |
-| [releases/](releases/) | 交付/候选记录，不能当作当前最新发布清单 |
-| [plans/](plans/) | 真正未结计划、完成记录、决策与当前限制 |
-| [历史归档](archive/README.md) | 退役实现、旧提案、合并前说明；每项都有归档原因与当前入口 |
+| 系统架构 | [产品、依赖、调度和数据所有权](architecture/software_architecture.md) |
+| 状态机与保护 | [启停、标定、故障和并发交接](architecture/motor_state_machine_v1.md) |
+| 通信协议 | [帧、命令、结果与事务](protocols/README.md) |
+| 参数与存储 | [来源、所有权、持久化和兼容](architecture/parameter_ownership_v1.md) |
+| 电机控制算法 | [FOC、PI、速度、位置OTG与反馈](architecture/motor_execution_core_v3.md) |
+| BSP与板型适配 | [接口、硬件边界和文件归属](architecture/bsp_design_rules.md) |
+| 采样与功率时序 | [采样链路](architecture/sampling_chain_v1.md)、[PWM/ADC时序](architecture/at32f456_pwm_adc_driver.md) |
+| Loader | [启动、升级、镜像与存储](architecture/loader/loader_product_v3.md) |
+| Qt生产工具 | [任务、身份与报告设计](architecture/qt_production_design_v1.md) |
+| Rust工作台 | [会话、控制、维护及验收](architecture/yg_mc_host_design_v1.md) |
 
-推荐先读[软件架构](architecture/software_architecture.md)，再查
-[代码结构](architecture/code_structure.md)或[APP逐文件对照](architecture/app_file_responsibilities_v1.md)。
-验证命令见[项目工具](guides/project_harness.md)，发布规则见[发布标准](guides/firmware_release_standard.md)，
-任务与检查说明见[测试入口](../tests/README.md)。
+## 支撑入口
 
-新增、更新、归档、合并和检查流程见[文档维护规则](guides/documentation.md)。
+- [architecture/](architecture/)：设计索引及传感器专题。
+- [protocols/](protocols/)：当前通信及仍有消费者的存储兼容格式。
+- [hardware/](hardware/)：原理图、板卡资源、电机数据及曲线。
+- [guides/](guides/)：设计补充、工程规则和打包依赖的产品说明。
+
+编程规范见[STYLE](../STYLE.md)，稳定边界见[ARCHITECTURE](../ARCHITECTURE.md)，
+维护方式见[文档规则](guides/documentation.md)。

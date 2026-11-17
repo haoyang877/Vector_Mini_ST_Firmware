@@ -1,0 +1,59 @@
+@startuml motor_stop_sequence
+skinparam defaultFontName Microsoft YaHei
+skinparam defaultFontSize 14
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+hide footbox
+title STOP 与迟到外环结果：先撤许可，再确认关相与收尾
+autonumber
+
+actor "主机" as Host
+participant "前台\n协议 + 状态机" as Foreground
+participant "外环上下文" as Outer
+participant "ADC 快拍" as ADC
+participant "监督拍" as Supervisor
+participant "本轴 PWM\nBSP" as PWM
+
+note over Foreground,PWM
+  STOP 可在 IDLE 等待启动、RUNNING 或 CALIBRATION 期间到达。
+  图中 ADC 先执行关相是一个合法时序，不承诺每次都先于监督/外环收尾。
+end note
+Outer -> Outer : 已读取旧 MotorOuterWork(epoch=E)
+Host -> Foreground : 101 / STOP
+Foreground -> Foreground : stop_pending=true\n撤销 phase_enable_epoch 和 start_pending\ncontrol_mode=NONE，撤销不限位权限
+Foreground -> PWM : 读取当前通道关闭状态
+Foreground --> Host : 0/0：通道已关闭（状态收尾可能尚未完成）\n1/1：已受理待关相
+
+ADC -> ADC : BeginFastTick 发现 stop_pending 或 fault_code
+ADC -> PWM : disable()（仍有通道活动时）
+note right of ADC
+  此处优先抑制功率，
+  不以 STOP 的受理回复代替关相完成。
+end note
+
+alt 监督拍先消费 STOP
+    Supervisor -> Supervisor : transition(STOP)\n撤销许可和标定交接标志
+    Supervisor -> PWM : disable()
+    Supervisor -> Supervisor : 取消标定，清目标和控制器\nepoch++
+    Supervisor -> PWM : phases_disabled()
+    PWM --> Supervisor : 通道关闭读回结果
+    Supervisor -> Supervisor : 无故障：state=IDLE\n存在故障或关相失败：state=FAULT\nstop_pending=false
+    Outer -> Outer : CommitOuterResult(旧 E)\n会话不匹配，拒绝旧控制输出
+else 外环提交入口先消费 STOP
+    Outer -> Outer : transition(STOP)\n撤销许可和标定交接标志
+    Outer -> PWM : disable()
+    Outer -> Outer : 取消标定，清目标和控制器\nepoch++
+    Outer -> PWM : phases_disabled()
+    PWM --> Outer : 通道关闭读回结果
+    Outer -> Outer : 无故障：IDLE；否则：FAULT\nstop_pending=false
+    Outer -> Outer : 拒绝旧 E 的控制结果
+    Supervisor -> Supervisor : 后续监督保持新状态并推进恢复检查
+end
+
+note over Foreground,PWM
+  关相读回失败时 fault_locked=true，普通 CLEAR 被拒绝，运行期健康检查失败。
+  通道关闭只表示数字输出关闭，不代表转子已机械停止。
+  FAULT 清除成功只回 IDLE，必须重新请求启动。
+end note
+@enduml

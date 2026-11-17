@@ -1,168 +1,86 @@
-# APP 与 Loader 固件架构设计
+# APP 与 Loader 软件架构
 
-本页按 2026-11-10 的 `the-system-refactor` 工作树核对，分支提交为 `a87bc5ce`。STM32G431 和 AT32F456 共用单轴电机 APP 与升级核心，各自链接板级入口和硬件实现。六个镜像的工程、启动地址及工作区见[仓库首页](../../README.md#选择板卡与固件工程)。长期依赖边界见[架构约定](../../ARCHITECTURE.md)。
+适用STM32G431与AT32F456。两板共用单轴APP和升级核心，分别链接板级入口、SDK与BSP实现。
+工程及镜像选择见[仓库入口](../../README.md)，稳定边界见[ARCHITECTURE](../../ARCHITECTURE.md)。
 
-## 两个镜像如何协作
-
-AT32F456 的 TMR6 监督拍先更新轴，再把主状态、当前故障及检查标志交给
-[灯语模块](../../projects/at32f456/application/status_lights.c)。模块逐拍计算逻辑亮灭，板级入口仅在输出变化时调用
-[GPIO 驱动](../../firmware/platform/bsp/mcu/at32f456/status_light_gpio.c)。
-
-### AT32F456 的 64 KiB RAM 预算
-
-RAM优化保持板端联合标定及所有LUT点数，APP栈为4 KiB，Loader栈保持8 KiB。输出轴配对样本仅将
-两路12位Hall整数无损打包；标定记录、关相参数暂存及硬件检测采样队列复用维护区。
-检测占用时拒绝标定和使用该区的参数操作；报告保留在独立状态中。构表结束后才允许
-记录编码覆盖原采样。互斥状态由轴状态机提供，ADC只在检测有效时写入队列。
-SRAM逐函数选择热路径，链接断言约束总分配；RTT缓冲缩短会减少可容忍的主机读取停顿。
-维护区由`MotorCalibration.storage`持有，记录、样本、检测统计及128组队列为同一union；
-电机编码器的6144 B工作区独立保留。RTT1 波形缓冲采用非阻塞整帧写入。
-两种 AT32 APP 的 RAM 总预算为 65,536 B，其中 32 B 计入 Loader 邮箱。
-APP 从 `0x20000000` 起最多分配 65,504 B，链接结束地址上限为 `0x2000FFE0`。
-邮箱实际位于 `0x20016FE0`，地址由 Loader ABI 固定。48 KiB 优化初版配套APP总预留48944 B，独立APP48872 B，均包含栈和32 B邮箱。
-快代码和4 kHz外环的执行位置变化尚未完成实机最坏时序验收；离线预算通过不能替代该验收。
-详见[实施与验收记录](../plans/completed/2026-11-13-at32-ram-64k-v1.md)。
-
-型号配置事务只常驻原始请求和已验证的回复摘要，准备与提交在停机前台
-借用`MotorCalibration.workspace.parameters`重建完整配置。原请求保留未量化的输入整数，
-重新执行相同构造和换算；保存页不读取可被标定或参数维护覆盖的工作区。
-标定发布在电机LUT安装、释放采样工作区后，用同区的`publication_hall`保存候选。
-输出轴拟合只备份24 B观测值，初始化/记录编码原位清零，避免四个约2 KiB的栈副本。
-APP专用启动包装器设置4 KiB栈，共享启动文件及Loader默认值仍为8 KiB；向量不变。
-48 KiB 优化初版按前台回调、三级IRQ嵌套、FP异常帧及汇编余量核算3496 B，
-在4096 B中余600 B。该预算保留函数指针和汇编假设，尚无实测栈水位结论。
-检测报告与幂等身份独立保留；完整统计只有检测占用期间有效，后续维护会覆盖。
-详见[48 KiB优化及预算审计](../plans/completed/2026-11-13-at32-ram-48k-v1.md)。
-
-AT32F456 的硬件检测统计由板级前台维护；ADC 只发布同拍原码样本。
-APP v1.8.1 的旋转验收按 50 ms 展开角均值判断整体趋势，单拍角增量只作诊断。
-窗口、两段轨迹和停稳证据均属于本轮 RAM 会话，不写参数。上位机沿用 Type127 v2
-读取报告，具体趋势及保护契约见[硬件功能检测](../protocols/README.md#at32f456-硬件功能检测-v2)。
-
-```text
-独立 APP    复位 → 板级 main → 初始化轴和通信 → ADC / 监督 / 前台
-配套系统    复位 → Loader → 检查启动条件与镜像 → 跳入 LoaderApp → 同一套电机控制
-                       ↑                                           │
-                       └──── 软件复位与一次性 RAM 邮箱 ← 停机交接 ───┘
-```
-
-CAN 帧与 CRC、镜像描述符、启动标记、RAM 邮箱和目标分区由 shared 定义。APP 与 Loader 分别持有 CAN 端点、计时和运行状态。Loader 从参数区只读选取节点，普通 CAN 升级的可写域是 APP 槽；APP 在停机标定发布时写轴记录。两端的工程入口和端口见[代码结构](code_structure.md)。
-
-## 模块依赖与文件边界
+## 产品及依赖
 
 ```mermaid
 flowchart TD
-    subgraph A[电机 APP 镜像]
-        Main[板级 main 和 IRQ] --> App[AppContext 与前台调度]
-        Main --> Axis[MotorAxis 快慢环]
-        App --> Endpoint[ProtocolEndpoint]
-        Endpoint --> Adapter[AppProtocol 命令适配]
-        Adapter --> SM[MotorStateMachine]
-        Axis --> SM
-        Axis --> Control[反馈估计和控制律]
-        App --> Cal[MotorCalibration 标定发布]
-        Cal --> Rec[参数记录编解码]
-        Control --> PWM[BSP 功率输出]
-        SM --> PWM
-    end
-    subgraph L[Loader 镜像]
-        Run[启动与 CAN 分发] --> Upgrade[会话与发送票据]
-        Upgrade --> Image[镜像擦写和标记]
-        Image --> Port[本板 Flash 端口]
-    end
-    Endpoint --> Wire[shared/protocol 帧契约]
-    Run --> Wire
-    App --> Boot[LoaderApp 的 AppLoader 与 BootHw]
-    Boot -. ENTER 邮箱与软件复位 .-> Run
+    P[projects 板级入口] --> A[APP组装与状态机]
+    A --> M[motor 控制与反馈]
+    A --> C[communication]
+    A --> R[parameters]
+    M --> B[BSP公共接口]
+    R --> B
+    C --> S[shared协议与目标契约]
+    L[独立Loader] --> S
+    L --> H[Loader板级端口]
+    B --> D[MCU实现与SDK]
 ```
 
-箭头表示运行时调用或使用的契约。两端的 CAN 业务处理分别编入各自镜像；跨复位保留的实体是邮箱和 Flash 内容。APP 内部的运行指针只在本次启动、本机实例的生命周期内有效。
+| 产品/目录 | 所有者与职责 |
+| --- | --- |
+| `firmware/app` | AppContext组装、状态机、MotorAxis、标定发布和Loader交接 |
+| `firmware/motor` | 控制律、传感器反馈、观测器、标定和保护算法 |
+| `firmware/communication` | 帧、队列、校验、编解码与绑定的业务回调 |
+| `firmware/parameters`、`config` | 默认值、校验、记录转换、板型及电机输入 |
+| `firmware/platform/bsp` | 统一公共接口及各MCU真实硬件操作 |
+| `loader` | 独立启动、下载、校验、激活和端口；不链接到APP |
+| `shared` | 跨产品协议、CRC、邮箱、镜像与目标布局，不存放产品运行状态 |
+| `host_app`、`tools/bench` | 独立主机产品，不代替固件功率准入 |
 
-| 边界 | 调用方向 | 设计约束 |
-| --- | --- | --- |
-| 板级入口与应用 | `projects/*/application/main.c → firmware/app` | 两板入口将物理中断路由给本机 `g_app`。板型影响中断派发和 BSP 实现，同一套轴状态机管理功率。 |
-| 通信与业务 | `ProtocolEndpoint → AppProtocol → MotorStateMachine` | 通信层负责帧、队列和回复；适配层换算线路编号与单位；状态机决定请求能否执行。 |
-| 控制与硬件 | `MotorAxis → firmware/motor`，采样及输出经 BSP 公共接口 | 轴实例持有活动状态。控制算法在本拍计算，启相关相及会话撤销由状态机负责。 |
-| 下载与存储 | `loader/runtime → loader/core → shared/image → loader/ports` | runtime 分发命令，core 管理租约与票据，镜像层校验和提交标记，端口限制实际写域。 |
+## 启动与调度
 
-若修改控制准入、线路编码或 Flash 布局，可按[文件与测试导航](code_structure.md)找到对应入口。标定写入及重启恢复的完整路径见[参数管理设计](parameter_ownership_v1.md)。
+普通APP从自身向量启动；LoaderApp先由Loader验证镜像并交接。
+各板main静态持有一个AppContext，顺序为 `Bsp_Init → App_Init → Bsp_Start → App_Start`，
+前台持续调用App_Process。中断开放前完成对象和回调绑定。
+ADC快拍执行采样、控制或标定；独立监督处理状态和慢任务；AT32可由有效快拍分频请求PendSV外环。
+前台负责通信、位置段表构建、关相后的参数保存及升级交接。
+频率与板级触发由配置定义，详细时序见[采样](sampling_chain_v1.md)。
 
-## APP 启动与调度
+## 对象、状态与并发
 
-板级 main 持有静态 `AppContext g_app`。两板依次执行 `Bsp_Init → App_Init → Bsp_Start → App_Start`。硬件先准备关相输出，APP 装载参数、初始化轴并绑定业务，随后开放采样和通信。无效轴记录的处理见[参数存储契约](../../firmware/parameters/README.md#storage)。
+MotorAxis持有活动配置、FOC、转子/Hall/输出反馈、标定工作区和外环状态。
+MotorStateMachine拥有主状态、运行代际、目标写入、功率许可及停止收尾。
+ProtocolEndpoint拥有接收/发送队列和协议事务，不直接写算法积分。
+AppLoader拥有停机交接票据、截止时间和镜像确认条件。
 
-| 执行上下文 | 入口 | 本次工作与交接 |
-| --- | --- | --- |
-| ADC 快中断，20 kHz | `MotorAxis_SampleFast → MotorAxis_ControlFast` | 采样和估计反馈，复核启相许可，互斥执行控制或标定，提交结果及故障关相。上电电流零偏在关相 IDLE 累计 2048 拍。 |
-| 监督中断，2 kHz | `MotorAxis_SupervisorTick` | 更新启用的温度测量，检查快拍进展，处理停止、故障和标定完成。G431 在同一上下文执行外环。 |
-| AT32 外环，4 kHz | ADC 每五个有效快拍派发 PendSV → `MotorAxis_OuterTick` | 从轴实例读取本拍输入，计算位置或速度控制。提交时复核会话、模式、STOP 和故障，直接更新轴的电流参考与速度 PI。ADC 可以在多字段写入期间抢占。 |
-| CAN 接收中断 | `Protocol_RxInterrupt` | 将帧搬入本端点队列。普通业务请求由前台解码和执行。 |
-| 前台主循环 | `App_Process` | 依次推进位置建表、标定候选发布、通信；LoaderApp 还处理停机交接与试运行健康检查。 |
+状态机受理启动不等于硬件已经启相；ADC在实际输出前复核代际、输入、故障和STOP。
+前台与监督的短临界区允许ADC抢占；多字段更新不自动成为快环原子快照。
+完整载荷先写、发布标志后写，必要处使用内存屏障和代际拒绝。
+反馈快照在有限重试仍不一致时返回忙或无效，不通过长时间禁止ADC来获得一致性。
+具体迁移与取消契约见[状态机](motor_state_machine_v1.md)。
 
-从两板 main 可追到每个执行上下文。[G431 入口](../../projects/stm32g4/application/main.c) · [AT32 入口](../../projects/at32f456/application/main.c) · [轴调度](../../firmware/app/motor_axis.c) · [前台调度](../../firmware/app/app.c)
+## 参数、标定与共享内存
 
-## 状态与数据所有权
+启动加载有效记录，否则按规定回退并保留参数故障；编译默认值不自动覆盖有效Flash记录。
+标定先产生候选，关相后由前台登记发布，ADC在读角前安装LUT，再由前台保存并回读。
+旧会话、STOP和故障会使候选失效。参数格式和兼容读取见[参数设计](parameter_ownership_v1.md)。
+标定采样、检测队列和记录编码串行复用MotorCalibration的维护区，不能同时读写重叠视图。
+检测结果和事务身份独立保存；消费者须遵循占用状态，不缓存已被下一阶段覆盖的视图。
+AT32 APP的代码/数据/栈预算由链接输入约束；邮箱地址与大小服从shared目标及Loader ABI。
+资源上限与运行栈水位是不同约束，源码布局不证明最坏嵌套栈已经测得。
 
-### 启动失败时哪些服务仍然可用
+## 硬件与控制边界
 
-1. 板级 main 首先检查 `Bsp_Init`；若返回错误，立即关闭 PWM 并停在失败循环。`Bsp_Start` 失败时走同一路径。此时不会进入正常前台循环。
-2. `App_Init` 按轴初始化、业务回调绑定、协议端点初始化、设备信息装配的顺序执行。LoaderApp 还在通信就绪时绑定交接服务。节点非法或身份信息装配失败会清除 `communication_ready` 并关闭功率输出；生产身份记录无法解码时可以继续公布“身份无效”。
-3. `App_Start` 只为就绪端点启动通信。两板 main 仍按正常调用顺序运行；`Protocol_Process` 在端点未启动时立即返回。诊断时先区分“板级启动已经中止”“轴采样正在运行但 CAN 未启动”和“命令到达、业务拒绝”三种现象。[初始化与信息绑定](../../firmware/app/app.c) · [端点启动条件](../../firmware/communication/yg_protocol.c)
+BSP不拥有电机运行状态，控制算法不直接访问寄存器。板级main只接线公共硬件事件。
+共用控制、协议和参数实现不得散布板型分支；板间差异在配置、BSP与目标布局收敛。
+控制链见[算法设计](motor_execution_core_v3.md)，硬件语义见[BSP](bsp_design_rules.md)，
+采样窗口及PWM装载见[时序设计](at32f456_pwm_adc_driver.md)。
 
-### 一拍控制如何到达 PWM
+## 升级和主机
 
-| 顺序 | 执行者 | 输入、输出与失败行为 |
-| --- | --- | --- |
-| 采样 | ADC → `MotorAxis_SampleFast` | 先启动编码器传输，再更新母线、电流限值与零偏。偏置完成后读三相电流并做 Clarke 变换；按模式更新观测器。最后在需要时安装 LUT，再完成编码器更新。 |
-| 本拍准入 | `MotorAxis_ControlFast → MotorStateMachine_BeginFastTick` | 本拍采样完成后检查故障、STOP 和一次性启相许可。启相还须重新核对当前会话及输入。 |
-| 执行 | `MotorControl_Step` 或 `MotorCalibration_StepFast` | 在 RUNNING 中由模式选择角度来源及控制律，再进入 `Foc_Step`。标定只有在当前阶段允许时执行。空闲分支预装中性占空比，功率使能由状态机单独管理。 |
-| 收尾 | `MotorStateMachine_FinishFastTick` | 增加快拍计数，按代际消费本拍结果。标定完成后要读回关相，才登记前台发布；新故障会触发关相。 |
+独立Loader只写APP槽；LoaderApp完成停机、同一回复物理发送确认后交接。
+启动尝试、确认标记、继承看门狗与失败驻留见[Loader设计](loader/loader_product_v3.md)。
+主机按UID、目标契约和设备能力建立会话，旧回复或本地包版本不能替代板端事实。
+主机产品分别见[Qt生产工具](qt_production_design_v1.md)和[Rust工作台](yg_mc_host_design_v1.md)。
 
-速度模式可沿一条具体数据链定位问题：116 的线路整数经适配层换算为 rad/s 并写入轴目标，外环读取速度反馈、计算电流参考，ADC 使用本拍电角度和电流执行 FOC，最后提交三相占空比。若命令已回 OK 却看不到力矩，应依次检查运行模式、外环参考、快环实测电流和输出使能。位置模式还需检查前台位置建表及外环轨迹采样。[轴调度](../../firmware/app/motor_axis.c) · [模式控制](../../firmware/motor/control/motor_control.c) · [FOC 输出](../../firmware/motor/control/foc_output.c)
+## 设计验证与能力边界
 
-### 抢占与跨上下文交接
-
-| 数据交接 | 一致性方法 | 调整代码时要保留的行为 |
-| --- | --- | --- |
-| 外环计算 → ADC | 外环在栈上计算，提交时核对 owner、epoch、模式、停止和故障。控制临界区允许 ADC 抢占。 | ADC 可以看到多字段更新的新旧组合。撤销会话后，旧结果不能重新发布启相许可。 |
-| ADC → 外环 Hall 数据 | ADC 向外环当前读槽的另一槽写入电机角计数与 sin/cos 原码，经过屏障发布槽号；外环选定读槽后复制样本。 | 配对采样用于 Hall 标定。若改为分别读取三个最新值，通道可能来自不同快拍。 |
-| 前台 → CAN 状态查询 | 组装反馈前后读取快拍、外环、监督三个计数，遇到抢占重读一次。 | 108 读取不到一致快照时回 BUSY；116 关联的 124 仍保留目标处理结果，测量有效位按实际可用性填写。 |
-| 前台建表或保存 → 控制环 | 位置建表只在取走和发布工作时进入控制临界区。标定保存先在可抢占区准备记录，再在关相且会话有效的提交窗口写 Flash。 | 前台耗时计算期间 ADC 可以继续运行；擦写与回读有独立的停机边界。 |
-
-AT32 每 250 µs 派发一次外环；若上一次 PendSV 尚未完成，ADC 调用 `MotorAxis_OuterOverrun` 报告时序故障并关闭输出。G431 外环随 500 µs 监督拍执行。这些值是调度周期，实际中断耗时与截止裕量需要用匹配镜像在板上测量。[AT32 派发点](../../projects/at32f456/application/main.c) · [一致性与提交](../../firmware/app/motor_state_machine.c)
-
-### 对象与读写方
-
-| 对象 | 所有者与职责 | 消费者 |
-| --- | --- | --- |
-| 轴活动配置、测量与控制器 | `MotorAxis` 持有配置、FOC、编码器、PI、外环和记录暂存区；motor 模块计算控制律、反馈与标定 | 状态机用于准入，控制环用于计算，参数层转换持久记录 |
-| 主状态与功率许可 | `MotorStateMachine` 写入主状态、会话代际和启停意图，在事件所属上下文操作功率 | 协议请求动作或读取快照，轴调度读取本拍资格 |
-| 线路命令和回包 | `ProtocolEndpoint` 持有队列及业务绑定，`AppProtocol` 转换线路值并记录本端点已接受的目标 | 前台分发，BSP 提交物理帧 |
-| 停机交接和试运行 | LoaderApp 中的 `AppLoader` 持有 56 事务和健康计数；板级 BootHw 读写邮箱、镜像标记 | CAN 发送完成回调、前台健康检查 |
-| Loader 下载会话 | `LoaderUpgrade` 持有 nonce/session、租约、进度和激活票据；镜像层按阶段访问 Flash 端口 | Loader 主循环处理 CAN、轮询擦写与校验、决定驻留或启动 |
-
-## 沿一个请求读代码
-
-- **电机启动**：前台解码 117，AppProtocol 绑定到本轴的启动请求；外环发布许可，ADC 复核并实际启相后才进入 RUNNING。协议回复、主状态和功率读回的区别见[状态转移表](motor_state_machine_v1.md)。
-- **角度标定**：160 请求进入 CALIBRATION。ADC 执行任务并关相，前台按原会话发布与保存，监督拍收尾。LUT 的 ADC 安装及 Hall 联合标定分支见[标定交接](motor_maintenance_core_v3.md)。
-- **固件更新**：配套 APP 处理 56 并复位交接，Loader 持有 50–55 下载会话，新 APP 在试运行中处理 57。三个持久标记和跨镜像顺序见[Loader 设计](loader/loader_product_v3.md)，字节字段和应答见[通信协议](../protocols/README.md)。
-
-## Loader 主循环与端口边界
-
-Loader 在复位入口取得复位原因与一次性邮箱，从参数区选择节点，初始化 CAN 和镜像 I/O，随后进入轮询。每轮先检查输出与链路，再消费发送完成事件，推进一轮镜像擦除或校验，接收并分发报文，清理过期分片，最后判断能否启动 APP 并维护看门狗。发送完成事件带票据，只有匹配的激活事务有权使用该事件。Flash 的可写地址范围由 MCU 端口独立检查。[Loader 主循环](../../loader/runtime/main.c) · [事务核心](../../loader/core/upgrade.c)
-
-G431 的 Loader 端口用 RX 中断和环形队列接收，跟踪三个发送槽；AT32 的 Loader 轮询接收，跟踪单个 PTB 发送槽。二者都向核心报告票据和实际发送结果。移植新端口时须能区分入队、在途、完成、失败，否则同一份核心代码会在不同板上产生不同的激活行为。[G431 CAN](../../loader/ports/stm32g4/can_port.c) · [AT32 CAN](../../loader/ports/at32f456/can_port.c)
-
-## 架构变更的验收条件
-
-| 变更触点 | 需复现的场景与预期结果 | 验证入口 |
-| --- | --- | --- |
-| 启动或绑定顺序 | 双板各自的独立与配套 APP 均可初始化；失败分支关相，独立 APP 不注册升级服务 | [编排用例](../../tests/unit/native/test_app_orchestration.py) |
-| 轴对象或外环交接 | 两个模拟实例分别绑定 PWM 和记录槽；状态、输出及标定写入只归各自实例；过时代际无法恢复旧输出 | [实例隔离](../../tests/unit/native/test_app_instances.py)、[状态机用例](../../tests/unit/native/test_run_state.py) |
-| Loader 端口或链接输入 | 错误票据、链路故障、越界写入被拒绝；镜像、参数区和身份页边界与对应工程一致 | [G431 运行时模型](../../tests/unit/native/test_loader_runtime.py)、[AT32 端口模型](../../tests/unit/native/test_at32_loader.py) |
-
-### 相电阻与硬件测量存储（2026-11-13）
-
-硬件检测统计及队列借用MotorCalibration.storage.hardware_check；同轮相电阻任务使用独立的workspace.resistance，两个区不重叠。maintenance_capture阻止外部标定和记录编码，内部PHASE_RESISTANCE允许使用既有功率生命周期。检测结束先将全部实测页冻结到紧凑缓存，再释放维护区；后续参数或LUT操作不得改变已完成报告。
-
-重构APP1.8.16的静态检查状态仍归板级hardware_check，按八项独立窗口推进；逐项冻结缓存与实时读页契约见[顺序静态扩展](../protocols/README.md#顺序静态扩展重构app1816caps-bit22)。单项失败不释放维护区，所有静态项完成后统一判断动力准入。无新增并发写入者或堆分配。
+当前包含双板APP/Loader、单轴位置OTG、Hall初始定位与输出遥测。
+普通位置串级和限位仍使用电机编码器坐标，不声明独立输出轴闭环。
+UART业务、镜像签名、A/B回滚和多轴同步不属于现行实现承诺。
+ADC窗口、最坏中断/栈预算、闭环带载稳定性和实际掉电恢复必须按匹配设备与镜像验证；
+离线算法、接口与布局检查不能替代这些硬件性质。
+接口及协议变更同步调用者、兼容约束和对应回归，通用入口见[tests](../../tests/README.md)。

@@ -1,0 +1,67 @@
+@startuml motor_state_machine
+!pragma layout smetana
+skinparam defaultFontName Microsoft YaHei
+skinparam defaultFontSize 14
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam ArrowColor #475569
+skinparam state {
+    BackgroundColor #F8FAFC
+    BorderColor #475569
+    FontColor #0F172A
+}
+hide empty description
+title 电机主状态：事件 [提交条件] / 动作
+
+state "IDLE\n0 · 空闲" as IDLE #E0F2FE
+state "SELF_TEST\n1 · 保留" as SELF_TEST #F1F5F9
+state "CALIBRATION\n2 · 标定" as CALIBRATION #FEF3C7
+state "RUNNING\n3 · 运行" as RUNNING #DCFCE7
+state "FAULT\n4 · 故障" as FAULT #FEE2E2
+
+[*] --> IDLE : Init / 建立本轴运行状态
+IDLE : 快采样 / 采集本次上电电流零偏
+IDLE : START [准入通过] / epoch++，登记模式和 start_pending
+IDLE : OUTER_TICK [本会话可提交] / 发布 phase_enable_epoch
+RUNNING : 快拍 / 执行当前控制模式
+CALIBRATION : 快拍 [标定可执行] / 推进本类型任务
+FAULT : 保留 fault_code；拒绝普通启动
+
+IDLE --> RUNNING : ADC_TICK\n[许可、准入复核及启相读回成功]\n/ 清 start_pending，提交 RUN
+IDLE --> CALIBRATION : CALIBRATE\n[类型、配置、输入及关相满足准入]\n/ epoch++，登记标定与功率许可
+RUNNING --> IDLE : STOP提交\n[无故障且关相收尾成功]\n/ 撤销会话，清目标和控制器
+CALIBRATION --> IDLE : STOP提交 或 COMPLETE\n[收尾成功]\n/ 结束标定会话，保持关相
+IDLE --> FAULT : FAULT提交\n/ 关相并结束会话
+RUNNING --> FAULT : FAULT提交 或 STOP关相失败\n/ 关相并结束会话，保留故障
+CALIBRATION --> FAULT : FAULT提交\n或 STOP/COMPLETE关相失败\n/ 终止标定，保留失败原因
+FAULT --> IDLE : CLEAR\n[恢复检查通过且原子清错成功]\n/ 保持关相，不恢复旧模式或目标
+
+note right of SELF_TEST
+  只保留枚举和协议映射。
+  当前生产代码没有进入此状态的事件。
+  上位机 Type127 硬件检测使用独立阶段，
+  关联图见 hardware_check_state_machine.puml。
+end note
+
+note bottom of CALIBRATION
+  算法完成不等于持久化完成。
+  普通标定：先关相，再发布/保存，监督拍提交 COMPLETE。
+  联合标定可在同一 epoch 继续电气零位。
+  相电阻检查例外：快拍完成后直接结束，不写 Flash。
+end note
+
+note bottom of FAULT
+  fault_code 可先于主状态写入。
+  快拍发现故障先关相；监督/外环提交 FAULT。
+  CLEAR 还要求采样和配置有效、任务空闲、故障源恢复，
+  且没有 fault_locked 或启停/维护冲突。
+end note
+
+legend bottom
+  START、STOP提交等表示领域事件与可观察的提交结果，不代表增加新枚举。
+  start_pending、phase_enable_epoch、calibration_handoff 是字段，不是主状态。
+  硬件检测静态阶段保持关相；测阻借用 CALIBRATION，双向驱动借用 RUNNING。
+  普通 FAULT 不必停止喂狗：已确认 APP 在关相可信、三类任务推进且通信就绪时继续诊断。
+  数字关相依据 BSP 通道读回，不等同于实测栅极电平或机械静止。
+endlegend
+@enduml

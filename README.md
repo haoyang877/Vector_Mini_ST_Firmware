@@ -15,14 +15,14 @@ Vector Mini 是面向永磁同步电机的单轴 FOC 驱动固件。独立 APP �
 | AT32F456 | LoaderApp | [ESC-APP-AT32F456](projects/at32f456/application/ESC-APP-AT32F456.uvprojx) | `0x08004000` | 56 停机交接、57 镜像确认 |
 | AT32F456 | Loader | [ESC-LOADER-AT32F456](loader/targets/yg_esc_v1_at32f456/ESC-LOADER-AT32F456.uvprojx) | `0x08000000` | 接收升级命令 50–55 |
 
-配套 APP 使用带连字符的工作区，默认选中 AT32F456 LoaderApp。独立 APP 使用带下划线的工作区。Loader 工程从表中单独打开。[配套工作区 YG-ESC](YG-ESC.uvmpw) · [独立工作区 YG_ESC](YG_ESC.uvmpw) · [Keil 使用说明](docs/guides/keil_workspace.md)
+配套 APP 使用带连字符的工作区，默认选中 AT32F456 LoaderApp。独立 APP 使用带下划线的工作区。Loader 工程从表中单独打开。[配套工作区 YG-ESC](YG-ESC.uvmpw) · [独立工作区 YG_ESC](YG_ESC.uvmpw) · [Keil 使用说明](README.md#选择板卡与固件工程)
 
 ## 阅读固件代码
 
-固件设计按四个主题维护：[架构设计](docs/architecture/software_architecture.md)、[状态机设计](docs/architecture/motor_state_machine_v1.md)、[通信协议设计](docs/protocols/README.md)、[参数管理设计](docs/architecture/parameter_ownership_v1.md)。查找源码、Keil 工程及离线测试时使用[文件导航](docs/architecture/code_structure.md)。
+固件设计按四个主题维护：[架构设计](docs/architecture/software_architecture.md)、[状态机设计](docs/architecture/motor_state_machine_v1.md)、[通信协议设计](docs/protocols/README.md)、[参数管理设计](docs/architecture/parameter_ownership_v1.md)。查找源码、Keil 工程及离线测试时使用[文件导航](docs/architecture/software_architecture.md#产品及依赖)。
 
 人工调试的观测对象、变量清单、单位和枚举值见
-[Keil Watch 只读观测指南](docs/guides/watch_motor_commands.md)。
+[Keil Watch 只读观测指南](firmware/app/README.md)。
 Watch 只用于观察；符号必须匹配板上固件，不能直接修改内部模式、目标或 PWM 来启动电机。
 
 ```powershell
@@ -56,7 +56,7 @@ STM32G431 原板使用板载 SPI 编码器。AT32F456 根据有效轴记录的�
 
 > STM32G431 原板的 PB8 引脚为BOOT0引脚，在设计时由于引脚紧张复用成FDCAN1_RX，让程序正常启动需要使用STM32CubeProgrammer将BOOT0软件下拉。
 
-> 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/guides/bus_voltage_8s.md)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
+> 当前固件默认按 **8 串常规三元锂电池（满充 33.6 V）**配置母线保护：欠压 24.0 V、过压 34.0 V、快速过压 34.5 V；启动/故障清除后重新使能要求 25.6–33.8 V。保护配置与验证见 [8S 母线电压保护](docs/architecture/motor_state_machine_v1.md#故障与恢复边界)。这是固件配置，不代表板级耐压认证；原硬件超过 35 V 可能损坏的约束仍保留。
 
 > 原始手册见 [Vector_User Manual.pdf](<docs/hardware/Vector_User Manual.pdf>)。其中 USB/VOFA 章节属于历史功能；当前接口见[设备发现与支持范围](docs/protocols/README.md#device)。
 

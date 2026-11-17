@@ -2,7 +2,7 @@
 
 当前范围包括 PWM、ADC、Encoder（SPI）、CAN、Flash 和系统支撑。
 status_light_gpio.c 为两个 APP 目标初始化和更新 PC13/PC14；见[红蓝状态灯](../../../../../docs/hardware/at32f456_configuration_v1.md)。
-旧公共 LED 和 UART 的移除见[删除记录](../../../../../docs/plans/active/2026-10-30-remove-led-uart-v1.md)。
+旧公共 LED 和 UART 的移除
 
 公开功能接口在../../include。本目录保存实际MCU操作，不新增转发层。
 
@@ -25,8 +25,7 @@ ADC零偏、单位换算和NTC公式也在本目录adc.c内完成。
 PWM占空比换算和硬件操作全部在本目录pwm.c，不保留转发文件、状态或保护。
 PA5/PA6 的 sin/cos 与相电流共用 TMR1 的 20 kHz 触发，每路只转换一次。快环将 ADC2 的两个结果一起发布给 4 kHz 外环。
 实现中不保留临时诊断入口、测试快照和测试统计。
-先前ADC/PWM接口精简未运行测试和编译；资源配置收拢的独立离线验证见
-[资源配置计划](../../../../../docs/plans/active/2026-10-30-mcu-resources-v1.md)。
+先前ADC/PWM接口精简未运行测试和编译；资源配置收拢的独立离线验证
 两板编码器在各自MCU的encoder_spi.c直接实现Begin和ReadAngle，可选16/21位单圈计数；
 现有控制环使用65536计数域，无CRC/超时/事务状态。
 PA7 电机 NTC 使用 2 kHz 普通组，直接从 ADC2 普通结果寄存器读取。
@@ -37,4 +36,4 @@ v1.8.25 保持上述采样配置，物理电压统一修正见[采样链路](../
 AT32 CAN硬件运行和RX IRQ在本目录can.c，直接实现统一BspCan接口。
 DLC/字节数换算直接在CAN收发函数中完成；没有独立文件、票据、状态枚举或自动恢复。
 
-详细设计见[当前BSP架构](../../../../../docs/architecture/bsp_architecture_v1.md)。
+详细设计见[当前BSP架构](../../../../../docs/architecture/bsp_design_rules.md#文件与运行所有权)。

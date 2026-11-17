@@ -2,7 +2,7 @@
 
 更新：2026-10-23。统一记录 Vector Mini ST 和 AT32F456的资源及适配电机。
 
-适配对象、修改边界和后置事项见[统一框架适配范围草案](../architecture/dual_board_adaptation_scope_v1.md)。
+适配对象、修改边界和后置事项
 本表登记资源和参数，不以型号已列出表示完整APP或实机验收通过。
 
 当前可编辑的BSP资源入口是
@@ -77,6 +77,6 @@ YQ-5740复用5708电气参数。YQ-8116全部继承值均为暂定。
 - 旧板：[板卡配置](../../firmware/config/board_config.h)、[电机选择入口](../../firmware/config/motor_profile_config.h)。
 - AT32F456：[板卡配置](../../firmware/config/board_config.h)、[台架电机配置](../../tests/bench/at32f456/closedloop_bench.c)。
 - 旧板图纸为2mΩ，当前默认工程为6mΩ；新板PA3电压、PA4电流按实板确认。PB5有对地0Ω，使用LED前需确认实装。
-- 详细参数依据与电流能力核算见[新板输入记录](at32f456_configuration_v1.md)；过程和测试结果见[适配计划](../plans/active/2026-10-22-at32f456-port-v1.md)。
+- 详细参数依据与电流能力核算见[新板输入记录](at32f456_configuration_v1.md)；过程和测试结果
 
 后续更换板卡或电机时，分别更新对应列及其配置入口；不修改中间层与BSP公共接口。

@@ -20,7 +20,7 @@ FOC计算仍会报告故障并参与快环计时。Axis持有`FocState`，直接
 
 型号参数见[电机配置](../config/motors/README.md)，控制与维护流程分别见
 [控制执行](../../docs/architecture/motor_execution_core_v3.md)和
-[维护和标定](../../docs/architecture/motor_maintenance_core_v3.md)。
+[维护和标定](../../docs/architecture/motor_state_machine_v1.md#标定执行与结果发布)。
 
 ## 接口与所有权
 

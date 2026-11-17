@@ -1,4 +1,4 @@
-# 编码器标定流程
+# 编码器标定设计
 
 2026-11-13 核对，流程以当前 `motor_calibration.c` 和 `motor_state_machine.c` 为准。
 
@@ -36,7 +36,7 @@ APP 将请求交给 `MotorStateMachine_RequestCalibration()`。状态机负责�
 
 APP1.8.5由只读产品预设提供`calibration_mechanical_turns`；结束条件和观测器整圈参考
 检查使用同一圈数。10圈不改变15 rad/s、PI、电流、1024点覆盖、稳速和保存条件，
-但减少平均样本数。左右轮约45.7秒降到约8秒是模型估计，缩短后的实机精度待对照。
+但减少平均样本数；覆盖和精度须按对应电机与工况验证。
 
 PITCH、YAW 在正向采样期间，由 4 kHz 外环同步记录 Hall sin/cos 原码极值。
 启动、构表、减速和电零位对齐阶段不采集极值，不再另行驱动输出轴扫圈。

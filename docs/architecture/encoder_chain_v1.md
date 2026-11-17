@@ -1,14 +1,14 @@
 # 双板编码器链路与职责
 
-更新：2026-10-30。公开契约见[bsp_encoder.h](../../firmware/platform/bsp/include/bsp_encoder.h)，
-当前边界见[Encoder硬件归MCU v3](../plans/active/2026-10-30-encoder-hardware-boundary-v3.md)。
+核对日期：2026-11-17。公开契约见[bsp_encoder.h](../../firmware/platform/bsp/include/bsp_encoder.h)，
+当前边界
 
 ```c
 void BspEncoder_Begin(void);
 uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution);
 ```
 
-工程选择本板MCU的encoder_spi.c，直接定义以上两个函数和初始化函数。
+工程选择本板MCU的encoder_spi.c，直接定义上述角度函数和初始化函数；AT32还提供下述已完成帧诊断读取。
 初始化、SPI/DMA读写、片选和启停全部归MCU。BSP仅保留公开声明，没有通用逻辑或转发文件。
 应用统一先Begin，再ReadAngle；方向、LUT、零位、速度和多圈计算保留在motor层。
 读取时选择`BSP_ENCODER_16BIT`或`BSP_ENCODER_21BIT`，分别使用65536或2097152计数表示一圈。
@@ -22,9 +22,9 @@ uint32_t BspEncoder_ReadAngle(BspEncoderResolution resolution);
 | 对外单位 | 由参数选择16位或21位单圈计数 | 由参数选择16位或21位单圈计数 |
 
 只等待硬件完成并直接返回角度，不检查CRC、状态或超时；没有事务所有权、配置缓存或读错枚举。
-AT32仅保留DMA必需的私有收发缓冲。上层首样本标志只表示已取得角度，不提供硬件诊断。
+AT32保留DMA必需的私有收发缓冲。首样本标志只表示已取得角度；角度函数本身不提供硬件诊断。
 
-2026-11-03：AT32的收发缓冲使用`Mt6835TxFrame`/`Mt6835RxFrame`描述，每帧6字节。
+AT32的收发缓冲使用`Mt6835TxFrame`/`Mt6835RxFrame`描述，每帧6字节。
 DMA直接访问结构体地址，以三个16位字传输，不经过额外拷贝。
 
 | 字序号 | 发送字段 | 接收字段 |
@@ -36,11 +36,10 @@ DMA直接访问结构体地址，以三个16位字传输，不经过额外拷贝
 命令、地址、角度低位、状态和CRC均可直接按字段访问；位域按AT32小端16位存储布局定义。
 结构大小和非位域字段偏移由编译期检查约束，位域映射另用本机测试与ARMCC常量字节核对。
 16位模式返回`angle_high`；21位模式返回`(angle_high << 5) | angle_low`，两种模式均不校验状态或CRC。
-芯片原始角度为21位，先前18位表述更正；寄存器定义见
+芯片原始角度为21位；寄存器定义见
 [MT6835手册第26、32页](https://www.magntek.com.cn/upload/pdf/202407/MT6835_Rev.1.3.pdf)。
-本次验证范围见[直接字段记录](../plans/completed/2026-11-03-mt6835-direct-fields-v2.md)。
 
-2026-11-03新增位宽选择，调用示例（每次读取均需与Begin配对）：
+位宽选择示例（每次读取均需与Begin配对）：
 
 ```c
 BspEncoder_Begin();
@@ -48,5 +47,13 @@ uint32_t angle21 = BspEncoder_ReadAngle(BSP_ENCODER_21BIT);
 float degrees = (float)angle21 * (360.0f / 2097152.0f);
 ```
 
-该值为传感器单圈角度，未做方向、零位或LUT修正。范围及验证见
-[位宽选择记录](../plans/completed/2026-11-03-encoder-output-bits-v1.md)。
+该值为传感器单圈角度，未做方向、零位或LUT修正。
+
+## AT32 已完成帧与诊断
+
+`BspEncoder_ReadCompletedFrame()` 在同一次 ReadAngle 完成后、下一次 Begin 前读取已完成DMA帧。
+返回值的bit31～11为21位角度，bit10～8为3位状态，bit7～0为CRC8。
+板级快拍保存该帧，诊断工具在前台核对状态及CRC；不增加一笔SPI传输。
+角度控制读取仍不检查CRC、状态或超时，不能把诊断工具具备检查能力写成控制环会拒绝坏帧。
+声明见[生产头](../../firmware/platform/bsp/include/bsp_encoder.h)，消费见
+[AT32板级入口](../../projects/at32f456/application/main.c)。

@@ -1,65 +1,21 @@
-# Rust 上位机构建
+# Rust工作台构建与部署
 
-在仓库根目录执行 `cargo test --manifest-path host_app/rust/Cargo.toml --locked` 和
-`cargo build --manifest-path host_app/rust/Cargo.toml --release --locked`。建议将
-`CARGO_TARGET_DIR` 指向仓库的 `outputs/`。生成的程序默认断开设备；`--preview-dir <目录>`
-只生成离线界面截图，不打开 CAN SDK。
+当前源码版本由Cargo.toml维护，产品行为见[软件设计](../../docs/architecture/yg_mc_host_design_v1.md)。
+本页只维护可重现的构建、部署和离线验证方法，不记录版本调试过程。
 
-每次发布更新 `Cargo.toml` 的版本并同步 `Cargo.lock`；窗口标题和界面从该版本自动显示，
-发布目录和文件名标注同一版本号，并记录变更、校验结果及实机验证状态。
-v3.1.1 对齐 YONIQ 工作区窗口布局。中控使用「添加设备」卡片打开连接界面，日志和当前设备由全局栏切换。
-当前设备包含参数设置、辨识校准、运动控制及固件升级四页。运动页左侧三图，右侧可见控制台及环参数；
-全参数表提供全宽搜索、三类/三环筛选及连续滚动。Windows 标题与包名显示版本。
+## 构建
 
-v3.1.0 从设备中心开始，运动页按秒时间轴纵向对齐三幅曲线，全参数页按类别/三环浏览六列表格。
-双击 EXE 进入断开的工作区，选择「打开离线样机」或以 `--studio-preview` 启动可交互示例。
-在离线设备中心选择节点并打开示例工作台，使用「视图」调整 100%～200% 应用缩放、主题和示例状态。
+在仓库根目录执行，生成物保存在outputs：
 
-v3.0.1 补齐续租记录防护：缺失、损坏、零值或本进程已知回退的高水位禁止使能，
-每次START前先持久预留计数，不在已使能后才初始化。续租拒绝记录具体counter、result/detail和实际文件路径。
-原主机状态目录为 `%APPDATA%/YG/YG_MC_HOST_RUST`；丢失记录不能从1重建或靠重试使能恢复。
-首次设备/更换主机没有可信续租历史时，需要独立初始化或记录迁移；当前GUI不提供凭猜测建立计数的入口。
-本次修复先完成离线验证，实机状态确认与复测另行记录。
+```powershell
+$env:CARGO_TARGET_DIR = "$PWD/outputs/host-rust-cargo"
+cargo fmt --manifest-path host_app/rust/Cargo.toml --check
+cargo clippy --manifest-path host_app/rust/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path host_app/rust/Cargo.toml --locked
+cargo build --manifest-path host_app/rust/Cargo.toml --release --locked
+```
 
-v3.0.0 改为仪器工作台：顶部常驻连接、实际电机型号/轴角色及 APP、Loader、硬件版本；
-运行调试、参数配置、标定任务、固件维护、数据诊断使用顶部标签。默认进入断开的调试页。
-主曲线与两张辅助曲线按控制模式切换，模式、使能/失能、目标和 STOP 集中在右侧。
-参数工作台收录135项（49项标量目录、86项扩展/编译定义），按电机、控制、阈值分类；
-控制参数进一步区分电流环、速度环和位置环。未知值、未接入接口与编译定义均明确标记。
-bit14 参数服务接入活动值/Flash值读取、单项版本校验写入与实际读回、显式Flash保存；
-AT32F456 的 CAN FD 速率按仲裁/数据输入 kbit/s，例如 1000/5000。写入、保存和回读使用当前速率，复位后按新速率重新连接。旧固件和 G431 可在参数页显示此项未接入。
-写入和保存的离线事务验证不代替实机持久参数验收。型号配置保留独立子页。
-
-v2.7.2 修复 BUSY/单次只读丢包/操作拒绝导致的误断联；重试有次数和总时限，
-持续失联和未知运动结果仍停机，不自动重发运动命令。
-故障日志自动保存在 `%LOCALAPPDATA%/YG/YG_MC_HOST/logs`，数据与日志页可查看路径及导出JSONL。
-每个分片约8MiB；正常报文只保留最近64帧，异常时才落盘。离线预览不创建设备日志。
-连接页使用 ControlCANFD 查询可用的 USBCANFD-200U 和设备身份，
-优先查找程序目录或 `drivers` 下的 `ControlCANFD.dll`，也可在高级设置中手动选择。
-在中控打开「添加设备」时自动扫描，也可重新扫描或取消。扫描独占通道 0，按所选速率向节点 1–254 发送 GET_INFO。AT32F456 默认 1M/5M，仲裁段 500K、1M 可分别搭配数据段 500K、1M、2M、3M、4M、5M。STM32G431 固定 500K/2M。
-占用中的适配器无法打开，超时设备可能遗漏。扫描后须选定设备再连接，连接时重新核对 UID。
-趋势观察期间 CAN108 默认目标为 60 Hz；曲线线程按 60 Hz 周期准备不可变绘制快照，保留尖峰与缺测分段。
-界面分别显示最近 2 秒的实际接收频率和曲线新数据更新频率。
-这是主机接收时间，不是设备同步采样时间；实际刷新及接收频率尚须实机验证。
-导出保存到 `%LOCALAPPDATA%/YG/YG_MC_HOST/captures`，同时记录曲线新数据更新的时间戳；重复绘制同一份数据不计入曲线刷新率。
-
-v2.6.0 调试页提供 Vq 电压、Iq 力矩、速度、绝对位置四种模式。力矩输入使用 Iq（A）。
-v2.7.1 将模式下拉框、使能/失能、本地 STOP 和目标统一到右侧；
-运动控制不再需要台架确认勾选，身份、故障、反馈、配置和停机门禁仍生效。
-失能发送 STOP 并确认空闲，
-使能所选模式后才能下发同模式目标；位置使能保持当前位置。
-v2.6.0历史调试范围为Vq ±6 V、Iq ±6 A、速度0…300 rpm，位置单次偏移≤10°；
-当前位置会话策略以下文v2.8.1为准，其他设备动态保护继续生效。
-
-v2.8.1取消主机位置步长限制，配套APP1.6.2通过bit18声明上位机位置会话不限位。
-位置目标仅在本次显式位置使能后开放；STOP、故障和断联清除本次权限。Type118按设备契约续租，
-启动从IDLE到RUNNING的过渡窗口最多500ms，过渡时不因暂缺运行Iq误停或提前丢失续租。
-全页面底栏显示故障状态、原始故障码及清除按钮；清除后不自动使能。
-标定页接入LUT、电气零位、机械零位，按bit15开放Type160/161/162，显示真实阶段、票据和保存结果；
-设备未提供百分比或量化质量时明确说明。保存由固件完成；取消不撤回已保存结果。
-
-Windows GNU 工具链需要可用的 `dlltool` 和链接工具。如果默认链接生成的程序不能正常启动，
-可以使用 Rust 自带的 LLD 链接器，并在构建前将兼容的 GNU `dlltool` 加入 `PATH`：
+Windows GNU工具链需要兼容的dlltool与链接器。必要时使用Rust自带LLD：
 
 ```powershell
 $taskRustSysroot = (& rustc --print sysroot).Trim()
@@ -68,31 +24,25 @@ $env:CARGO_ENCODED_RUSTFLAGS = @('-C', 'linker-flavor=ld.lld', '-C', "linker=$ta
 cargo build --manifest-path host_app/rust/Cargo.toml --release --locked
 ```
 
-此方式需在本机准备与 Rust 目标兼容的 `dlltool`；构建成功后仍需运行程序验证。
-v3.1.2 Windows 发布包内含隔离的 Python 3.13、维护脚本、J-Link DLL、AT32 器件算法、双板目标契约和 ControlCANFD.dll。
-完整解压后双击 EXE。中控的「烧录整机固件」入口会预填配套整机包和板型，自动列出 USB J-Link。
-单支自动选中，多支可按序列号选择。v3.1.3 在首次备份或安装时自动读取 MCU UID 并用于写入前核验，
-完成后以只读方式显示；后续作业复核同一 UID，换板后点击「重新扫描」。确认停机且独占 SWD 后执行，备份和回读位于
-`%LOCALAPPDATA%/YG/YG_MC_HOST/swd`。Windows 需要已识别对应 USB 设备。
+## 部署契约
 
-构建上位机后，使用项目 Windows x64 Python 3.13 环境运行
-`python tools/build/package_rust_host.py --exe <本版Rust EXE> --can-dll <ControlCANFD.dll> --jlink-dir <含AT32器件库的SDK目录> --firmware <整机构建目录>`。
-打包器核对 EXE 版本、固件哈希和随包 DLL 的双板器件索引，生成版本化 ZIP 与文件哈希清单。
+目标身份、Flash布局、schema与ABI来自shared/targets，不能在UI手工复制一套。
+Windows包须包含维护脚本、隔离Python、J-Link器件库、目标契约和ControlCANFD.dll。
+只有EXE不足以进行SWD维护。打包入口为：
 
-只读实机测试入口（需要明确 UID 和目标板，窗口真实运行，默认观察 60 秒后导出并断开）：
-
-```powershell
-YG_MC_HOST_v3.0.0.exe --target yg_esc_v1_at32f456 --bench-observe <输出目录> --uid <24位MCU_UID>
+```text
+python tools/build/package_rust_host.py --exe <Rust EXE> --can-dll <ControlCANFD.dll> --jlink-dir <J-Link SDK目录> --firmware <整机构建目录>
 ```
 
-该入口复用真实扫描、UID 选择、CAN 会话与曲线线程，只请求静止观察，不请求运动或升级；
-设备会话已有故障保护仍然有效。只有指定 UID 处于 IDLE、零故障且近零速时才开始观察。
-`samples.csv` 保存实际反馈；`curve.csv` 保存采用新数据快照的时间戳；`run.json` 保存运行结果。
+打包器核对版本、固件哈希和器件支持，清单与文件名必须一致。
+版本更新后同步Cargo.lock，窗口显示从构建版本读取。
 
-型号配置位于参数管理页。合并版 APP 通过 GET_CAPS bit17 声明 190–193 型号配置命令，bit13 声明 500 ms 运动租约。
-支持 HT8115-4、YQ-5708、YQ-5740 与现有轴角色/节点配对；不修改生产身份编号。
-先失能并确认空闲，指定型号、轴位置、速度限制和已核实热参数，再保存配套参数；
-保存动作包含内存候选与完整UID绑定提交，Flash回读后才显示已保存。
-随后显式应用并重启，按原UID及新节点验证生效。旧标定整体清除，须重新标定。
-GUI已接入LUT、电气零位及机械零位，需设备声明bit15任务接口；不会自动使能或重放目标。
-PITCH 在默认速率下已实测配置读取、准备及错误票据拒绝。成功提交并应用新配置会清除旧标定。
+## 离线验证与设备边界
+
+`--preview-dir <目录>`生成未连接界面；`--studio-preview`提供明确标识的离线样机。
+离线示例不能进入真实SDK或被用作设备身份。正常会话的扫描、UID复核、
+启动前续租预留、参数/标定事务与SWD互斥遵循设计文档。
+未知设备能力、未接入功能和缺失数据明确显示，不采用样例值补齐。
+
+构建、界面预览、协议替身和真实设备验收分开；运行数据由各自作业写入用户目录或outputs，
+不回填为历史过程文档。设备操作必须使用实际目标、UID和配套包。

@@ -147,6 +147,31 @@ Counter_Reset(void);
         self.assertEqual(check_docs.problems(), [])
         self.assertEqual(check_hygiene.problems(), [])
 
+    def test_design_documentation_checks_required_areas_and_local_targets(self):
+        """设计入口必须齐全，删除过程目录不能掩盖保留文档的断链。"""
+        with tempfile.TemporaryDirectory() as folder:
+            root = _Path(folder)
+            (root / "AGENTS.md").write_text("# 工作入口\n", encoding="utf-8")
+            docs = root / "docs"
+            areas = ("architecture", "protocols", "guides", "hardware")
+            for area in areas:
+                (docs / area).mkdir(parents=True)
+            index = docs / "README.md"
+            content = "\n".join(f"[{area}]({area}/)" for area in areas)
+            index.write_text(content, encoding="utf-8")
+            with patch.object(check_docs, "ROOT", root):
+                self.assertEqual(check_docs.problems(), [])
+                index.write_text(
+                    content + "\n[缺失设计](architecture/missing.md)", encoding="utf-8"
+                )
+                issues = check_docs.problems()
+                self.assertEqual(len(issues), 1)
+                self.assertIn("broken local link", issues[0]["message"])
+                index.write_text(content.replace("[hardware](hardware/)", ""), encoding="utf-8")
+                issues = check_docs.problems()
+                self.assertEqual(len(issues), 1)
+                self.assertIn("missing documentation area link: hardware/", issues[0]["message"])
+
     def test_all_product_modules_share_the_root_style_configuration(self):
         self.assertEqual(
             set(_style.module_names()),

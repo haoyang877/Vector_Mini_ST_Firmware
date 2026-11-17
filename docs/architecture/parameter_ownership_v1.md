@@ -1,8 +1,8 @@
 # APP 与 Loader 参数管理设计
 
-本页原名《参数所有权与四类配置》。最初版本（2026-09-29，`f6fadad4`）说明硬件、电机、应用和设备参数分别由谁维护，当时的持久格式是 schema12。重构前的版本（`48b127dd`）已改用 schema14，仍把 2288 B 写作固定存储长度。当前这 2288 B 是整轴记录的基础段，输出轴标定另占一个扩展段。历史格式见 [OEN1](../protocols/output_encoder_v1.md)、[OEN2](../protocols/output_encoder_v2.md) 和 [OEN3](../protocols/output_encoder_v3.md)。
+schema14基础段为2288 B，输出轴标定另占扩展段。兼容读取的字节契约见 [OEN1](../protocols/output_encoder_v1.md)、[OEN2](../protocols/output_encoder_v2.md)，当前输出扩展为[OEN3](../protocols/output_encoder_v3.md)。
 
-当前设计按 `the-system-refactor` 核对，PITCH/YAW 的减速比取提交 `a87bc5ce` 的 40:1 配置。APP 从 Flash 恢复每轴配置，在角度标定结束后自动保存；CAN 命令 120/121/122 读取、修改和保存标量参数，190–193 处理型号配置事务。Loader 独立读取节点，CAN 升级的写入范围限于 APP 镜像槽。
+PITCH/YAW采用40:1配置。APP从Flash恢复每轴配置，在角度标定结束后自动保存；CAN命令120/121/122读取、修改和保存标量参数，190–193处理型号配置事务。Loader独立读取节点，CAN升级的写入范围限于APP镜像槽。
 
 ## 参数来源与活动对象
 
@@ -20,6 +20,19 @@ PITCH/YAW为300 rad/s，均为电机轴；Lift保持原预设。活动速度限�
 旧AXS最大速度保留为位置模式的限制，不再额外收窄产品速度模式上限。
 恢复旧记录时，超过当前产品上限的AXS速度仅在RAM中截断并重算AXS CRC，
 保留位置行程及标定数据，不自动回写Flash。新建记录仍拒绝超过产品上限。
+
+## 参数来源与生效时机
+
+| 来源 | 典型字段 | 何时生效 |
+| --- | --- | --- |
+| 板级编译配置 | 采样电阻、放大倍数、通道、时钟；快慢环分频 | 工程通过 `BSP_BOARD` 选择实现。单位换算由板级资源决定。[配置目录](../../firmware/config/README.md) |
+| 电机与应用默认值 | 极对数、R/L、磁链、PI、限流和速度包络 | `Param_Return_Default` 组装默认值。有效记录经 `Param_Download` 装载；AT32 产品轴还须匹配节点、AXS2 角色及电气模型。[参数装配](../../firmware/parameters/parameter_record.c) |
+| 设备标定 | 转子 LUT、方向、电零位、机械零位、输出轴与 Hall 系数 | 在线标定在原会话关相发布；重启从有效记录恢复。电流偏置每次上电重新采集。[存储与兼容](../../firmware/parameters/README.md#storage) |
+| 生产身份与运行数据 | SN、电机类型、芯片 UID；控制目标、PI 积分、动态反馈 | 身份页与芯片 UID 由设备信息查询上报。目标、积分和实时采样仅属于运行实例，读写权限见下文。 |
+
+电流 PI 的默认设计使用 `Kpd=Ld×ωc`、`Kpq=Lq×ωc`、`Kid=Kiq=R×ωc`。保存的 Ki 未预乘采样周期。有效记录可包含整定值，改编译默认值不会自动覆写已有记录。
+
+维护一个参数时，应能指出其单位、来源、有效范围、活动对象、是否持久化和失效条件。源码中的标量读写接口与 CAN 端点的业务绑定分别核对。当前 120–122 的回应见[参数命令](../protocols/README.md#parameters)。
 
 ## 所有权与提交
 
@@ -100,7 +113,7 @@ Flash 地址    页内布局（地址向下递增）
 
 读取时先校验基础记录。其 CRC32 覆盖偏移 0–2287，跳过存放 CRC 的四个字节。基础记录通过后，再校验 OEN3：扩展 CRC32 覆盖偏移 2288–4367，且 `motor_crc32` 必须等于刚验证的基础 CRC。这样，即使一段旧 OEN3 自身完整，只要基础参数已经改变、两份 CRC 不匹配，APP 也会保留已装载的基础参数，跳过旧输出轴关系。基础记录本身无效时，APP 回退到默认配置并跳过扩展恢复。[基础存储契约](../../firmware/parameters/README.md#storage) · [OEN3 字段与兼容规则](../protocols/output_encoder_v3.md)
 
-## ROLL运行PI默认更新（APP1.8.8）
+## ROLL运行PI默认迁移规则
 
 ROLL正常运行速度Kp/Ki默认为0.05/0.5，与左右轮一致。Param_CreateAxis使用新预设；Param_Download只对已确认角色/型号的ROLL且旧值恰为0.5/1.0时，在RAM恢复为新默认。其他手工PI仍按记录保留。旧默认组合按历史默认解释，不作为独立用户定制识别。
 启动不改写输入记录或Flash；编码器LUT、零位、5 A标定电流及其余参数保留。下一次显式保存或成功标定保存才写入新运行PI。schema14/OEN3字节布局不变。
@@ -189,3 +202,12 @@ Flash 仍是单份记录，掉电不承诺回滚；新配置生效后必须重�
 | 擦写过程中掉电 | 没有第二个可自动回滚的记录槽。重启分别检查基础和扩展，只恢复实际通过验证的部分。 |
 
 读写兼容与输出轴定位可运行[两板输出轴原生测试](../../tests/unit/native/test_output_encoder.py)。若变更擦除页数或提交顺序，还应明确掉电时点、预期重启结果和对应的板级验证。
+
+## 轴记录兼容
+
+AXS记录为带CRC的32字节轴配置，CAN节点地址与轴身份是独立字段。
+AXS1包含名称；AXS2包含joint_type及config_revision。旧修订不能被解释为具备当前全部轴能力。
+当前AT32按AXS2修订2核对节点、角色和电气模型；角色包括ROLL、PITCH、YAW、左右轮和Lift。
+记录损坏、未知版本与未配置是不同状态，不能用默认值掩盖损坏的标定身份。
+范围、可写权限及版本迁移见[轴配置](../guides/at32f456_five_axes.md)、
+[参数记录实现](../../firmware/parameters/parameter_record.c)和[轴布局](../../firmware/motor/axis_config.h)。

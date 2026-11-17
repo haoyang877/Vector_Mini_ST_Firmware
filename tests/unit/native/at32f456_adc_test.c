@@ -71,6 +71,11 @@ int main(int argc, char **argv)
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
     ADC1->pdt4 = 4825;
     assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 1206.25f);
+    assert(fabsf(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE) - (1206.25f * 103.3f / 4095.0f - 0.4f)) <
+           0.00003f);
+    ADC1->pdt4 = 0;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 0.0f);
+    assert(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE) == -0.4f);
     ADC2->pdt1 = 1999;
     ADC2->pdt2 = 1234;
     ADC2->pdt3 = 2345;

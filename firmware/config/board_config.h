@@ -44,6 +44,8 @@
 #define AT32_BUS_CURRENT_GAIN      20.0f
 #define AT32_VBUS_TOP_KOHM         100.0f
 #define AT32_VBUS_BOTTOM_KOHM      3.3f
+/* 按指定固定偏置修正物理电压，单位 V；原码及采样配置不变。 */
+#define AT32_VBUS_OFFSET_V         0.4f
 
 /* CN5: 3V3--NTC--TEMP_MOT_IN--R92(1k)--GND；R91(22Ω)只串在ADC滤波支路。
  * 用户确认R25=10kΩ、B=3950K；误差和B值标定温区尚未提供。 */

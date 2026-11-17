@@ -214,7 +214,7 @@ float BspAdc_ReadChannel(BspAdcChannel channel)
     case BSP_ADC_PHASE_CURRENT_C:
         return -(counts - s_phase_offsets[channel]) * BSP_ADC_CURRENT_A_PER_COUNT;
     case BSP_ADC_BUS_VOLTAGE:
-        return counts * BSP_ADC_VBUS_V_PER_COUNT;
+        return counts * BSP_ADC_VBUS_V_PER_COUNT - AT32_VBUS_OFFSET_V;
 #if BSP_ENABLED_BUS_CURRENT
     case BSP_ADC_BUS_CURRENT:
         return (counts - s_bus_offset) * (BUS_CURRENT_ADC_REFERENCE_V / BUS_CURRENT_ADC_MAX_COUNTS /

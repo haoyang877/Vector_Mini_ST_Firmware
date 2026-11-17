@@ -311,10 +311,29 @@ void MotorStateMachine_CompleteCalibrationPublication(MotorStateMachine *machine
  */
 MotorControlResult MotorStateMachine_RequestFaultClear(MotorStateMachine *machine);
 
+/** @brief 各执行上下文完成的拍数；前台保存上次快照并分别检查自然回绕后的新进展。 */
+typedef struct
+{
+    uint32_t fast_ticks;
+    uint32_t supervisor_ticks;
+    uint32_t outer_ticks;
+} MotorRuntimeProgress;
+
 /**
- * @brief 读取监督拍进展与基础采样健康，不要求主机在线或电机已使能。
+ * @brief 读取运行期安全状态和关键任务进展，允许可靠关相的普通故障保留诊断。
+ * @param machine 调用方持有的实例状态。
+ * @param progress 输出各任务已完成拍数；调用方必须逐项比较新进展。
+ * @return 关相可信或正常控制采样有效，且无不可恢复锁定时返回true；输出为空返回false。
+ * @note 仅前台短临界区只读；ADC可抢占，三个计数不承诺来自同一采样瞬间。
+ *       不授权启相、清错或镜像确认，通信与前台活性由组合层检查。
+ */
+bool MotorStateMachine_ReadRuntimeHealth(const MotorStateMachine *machine,
+                                         MotorRuntimeProgress *progress);
+
+/**
+ * @brief 读取镜像确认所需的监督进展与采样健康，不要求主机在线或电机已使能。
  * @param progress 输出已完成监督拍计数；调用方必须比较新进展。
- * @return 采样新鲜且未进入不可清除故障返回true；空指针返回false。
+ * @return 采样新鲜且无故障、无不可恢复锁定时返回true；输出为空返回false。
  * @note 前台短临界区只读；通信健康由组合层补充，不授权运动或Flash。
  * @param machine 调用方持有的实例状态。
  */

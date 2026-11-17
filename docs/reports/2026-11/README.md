@@ -1,5 +1,7 @@
 # 2026-11报告
 
+- [AT32 看门狗修复实测](watchdog_runtime_at32_20261117.md)：APP v1.8.26 在过压 FAULT 下运行 135.5 s 并保持 CAN 应答；GPIO 读回异常使完整安全验收未通过，结束时驻留 Loader。
+
 - [设备摘要与实时曲线](live_speed_display_20261113.md)：上位机1.14.0，布局、有效位、缓存及Release通过，用户实测。
 
 - [持续速度与30/300限速](continuous_speed_limits_20261113.md)：持续旋转、静态500 ms、旧记录兼容和最终验证。

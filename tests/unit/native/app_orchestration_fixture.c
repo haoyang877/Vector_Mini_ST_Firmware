@@ -179,6 +179,14 @@ bool MotorStateMachine_ReadBootHealth(MotorStateMachine *instance, uint32_t *val
     event(32, progress);
     return healthy;
 }
+bool MotorStateMachine_ReadRuntimeHealth(const MotorStateMachine *instance,
+                                         MotorRuntimeProgress *value)
+{
+    (void)instance;
+    *value = (MotorRuntimeProgress){progress, progress, progress};
+    event(49, progress);
+    return healthy;
+}
 bool Protocol_IsReady(ProtocolEndpoint *instance)
 {
     (void)instance;

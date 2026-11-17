@@ -94,16 +94,28 @@ static void test_tick_entries(void)
     assert(supervisor_calls == SUPERVISOR_FREQ / 5U && fast_calls == 1U);
 }
 
-static uint32_t model_progress, feeds, calls;
-static bool model_healthy, model_link, last_healthy;
+static MotorRuntimeProgress model_progress;
+static uint32_t feeds, calls;
+static bool model_boot_healthy, model_runtime_healthy, model_link, model_confirmed, last_healthy;
 static bool model_idle = true, model_off = true;
 static uint32_t confirm_calls;
 
 bool MotorStateMachine_ReadBootHealth(MotorStateMachine *instance, uint32_t *progress)
 {
     (void)instance;
+    *progress = model_progress.supervisor_ticks;
+    return model_boot_healthy;
+}
+bool MotorStateMachine_ReadRuntimeHealth(const MotorStateMachine *instance,
+                                         MotorRuntimeProgress *progress)
+{
+    (void)instance;
     *progress = model_progress;
-    return model_healthy;
+    return model_runtime_healthy;
+}
+bool BootHw_IsConfirmed(void)
+{
+    return model_confirmed;
 }
 bool MotorStateMachine_IsStopped(const MotorStateMachine *instance)
 {
@@ -136,46 +148,118 @@ void BootHw_Watchdog(bool healthy)
     last_healthy = healthy;
     feeds += healthy ? 1U : 0U;
 }
-int main(void)
+static void advance_progress(void)
+{
+    ++model_progress.fast_ticks;
+    ++model_progress.supervisor_ticks;
+    ++model_progress.outer_ticks;
+}
+
+static void reset_health(void)
 {
     g_app.loader = (AppLoader){.state_machine = &g_app.axis.state_machine,
                                .communication_ready = &g_app.communication_ready,
                                .endpoint = &g_app.endpoint,
                                .publish_identity = publish_identity};
-    test_tick_entries();
-    g_app.communication_ready = model_healthy = model_link = true;
-    model_progress = 1U;
+    g_app.communication_ready = model_boot_healthy = model_runtime_healthy = model_link = true;
+    model_confirmed = true;
+    model_off = true;
+    model_progress = (MotorRuntimeProgress){0};
+    feeds = calls = confirm_calls = 0U;
+}
+
+static void test_watchdog_requires_task_progress(void)
+{
+    reset_health();
     process_at(99U);
     assert(calls == 0U);
+    advance_progress();
     process_at(100U);
     assert(feeds == 1U && last_healthy);
-    process_at(200U);
-    assert(feeds == 1U && !last_healthy);
-    ++model_progress;
+
+    /* 其余两个任务继续运行，仍不能掩盖单个关键任务停止。 */
+    for (unsigned task = 0U; task < 3U; ++task)
+    {
+        advance_progress();
+        if (task == 0U)
+        {
+            --model_progress.fast_ticks;
+        }
+        else if (task == 1U)
+        {
+            --model_progress.supervisor_ticks;
+        }
+        else
+        {
+            --model_progress.outer_ticks;
+        }
+        process_at(200U + task * 200U);
+        assert(feeds == 1U + task && !last_healthy);
+        advance_progress();
+        process_at(300U + task * 200U);
+        assert(feeds == 2U + task && last_healthy);
+    }
+
+    advance_progress();
     model_link = false;
-    process_at(300U);
-    assert(feeds == 1U && !last_healthy);
+    process_at(800U);
+    assert(feeds == 4U && !last_healthy);
     model_link = true;
-    model_healthy = false;
-    ++model_progress;
-    process_at(400U);
-    assert(feeds == 1U && !last_healthy);
-    model_healthy = true;
+    g_app.communication_ready = false;
+    advance_progress();
+    process_at(900U);
+    assert(feeds == 4U && !last_healthy);
+    g_app.communication_ready = true;
+    model_runtime_healthy = false;
+    advance_progress();
+    process_at(1000U);
+    assert(feeds == 4U && !last_healthy);
+    model_runtime_healthy = true;
+
+    /* 毫秒、快环、监督和外环计数自然回绕后仍可证明新进展。 */
     g_app.loader.health_checked_ms = UINT32_MAX - 50U;
-    g_app.loader.observed_supervisor_ticks = UINT32_MAX;
-    model_progress = 0U;
+    g_app.loader.observed_progress = (MotorRuntimeProgress){UINT32_MAX, UINT32_MAX, UINT32_MAX};
+    model_progress = (MotorRuntimeProgress){0};
     process_at(49U);
-    assert(feeds == 2U && last_healthy);
+    assert(feeds == 5U && last_healthy);
+}
+
+static void test_confirmed_fault_preserves_watchdog(void)
+{
+    reset_health();
+    model_boot_healthy = false;
+    /* 对应零偏未完成的安全故障：超过原设备复位时长仍保持运行期喂狗。 */
+    for (uint32_t now_ms = 100U; now_ms <= 60000U; now_ms += 100U)
+    {
+        advance_progress();
+        process_at(now_ms);
+        assert(last_healthy && g_app.loader.healthy_intervals == 0U);
+    }
+    assert(feeds == 600U);
+
+    /* 相同运行期条件不放宽未确认镜像的采样与故障门禁。 */
+    model_confirmed = false;
+    advance_progress();
+    process_at(60100U);
+    assert(feeds == 600U && !last_healthy);
+    model_boot_healthy = true;
+    advance_progress();
+    process_at(60200U);
+    assert(feeds == 601U && last_healthy);
+}
+
+static void test_strict_confirmation_window(void)
+{
+    reset_health();
+    model_confirmed = false;
     g_app.loader.supported = true;
-    g_app.loader.healthy_intervals = 0U;
-    g_app.loader.health_checked_ms = 0U;
     for (uint32_t i = 1U; i <= 10U; ++i)
     {
-        ++model_progress;
+        advance_progress();
         process_at(i * 100U);
         assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U) && confirm_calls == 0U);
     }
-    ++model_progress;
+    advance_progress();
     process_at(1100U);
     assert(g_app.loader.healthy_intervals == 11U &&
            try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
@@ -185,13 +269,25 @@ int main(void)
     g_app.loader.request.boot_epoch = 1U;
     assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     g_app.loader.request.boot_epoch = 0U;
-    model_healthy = false;
+    model_boot_healthy = false;
     assert(!try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     process_at(1200U);
-    model_healthy = true;
+    model_boot_healthy = true;
     assert(g_app.loader.healthy_intervals == 0U &&
            !try_confirm_trial_image(&g_app.loader, 0x10000U, 7U));
     assert(confirm_calls == 1U);
+    advance_progress();
+    model_runtime_healthy = false;
+    process_at(1300U);
+    assert(!last_healthy && g_app.loader.healthy_intervals == 0U);
+}
+
+int main(void)
+{
+    test_tick_entries();
+    test_watchdog_requires_task_progress();
+    test_confirmed_fault_preserves_watchdog();
+    test_strict_confirmation_window();
     puts("PASS actual APP foreground/tick order and bounded watchdog health/progress");
     return 0;
 }

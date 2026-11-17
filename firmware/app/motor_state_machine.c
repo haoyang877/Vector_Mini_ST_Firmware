@@ -42,7 +42,7 @@ __attribute__((noinline)) MotorState MotorStateMachine_NextState(MotorState stat
 
 static bool try_enable_permitted_phases(MotorStateMachine *machine);
 static bool calibration_requires_power(MotorCalibrationType calibration_type);
-static bool has_valid_axis_samples(MotorStateMachine *machine);
+static bool has_valid_axis_samples(const MotorStateMachine *machine);
 static void disable_phases_and_end_session(MotorStateMachine *machine);
 
 /* 前台、ADC 和慢拍在原调用点提交事件。状态及转换所需的功率动作在此决定。 */
@@ -163,7 +163,7 @@ void MotorStateMachine_Init(MotorStateMachine *machine, const MotorStateMachineB
 }
 
 /* 启动和标定准入都读取本轴的实测输入。启相前由 ADC 再次复核。 */
-static bool has_valid_axis_samples(MotorStateMachine *machine)
+static bool has_valid_axis_samples(const MotorStateMachine *machine)
 {
     return machine->fast_samples_fresh &&
            MotorCurrentOffsets_IsValid(machine->drive.configuration) &&
@@ -1023,6 +1023,33 @@ void MotorStateMachine_SupervisorTick(MotorStateMachine *machine)
     BspSystem_ExitControlCritical(mask);
 }
 
+bool MotorStateMachine_ReadRuntimeHealth(const MotorStateMachine *machine,
+                                         MotorRuntimeProgress *progress)
+{
+    if (progress == NULL)
+    {
+        return false;
+    }
+    uint32_t mask = BspSystem_EnterControlCritical();
+    *progress = (MotorRuntimeProgress){
+        machine->fast_sample_ticks, machine->supervisor_ticks, machine->outer_ticks};
+    bool healthy = !machine->fault_locked && (unsigned)machine->state <= MOTOR_STATE_FAULT;
+    if (healthy)
+    {
+        if (machine->drive.motor->fault_code != MOTOR_FAULT_NONE ||
+            (machine->state != MOTOR_STATE_RUNNING && machine->state != MOTOR_STATE_CALIBRATION))
+        {
+            healthy = machine->drive.power->phases_disabled();
+        }
+        else
+        {
+            healthy = has_valid_axis_samples(machine);
+        }
+    }
+    BspSystem_ExitControlCritical(mask);
+    return healthy;
+}
+
 bool MotorStateMachine_ReadBootHealth(MotorStateMachine *machine, uint32_t *progress)
 {
     if (progress == NULL)
@@ -1031,7 +1058,9 @@ bool MotorStateMachine_ReadBootHealth(MotorStateMachine *machine, uint32_t *prog
     }
     uint32_t mask = BspSystem_EnterControlCritical();
     *progress = machine->supervisor_ticks;
-    bool healthy = has_valid_axis_samples(machine) && !machine->fault_locked;
+    bool healthy = has_valid_axis_samples(machine) && !machine->fault_locked &&
+                   (unsigned)machine->state < MOTOR_STATE_FAULT &&
+                   machine->drive.motor->fault_code == MOTOR_FAULT_NONE;
     BspSystem_ExitControlCritical(mask);
     return healthy;
 }

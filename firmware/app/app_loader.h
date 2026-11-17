@@ -16,7 +16,7 @@ typedef struct
     BootEntryResult result;
     uint32_t entry_started_ms;
     uint32_t health_checked_ms;
-    uint32_t observed_supervisor_ticks;
+    MotorRuntimeProgress observed_progress;
     bool supported;
     uint8_t healthy_intervals;
 } AppLoader;

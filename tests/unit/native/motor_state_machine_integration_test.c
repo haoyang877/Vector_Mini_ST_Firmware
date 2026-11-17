@@ -333,6 +333,98 @@ static void test_faults_and_safety(void)
     assert(machine.state == MOTOR_STATE_FAULT);
 }
 
+static void test_runtime_and_boot_health(void)
+{
+    MotorRuntimeProgress progress;
+    uint32_t supervisor_ticks;
+    reset();
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    assert(progress.fast_ticks == machine.fast_sample_ticks &&
+           progress.supervisor_ticks == machine.supervisor_ticks &&
+           progress.outer_ticks == machine.outer_ticks);
+    assert(MotorStateMachine_ReadBootHealth(&machine, &supervisor_ticks));
+    assert(supervisor_ticks == machine.supervisor_ticks);
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, NULL));
+    assert(!MotorStateMachine_ReadBootHealth(&machine, NULL));
+
+    /* 上电早期过压中止零偏后，可靠关相仍可保持诊断，但不能确认新镜像或启动。 */
+    configuration.device.phase_a_offset_counts = NAN;
+    foc.phase_current_a.a = NAN;
+    motor.fault_code = MOTOR_FAULT_OVERVOLTAGE;
+    tick();
+    assert(machine.state == MOTOR_STATE_FAULT && phases_disabled);
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    assert(!MotorStateMachine_ReadBootHealth(&machine, &supervisor_ticks));
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) !=
+           MOTOR_CONTROL_ACCEPTED);
+    assert(MotorStateMachine_RequestFaultClear(&machine) != MOTOR_CONTROL_ACCEPTED);
+
+    const MotorFaultCode recoverable_faults[] = {MOTOR_FAULT_OVERVOLTAGE,
+                                                 MOTOR_FAULT_UNDERVOLTAGE,
+                                                 MOTOR_FAULT_OVERCURRENT,
+                                                 MOTOR_FAULT_OVERTEMPERATURE,
+                                                 MOTOR_FAULT_ENCODER};
+    for (unsigned i = 0U; i < sizeof(recoverable_faults) / sizeof(recoverable_faults[0]); ++i)
+    {
+        reset();
+        motor.fault_code = recoverable_faults[i];
+        tick();
+        assert(machine.state == MOTOR_STATE_FAULT && phases_disabled);
+        assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+        assert(!MotorStateMachine_ReadBootHealth(&machine, &supervisor_ticks));
+        phases_disabled = false;
+        assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+        phases_disabled = true;
+        machine.fault_locked = true;
+        assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    }
+
+    reset();
+    /* 故障事件尚未转成 FAULT 时，也必须实际关相。 */
+    motor.fault_code = MOTOR_FAULT_OVERVOLTAGE;
+    phases_disabled = false;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    assert(!MotorStateMachine_ReadBootHealth(&machine, &supervisor_ticks));
+    phases_disabled = true;
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    motor.fault_code = MOTOR_FAULT_NONE;
+    machine.state = MOTOR_STATE_FAULT;
+    assert(!MotorStateMachine_ReadBootHealth(&machine, &supervisor_ticks));
+
+    reset();
+    phases_disabled = false;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    machine.state = MOTOR_STATE_SELF_TEST;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    phases_disabled = true;
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    machine.state = (MotorState)99;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    machine.state = (MotorState)-1;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+
+    reset();
+    assert(MotorStateMachine_RequestStart(&machine, MOTOR_CONTROL_CURRENT) ==
+           MOTOR_CONTROL_ACCEPTED);
+    tick();
+    assert(machine.state == MOTOR_STATE_RUNNING && !phases_disabled);
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    foc.phase_current_a.a = NAN;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    motor.fault_code = MOTOR_FAULT_OVERCURRENT;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    phases_disabled = true;
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+
+    reset();
+    assert(MotorStateMachine_RequestCalibration(&machine, MOTOR_CALIBRATION_MECHANICAL_ZERO) ==
+           MOTOR_CONTROL_ACCEPTED);
+    assert(machine.state == MOTOR_STATE_CALIBRATION);
+    assert(MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+    configuration.device.phase_a_offset_counts = NAN;
+    assert(!MotorStateMachine_ReadRuntimeHealth(&machine, &progress));
+}
+
 static void test_commit_preemption_and_stop(void)
 {
     reset();
@@ -1033,6 +1125,7 @@ int main(void)
     test_control_and_stop();
     test_bus_current_snapshot();
     test_faults_and_safety();
+    test_runtime_and_boot_health();
     test_commit_preemption_and_stop();
     test_direct_control_updates();
     test_calibration_completes_to_idle();

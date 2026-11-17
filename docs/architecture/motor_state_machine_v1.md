@@ -1,6 +1,6 @@
 # APP 与 Loader 状态机设计
 
-按 2026-11-10 的 `the-system-refactor` 工作树核对（分支提交 `a87bc5ce`）。两板每根轴各持有一个 `MotorStateMachine`。上电进入 IDLE。第五个枚举 SELF_TEST 保留线路映射，生产代码没有迁入该状态的事件。上电电流零偏在关相 IDLE 内采样。
+主体按 2026-11-10 的 `the-system-refactor` 工作树核对（分支提交 `a87bc5ce`）；运行期健康与看门狗部分于 2026-11-17 更新。两板每根轴各持有一个 `MotorStateMachine`。上电进入 IDLE。第五个枚举 SELF_TEST 保留线路映射，生产代码没有迁入该状态的事件。上电电流零偏在关相 IDLE 内采样。
 
 ## APP 电机状态与功率许可
 
@@ -78,6 +78,38 @@ stateDiagram-v2
 
 CLEAR 由前台执行。先核对实际关相、输入有效、标定会话空闲、配置合法及故障源恢复，再用原子比较交换清除已检查的故障字；期间若故障字已改变则保留 FAULT。不同故障有不同恢复条件：过流需要监督拍累计恢复时间，电压故障要求滤波母线回到使能窗口，编码器故障要求新鲜采样和编码器在线。关相读回失败导致的 `fault_locked` 阻止普通 CLEAR。[恢复判据](../../firmware/motor/protection/motor_fault.c)
 
+## 运行期健康与看门狗
+
+适用于两板配套 LoaderApp。电机运行许可、运行期看门狗健康和新镜像确认资格分别判断。
+`MotorStateMachine_ReadRuntimeHealth` 在前台短临界区读取本轴的运行期健康与
+`MotorRuntimeProgress`，其中保存快环、外环、监督任务各自的完成计数。
+计数由各执行者维护，快照不推进任务或改变状态，也不承诺三个任务在同一拍完成。
+`AppLoader_Process` 每 100 ms 检查三项计数相对上次均有变化，并检查通信模块就绪；
+前台停止调用或任一任务不再推进，均不能继续喂狗。计数使用无符号自然回绕，
+不把主机是否持续在线作为程序活性条件。
+
+| 轴的当前情况 | 运行期健康要求 |
+| --- | --- |
+| IDLE、SELF_TEST、FAULT，或任意已知状态已锁存电机故障 | `fault_locked` 为 false，且数字读回确认三相输出关闭；零偏未完成或测量无效不单独否决 |
+| 无故障的 RUNNING、CALIBRATION | `fault_locked` 为 false，且基础采样有效，继续采用现行电流零偏、有限值与新鲜度要求 |
+| 非法状态，或关相确认失败、会话号耗尽等已置 `fault_locked` | 不健康 |
+
+已确认镜像满足上述运行期健康、三项任务进展和通信就绪时继续维护看门狗。
+因此上电早期电压故障即使使零偏采样停住，只要功率可靠关闭且程序继续工作，
+APP 仍可提供故障查询和诊断。这里不修改零偏采样调度、故障锁存、CLEAR 或再次启动的条件；
+保持通信不代表故障已经恢复。
+
+新镜像确认使用 `MotorStateMachine_ReadBootHealth` 的严格条件：基础采样完整有效、
+无电机故障且不在 FAULT、没有 `fault_locked`。AppLoader 只有在严格条件、运行期健康、
+任务进展和通信就绪均成立时，才累计连续 11 个健康检查间隔；任一次失败即清零。
+57 确认请求还须复核当前健康、实际关相和无已登记的 56 请求，BootHw 再核对版本、
+CRC、激活/尝试标记及 5 s 确认期限。未确认镜像的喂狗仍要求严格健康，
+超出确认期限后停止喂狗，实际复位时刻取决于硬件看门狗。
+
+实际判断见[状态机健康接口](../../firmware/app/motor_state_machine.c)与
+[APP 健康检查和确认](../../firmware/app/app_loader.c)。本次修改的实现与验证状态见
+[实施记录](../plans/completed/2026-11-17-watchdog-runtime-health.md)。
+
 ## 从代码跟一条路径
 
 - 从 [motor_state_machine.c](../../firmware/app/motor_state_machine.c) 的 `transition_motor_state` 开始读。它按 RUN、CALIBRATE、COMPLETE、STOP、FAULT、CLEAR 处理实际事件。初始化之后的主状态写入全部在这里。`MotorStateMachine_NextState` 给出五态之间允许的转换。
@@ -112,7 +144,7 @@ Loader 先确认复位原因、功率关闭及链路条件。看门狗复位、�
 | 有效 | 有效 | 满足其他启动条件时可启动已确认 APP。 |
 | 其他组合、半写或读取失败 | 任意 | 拒绝跳转。标记检查同时核对 magic 和反码。 |
 
-57 由试运行 APP 处理。它要求通信就绪、监督有进展及连续 11 个健康检查间隔（每次至少 100 ms），当前关相且无已登记的 56 请求。BootHw 再核对版本、镜像 CRC、激活/尝试标记及试运行期限。5 s 内未确认时停止维护试运行看门狗；具体复位时刻取决于硬件看门狗。[启动判定](../../shared/image/image_transfer.c) · [健康检查与确认](../../firmware/app/app_loader.c)
+57 由试运行 APP 处理，其严格健康窗口和期限见[运行期健康与看门狗](#运行期健康与看门狗)。镜像启动判断由[镜像内核](../../shared/image/image_transfer.c)负责；普通故障下继续维护已确认镜像的看门狗，不改变 Loader 的看门狗复位驻留策略。
 
 ### 设计变更时的验证轨迹
 

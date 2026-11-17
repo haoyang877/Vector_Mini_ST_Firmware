@@ -152,10 +152,11 @@ void AppLoader_Init(AppLoader *loader)
     loader->publish_identity(loader->identity_context);
 }
 /**
- * @brief 推进Loader停机事务，并按100 ms间隔检查应用健康以维护继承看门狗。
+ * @brief 推进Loader停机事务，分别检查运行期喂狗与镜像确认所需健康。
+ * @param loader 本实例的事务。
  * @param now_ms 通信服务执行之后读取的当前毫秒计数，允许32位自然回绕。
- * @note 前台调用；健康要求监督拍数有进展、生命周期输入有效且通信就绪。
- *       连续11次健康才满足镜像确认门槛，任一次失败清零。
+ * @note 前台每100 ms确认快环、外环和监督均有进展、运行安全且通信就绪。
+ *       未确认镜像还要求采样有效且无故障；连续11次严格健康才满足确认门槛。
  */
 void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
 {
@@ -164,13 +165,19 @@ void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
     {
         return;
     }
-    uint32_t supervisor_ticks = 0U;
     loader->health_checked_ms = now_ms;
-    bool healthy = MotorStateMachine_ReadBootHealth(loader->state_machine, &supervisor_ticks);
-    healthy = healthy && supervisor_ticks != loader->observed_supervisor_ticks &&
-              *loader->communication_ready && Protocol_IsReady(loader->endpoint);
-    loader->observed_supervisor_ticks = supervisor_ticks;
-    if (!healthy)
+    MotorRuntimeProgress progress;
+    bool runtime_healthy = MotorStateMachine_ReadRuntimeHealth(loader->state_machine, &progress);
+    runtime_healthy = runtime_healthy &&
+                      progress.fast_ticks != loader->observed_progress.fast_ticks &&
+                      progress.supervisor_ticks != loader->observed_progress.supervisor_ticks &&
+                      progress.outer_ticks != loader->observed_progress.outer_ticks &&
+                      *loader->communication_ready && Protocol_IsReady(loader->endpoint);
+    loader->observed_progress = progress;
+    uint32_t supervisor_ticks;
+    bool boot_healthy = MotorStateMachine_ReadBootHealth(loader->state_machine, &supervisor_ticks);
+    boot_healthy = boot_healthy && runtime_healthy;
+    if (!boot_healthy)
     {
         loader->healthy_intervals = 0U;
     }
@@ -178,6 +185,7 @@ void AppLoader_Process(AppLoader *loader, uint32_t now_ms)
     {
         ++loader->healthy_intervals;
     }
-    BootHw_Watchdog(healthy);
+    bool confirmed = BootHw_IsConfirmed();
+    BootHw_Watchdog(confirmed ? runtime_healthy : boot_healthy);
 }
 #endif

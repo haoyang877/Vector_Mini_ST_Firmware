@@ -12,7 +12,7 @@ from can_calibration_curves import ARCHIVE_TYPES, calibration_archive, model_dir
 from can_motor_operations import describe_faults, speed_value
 from can_parameters import CATALOG, GROUPS, value_text
 from five_axis_can_stability import PER_NODE, encode_frames, version_text
-from five_axis_jlink import FIRST_FIT_AXES
+from five_axis_jlink import FIRST_FIT_AXES, firmware_versions
 from hardware_check import empty_report
 from hardware_limits import default_path, read_limits
 from production_backend import (
@@ -67,7 +67,7 @@ from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
 
-VERSION = "2.1.6"
+VERSION = "2.1.7"
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -428,13 +428,15 @@ class ProductionWindow(QMainWindow):
         content = QHBoxLayout()
         firmware = QGroupBox("本批固件")
         box = QVBoxLayout(firmware)
-        box.addWidget(label("APP 1.8.17   +   Loader 2.3.4", "metric"))
+        self.firmware_label = label("固件版本未确认", "metric", True)
+        box.addWidget(self.firmware_label)
         box.addWidget(label("AT32F456  ·  CAN FD 1M / 5M", "subtitle"))
         self.hex_path = self.resource / "firmware/five-axis.hex"
         if not self.hex_path.is_file():
             self.hex_path = None
         self.hex_label = label("内置统一整包" if self.hex_path else "尚未选择本批 HEX", wrap=True)
         box.addWidget(self.hex_label)
+        self.update_firmware_version()
         self.add_action(box, "选择本批 HEX", self.choose_hex, icon_name="folder")
         box.addStretch()
         content.addWidget(firmware, 1)
@@ -478,11 +480,7 @@ class ProductionWindow(QMainWindow):
         settings.setMinimumWidth(240)
         settings.setMaximumWidth(300)
         settings_layout = QVBoxLayout(settings)
-        self.package_path = (
-            self.resource / "can-app"
-            if getattr(sys, "frozen", False)
-            else self.resource.parents[1] / "outputs/AT32F456-FULL-v1.8.17/app-package"
-        )
+        self.package_path = self.resource / "can-app"
         self.package_label = label("", wrap=True)
         settings_layout.addWidget(self.package_label)
         self.add_action(settings_layout, "选择升级包目录", self.choose_package, icon_name="folder")
@@ -1007,7 +1005,24 @@ class ProductionWindow(QMainWindow):
         if path:
             self.hex_path = Path(path)
             self.hex_label.setText(self.hex_path.name)
+            self.update_firmware_version()
             self.update_controls()
+
+    def update_firmware_version(self) -> None:
+        """选择 HEX 后重新读取版本；失败清除旧文本，不访问设备。"""
+        if self.hex_path is None:
+            self.firmware_label.setText("固件版本未确认")
+            self.firmware_label.setToolTip("请选择本批合并 HEX")
+            return
+        try:
+            app, loader = firmware_versions(self.hex_path, self.resource)
+            self.firmware_label.setText(
+                f"APP {version_text(app)}   +   Loader {version_text(loader)}"
+            )
+            self.firmware_label.setToolTip(str(self.hex_path))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.firmware_label.setText("固件版本未确认")
+            self.firmware_label.setToolTip(str(exc))
 
     def choose_package(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "选择包含 image.bin 和 manifest.bin 的目录")

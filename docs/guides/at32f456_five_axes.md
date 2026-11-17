@@ -307,10 +307,14 @@ v1.4.1 在初装且程序区全为空白时通过 SWD 暂停芯片，开启 GPIO
 
 每次运行独立保存到 `%USERPROFILE%\CAN-Link-Test\<时间戳>\`。点击“打开本次记录”查看逐帧 `frames.csv` 和结果 `summary.json`。停止保留已有数据，该次压测标记为已停止。
 
-需要从[界面源码](../../tools/bench/canfd_desktop.py)重新生成 EXE 时，在 Windows 仓库根目录运行以下[打包脚本](../../tools/bench/build_canfd_desktop.ps1)。产物位于 `outputs/canfd-desktop/dist/`，内含 Python 运行时、USB-CAN 厂商 x64 DLL、五轴设备清单及合并 HEX。
+Qt 上位机 v2.1.7 的“本批固件”在加载内置 HEX 或选择本地 HEX 后自动读取版本。
+APP 版本来自 HEX 内的描述符；Loader 版本来自与整个 HEX 的 SHA-256 匹配的批次清单。
+缺失、损坏或清单不匹配时显示“固件版本未确认”，不会保留上一次的版本文字。
+
+需要从[界面源码](../../tools/bench/qt_production_desktop.py)重新生成 EXE 时，在 Windows 仓库根目录运行以下[打包脚本](../../tools/bench/build_canfd_desktop.ps1)。产物位于 `outputs/canfd-desktop/dist/`，内含 Python 运行时、USB-CAN 厂商 x64 DLL、五轴设备清单及合并 HEX。
 
 ```powershell
-./tools/bench/build_canfd_desktop.ps1 -Dll $env:CONTROLCANFD_DLL -FirmwareHex <本批合并HEX路径>
+./tools/bench/build_canfd_desktop.ps1 -Dll $env:CONTROLCANFD_DLL -FirmwareHex <本批合并HEX路径> -CanPackage <配套CAN包目录> -BatchFile <本批清单JSON>
 ```
 
 APP1.8.8起，ROLL正常运行速度PI也与左右轮统一为0.05/0.5；标定PI保持0.05/0.5。装载旧ROLL记录时，仅将历史默认0.5/1.0迁移为当前默认，其他人工PI保留；只改RAM，不自动擦写Flash，显式保存或标定保存后才持久化。位置增益、加减速、5 A标定电流、LUT和零位均不因此改变。

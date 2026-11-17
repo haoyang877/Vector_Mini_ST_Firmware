@@ -37,6 +37,7 @@ def main() -> None:
                     dict(
                         title=window.windowTitle(),
                         pages=window.stack.count(),
+                        firmware_label=window.firmware_label.text(),
                         hardware_contacted=False,
                         connected=window.controller.connected,
                         window_icon_valid=not window.windowIcon().isNull(),

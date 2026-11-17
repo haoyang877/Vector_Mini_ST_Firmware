@@ -1,5 +1,6 @@
 ﻿param([Parameter(Mandatory = $true)][string]$Dll, [string]$FirmwareHex,
-      [string]$CanPackage = "outputs/AT32F456-FULL-v1.8.17/app-package",
+      [Parameter(Mandatory = $true)][string]$CanPackage,
+      [string]$BatchFile,
       [string[]]$PitchThermal = @('3','3','3600','0.8','0.7','1','0.5'),
       [string[]]$YawThermal = @('3','3','3600','0.8','0.7','1','0.5'))
 $ErrorActionPreference = "Stop"
@@ -11,8 +12,9 @@ Push-Location $root
 try {
     $output = "outputs/canfd-desktop"
     New-Item -ItemType Directory -Path $output -Force | Out-Null
-    $batchFile = Join-Path $root "tools/bench/five_axis_can_stability.json"
-    $batch = Get-Content -Encoding utf8 -Raw -LiteralPath $batchFile | ConvertFrom-Json
+    if (-not $BatchFile) { $BatchFile = Join-Path $root "tools/bench/five_axis_can_stability.json" }
+    $BatchFile = (Resolve-Path -LiteralPath $BatchFile).Path
+    $batch = Get-Content -Encoding utf8 -Raw -LiteralPath $BatchFile | ConvertFrom-Json
     $canDir = (Resolve-Path -LiteralPath $CanPackage).Path
     if ((Get-FileHash -LiteralPath (Join-Path $canDir 'image.bin')).Hash -ne $batch.can_image_sha256 -or
         (Get-FileHash -LiteralPath (Join-Path $canDir 'manifest.bin')).Hash -ne $batch.can_manifest_sha256) {
@@ -50,10 +52,10 @@ try {
     uv run --no-sync --extra desktop python tools/build/make_desktop_icon.py --source tools/bench/assets/production_motor.svg --output "$output/resources/production_motor.ico"
     if ($LASTEXITCODE -ne 0) { throw "应用图标生成失败" }
     uv run --no-sync --extra maintenance --extra desktop --with pyinstaller==6.16.0 python -m PyInstaller --noconfirm --onedir --windowed `
-        --name 电机生产测试上位机-v2.1.6 --distpath "$output/dist" --workpath "$output/build" `
+        --name 电机生产测试上位机-v2.1.7 --distpath "$output/dist" --workpath "$output/build" `
         --icon "$($firmware.FullName)/production_motor.ico" --add-data "$root/tools/bench/assets;assets" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
-        --add-binary "${sdk};." --add-data "$root/tools/bench/five_axis_can_stability.json;." `
+        --add-binary "${sdk};." --add-data "${BatchFile};." `
         --add-data "$root/shared/targets/yg_esc_v1_at32f456.json;." `
         --add-data "$root/shared/protocol/parameter_catalog_v1.json;." `
         --add-data "$root/shared/protocol/hardware_check_limits_v1.json;." `
@@ -63,8 +65,8 @@ try {
         --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets `
         tools/bench/qt_production_desktop.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败 ($LASTEXITCODE)" }
-    Copy-Item -LiteralPath "$root/tools/bench/hardware_check_limits.json" -Destination "$output/dist/电机生产测试上位机-v2.1.6/hardware_check_limits.json"
-    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.1.6/电机生产测试上位机-v2.1.6.exe" -Algorithm SHA256
+    Copy-Item -LiteralPath "$root/tools/bench/hardware_check_limits.json" -Destination "$output/dist/电机生产测试上位机-v2.1.7/hardware_check_limits.json"
+    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.1.7/电机生产测试上位机-v2.1.7.exe" -Algorithm SHA256
 } finally {
     Pop-Location
 }

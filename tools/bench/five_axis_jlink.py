@@ -77,6 +77,38 @@ def firmware_segments(raw: bytes, expected_hash: str, target: dict) -> list[tupl
     return [(start, image.tobinstr(start=start, end=end - 1)) for start, end in ranges]
 
 
+def firmware_versions(path: Path, resource: Path) -> tuple[int, int]:
+    """离线校验当前 HEX，读取 APP 描述符及与整包哈希绑定的 Loader 批次版本。"""
+    from intelhex import IntelHexError
+
+    batch = json.loads((resource / "five_axis_can_stability.json").read_text(encoding="utf-8"))
+    target_path = resource / "yg_esc_v1_at32f456.json"
+    target = maintenance.load_target(target_path if target_path.is_file() else TARGET)
+    try:
+        segments = firmware_segments(path.read_bytes(), batch["hex_sha256"], target)
+        offset = maintenance.target_value(target, "TARGET_DESCRIPTOR_OFFSET")
+        words = struct.unpack_from(">8I", segments[1][1], offset)
+    except (IntelHexError, UnicodeError, struct.error) as exc:
+        raise ValueError("无法解析本批 HEX 的 APP 描述符") from exc
+    if words[:4] != (
+        0x59494431,
+        3,
+        0x53593549,
+        maintenance.target_value(target, "TARGET_LAYOUT"),
+    ):
+        raise ValueError("本批 HEX 的 APP 描述符无效")
+    app, loader = words[7], batch["loader_version"]
+    if (
+        not app
+        or app != batch["app_version"]
+        or not isinstance(loader, int)
+        or isinstance(loader, bool)
+        or not 0 < loader <= 0xFFFFFFFF
+    ):
+        raise ValueError("本批 HEX 与版本清单不匹配")
+    return app, loader
+
+
 def identify_motor(probe, target, motors, serial, log_root, hex_hash):
     """用硅片 UID 识别板卡，再区分无参数、初装中断和已配置三种情况。"""
     uid = maintenance.read_twice(probe, 0x1FFFF7E8, 12)

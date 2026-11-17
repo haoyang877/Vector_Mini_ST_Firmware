@@ -24,6 +24,78 @@ from test_device_maintenance import Probe  # noqa: E402
 from upgrade_client import crc8, crc16  # noqa: E402
 
 
+class FirmwareVersionTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.directory = Path(temp.name)
+        self.path = self.directory / "named-v9.9.9.hex"
+        self.target = swd.maintenance.load_target(swd.TARGET)
+        shutil.copyfile(
+            ROOT / "shared/targets/yg_esc_v1_at32f456.json",
+            self.directory / "yg_esc_v1_at32f456.json",
+        )
+
+    def write_image(self, app_version, loader_version=0x020304):
+        image = IntelHex()
+        image.frombytes(bytes(16), offset=0x08000000)
+        app = bytearray(640)
+        struct.pack_into(
+            ">8I",
+            app,
+            512,
+            0x59494431,
+            3,
+            0x53593549,
+            7,
+            0x04560100,
+            0x59473236,
+            2,
+            app_version,
+        )
+        image.frombytes(app, offset=0x08004000)
+        image.write_hex_file(str(self.path))
+        self.batch = dict(
+            app_version=app_version,
+            loader_version=loader_version,
+            hex_sha256=hashlib.sha256(self.path.read_bytes()).hexdigest(),
+        )
+        self.save_batch()
+
+    def save_batch(self):
+        (self.directory / "five_axis_can_stability.json").write_text(
+            json.dumps(self.batch), encoding="utf-8"
+        )
+
+    def test_versions_follow_selected_image_not_filename_or_target_default(self):
+        self.write_image(0x010817)
+        self.assertEqual(swd.firmware_versions(self.path, self.directory), (0x010817, 0x020304))
+        self.write_image(0x010819, 0x020305)
+        self.assertEqual(swd.firmware_versions(self.path, self.directory), (0x010819, 0x020305))
+
+    def test_rejects_hash_or_version_metadata_mismatch(self):
+        self.write_image(0x010819)
+        self.batch["app_version"] = 0x010817
+        self.save_batch()
+        with self.assertRaisesRegex(ValueError, "版本清单"):
+            swd.firmware_versions(self.path, self.directory)
+        self.write_image(0x010819)
+        self.path.write_bytes(self.path.read_bytes() + b"\n")
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            swd.firmware_versions(self.path, self.directory)
+
+    def test_rejects_missing_or_malformed_image(self):
+        self.write_image(0x010819)
+        self.path.unlink()
+        with self.assertRaises(OSError):
+            swd.firmware_versions(self.path, self.directory)
+        self.path.write_bytes(b"not Intel HEX")
+        self.batch["hex_sha256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.save_batch()
+        with self.assertRaises(ValueError):
+            swd.firmware_versions(self.path, self.directory)
+
+
 class FlashGuiTests(unittest.TestCase):
     def test_hardware_check_capability_matches_application_version(self):
         old = struct.pack("<I6H", 0x7FD00, 0x64E, 64, 46, 0, 500, 500)
@@ -39,6 +111,10 @@ class FlashGuiTests(unittest.TestCase):
         self.directory = Path(temp.name)
         self.target = "yg_esc_v1_at32f456.json"
         shutil.copyfile(ROOT / "shared/targets" / self.target, self.directory / self.target)
+        shutil.copyfile(
+            ROOT / "shared/protocol/hardware_check_limits_v1.json",
+            self.directory / "hardware_check_limits_v1.json",
+        )
         self.probe = Probe()
         self.probe.registers[0xE0042000] = 0x70053253
         self.probe.registers[0x40023874] = 3

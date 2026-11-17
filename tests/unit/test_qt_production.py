@@ -120,6 +120,27 @@ class QtProductionTests(unittest.TestCase):
         self.assertIn("未知模式", w.mode_label.text())
         self.assertIn("上次读取", w.fault_label.text())
 
+    def test_local_firmware_version_refreshes_and_clears_stale_text(self):
+        w = self.window
+        w.hex_path = None
+        w.update_firmware_version()
+        self.assertEqual(w.firmware_label.text(), "固件版本未确认")
+        with (
+            patch("qt_production_window.QFileDialog.getOpenFileName", return_value=("new.hex", "")),
+            patch("qt_production_window.firmware_versions", return_value=(0x010819, 0x020304)),
+        ):
+            w.choose_hex()
+        self.assertEqual(w.firmware_label.text(), "APP 1.8.25   +   Loader 2.3.4")
+        with patch("qt_production_window.firmware_versions", return_value=(0x010817, 0x020305)):
+            w.update_firmware_version()
+        self.assertEqual(w.firmware_label.text(), "APP 1.8.23   +   Loader 2.3.5")
+        for error in (OSError("文件缺失"), ValueError("HEX 损坏"), KeyError("loader_version")):
+            with patch("qt_production_window.firmware_versions", side_effect=error):
+                w.update_firmware_version()
+            self.assertEqual(w.firmware_label.text(), "固件版本未确认")
+            self.assertNotIn("APP 1.8.23", w.firmware_label.text())
+            self.assertTrue(w.firmware_label.toolTip())
+
     def test_input_widths_follow_field_content_across_pages(self):
         w = self.window
         for key, entry in w.edits.items():

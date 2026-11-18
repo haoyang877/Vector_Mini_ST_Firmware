@@ -185,8 +185,8 @@ MotorTaskResult EncoderCalibration_StepElecZero(EncoderCalibrationSession *insta
 bool Encoder_SetMechanicalZero(EncoderCalibration *calibration, EncoderState *encoder)
 {
     assert(calibration == &axis.configuration.device.encoder && encoder == &axis.rotor_encoder);
-    ++calibration_cycle_calls;
-    return true;
+    assert(false && "output zero must not change the motor encoder origin");
+    return false;
 }
 
 bool EncoderCalibration_PublishLut(EncoderCalibrationSession *instance,
@@ -842,7 +842,8 @@ static void test_calibration_dispatch_and_publication(void)
             MOTOR_FAULT_NONE};
         MotorAxis_SampleFast(&axis);
         MotorAxis_ControlFast(&axis);
-        assert(calibration_cycle_calls == 1U && control_calls == 0U);
+        unsigned expected_calls = calibration_type == MOTOR_CALIBRATION_MECHANICAL_ZERO ? 0U : 1U;
+        assert(calibration_cycle_calls == expected_calls && control_calls == 0U);
     }
     prepare_fast_tick_order(MOTOR_STATE_CALIBRATION, MOTOR_CONTROL_NONE);
     simulated_calibration_type = MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
@@ -966,33 +967,57 @@ static void test_output_encoder_startup(void)
 {
     axis.state_machine.state = MOTOR_STATE_IDLE;
     axis.configuration.preset = NULL;
-    axis.configuration.device.encoder.calib_flag = ENC_CALIB_LINEARIZED;
+    axis.configuration.device.encoder.calib_flag = ENC_CALIB_ALL;
     axis.rotor_encoder.has_valid_sample = true;
     axis.linear_hall.calibration_success = true;
     const float ratios[] = {1.0f, YQ_JOINT_GEAR_RATIO};
     for (unsigned i = 0U; i < sizeof(ratios) / sizeof(ratios[0]); ++i)
     {
         float hall_angle = (_PI + 0.05f) / ratios[i];
+        if (i != 0U)
+        {
+            hall_angle = _2PI - hall_angle;
+        }
         axis.linear_hall.val.sin_cal = -sinf(hall_angle);
         axis.linear_hall.val.cos_cal = cosf(hall_angle);
         axis.linear_hall.val.angle_rad = hall_angle;
         OutputEncoder_Init(&axis.output_encoder, ratios[i]);
         axis.output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
+        axis.output_encoder.params.direction = i == 0U ? 1 : -1;
         axis.current_offsets.complete = false;
         axis.rotor_encoder.linearized_q15 = 0U;
+        ++axis.state_machine.fast_sample_ticks;
         MotorAxis_OuterTick(&axis);
         assert(!OutputEncoder_IsReady(&axis.output_encoder));
+        assert(isnan(axis.output_encoder.speed_rad_s));
         /* 真实角接近半圈、Hall 有小误差时，启动零码不能提前决定圈段。 */
         axis.rotor_encoder.linearized_q15 = 32760U;
+        axis.rotor_encoder.mechanical_velocity_continuous_rad_s = 40.0f;
         axis.current_offsets.complete = true;
+        ++axis.state_machine.fast_sample_ticks;
         MotorAxis_OuterTick(&axis);
         assert(OutputEncoder_IsReady(&axis.output_encoder));
         float expected = 32760.0f * (_2PI / 65536.0f) / ratios[i];
+        if (i != 0U)
+        {
+            expected = _2PI - expected;
+        }
         assert(fabsf(axis.output_encoder.initial_position_rad - expected) < 1e-5f);
         assert(axis.output_encoder.motor_delta_q15 == 0);
+        assert(axis.output_encoder.speed_rad_s == (i == 0U ? 40.0f : -1.0f));
+        assert(axis.output_feedback.speed_rad_s == axis.output_encoder.speed_rad_s);
         axis.rotor_encoder.linearized_q15 += 100U;
+        axis.rotor_encoder.mechanical_velocity_continuous_rad_s = -40.0f;
+        ++axis.state_machine.fast_sample_ticks;
         MotorAxis_OuterTick(&axis);
         assert(axis.output_encoder.motor_delta_q15 == 100);
+        assert(axis.output_encoder.speed_rad_s == (i == 0U ? -40.0f : 1.0f));
+        axis.rotor_encoder.has_valid_sample = false;
+        ++axis.state_machine.fast_sample_ticks;
+        MotorAxis_OuterTick(&axis);
+        assert(isnan(axis.output_encoder.speed_rad_s));
+        assert(isnan(axis.output_feedback.speed_rad_s));
+        axis.rotor_encoder.has_valid_sample = true;
     }
     puts("PASS output encoder waits for startup sampling before locating direct/geared axes");
 }

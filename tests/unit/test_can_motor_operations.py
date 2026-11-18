@@ -28,10 +28,13 @@ class Endpoint:
         self.fault = ""
         self.status_losses = 0
         self.speed_limit = 4000
+        self.features = 0
+        self.position = 1000
+        self.position_after_target = None
 
     def status(self):
         data = bytearray(45)
-        struct.pack_into("<i", data, 12, 1000)
+        struct.pack_into("<i", data, 12, self.position)
         struct.pack_into("<i", data, 20, round(self.actual_speed * 1000))
         struct.pack_into("<H", data, 24, 0x29A)
         struct.pack_into("<h", data, 32, 50)
@@ -50,6 +53,8 @@ class Endpoint:
             if (mode, position, iq, vq) != (2, 0, 0, 0):
                 raise ValueError("速度目标线路字段不符")
             self.actual_speed = speed / 1000
+            if self.position_after_target is not None:
+                self.position = self.position_after_target
         elif kind == 118 and self.fault == "lease_ack":
             self.timeouts[118] = 1
             raise TimeoutError("lease ACK lost")
@@ -71,7 +76,10 @@ class Endpoint:
         if kind == 2:
             return struct.pack(
                 "<I6H",
-                (1 << 13) | (1 << 14) | (0 if self.fault == "capability" else 1 << 15),
+                self.features
+                | (1 << 13)
+                | (1 << 14)
+                | (0 if self.fault == "capability" else 1 << 15),
                 4,
                 64,
                 46,
@@ -295,6 +303,23 @@ class MotorOperationsTests(unittest.TestCase):
             if kind == 118
         ]
         self.assertEqual(leases, [1, 2])
+
+    def test_output_coordinates_convert_limits_without_rescaling_wire_targets(self):
+        self.endpoint.features = 1 << 26
+        report, samples = self.speed_run((0.05, -0.05))
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["motion_coordinate"], "output_shaft")
+        self.assertEqual(report["target_speed_limit_rad_s"], 0.1)
+        self.assertEqual([row["actual_rad_s"] for row in samples], [0.05, -0.05])
+
+    def test_output_coordinates_travel_is_not_divided_by_ratio_again(self):
+        self.endpoint.features = 1 << 26
+        self.endpoint.position_after_target = 8000
+        report, samples = self.speed_run()
+        self.assertFalse(report["passed"])
+        self.assertIn("输出行程", report["fatal"])
+        self.assertTrue(report["stop_confirmed"])
+        self.assertEqual(samples, [])
 
     def test_speed_start_or_lease_loss_never_reenables(self):
         for fault in ("start_ack", "lease_ack"):

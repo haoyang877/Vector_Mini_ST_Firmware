@@ -43,7 +43,7 @@ def main() -> None:
         "for(unsigned installed=0; installed<=1; ++installed) {\n"
         "app->endpoint.hardware_check.handle = installed ? hardware_report : NULL;\n"
         + capabilities.group(0)
-        + "\nuint8_t expected[16] = {0x00,0xfd,7,0,0x4e,0x06,0x40,0,"
+        + "\nuint8_t expected[16] = {0x00,0xfd,7,4,0x4e,0x06,0x40,0,"
         "0x2e,0,0,0,0xf4,1,0xf4,1};\nProtocolResponse response = {0};\n"
         "if(installed){expected[2]=15;}\n"
         "if(encode_device_caps(&capabilities, &response) != YG_PROTOCOL_OK ||"

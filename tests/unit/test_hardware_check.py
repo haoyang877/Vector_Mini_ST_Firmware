@@ -41,6 +41,7 @@ class Port:
         self.lost_lease_ack = False
         self.status_was_busy = False
         self.uid = bytes(range(12))
+        self.output_coordinates = False
 
     def send(self, identifier, data):
         node, kind, seq, size = struct.unpack_from("<BHHI", data, 5)
@@ -69,6 +70,7 @@ class Port:
                     0x2FFD00
                     | (int(self.measurements) << 20)
                     | ((1 << 23) if self.version >= 0x010811 else 0)
+                    | ((1 << 26) if self.output_coordinates else 0)
                 )
                 & (~(1 << 21) if self.fault == "no_resistance" else 0xFFFFFFFF),
                 0x64E,
@@ -169,6 +171,8 @@ class Port:
             struct.pack_into("<h", reply, 36, 6500 if self.fault == "hot" else 2500)
             if self.fault == "travel" and self.running:
                 struct.pack_into("<i", reply, 12, 100000)
+            if self.fault == "output_travel" and self.running:
+                struct.pack_into("<i", reply, 12, 1000)
             if self.fault == "statusbusy" and not self.status_was_busy:
                 self.status_was_busy = True
                 reply = b"\x06\0\0\0"
@@ -626,6 +630,21 @@ class HardwareHostTest(unittest.TestCase):
                     self.assertEqual(r["communication"], "正常")
                 if fault in ("linkloss", "startloss", "stoploss"):
                     self.assertEqual(r["communication"], "异常")
+
+    def test_output_angle_travel_is_not_divided_by_reduction_twice(self):
+        port = Port("output_travel")
+        port.output_coordinates = True
+        report = hw.run_check(
+            port,
+            6,
+            drive=hw.Drive(0.25, 2, 700, 5),
+            previous=0,
+            previous_target=0,
+            counter_db=self.db,
+        )
+        self.assertTrue(report["output_coordinates"])
+        self.assertIn("机械行程", report["note"])
+        self.assertTrue(report["stop_confirmed"])
 
     def test_persisted_motion_counters(self):
         with self.assertRaises(hw.Rejected):

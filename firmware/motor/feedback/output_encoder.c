@@ -19,7 +19,8 @@ void OutputEncoder_Init(OutputEncoder *encoder, float gear_ratio)
     *encoder =
         (OutputEncoder){.params = {.gear_ratio = gear_ratio,
                                    .direction = 1,
-                                   .status = gear_ratio == 1.0f ? OUTPUT_ENCODER_CAL_OK : 0U}};
+                                   .status = gear_ratio == 1.0f ? OUTPUT_ENCODER_CAL_OK : 0U},
+                        .speed_rad_s = NAN};
 }
 
 void OutputEncoder_Locate(OutputEncoder *encoder, uint16_t motor_q15, float hall_rad)

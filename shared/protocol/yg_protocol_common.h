@@ -165,6 +165,8 @@ static inline bool YgProtocol_IsAckUnicastRequest(const yg_protocol_message_t *m
 #define PROTOCOL_FEATURE_PARAMETER_SERVICE (1UL << 14U)
 #define PROTOCOL_FEATURE_JOB_STATUS (1UL << 15U)
 #define PROTOCOL_FEATURE_OUTPUT_FEEDBACK (1UL << 16U)
+/* 输出坐标 v2：116目标、108/124反馈的位置/速度及kind6机械零位属于输出轴。 */
+#define PROTOCOL_FEATURE_OUTPUT_COORDINATES (1UL << 26U)
 #define PROTOCOL_OUTPUT_FEEDBACK 126U
 #define PROTOCOL_RENEW_MOTION 118U
 #define PROTOCOL_MOTION_LEASE_MS 500U

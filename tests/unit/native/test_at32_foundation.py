@@ -66,6 +66,14 @@ def main() -> int:
         )
         if "VECTOR live_current_feedback " + expected not in result.stdout.splitlines():
             raise RuntimeError("实时反馈黄金向量不匹配")
+        coordinates = json.loads(
+            (ROOT / "tests/fixtures/protocol/output_coordinates_v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected_coordinates = coordinates["feedback_offsets_8_to_23_hex"]
+        if "VECTOR output_coordinates_v2 " + expected_coordinates not in result.stdout.splitlines():
+            raise RuntimeError("输出轴坐标v2黄金向量不匹配")
     executable = args.out.resolve() / "at32f456_foundation.exe"
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += [

@@ -84,9 +84,10 @@ typedef struct
 /** @brief 外环单写的输出反馈；计数来自实际完成的ADC快拍。 */
 typedef struct
 {
-    float hall_position_rad, tracked_position_rad, zero_rad, gear_ratio;
+    float hall_position_rad, tracked_position_rad, speed_rad_s, zero_rad, gear_ratio;
     uint32_t sample_ms, sample_counter;
     uint16_t flags;
+    int8_t direction; /* 电机到输出的安装方向，取 +1 或 -1。 */
 } MotorOutputTelemetry;
 
 /** @brief 一次性读取的状态值；模式和故障使用电机内部编号，不是线路编号。 */

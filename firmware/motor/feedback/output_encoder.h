@@ -30,6 +30,7 @@ typedef struct
 {
     OutputEncoderParams params;
     float position_rad, initial_position_rad;
+    float speed_rad_s; /* 外环更新的输出轴机械角速度，无有效采样时为 NaN。 */
     int64_t motor_delta_q15;
     uint16_t previous_motor_q15;
     bool ready;

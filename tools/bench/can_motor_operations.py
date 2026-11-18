@@ -183,11 +183,11 @@ def run_clear_fault(bus, node, expected_uid, *, stopped=lambda: False, progress=
 
 
 def speed_value(text: str) -> float:
-    """解析电机轴rad/s，按线路有符号毫弧度范围限制外部输入。"""
+    """解析线路rad/s，坐标由设备能力声明；按有符号毫弧度范围限制输入。"""
     try:
         value = float(text)
     except ValueError:
-        raise ValueError("目标速度须填写有效数值，单位为电机轴rad/s") from None
+        raise ValueError("目标速度须填写有效数值，单位为rad/s") from None
     if not math.isfinite(value) or abs(value) > 2147483.647:
         raise ValueError("目标速度须为有限数值且在线路表示范围内")
     return value
@@ -466,6 +466,8 @@ def run_speed_control(
         if travel_deg is not None and (not math.isfinite(travel_deg) or travel_deg <= 0):
             raise ValueError("两侧可用输出行程须为正数")
         caps, status = _identify(link, report, 13)
+        output_coordinates = bool(int.from_bytes(caps[:4], "little") & (1 << 26))
+        report["motion_coordinate"] = "output_shaft" if output_coordinates else "motor_shaft"
         if not int.from_bytes(caps[4:6], "little") & (1 << 2):
             raise Rejected("固件不支持速度闭环模式2")
         active_limit = _scalar(link, 1)["value"] / 1000
@@ -480,8 +482,10 @@ def run_speed_control(
         if limit <= 0 or ratio < 1 or not status[24] & 2:
             raise Rejected("速度限额、减速比或机械位置无效")
         report.update(speed_limit_rad_s=active_limit, gear_ratio=ratio)
-        if abs(target) > limit:
-            raise ValueError(f"目标速度超出板端限值±{limit:g} rad/s")
+        feedback_ratio = 1.0 if output_coordinates else ratio
+        target_limit = limit / ratio if output_coordinates else limit
+        if abs(target) > target_limit:
+            raise ValueError(f"目标速度超出板端限值±{target_limit:g} rad/s")
         if stopped():
             report["cancelled"] = True
             return report
@@ -489,6 +493,8 @@ def run_speed_control(
             raise Rejected("固件未声明速度参数配置能力")
         limit = _speed_limit(link, speed_limit, report)
         report["speed_limit_rad_s"] = limit
+        target_limit = limit / ratio if output_coordinates else limit
+        report["target_speed_limit_rad_s"] = target_limit
         counters = MotionCounters(counter_db, report["uid"], previous, previous_target)
         origin = struct.unpack_from("<i", status, 12)[0] / 1000
         if stopped():
@@ -509,14 +515,15 @@ def run_speed_control(
         def set_target(value):
             nonlocal target
             value = speed_value(str(value))
-            if abs(value) > limit:
-                raise ValueError(f"目标速度超出板端限值±{limit:g} rad/s")
+            if abs(value) > target_limit:
+                raise ValueError(f"目标速度超出板端限值±{target_limit:g} rad/s")
             magnitude = math.floor(abs(value) * 1000 + 0.5)
             scaled = -magnitude if value < 0 else magnitude
             link.command(116, struct.pack("<B3x4i", 2, 0, scaled, 0, 0), sequence=counters.target())
             target = value
             report["updates"] += 1
-            progress(f"速度模式已使能 · 电机轴目标{target:g} rad/s")
+            coordinate = "输出轴" if output_coordinates else "电机轴"
+            progress(f"速度模式已使能 · {coordinate}目标{target:g} rad/s")
 
         set_target(target)
         collection_started = time.monotonic()
@@ -555,9 +562,9 @@ def run_speed_control(
                 if status[4:8] != bytes(4) or status[43:] != bytes((6, 2)) or flags & 10 != 10:
                     raise Rejected("速度反馈失效、故障或运行模式改变")
                 position = struct.unpack_from("<i", status, 12)[0] / 1000
-                if travel_deg is not None and abs(position - origin) / ratio > math.radians(
-                    travel_deg
-                ):
+                if travel_deg is not None and abs(
+                    position - origin
+                ) / feedback_ratio > math.radians(travel_deg):
                     raise Rejected("速度运动到达本次可用输出行程")
                 now = time.monotonic()
                 row = speed_feedback(status, target, now - collection_started)

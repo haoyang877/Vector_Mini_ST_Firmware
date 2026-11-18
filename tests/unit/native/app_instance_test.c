@@ -505,16 +505,30 @@ static void parameter_and_output_services(void)
     MotorOutputFeedback output;
     axis->output_feedback = (MotorOutputTelemetry){.hall_position_rad = 1.25f,
                                                    .tracked_position_rad = -2.5f,
+                                                   .speed_rad_s = -1.0f,
                                                    .zero_rad = 0.125f,
                                                    .gear_ratio = 8.0f,
                                                    .sample_ms = now_ms,
                                                    .sample_counter = 123U,
                                                    .flags = 31U};
+    axis->output_feedback.direction = -1;
     assert(apps[0].endpoint.motor.read_output(&apps[0].protocol, &output));
     assert(output.flags == 31U && output.hall_mrad == 1250 && output.tracked_mrad == -2500);
+    axis->state_machine.fast_samples_fresh = true;
+    axis->rotor_encoder.has_valid_sample = true;
+    /* ADC 已有更新时，CAN 仍发送与输出位置同一外环样本的速度。 */
+    axis->rotor_encoder.mechanical_velocity_continuous_rad_s = 16.0f;
+    ProtocolFeedback output_motion = {0};
+    assert(apps[0].endpoint.motor.read_feedback(&apps[0].protocol, &output_motion));
+    assert(output_motion.actual_position_mrad == -2500 &&
+           output_motion.actual_speed_mrad_s == -1000);
     now_ms += 11U;
     assert(apps[0].endpoint.motor.read_output(&apps[0].protocol, &output));
     assert((output.flags & 3U) == 0U && output.hall_mrad == INT32_MIN);
+    output_motion = (ProtocolFeedback){0};
+    assert(apps[0].endpoint.motor.read_feedback(&apps[0].protocol, &output_motion));
+    assert((output_motion.valid_bits & 15U) == 0U &&
+           output_motion.actual_speed_mrad_s == INT32_MIN);
     axis->motor_temperature = (MotorTemperatureTelemetry){25.0f, now_ms, true};
     ProtocolFeedback feedback = {0};
     axis->state_machine.fast_samples_fresh = true;
@@ -615,6 +629,52 @@ static void test_maintenance_storage_exclusion(void)
     assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
 }
 
+/* 真实快拍、发布、Flash记录和重载均不得改写电机原点。 */
+static void output_mechanical_zero(void)
+{
+    nested = false;
+    write_fails = false;
+    MotorAxis *axis = &apps[0].axis;
+    MotorStateMachine *machine = &axis->state_machine;
+    machine->state = MOTOR_STATE_CALIBRATION;
+    machine->calibration_type = MOTOR_CALIBRATION_MECHANICAL_ZERO;
+    machine->calibration_handoff = MOTOR_CALIBRATION_NO_HANDOFF;
+    machine->stop_pending = false;
+    machine->start_pending = false;
+    axis->motor.fault_code = MOTOR_FAULT_NONE;
+    devices[0].disabled = true;
+    axis->rotor_encoder.has_valid_sample = true;
+    axis->rotor_encoder.linearized_q15 = 8192U;
+    axis->rotor_encoder.mechanical_velocity_continuous_rad_s = 0.0f;
+    axis->rotor_encoder.mechanical_velocity_rad_s = 0.0f;
+    axis->rotor_encoder.zero_requested = false;
+    axis->configuration.device.encoder.mechanical_zero_q15 = 1234U;
+    uint16_t flags = axis->configuration.device.encoder.calib_flag;
+    OutputEncoder_Init(&axis->output_encoder, 8.0f);
+    axis->output_encoder.params.status = OUTPUT_ENCODER_CAL_OK;
+    axis->output_encoder.params.direction = -1;
+    OutputEncoder_Locate(&axis->output_encoder, 8192U, 1.0f);
+    float expected_zero = axis->output_encoder.position_rad;
+    assert(MotorCalibration_StepFast(&axis->calibration).result == MOTOR_TASK_COMPLETED);
+    assert(axis->configuration.device.encoder.mechanical_zero_q15 == 1234U &&
+           axis->configuration.device.encoder.calib_flag == flags &&
+           !axis->rotor_encoder.zero_requested);
+    machine->calibration_handoff = MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+    publish(0);
+    assert(axis->motor.fault_code == MOTOR_FAULT_NONE && axis->output_encoder.position_rad == 0.0f);
+    assert(axis->output_encoder.params.zero_rad == expected_zero);
+    assert(devices[0].saved.motor.encoder_mechanical_zero_q15 == 1234U);
+    OutputEncoder restored;
+    LinearHall hall;
+    OutputEncoder_Init(&restored, 8.0f);
+    LinearHall_Init(&hall);
+    assert(Param_RestoreOutputEncoder(&devices[0].saved, &restored, &hall));
+    OutputEncoder_Locate(&restored, 8192U, 1.0f);
+    assert(restored.position_rad == 0.0f && restored.params.zero_rad == expected_zero);
+    axis->output_encoder.ready = false;
+    assert(MotorCalibration_StepFast(&axis->calibration).result == MOTOR_TASK_FAILED);
+}
+
 int main(void)
 {
     run(false);
@@ -626,6 +686,7 @@ int main(void)
     motion_permission_expires();
     test_maintenance_storage_exclusion();
     parameter_and_output_services();
+    output_mechanical_zero();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");
     return 0;

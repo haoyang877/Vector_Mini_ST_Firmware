@@ -43,8 +43,11 @@ bool MotorStateMachine_ArePhasesDisabled(const MotorStateMachine *machine)
 bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus *status)
 {
     (void)instance;
-    *status =
-        (MotorStatus){.state = MOTOR_STATE_IDLE, .mode = reported_mode, .fault = MOTOR_FAULT_NONE};
+    *status = (MotorStatus){.state = MOTOR_STATE_IDLE,
+                            .mode = reported_mode,
+                            .fault = MOTOR_FAULT_NONE,
+                            .measurements_valid = true,
+                            .output = {.gear_ratio = 1.0f, .direction = 1, .flags = 2U}};
     return true;
 }
 

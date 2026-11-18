@@ -709,7 +709,7 @@ class ProductionWindow(QMainWindow):
         settings = QVBoxLayout(controls)
         settings.setSpacing(14)
         self.add_fields(
-            settings, [("speed", "目标速度 rad/s", "3"), ("speed_limit", "速度上限 rad/s", "300")]
+            settings, [("speed", "目标速度 rad/s", "3"), ("speed_limit", "电机轴上限 rad/s", "300")]
         )
         self.add_action(settings, "使能速度控制", self.start_speed, True, icon_name="start")
         self.speed_update = button("更新速度目标", self.update_speed, icon_name="refresh")

@@ -69,7 +69,7 @@ def _number_field(text, label, kind=float):
 
 
 def motor_speed_fields(fields: dict[str, str]) -> dict:
-    """解析独立速度面板，使用电机轴单位，不依赖开环检测的电流/电频默认值。"""
+    """解析速度面板；目标坐标按设备能力，上限参数仍为电机轴rad/s。"""
     result = dict(speed=speed_value(fields["speed"]), travel=None)
     limit = speed_value(fields.get("limit", "30"))
     if limit < 0.001:

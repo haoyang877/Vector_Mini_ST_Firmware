@@ -338,6 +338,7 @@ def drive_geometry(link, drive):
 
 def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, target_seq):
     ratio = drive_geometry(link, drive)
+    feedback_ratio = 1.0 if report.get("output_coordinates", False) else ratio
     before = link.status()
     report["drive_precheck"] = dict(
         faults=int.from_bytes(before[4:8], "little"), state=before[43], mode=before[44]
@@ -419,7 +420,7 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
                     status[4:8] != bytes(4)
                     or status[43:] != bytes((6, 10))
                     or not status[24] & 2
-                    or abs(math.degrees(offset) / ratio) > drive.travel_deg
+                    or abs(math.degrees(offset) / feedback_ratio) > drive.travel_deg
                 ):
                     raise Rejected("轴状态、位置有效性或机械行程超出本轮条件")
                 remaining = deadline - time.monotonic()
@@ -562,6 +563,7 @@ def run_check(
         if len(caps) != 16:
             raise ValueError("能力页长度错误")
         features, modes = struct.unpack_from("<IH", caps)
+        report["output_coordinates"] = bool(features & (1 << 26))
         report["supported"] = bool(features & (1 << 19))
         report["measurements_supported"] = bool(features & (1 << 20))
         report["resistance_supported"] = bool(features & (1 << 21))

@@ -250,35 +250,41 @@ void MotorAxis_OuterTick(MotorAxis *axis)
             }
         }
 #endif
-        if (axis->output_encoder.ready && Encoder_IsOnline(&axis->rotor_encoder) &&
-            (axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) != 0U &&
+        OutputEncoder *output = &axis->output_encoder;
+        float output_speed_rad_s = NAN;
+        if (output->ready && Encoder_IsOnline(&axis->rotor_encoder) &&
+            (output->params.status & OUTPUT_ENCODER_CAL_OK) != 0U &&
             (axis->configuration.device.encoder.calib_flag & ENC_CALIB_ALL) == ENC_CALIB_ALL &&
             axis->state_machine.state != MOTOR_STATE_CALIBRATION)
         {
             flags |= 1U << 1;
+            output_speed_rad_s = axis->rotor_encoder.mechanical_velocity_continuous_rad_s *
+                                 ((float)output->params.direction / output->params.gear_ratio);
         }
-        if ((axis->output_encoder.params.status & OUTPUT_ENCODER_ZERO_SET) != 0U)
+        output->speed_rad_s = output_speed_rad_s;
+        if ((output->params.status & OUTPUT_ENCODER_ZERO_SET) != 0U)
         {
             flags |= 1U << 2;
         }
-        if ((axis->output_encoder.params.status & OUTPUT_ENCODER_CAL_OK) != 0U)
+        if ((output->params.status & OUTPUT_ENCODER_CAL_OK) != 0U)
         {
             flags |= 1U << 3;
         }
-        float angle = fmodf(axis->linear_hall.val.angle_rad - axis->output_encoder.params.zero_rad,
-                            6.283185307f);
+        float angle =
+            fmodf(axis->linear_hall.val.angle_rad - output->params.zero_rad, 6.283185307f);
         if (angle < 0.0f)
         {
             angle += 6.283185307f;
         }
-        axis->output_feedback =
-            (MotorOutputTelemetry){.hall_position_rad = angle,
-                                   .tracked_position_rad = axis->output_encoder.position_rad,
-                                   .zero_rad = axis->output_encoder.params.zero_rad,
-                                   .gear_ratio = axis->output_encoder.params.gear_ratio,
-                                   .sample_ms = BspSystem_TimeMs(),
-                                   .sample_counter = sample_counter,
-                                   .flags = flags};
+        axis->output_feedback = (MotorOutputTelemetry){.hall_position_rad = angle,
+                                                       .tracked_position_rad = output->position_rad,
+                                                       .speed_rad_s = output->speed_rad_s,
+                                                       .zero_rad = output->params.zero_rad,
+                                                       .gear_ratio = output->params.gear_ratio,
+                                                       .sample_ms = BspSystem_TimeMs(),
+                                                       .sample_counter = sample_counter,
+                                                       .flags = flags,
+                                                       .direction = output->params.direction};
     }
     MotorStateMachine_CommitOuterResult(&axis->state_machine, &work);
 }

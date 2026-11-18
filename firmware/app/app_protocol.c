@@ -83,6 +83,19 @@ static bool target_values_match(const ProtocolCommand *previous, const ProtocolC
            request->id_mA == previous->id_mA && request->vd_mV == previous->vd_mV;
 }
 
+/* 只有新鲜、已定位的输出坐标可用于双向换算。 */
+static float output_coordinate_scale(const MotorStatus *status)
+{
+    const MotorOutputTelemetry *output = &status->output;
+    if (!status->measurements_valid || (output->flags & 2U) == 0U ||
+        !isfinite(output->tracked_position_rad) || !isfinite(output->gear_ratio) ||
+        output->gear_ratio < 1.0f || (output->direction != 1 && output->direction != -1))
+    {
+        return NAN;
+    }
+    return (float)output->direction / output->gear_ratio;
+}
+
 static void set_motor_target(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
     AppProtocol *adapter = context;
@@ -128,6 +141,31 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
                           .frequency_hz = request->electrical_frequency_mHz * 0.001f,
                           .id_a = request->id_mA / 1000.0f,
                           .vd_v = request->vd_mV * 0.001f};
+    if (mode == MOTOR_CONTROL_POSITION || mode == MOTOR_CONTROL_SPEED)
+    {
+        MotorStatus status;
+        if (!MotorStateMachine_ReadStatus(adapter->state_machine, &status))
+        {
+            reply->status = PROTOCOL_BUSY;
+            return;
+        }
+        float scale = output_coordinate_scale(&status);
+        if (!isfinite(scale))
+        {
+            reply->status = PROTOCOL_DENIED;
+            return;
+        }
+        /* 使用同一输出原点反算电机目标；内部限位及控制器保持电机坐标。 */
+        float motor_scale = (float)status.output.direction * status.output.gear_ratio;
+        if (mode == MOTOR_CONTROL_POSITION)
+        {
+            target.position_rad = status.position_rad + (request->position_mrad / 1000.0f -
+                                                         status.output.tracked_position_rad) *
+                                                            motor_scale;
+        }
+        /* 整数先换算，避免0.6rad/s×50被float中间舍入为略超30rad/s。 */
+        target.speed_rad_s = ((float)request->speed_mrad_s * motor_scale) / 1000.0f;
+    }
     /* 只有前台能启动新会话；STOP 可在目标提交后抢占，重发仍须属于原会话。 */
     uint32_t epoch = adapter->state_machine->epoch;
     MotorControlResult result = MotorStateMachine_SetTarget(adapter->state_machine, &target);
@@ -437,14 +475,20 @@ static bool read_motor_feedback(void *context, ProtocolFeedback *values)
         return true;
     }
     uint16_t *valid = &values->valid_bits;
+    const MotorOutputTelemetry *output = &status.output;
+    float output_scale = output_coordinate_scale(&status);
+    float output_position = isfinite(output_scale) ? output->tracked_position_rad : NAN;
+    /* 参考位置沿用同一输出原点；保留多圈值，不作单圈回绕。 */
+    float output_reference =
+        output_position + (status.position_reference_rad - status.position_rad) * output_scale;
     values->reference_position_mrad =
-        encode_feedback_measurement(status.position_reference_rad, 1000, INT32_MAX, 1U << 0, valid);
+        encode_feedback_measurement(output_reference, 1000, INT32_MAX, 1U << 0, valid);
     values->actual_position_mrad =
-        encode_feedback_measurement(status.position_rad, 1000, INT32_MAX, 1U << 1, valid);
-    values->reference_speed_mrad_s =
-        encode_feedback_measurement(status.speed_reference_rad_s, 1000, INT32_MAX, 1U << 2, valid);
-    values->actual_speed_mrad_s =
-        encode_feedback_measurement(status.speed_rad_s, 1000, INT32_MAX, 1U << 3, valid);
+        encode_feedback_measurement(output_position, 1000, INT32_MAX, 1U << 1, valid);
+    values->reference_speed_mrad_s = encode_feedback_measurement(
+        status.speed_reference_rad_s * output_scale, 1000, INT32_MAX, 1U << 2, valid);
+    values->actual_speed_mrad_s = encode_feedback_measurement(
+        isfinite(output_scale) ? output->speed_rad_s : NAN, 1000, INT32_MAX, 1U << 3, valid);
     values->bus_voltage_cV =
         (int16_t)encode_feedback_measurement(status.bus_voltage_v, 100, INT16_MAX, 1U << 4, valid);
     values->bus_current_mA =

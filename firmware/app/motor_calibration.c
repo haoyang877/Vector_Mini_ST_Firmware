@@ -68,12 +68,11 @@ MotorTaskResult MotorCalibration_StepFast(MotorCalibration *calibration)
         return EncoderCalibration_StepElecZero(&calibration->session, &calibration->drive);
     case MOTOR_CALIBRATION_MECHANICAL_ZERO:
         if (!OutputEncoder_IsReady(calibration->output) ||
-            !Encoder_SetMechanicalZero(&calibration->drive.configuration->device.encoder,
-                                       calibration->drive.encoder))
+            !Encoder_IsOnline(calibration->drive.encoder))
         {
             return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_ENCODER};
         }
-        MotorOuterLoop_RequestReset(calibration->outer);
+        /* 输出零位在关相发布时设置，不改变电机闭环坐标和控制器状态。 */
         return (MotorTaskResult){MOTOR_TASK_COMPLETED, MOTOR_FAULT_NONE};
     default:
         return (MotorTaskResult){MOTOR_TASK_FAILED, MOTOR_FAULT_INVALID_PARAMETERS};

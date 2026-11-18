@@ -15,6 +15,8 @@ static AppProtocol adapter;
 static MotorStateMachine machine = {.epoch = 1U};
 static MotorStatus s_status;
 static unsigned s_status_reads;
+static MotorTarget s_last_target;
+static unsigned s_target_calls;
 
 bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus *status)
 {
@@ -74,8 +76,10 @@ static ProtocolFeedback read_feedback(void)
 /* 用原协议舍入定义核对两个位宽和有效位，不复用生产整数编码器。 */
 static void check_scaled_value(float value)
 {
-    s_status =
-        (MotorStatus){.measurements_valid = true, .position_rad = value, .bus_voltage_v = value};
+    s_status = (MotorStatus){
+        .measurements_valid = true,
+        .output = {.tracked_position_rad = value, .gear_ratio = 1.0f, .direction = 1, .flags = 2U},
+        .bus_voltage_v = value};
     ProtocolFeedback feedback = read_feedback();
     double position = round((double)value * 1000);
     double voltage = round((double)value * 100);
@@ -116,6 +120,68 @@ static void check_scaling_boundaries(void)
         memcpy(&value, &bits, sizeof(value));
         check_scaled_value(value);
     }
+}
+
+/* 电机坐标和输出原点故意不同，覆盖反向减速与跨圈，不能退回电机坐标。 */
+static void check_output_coordinates(void)
+{
+    s_status = (MotorStatus){.measurements_valid = true,
+                             .position_rad = 20.0f,
+                             .position_reference_rad = 24.0f,
+                             .speed_reference_rad_s = 16.0f,
+                             .output = {.tracked_position_rad = 7.5f,
+                                        .speed_rad_s = 1.0f,
+                                        .gear_ratio = 8.0f,
+                                        .direction = -1,
+                                        .flags = 2U}};
+    ProtocolFeedback feedback = read_feedback();
+    assert(feedback.actual_position_mrad == 7500 && feedback.reference_position_mrad == 7000);
+    assert(feedback.actual_speed_mrad_s == 1000 && feedback.reference_speed_mrad_s == -2000);
+    assert((feedback.valid_bits & 15U) == 15U);
+    ProtocolResponse response = {0};
+    yg_protocol_message_t request = {.message_type = PROTOCOL_CONTROL, .sequence = 123U};
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_OK, &response) ==
+           YG_PROTOCOL_OK);
+    printf("VECTOR output_coordinates_v2 ");
+    for (unsigned i = 8U; i < 24U; ++i)
+    {
+        printf("%02x", response.data[i]);
+    }
+    puts("");
+    ProtocolCommand target = {.mode = 3U,
+                              .sequence = (uint16_t)(adapter.last_target.sequence + 1U),
+                              .position_mrad = 7000};
+    ProtocolReply reply;
+    endpoint.motor.target(endpoint.motor.context, &target, &reply);
+    assert(reply.status == PROTOCOL_OK && s_last_target.position_rad == 24.0f);
+    ++target.sequence;
+    target.mode = 2U;
+    target.position_mrad = 0;
+    target.speed_mrad_s = 1000;
+    endpoint.motor.target(endpoint.motor.context, &target, &reply);
+    assert(reply.status == PROTOCOL_OK && s_last_target.speed_rad_s == -8.0f);
+    s_status.output.gear_ratio = 50.0f;
+    ++target.sequence;
+    target.speed_mrad_s = 600;
+    endpoint.motor.target(endpoint.motor.context, &target, &reply);
+    assert(reply.status == PROTOCOL_OK && s_last_target.speed_rad_s == -30.0f);
+    s_status.output.gear_ratio = 8.0f;
+    s_status.output.direction = 1;
+    s_status.output.speed_rad_s = -1.0f;
+    feedback = read_feedback();
+    assert(feedback.reference_position_mrad == 8000 && feedback.actual_speed_mrad_s == -1000);
+    s_status.output.flags = 0U;
+    unsigned previous_calls = s_target_calls;
+    ++target.sequence;
+    endpoint.motor.target(endpoint.motor.context, &target, &reply);
+    assert(reply.status == PROTOCOL_DENIED && s_target_calls == previous_calls);
+    feedback = read_feedback();
+    assert((feedback.valid_bits & 15U) == 0U && feedback.actual_position_mrad == INT32_MIN &&
+           feedback.actual_speed_mrad_s == INT32_MIN);
+    s_status.output.flags = 2U;
+    s_status.output.gear_ratio = NAN;
+    feedback = read_feedback();
+    assert((feedback.valid_bits & 15U) == 0U);
 }
 
 /* 同一轮查询、写目标、再查询；发送忙时读取已排队的真实反馈，不重复采样。 */
@@ -190,6 +256,7 @@ int main(void)
     assert(Protocol_Start(&endpoint));
     check_feedback_dispatch();
     check_scaling_boundaries();
+    check_output_coordinates();
     const uint8_t states[] = {5U, 3U, 4U, 6U, 8U};
     for (unsigned i = 0; i <= MOTOR_STATE_FAULT; ++i)
     {
@@ -206,7 +273,11 @@ int main(void)
                              .position_reference_rad = NAN,
                              .position_rad = -1.25f,
                              .speed_reference_rad_s = NAN,
-                             .speed_rad_s = 2.5f,
+                             .output = {.tracked_position_rad = -1.25f,
+                                        .speed_rad_s = 2.5f,
+                                        .gear_ratio = 1.0f,
+                                        .direction = 1,
+                                        .flags = 2U},
                              .bus_voltage_v = 30.5f,
                              .bus_current_a = 0.125f,
                              .iq_reference_a = -0.25f,
@@ -234,7 +305,7 @@ int main(void)
     }
     puts("");
     s_status.bus_current_a = INFINITY;
-    s_status.position_rad = 3000000.0f;
+    s_status.output.tracked_position_rad = 3000000.0f;
     s_status.temperature_c = -327.68f;
     live = read_feedback();
     assert((live.valid_bits & ((1U << 1) | (1U << 5) | (1U << 8))) == 0U &&
@@ -252,7 +323,9 @@ int main(void)
 MotorControlResult MotorStateMachine_SetTarget(MotorStateMachine *instance,
                                                const MotorTarget *target)
 {
-    assert(instance == &machine && target->mode == MOTOR_CONTROL_CURRENT);
+    s_last_target = *target;
+    ++s_target_calls;
+    assert(instance == &machine);
     s_status.iq_reference_a = target->iq_a;
     return MOTOR_CONTROL_ACCEPTED;
 }

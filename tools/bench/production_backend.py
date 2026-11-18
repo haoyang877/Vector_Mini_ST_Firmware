@@ -10,14 +10,10 @@ import sys
 import time
 from pathlib import Path
 
-from can_calibration_capture import HallRawCapture
-from can_calibration_curves import (
-    export_calibration_curves,
-)
+from can_calibration_curves import read_saved_calibration
 from can_motor_operations import (
     TraceBus,
     describe_faults,
-    run_angle_calibration,
     run_clear_fault,
     run_speed_control,
     speed_value,
@@ -34,11 +30,18 @@ from hardware_check import Drive, Link, empty_report, run_check
 from hardware_limits import read_limits
 from motor_can_bitrate import configure as configure_bitrate
 from ports.controlcanfd import _RXFD, _TXFD
+from production_inspection import (
+    PRODUCTION_VERSION,
+    archive_inspection,
+    initial_inspection,
+    run_inspection,
+    run_motor_calibration,
+)
 from production_report import export_report
 
 STATUS_REFRESH_S = 1.0
 
-TITLE = "电机生产测试上位机 v2.1.7"
+TITLE = f"电机生产测试上位机 v{PRODUCTION_VERSION}"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
@@ -228,15 +231,34 @@ def check_current_motor(bus, settings: dict) -> None:
 
 def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
     """子进程入口。适配器和日志释放之后才通知界面结束。"""
+    inspection = settings["profile"] == "production_inspection"
+    report = initial_inspection(settings) if inspection else {}
+    parent = mp.parent_process()
+
+    def operation_stopped():
+        return stop.is_set() or (parent is not None and not parent.is_alive())
+
     try:
         resource = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
         dll = controlcan_dll_path(resource)
-        if settings["profile"] in ("motor_calibration", "motor_speed"):
-            parent = mp.parent_process()
-
-            def operation_stopped():
-                return stop.is_set() or (parent is not None and not parent.is_alive())
-
+        if inspection:
+            limits = read_limits()
+            report["threshold_config"] = limits
+            with (
+                (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
+                os.add_dll_directory(str(dll.parent)),
+                ControlCanFd(dll, **settings["bus"]) as port,
+            ):
+                run_inspection(
+                    TraceBus(port, stream),
+                    settings,
+                    out,
+                    report,
+                    limits=limits,
+                    stopped=operation_stopped,
+                    emit=lambda tag, value: events.put((tag, value)),
+                )
+        elif settings["profile"] in ("motor_calibration", "motor_speed", "calibration_readback"):
             with (
                 (out / "frames.csv").open("w", newline="", encoding="utf-8") as stream,
                 os.add_dll_directory(str(dll.parent)),
@@ -245,30 +267,21 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 bus = TraceBus(port, stream)
                 check_current_motor(bus, settings)
                 if settings["profile"] == "motor_calibration":
-                    capture = HallRawCapture(out)
-                    try:
-                        report = run_angle_calibration(
-                            bus,
-                            settings["node"],
-                            kind=settings["calibration_kind"],
-                            stopped=operation_stopped,
-                            progress=lambda value: events.put(("stage", value)),
-                            on_identified=capture.start,
-                        )
-                    finally:
-                        raw_capture = capture.finish()
-                    report["raw_capture"] = raw_capture
-                    report["archive"] = settings.get("archive", {})
-                    if report.get("passed") and report.get("stop_confirmed"):
-                        events.put(("stage", "标定已保存，正在只读回读补偿表并绘图"))
-                        try:
-                            if capture.thread is not None and capture.thread.is_alive():
-                                raise OSError(raw_capture["error"])
-                            report["curves"] = export_calibration_curves(
-                                bus, report, out, report["archive"].get("name", "")
-                            )
-                        except Exception as exc:
-                            report["curve_error"] = str(exc)
+                    report = run_motor_calibration(
+                        bus,
+                        settings,
+                        out,
+                        stopped=operation_stopped,
+                        progress=lambda value: events.put(("stage", value)),
+                    )
+                elif settings["profile"] == "calibration_readback":
+                    report = read_saved_calibration(
+                        bus,
+                        settings["node"],
+                        settings["expected_uid"],
+                        out,
+                        settings.get("probe_serial"),
+                    )
                 else:
                     report = run_speed_control(
                         bus,
@@ -368,7 +381,7 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                 model=selection[1] if selection else "未知",
             )
             try:
-                export_report(report, out, tool_version="2.1.7")
+                export_report(report, out, tool_version=PRODUCTION_VERSION)
                 report["production_report"] = "production-report.html"
             except (OSError, ValueError, KeyError) as exc:
                 report["report_error"] = str(exc)
@@ -399,12 +412,21 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
             )
             report = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     except Exception as exc:
-        report = (
-            empty_report(settings["node"], settings["ambient"], str(exc))
-            if settings["profile"] == "hardware_check"
-            else {"profile": settings["profile"], "fatal": str(exc), "pass": False}
-        )
-        (out / "summary.json").write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        if inspection:
+            report.update(fatal=str(exc), passed=False, verdict="未通过 / 未完成")
+        else:
+            report = (
+                empty_report(settings["node"], settings["ambient"], str(exc))
+                if settings["profile"] == "hardware_check"
+                else {"profile": settings["profile"], "fatal": str(exc), "pass": False}
+            )
+            (out / "summary.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+    if inspection:
+        selection = FIRST_FIT_AXES.get(settings["node"])
+        if selection:
+            report.update(axis=selection[0], model=selection[1])
+        archive_inspection(report, out)
+        events.put(("inspection_phases", report["phase_states"]))
     events.put(("done", report))

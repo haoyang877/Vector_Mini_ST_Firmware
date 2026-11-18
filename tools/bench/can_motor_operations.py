@@ -6,6 +6,8 @@ import queue
 import struct
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -124,7 +126,9 @@ def fault_snapshot(data: bytes) -> dict:
     )
 
 
-def run_clear_fault(bus, node, expected_uid, *, stopped=lambda: False, progress=lambda _: None):
+def run_clear_fault(
+    bus, node, expected_uid, *, expected_faults=None, stopped=lambda: False, progress=lambda _: None
+):
     """显式清错只发送一次107；身份、静止状态及108回读决定结果，不启相。"""
     link = Link(bus, node, timeout_s=0.5)
     report = dict(profile="clear_fault", node=node, passed=False, cleared=False, clear_sent=False)
@@ -140,6 +144,10 @@ def run_clear_fault(bus, node, expected_uid, *, stopped=lambda: False, progress=
         before = report["before"] = fault_snapshot(link.status())
         if before["state"] not in (5, 8) or before["mode"] != 0:
             raise ValueError("请先停止电机并结束标定，再清除故障；未发送清除命令")
+        if expected_faults is not None and (
+            before["state"] != 8 or before["faults"] != expected_faults
+        ):
+            raise ValueError("当前故障与本轮已归档的 Hall 标定故障不一致；未发送清除命令")
         if stopped():
             report["cancelled"] = True
             return report
@@ -275,7 +283,7 @@ def _speed_limit(link, requested, report):
     return current["value"] / 1000
 
 
-def _identify(link, report, feature):
+def _identify(link, report, feature, *, allowed_fault: int = 0):
     info = link.request(1, page=0)
     identity = link.request(1, page=1)
     caps = link.request(2, page=0)
@@ -291,9 +299,16 @@ def _identify(link, report, feature):
         loader_version=int.from_bytes(info[24:28], "little"),
         role=1,
         boot_state=identity[23],
+        capabilities=int.from_bytes(caps[:4], "little"),
     )
     status = link.status()
-    if status[4:8] != bytes(4) or status[43:] != bytes((5, 0)):
+    idle = status[4:8] == bytes(4) and status[43:] == bytes((5, 0))
+    expected_fault = (
+        allowed_fault
+        and int.from_bytes(status[4:8], "little") == allowed_fault
+        and status[43:] == bytes((8, 0))
+    )
+    if not idle and not expected_fault:
         report["initial_status"] = fault_snapshot(status)
         bits = report["initial_status"]["faults"]
         raise Rejected(
@@ -309,12 +324,13 @@ def _stop(link, report):
         try:
             code = link.command(110)
             status = link.status()
+            faults = int.from_bytes(status[4:8], "little")
+            if faults:
+                report["observed_stop_faults"] = report.get("observed_stop_faults", 0) | faults
             if code == 0 and status[43] in (5, 8) and status[44] == 0:
-                report["final_status"] = dict(
-                    state=status[43], mode=status[44], faults=int.from_bytes(status[4:8], "little")
-                )
+                report["final_status"] = dict(state=status[43], mode=status[44], faults=faults)
                 report["stop_confirmed"] = True
-                report["stop_faults"] = int.from_bytes(status[4:8], "little")
+                report["stop_faults"] = faults
                 if report["stop_faults"]:
                     report.update(
                         passed=False,
@@ -355,6 +371,8 @@ def run_angle_calibration(
     stopped: Callable[[], bool] = lambda: False,
     progress: Callable[[str], None] = lambda _: None,
     on_identified: Callable[[dict], None] = lambda _: None,
+    on_sample: Callable[[Link], None] | None = None,
+    expected_uid: str | None = None,
 ) -> dict:
     """执行既有角度或电零位任务，完成和保存回读匹配才成功；未知启动或取消收敛到STOP。"""
     link = Link(bus, node, timeout_s=0.5)
@@ -366,6 +384,8 @@ def run_angle_calibration(
         if kind not in (1, 2):
             raise ValueError("仅支持编码器/Hall角度及电角零位标定")
         _identify(link, report, 15)
+        if expected_uid is not None and report["uid"] != expected_uid:
+            raise Rejected("标定前设备 UID 改变，请重新识别")
         report["before_revision"] = _scalar(link, 0)
         on_identified(report)
         if stopped():
@@ -404,6 +424,8 @@ def run_angle_calibration(
                 deadline = min(deadline, time.monotonic() + 2)
             job = _job(link, ticket, kind, report)
             report.update(job)
+            if job["phase"] in (1, 3) and 0x1000 <= job["detail"] <= 0x1004:
+                report["last_calibration_stage"] = job["detail"]
             progress(f"票据{ticket} · {STAGES.get(job['detail'], '处理')} · 阶段{job['phase']}")
             if job["phase"] == 2 and job["effects"] == 2:
                 active, saved = _scalar(link, 0), _scalar(link, 0, saved=True)
@@ -416,21 +438,51 @@ def run_angle_calibration(
                 report["cancelled"] = True
                 break
             if job["phase"] not in (1, 3):
+                if job["phase"] == 5 and job["detail"] == 8:
+                    raise Rejected("标定记录写入 Flash 失败（明细 0x0008）")
                 raise Rejected(f"标定失败，阶段{job['phase']}，明细0x{job['detail']:04X}")
-            time.sleep(0.1)
+            if on_sample is not None and report.get("capabilities", 0) & (1 << 25):
+                sample_until = time.monotonic() + 0.1
+                while time.monotonic() < sample_until and not stopped():
+                    on_sample(link)
+                    time.sleep(0.01)
+            else:
+                time.sleep(0.1)
         else:
             raise TimeoutError("标定或取消超过期限")
     except (TimeoutError, OSError, ValueError, Rejected) as exc:
         report["fatal"] = str(exc)
+        report["calibration_error"] = str(exc)
     finally:
         if started:
             try:
                 _stop(link, report)
             except (TimeoutError, OSError, ValueError, Rejected) as exc:
-                report.update(passed=False, fatal=str(exc))
+                report.update(passed=False, fatal=str(exc), stop_error=str(exc))
         report["communication_timeouts"] = link.timeouts
         report["communication_reliability_passed"] = not bool(link.timeouts)
     return report
+
+
+@dataclass(frozen=True)
+class SpeedSettling:
+    """稳速窗口启动前的保持时间、等待上限和反馈判据。"""
+
+    hold_s: float
+    timeout_s: float
+    tolerance: float
+    max_gap_s: float
+
+
+@dataclass(frozen=True)
+class OutputSpeedTest:
+    """定时台架测试的时长与型号电机轴限速，测试输入使用输出轴。"""
+
+    duration_s: float
+    motor_limit_rad_s: float
+    calibration_revision: int | None = None
+    hall_fault: int = 0
+    settling: SpeedSettling | None = None
 
 
 def run_speed_control(
@@ -445,11 +497,13 @@ def run_speed_control(
     previous_target: int | None = 0,
     counter_db: Path = COUNTER_DB,
     speed_limit: float | None = None,
+    expected_uid: str | None = None,
+    output_test: OutputSpeedTest | None = None,
     stopped: Callable[[], bool] = lambda: False,
     progress: Callable[[str], None] = lambda _: None,
     feedback: Callable[[dict], None] = lambda _: None,
 ) -> dict:
-    """保持模式2直到停止；目标队列、续租与反馈同线程串行，异常不恢复运动。"""
+    """模式2持续到停止或定时结束；定时任务按输出轴给目标，不改板端限速。"""
     link = Link(bus, node)
     report = dict(
         profile="motor_speed",
@@ -463,10 +517,49 @@ def run_speed_control(
     started = False
     try:
         target = speed_value(str(target))
+        settling = output_test.settling if output_test else None
         if travel_deg is not None and (not math.isfinite(travel_deg) or travel_deg <= 0):
             raise ValueError("两侧可用输出行程须为正数")
-        caps, status = _identify(link, report, 13)
-        output_coordinates = bool(int.from_bytes(caps[:4], "little") & (1 << 26))
+        if output_test is not None and (
+            speed_limit is not None
+            or not 0 < output_test.duration_s <= 12
+            or not math.isfinite(output_test.motor_limit_rad_s)
+            or output_test.motor_limit_rad_s <= 0
+        ):
+            raise ValueError("定时测速需要有效的测试时长和型号限速，并沿用板端限速")
+        if settling and not (
+            0 < settling.hold_s < settling.timeout_s <= 10
+            and 0 < settling.tolerance < 1
+            and 0 < settling.max_gap_s <= settling.hold_s
+            and target != 0
+        ):
+            raise ValueError("稳速窗口配置或目标转速无效")
+        hall_fault = output_test.hall_fault if output_test is not None else 0
+        if hall_fault and (
+            hall_fault not in (0x20, 0x4000) or not output_test.calibration_revision
+        ):
+            raise ValueError("Hall 故障后测速需要本轮编码器保存修订和明确的故障码")
+        caps, status = _identify(link, report, 13, allowed_fault=hall_fault)
+        if expected_uid is not None and report["uid"] != expected_uid:
+            raise Rejected("速度测试前设备 UID 改变，请重新识别")
+        if output_test is not None and output_test.calibration_revision is not None:
+            saved = _scalar(link, 0, saved=True)
+            revision = output_test.calibration_revision
+            if not revision or (saved["revision"], saved["saved_revision"]) != (revision, revision):
+                raise Rejected("高速测试前活动或保存修订与本轮标定不一致")
+            report["verified_saved_revision"] = revision
+        features = int.from_bytes(caps[:4], "little")
+        motor_axis_speed = output_test is not None and bool(features & (1 << 27))
+        output_coordinates = bool(features & (1 << 26)) and not motor_axis_speed
+        if hall_fault and output_coordinates:
+            raise Rejected("当前固件仅支持输出坐标速度接口，需升级以使用电机轴测速")
+        read_status = partial(link.status, motor_axis=True) if motor_axis_speed else link.status
+        if motor_axis_speed:
+            motor_status = read_status()
+            if motor_status[4:8] != status[4:8] or motor_status[43:] != status[43:]:
+                raise Rejected("电机轴状态与本轮已核对的空闲或 Hall 故障状态不一致")
+            status = motor_status
+        required_feedback = 10 if motor_axis_speed else 2
         report["motion_coordinate"] = "output_shaft" if output_coordinates else "motor_shaft"
         if not int.from_bytes(caps[4:6], "little") & (1 << 2):
             raise Rejected("固件不支持速度闭环模式2")
@@ -479,13 +572,48 @@ def run_speed_control(
         if len(geometry) != 32 or geometry[:6] != b"\0\0\0\0\x01\0":
             raise Rejected("减速比回读无效")
         ratio = struct.unpack_from("<i", geometry, 24)[0] / 1000
-        if limit <= 0 or ratio < 1 or not status[24] & 2:
-            raise Rejected("速度限额、减速比或机械位置无效")
+        if limit <= 0 or ratio < 1 or status[24] & required_feedback != required_feedback:
+            raise Rejected("速度限额、减速比或编码器反馈无效")
         report.update(speed_limit_rad_s=active_limit, gear_ratio=ratio)
+        if output_test is not None:
+            output_limit = min(limit, output_test.motor_limit_rad_s) / ratio
+            if abs(target) > output_limit:
+                raise ValueError(f"目标超出实际输出轴限速 {output_limit * 60 / math.tau:.2f} rpm")
+            max_duration_s = output_test.duration_s + (settling.timeout_s if settling else 0)
+            required_deg = math.degrees(abs(target) * (max_duration_s + 0.5))
+            if travel_deg is not None and required_deg > travel_deg:
+                raise ValueError(f"高速测试至少需要单向可用行程 {required_deg:.0f}°（输出轴）")
+            if not output_coordinates:
+                target *= ratio
         feedback_ratio = 1.0 if output_coordinates else ratio
         target_limit = limit / ratio if output_coordinates else limit
         if abs(target) > target_limit:
             raise ValueError(f"目标速度超出板端限值±{target_limit:g} rad/s")
+        if not stopped() and hall_fault and status[43] == 8:
+            clear = run_clear_fault(
+                bus,
+                node,
+                report["uid"],
+                expected_faults=hall_fault,
+                stopped=stopped,
+                progress=progress,
+            )
+            report["hall_fault_clear"] = clear
+            if clear.get("cancelled"):
+                report["cancelled"] = True
+                return report
+            if not clear.get("passed") or clear.get("communication_timeouts"):
+                raise Rejected(clear.get("fatal") or "Hall 标定故障清除或通信回读未通过")
+            status = read_status()
+            saved = _scalar(link, 0, saved=True)
+            if (
+                status[4:8] != bytes(4)
+                or status[43:] != bytes((5, 0))
+                or status[24] & required_feedback != required_feedback
+            ):
+                raise Rejected("Hall 故障清除后，空闲状态或电机端位置反馈无效")
+            if (saved["revision"], saved["saved_revision"]) != (revision, revision):
+                raise Rejected("Hall 故障清除后，本轮编码器保存修订发生变化")
         if stopped():
             report["cancelled"] = True
             return report
@@ -496,7 +624,10 @@ def run_speed_control(
         target_limit = limit / ratio if output_coordinates else limit
         report["target_speed_limit_rad_s"] = target_limit
         counters = MotionCounters(counter_db, report["uid"], previous, previous_target)
-        origin = struct.unpack_from("<i", status, 12)[0] / 1000
+        origin_mrad = struct.unpack_from("<i", status, 12)[0]
+        if origin_mrad == -0x80000000:
+            raise Rejected("速度测试前机械位置无效")
+        origin = origin_mrad / 1000
         if stopped():
             report["cancelled"] = True
             return report
@@ -505,7 +636,7 @@ def run_speed_control(
         link.command(117, bytes((2, 0, 0, 0)))
         deadline = time.monotonic() + 0.25
         while True:
-            status = link.status()
+            status = read_status()
             if status[43:] == bytes((6, 2)) and status[4:8] == bytes(4):
                 break
             if stopped() or time.monotonic() >= deadline or status[4:8] != bytes(4):
@@ -519,7 +650,11 @@ def run_speed_control(
                 raise ValueError(f"目标速度超出板端限值±{target_limit:g} rad/s")
             magnitude = math.floor(abs(value) * 1000 + 0.5)
             scaled = -magnitude if value < 0 else magnitude
-            link.command(116, struct.pack("<B3x4i", 2, 0, scaled, 0, 0), sequence=counters.target())
+            link.command(
+                116,
+                struct.pack("<BB2x4i", 2, int(motor_axis_speed), 0, scaled, 0, 0),
+                sequence=counters.target(),
+            )
             target = value
             report["updates"] += 1
             coordinate = "输出轴" if output_coordinates else "电机轴"
@@ -527,6 +662,10 @@ def run_speed_control(
 
         set_target(target)
         collection_started = time.monotonic()
+        end_s = settling.timeout_s if settling else output_test.duration_s if output_test else None
+        within_since = previous_sample_s = None
+        if settling:
+            progress(f"等待实测转速连续 {settling.hold_s:g} 秒进入目标范围")
         with (out / "speed.csv").open("w", newline="", encoding="utf-8") as stream:
             columns = (
                 "host_s",
@@ -546,18 +685,24 @@ def run_speed_control(
                 "bus_current_a",
                 "motor_temperature_c",
             )
+            if output_test is not None:
+                columns += ("motion_coordinate", "output_rpm", "bus_input_power_w")
             writer = csv.DictWriter(stream, fieldnames=columns)
             writer.writeheader()
             next_flush = time.monotonic() + 0.25
-            while not stopped():
+            while not stopped() and (
+                end_s is None or time.monotonic() - collection_started < end_s
+            ):
                 link.command(118, struct.pack("<I", counters.lease()))
                 try:
                     value = commands.get_nowait()
                 except queue.Empty:
                     value = None
                 if value is not None and not stopped():
+                    if settling:
+                        raise Rejected("稳速检测期间目标转速须保持固定")
                     set_target(value)
-                status = link.status()
+                status = read_status()
                 flags = int.from_bytes(status[24:26], "little")
                 if status[4:8] != bytes(4) or status[43:] != bytes((6, 2)) or flags & 10 != 10:
                     raise Rejected("速度反馈失效、故障或运行模式改变")
@@ -570,7 +715,36 @@ def run_speed_control(
                 row = speed_feedback(status, target, now - collection_started)
                 if row["actual_rad_s"] is None or row["position_rad"] is None:
                     raise Rejected("速度反馈含无效位置或速度")
+                if output_test is not None:
+                    voltage, current = row["bus_voltage_v"], row["bus_current_a"]
+                    row.update(
+                        motion_coordinate=report["motion_coordinate"],
+                        output_rpm=row["actual_rad_s"] / feedback_ratio * 60 / math.tau,
+                        bus_input_power_w=voltage * current
+                        if voltage is not None and current is not None
+                        else None,
+                    )
                 writer.writerow(dict(host_s=now, **row))
+                if settling and "steady_window_s" not in report:
+                    elapsed = row["elapsed_s"]
+                    relative_error = abs(row["actual_rad_s"] - target) / abs(target)
+                    inside = relative_error <= settling.tolerance or math.isclose(
+                        relative_error, settling.tolerance, rel_tol=0, abs_tol=1e-12
+                    )
+                    if not inside:
+                        within_since = None
+                    elif (
+                        within_since is None
+                        or not 0 < elapsed - previous_sample_s <= settling.max_gap_s
+                    ):
+                        within_since = elapsed
+                    elif (
+                        elapsed <= settling.timeout_s and elapsed - within_since >= settling.hold_s
+                    ):
+                        end_s = elapsed + output_test.duration_s
+                        report["steady_window_s"] = (elapsed, end_s)
+                        progress(f"已进入稳速区，开始记录 {output_test.duration_s:g} 秒")
+                    previous_sample_s = elapsed
                 if now >= next_flush:
                     stream.flush()
                     next_flush = now + 0.25
@@ -578,7 +752,13 @@ def run_speed_control(
                 report["last_feedback"] = row
                 feedback(row)
                 time.sleep(0.05)
-        report["passed"] = True
+        if settling and "steady_window_s" not in report and not stopped():
+            report.update(
+                settling_timed_out=True,
+                fatal=f"{settling.timeout_s:g} 秒内转速未连续 {settling.hold_s:g} 秒进入目标 ±{100 * settling.tolerance:g}%",
+            )
+        else:
+            report["passed"] = True
     except (TimeoutError, OSError, ValueError, Rejected) as exc:
         report["fatal"] = str(exc)
     finally:

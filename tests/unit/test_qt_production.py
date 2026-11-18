@@ -18,9 +18,17 @@ from can_parameters import parameter_ids
 from can_session import SessionTask
 from hardware_check import direction_results, empty_report
 from production_controller import ProductionController
-from PySide6.QtCore import QObject, Signal
+from production_report import inspection_overview
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPalette, QPixmap
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QTabWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+)
 from qt_production_icons import icon
 from qt_production_theme import apply_theme
 from qt_production_window import ProductionWindow
@@ -144,20 +152,94 @@ class QtProductionTests(unittest.TestCase):
     def test_input_widths_follow_field_content_across_pages(self):
         w = self.window
         for key, entry in w.edits.items():
-            limit = 720 if key == "payload" else 200 if key in ("specimen", "serial") else 120
+            names = ("specimen", "serial", "motor_serial", "test_requirement")
+            limit = 720 if key == "payload" else 200 if key in names else 120
             self.assertLessEqual(entry.maximumWidth(), limit, key)
         self.assertGreater(w.edits["payload"].maximumWidth(), w.edits["can_id"].maximumWidth())
         for entry in w.parameters.entries.values():
             self.assertLessEqual(entry.maximumWidth(), 180)
-        for combo in (w.check_mode, w.test_mode, w.target_data, w.target_nominal):
+        for combo in (w.test_mode, w.target_data, w.target_nominal):
             self.assertLessEqual(combo.maximumWidth(), 260)
 
-    def test_header_groups_faults_and_equal_measurement_tiles(self):
+    def test_probe_selection_is_explicit_and_invalidates_previous_board(self):
+        w = self.window
+        w.display_probes([123, 456])
+        self.assertIsNone(w.probe_selector.currentData())
+        w.probe_selector.setCurrentIndex(w.probe_selector.findData(456))
+        w.launch(dict(profile="jlink_identify"))
+        self.assertEqual(self.controller.calls[-1][0]["probe_serial"], 456)
+        self.controller.done(
+            dict(
+                profile="jlink_identify",
+                success=True,
+                probes=[123, 456],
+                identity=dict(uid=self.uid, serial=456, node=6),
+            )
+        )
+        self.assertEqual(w.identity["serial"], 456)
+        w.display_probes([123, 456])
+        self.assertEqual(w.identity["serial"], 456)
+        w.probe_selector.setCurrentIndex(w.probe_selector.findData(123))
+        self.assertIsNone(w.identity)
+        self.assertIsNone(w.current_motor)
+        self.assertFalse(w.flash_button.isEnabled())
+
+    def test_swd_only_result_shows_versions_without_claiming_can_passed(self):
+        w = self.window
+        w.verify_can.setChecked(False)
+        w.launch(dict(profile="jlink_identify"))
+        self.assertIsNone(self.controller.calls[-1][0]["bus"])
+        self.controller.busy = False
+        w.display_install(
+            dict(
+                profile="jlink_flash",
+                success=True,
+                app_started=True,
+                identity=dict(uid=self.uid, serial=123, node=6),
+                swd_versions=dict(app=0x010819, loader=0x020304),
+            )
+        )
+        w.update_controls()
+        self.assertIn("v1.8.25", w.version_label.text())
+        self.assertIn("v2.3.4", w.loader_label.text())
+        self.assertIn("SWD 已确认", w.swd_version_label.text())
+        self.assertIn("CAN 通信未验证", w.install_label.text())
+        self.assertFalse(w.go_detection.isEnabled())
+        w.display_install(dict(profile="jlink_erase", success=True))
+        self.assertIn("尚未确认", w.swd_version_label.text())
+
+    def test_new_flash_invalidates_previous_version_as_soon_as_job_starts(self):
+        w = self.window
+        w.display_install(
+            dict(
+                profile="jlink_flash",
+                success=True,
+                app_started=True,
+                identity=dict(uid=self.uid, serial=123, node=6),
+                swd_versions=dict(app=0x010819, loader=0x020304),
+            )
+        )
+        w.hex_path = Path("test.hex")
+        w.launch(dict(profile="jlink_flash"))
+        self.assertIn("等待本次确认", w.swd_version_label.text())
+        self.assertNotIn("v1.8.25", w.version_label.text())
+        self.assertNotIn("v2.3.4", w.loader_label.text())
+
+    def test_header_keeps_status_in_two_rows_and_settings_in_dialog(self):
         w = self.window
         w.show()
         self.app.processEvents()
-        self.assertIs(w.axis.parentWidget(), w.channel.parentWidget())
-        self.assertLess(w.axis.parentWidget().height(), 190)
+        header = w.axis.parentWidget()
+        self.assertIs(w.channel.parentWidget(), w.connection_dialog)
+        self.assertTrue(w.connection_dialog.isHidden())
+        self.assertLessEqual(header.height(), 90)
+        self.assertIs(w.version_label.parentWidget(), header)
+        self.assertAlmostEqual(
+            w.axis.geometry().center().y(), w.version_label.geometry().center().y(), delta=3
+        )
+        self.assertIs(w.fault_button.parentWidget(), header)
+        self.assertLess(w.fault_label.geometry().right(), w.fault_button.geometry().left())
+        self.assertFalse(w.fault_button.isEnabled())
         self.assertTrue(w.fault_icon.isHidden())
         self.assertTrue(w.voltage.property("unavailable"))
         self.assertEqual(w.last_read.text(), "等待设备连接")
@@ -165,11 +247,263 @@ class QtProductionTests(unittest.TestCase):
         w.current_motor.update(bus_voltage_v=28.35, bus_current_a=0.01, motor_temperature_c=25)
         w.render_device()
         self.app.processEvents()
-        tiles = [widget.parentWidget() for widget in (w.voltage, w.current, w.temperature)]
-        self.assertLessEqual(max(t.width() for t in tiles) - min(t.width() for t in tiles), 1)
+        centers = [
+            widget.geometry().center().y()
+            for widget in (w.voltage, w.current, w.temperature, w.fault_label)
+        ]
+        self.assertLessEqual(max(centers) - min(centers), 3)
+        self.assertGreater(centers[0], w.axis.geometry().bottom())
         self.assertFalse(w.voltage.property("unavailable"))
         self.assertFalse(w.fault_icon.isHidden())
-        self.assertGreater(w.fault_label.y(), w.mode_label.y())
+        self.assertTrue(w.fault_button.isEnabled())
+        w.connection_settings.click()
+        self.assertTrue(w.connection_dialog.isVisible())
+        w.connection_dialog.close()
+        w.fault_button.click()
+        self.assertEqual(self.controller.calls[-1][0]["profile"], "clear_fault")
+        self.assertEqual(self.controller.calls[-1][0]["expected_uid"], self.uid)
+        w.hide()
+
+    def test_inspection_results_are_primary_and_curve_is_inline(self):
+        w = self.window
+        self.bind(node=7)
+        w.resize(1060, 740)
+        w.navigation.setCurrentRow(1)
+        w.show()
+        self.app.processEvents()
+        self.assertTrue(w.log.isHidden())
+        self.assertTrue(w.failure.isHidden())
+        self.assertTrue(w.inspection_settings.isHidden())
+        self.assertTrue(w.hardware_start.isVisible())
+        self.assertGreater(w.hardware_table.height(), 320)
+        self.assertEqual(w.page_scroll.horizontalScrollBar().maximum(), 0)
+        self.assertEqual(w.hardware_table.horizontalHeaderItem(0).text(), "序号")
+        self.assertEqual(w.hardware_table.item(0, 0).text(), "1")
+        self.assertEqual(w.hardware_table.item(0, 1).text(), "CAN 通信")
+        self.assertEqual(w.hardware_table.item(0, 4).text(), "未测")
+        static_names = (
+            "Ia",
+            "Ib",
+            "Ic",
+            "母线电流",
+            "母线电压",
+            "电机 NTC",
+            "电机角静态",
+            "霍尔静态",
+        )
+        for row, name in enumerate(static_names, 2):
+            self.assertEqual(w.hardware_table.item(row, 0).text(), f"2.{row - 1}")
+            self.assertEqual(w.hardware_table.item(row, 1).text(), name)
+            self.assertEqual(w.hardware_table.item(row, 4).text(), "未测")
+            self.assertFalse(w.hardware_table.isRowHidden(row))
+        self.assertEqual(w.hardware_table.item(10, 0).text(), "3")
+
+        static = empty_report(7)
+        static.update(
+            scope="static_resistance", static_completed=8, board_items=[1] * 7 + [3, 0, 0]
+        )
+        static["measurements"] = {"0": dict(samples=20, values=[2048, 1, None, None])}
+        direction_results(static)
+        w.on_event(
+            "inspection_results",
+            inspection_overview({"phase_states": {"preflight": "进行中"}}, static_snapshot=static),
+        )
+        self.assertIn("7/7", w.hardware_table.item(1, 2).text())
+        self.assertIn("2048", w.hardware_table.item(2, 2).text())
+        self.assertIn("RMS", w.hardware_table.item(2, 3).text())
+        self.assertEqual(w.hardware_table.item(9, 4).text(), "未装")
+        self.assertIn("通过 7", w.result_counts.text())
+
+        running = dict(profile="production_inspection", phase_states={"power": "进行中"})
+        w.on_event("inspection_phases", running["phase_states"])
+        w.on_event("inspection_results", inspection_overview(running))
+        w.on_event(
+            "inspection_angle",
+            dict(elapsed_s=0.1, reference_source="motor_encoder", reference_deg=7),
+        )
+        plot_row = w.hardware_table.curve_row
+        self.assertFalse(w.hardware_table.isRowHidden(plot_row))
+        self.assertEqual(w.hardware_table.item(plot_row, 0).text(), "")
+        self.assertEqual(w.hardware_table.item(11, 1).text(), "编码器标定")
+        self.assertEqual(w.hardware_table.item(12, 1).text(), "Hall 标定")
+        self.assertEqual(w.hardware_table.item(plot_row - 2, 0).text(), "5.3")
+        self.assertEqual(w.hardware_table.item(plot_row - 1, 0).text(), "6")
+        self.assertEqual(w.hardware_table.item(plot_row + 1, 0).text(), "7")
+        self.assertEqual(w.hardware_table.item(plot_row + 1, 1).text(), "输出轴转速稳定性")
+        self.assertIn("±5%", w.hardware_table.item(plot_row + 1, 3).text())
+        self.assertIn("10 秒", w.hardware_table.item(plot_row + 1, 3).text())
+        self.assertEqual(w.hardware_table.item(plot_row + 2, 1).text(), "高速输入功率稳定性")
+        self.assertIn("[-1000, 1000] W", w.hardware_table.item(plot_row + 2, 3).text())
+        self.assertIn("高速角度、转速及功率检测", w.phase_label.text())
+        w.hardware_table.curve_button.click()
+        w.on_event("inspection_results", inspection_overview(running))
+        self.assertTrue(w.hardware_table.isRowHidden(plot_row))
+        self.assertEqual(len(w.inspection_plot.samples), 1)
+        complete = dict(
+            profile="production_inspection",
+            phase_states={"power": "未通过", "archive": "已归档"},
+            verdict="未通过 / 未完成",
+            power_check=dict(status="failed", reason="高速检测通信失败"),
+            production_report="production-report.html",
+            stop_confirmed=True,
+        )
+        w.on_completed(complete, w.root_log, False)
+        self.assertEqual(w.result_verdict.property("outcome"), "failed")
+        self.assertIn("失败 1", w.result_counts.text())
+        self.assertIn("高速检测通信失败", w.hardware_table.item(plot_row + 2, 2).text())
+        self.assertNotEqual(w.hardware_table.item(plot_row + 2, 1).background().color(), QColor())
+        self.assertTrue(w.open_report_button.isEnabled())
+        self.assertTrue(w.hardware_table.isRowHidden(plot_row))
+        w.hardware_table.curve_button.click()
+        self.assertFalse(w.hardware_table.isRowHidden(plot_row))
+        self.assertEqual(len(w.inspection_plot.samples), 1)
+        w.hide()
+
+    def test_hall_calibration_failure_opens_hall_waveform_and_saved_encoder_curve(self):
+        self.bind(node=7)
+        w = self.window
+        folder = w.root_log / "calibration"
+        folder.mkdir()
+        pixmap = QPixmap(45, 20)
+        pixmap.fill(QColor("white"))
+        self.assertTrue(pixmap.save(str(folder / "hall-raw.png")))
+        encoder = QPixmap(55, 20)
+        encoder.fill(QColor("white"))
+        self.assertTrue(encoder.save(str(folder / "angle-calibration.png")))
+        (folder / "hall-raw.csv").touch()
+        (folder / "angle-calibration.csv").touch()
+        w.on_completed(
+            dict(
+                profile="production_inspection",
+                uid=self.uid,
+                phase_states={"calibration": "未通过"},
+                fatal="联合电角零位 · Hall sin 最大值过高",
+                calibration=dict(
+                    hall_raw_png="hall-raw.png",
+                    final_status=dict(state=8, mode=0, faults=0x4000),
+                    hall_waveform=dict(status="not_measured", reason="原码触及 ADC 端点"),
+                    saved_calibration_fault=dict(
+                        calibration_flags=3,
+                        saved_revision=8,
+                        details=["Hall sin 最大值过高"],
+                        encoder_curves=dict(png="angle-calibration.png"),
+                    ),
+                ),
+            ),
+            w.root_log,
+            False,
+        )
+        self.assertIn("0x00004000", w.fault_label.toolTip())
+        self.assertIn("Hall sin 最大值过高", w.phase_label.text())
+        table = w.hardware_table
+        for name, title, width, csv_label in (
+            ("Hall 波形凹坑", "Hall 原码波形与 XY 轨迹", 45, "Hall原码"),
+            ("编码器标定", "编码器标定 · 补偿曲线", 55, "补偿CSV"),
+        ):
+            item = table.findItems(name, Qt.MatchFlag.MatchExactly)[0]
+            action = table.cellWidget(item.row(), 2).findChild(QPushButton, "rowAction")
+            action.click()
+            self.assertEqual(w.curve_dialog.windowTitle(), title)
+            self.assertEqual(w.curve_dialog.findChild(QScrollArea).widget().pixmap().width(), width)
+            self.assertIn(
+                csv_label, [button.text() for button in w.curve_dialog.findChildren(QPushButton)]
+            )
+            w.curve_dialog.close()
+
+    def test_high_speed_curve_buttons_open_matching_files_and_reset_each_run(self):
+        w = self.window
+        work = w.root_log / "high-speed"
+        work.mkdir()
+        curves = {"speed": "high-speed/output-speed.png", "power": "high-speed/input-power.png"}
+        for name, width in zip(curves.values(), (30, 40), strict=True):
+            image = QPixmap(width, 20)
+            image.fill(QColor("white"))
+            self.assertTrue(image.save(str(w.root_log / name)))
+        (work / "speed.csv").touch()
+        overview = QPixmap(3900, 4500)
+        overview.fill(QColor("white"))
+        self.assertTrue(overview.save(str(w.root_log / "waveform-overview.png")))
+        w.on_completed(
+            dict(
+                profile="production_inspection",
+                power_check=dict(curves=curves),
+                waveform_overview="waveform-overview.png",
+            ),
+            w.root_log,
+            False,
+        )
+        table = w.hardware_table
+        for title, width in (("输出轴转速稳定性", 30), ("高速输入功率稳定性", 40)):
+            item = next(
+                cell
+                for cell in table.findItems(title, Qt.MatchFlag.MatchExactly)
+                if cell.column() == 1
+            )
+            row_button = table.cellWidget(item.row(), 2).findChild(QPushButton, "rowAction")
+            self.assertEqual(row_button.text(), "查看曲线")
+            row_button.click()
+            self.assertIn(title, w.curve_dialog.windowTitle())
+            preview = w.curve_dialog.findChild(QScrollArea).widget()
+            self.assertEqual(preview.pixmap().width(), width)
+            self.assertIn(
+                "高速遥测 CSV", [b.text() for b in w.curve_dialog.findChildren(QPushButton)]
+            )
+            w.curve_dialog.close()
+        self.assertTrue(w.waveform_overview_button.isEnabled())
+        w.waveform_overview_button.click()
+        self.assertEqual(w.curve_dialog.windowTitle(), "生产检测波形总览")
+        self.app.processEvents()
+        scroll = w.curve_dialog.findChild(QScrollArea)
+        self.assertEqual(scroll.widget().pixmap.width(), 3900)
+        self.assertEqual(scroll.widget().width(), scroll.viewport().width())
+        w.curve_dialog.resize(1400, 800)
+        self.app.processEvents()
+        self.assertEqual(scroll.widget().width(), scroll.viewport().width())
+        self.assertGreater(scroll.widget().width(), 1060)
+        buttons = {b.text(): b for b in w.curve_dialog.findChildren(QPushButton)}
+        buttons["原始像素"].click()
+        self.app.processEvents()
+        pixel_ratio = scroll.devicePixelRatioF()
+        self.assertEqual(scroll.widget().width(), round(3900 / pixel_ratio))
+        self.assertIn("100%", [label.text() for label in w.curve_dialog.findChildren(QLabel)])
+        self.assertGreater(scroll.horizontalScrollBar().maximum(), 0)
+        buttons["+"].click()
+        self.assertEqual(scroll.widget().width(), round(3900 * 1.25 / pixel_ratio))
+        buttons["−"].click()
+        self.assertEqual(scroll.widget().width(), round(3900 / pixel_ratio))
+        buttons["适应宽度"].click()
+        self.app.processEvents()
+        self.assertEqual(scroll.widget().width(), scroll.viewport().width())
+        self.assertEqual(scroll.widget().pixmap.width(), 3900)
+        w.curve_dialog.close()
+        w.reset_result_view(running=True)
+        self.assertEqual(w.inspection_curve_paths, {})
+        self.assertFalse(w.waveform_overview_button.isEnabled())
+        for title in ("输出轴转速稳定性", "高速输入功率稳定性"):
+            item = next(
+                cell
+                for cell in table.findItems(title, Qt.MatchFlag.MatchExactly)
+                if cell.column() == 1
+            )
+            self.assertIsNone(table.cellWidget(item.row(), 2))
+
+    def test_install_steps_group_actions_and_prioritize_device_versions(self):
+        w = self.window
+        self.bind()
+        w.resize(1380, 1050)
+        w.show()
+        self.app.processEvents()
+        self.assertIs(w.identify_button.parentWidget(), w.identify_box)
+        self.assertIs(w.probe_selector.parentWidget(), w.identify_box)
+        self.assertIs(w.flash_button.parentWidget(), w.flash_box)
+        self.assertIs(w.firmware_label.parentWidget(), w.flash_box)
+        self.assertLess(w.identify_box.x(), w.initial_box.x())
+        self.assertLess(w.initial_box.x(), w.flash_box.x())
+        self.assertGreater(w.version_label.font().pixelSize(), w.firmware_label.font().pixelSize())
+        self.assertFalse(w.version_label.property("unavailable"))
+        w.devices.clear()
+        w.select_motor()
+        self.assertTrue(w.version_label.property("unavailable"))
         w.hide()
 
     def test_light_palette_replaces_dark_system_colors(self):
@@ -278,8 +612,9 @@ class QtProductionTests(unittest.TestCase):
         w = self.window
         self.assertEqual(w.stack.count(), 5)
         self.assertEqual(w.navigation.currentRow(), 0)
-        self.assertEqual(w.maintenance.count(), 4)
+        self.assertEqual(w.maintenance.count(), 5)
         self.assertEqual(w.maintenance.tabText(2), "通信测试")
+        self.assertEqual(w.maintenance.tabText(4), "标定维护")
         self.assertEqual(w.communication_tabs.count(), 2)
         self.assertEqual(len(w.parameters.entries), 30)
         self.assertNotIn("lease", w.edits)
@@ -374,27 +709,52 @@ class QtProductionTests(unittest.TestCase):
         self.assertIsNone(self.controller.calls[-1][0]["first_fit_node"])
         self.assertEqual(self.controller.calls[-1][0]["identity"]["uid"], self.uid)
 
-    def test_three_detection_modes_and_blank_validation(self):
+    def test_production_check_always_includes_motion_and_validates_inputs(self):
         self.bind()
         w = self.window
-        for mode, powered, resistance in (
-            ("关相静态", False, False),
-            ("静态＋相电阻", False, True),
-            ("静态和双向驱动", True, False),
-        ):
-            self.controller.busy = False
-            w.check_mode.setCurrentText(mode)
-            w.start_hardware()
-            request = self.controller.calls[-1][0]
-            self.assertEqual(bool(request["drive"]), powered)
-            self.assertEqual(request["resistance_only"], resistance)
-            self.assertEqual(request["expected_uid"], self.uid)
+        self.assertFalse(hasattr(w, "check_mode"))
+        self.assertFalse(self.controller.calls)
+        w.start_hardware()
+        self.assertFalse(self.controller.calls)
+        w.edits["motor_serial"].setText("YAW-0001")
+        w.edits["test_requirement"].setText("REQ-017")
+        w.confirm_inspection_numbers()
+        self.assertTrue(w.edits["motor_serial"].isReadOnly())
+        self.assertFalse(hasattr(w, "inspection_fixture"))
+        self.assertTrue(w.hardware_start.isEnabled())
+        w.start_hardware()
+        request, directory, _ = self.controller.calls[-1]
+        self.assertEqual(request["profile"], "production_inspection")
+        self.assertIsNone(request["drive"])
+        self.assertEqual(request["power_check"]["output_rpm"], 50)
+        self.assertNotIn("travel_deg", request["power_check"])
+        self.assertNotIn("power_travel", w.edits)
+        self.assertEqual(request["expected_uid"], self.uid)
+        self.assertEqual(directory.parent, w.root_log / "production" / "YAW-0001" / "REQ-017")
+        self.assertNotIn("fixture_confirmed", request)
         self.controller.busy = False
         count = len(self.controller.calls)
-        w.edits["travel"].clear()
+        w.edits["power_rpm"].setText("99")
         w.start_hardware()
         self.assertEqual(len(self.controller.calls), count)
         self.error.assert_called()
+
+    def test_inspection_angle_updates_and_change_of_motor_invalidates_numbers(self):
+        self.bind()
+        w = self.window
+        w.edits["motor_serial"].setText("S-1")
+        w.edits["test_requirement"].setText("T-1")
+        w.confirm_inspection_numbers()
+        w.on_event(
+            "inspection_angle",
+            dict(elapsed_s=0.2, reference_source="motor_encoder", reference_deg=5.2, hall_deg=None),
+        )
+        self.assertEqual(w.inspection_plot.samples[-1]["reference_deg"], 5.2)
+        self.assertIsNone(w.inspection_plot.samples[-1]["hall_deg"])
+        self.bind(uid="02" * 12)
+        self.assertIsNone(w.inspection_binding)
+        self.assertFalse(w.inspection_plot.samples)
+        self.assertEqual(w.navigation.item(2).text(), "电机运动")
 
     def test_measurements_refresh_every_second_without_draft_reset(self):
         self.bind()
@@ -474,7 +834,7 @@ class QtProductionTests(unittest.TestCase):
         self.assertIn("26.80", self.window.failure.toPlainText())
         self.assertIn("27～29", self.window.failure.toPlainText())
         self.assertEqual(self.window.hardware_table.rowCount(), 11)
-        self.assertIn("不在本轮范围", self.window.hardware_table.item(9, 3).text())
+        self.assertIn("不在本轮范围", self.window.hardware_table.item(9, 4).text())
 
     def test_sequential_static_updates_rows_before_completion(self):
         report = empty_report(7)
@@ -488,10 +848,10 @@ class QtProductionTests(unittest.TestCase):
         report["measurements"] = {"0": dict(samples=2000, values=[2048, 1, None, None])}
         direction_results(report)
         self.window.on_event("hardware_static", report)
-        self.assertEqual(self.window.hardware_table.item(0, 3).text(), "正常")
-        self.assertEqual(self.window.hardware_table.item(1, 3).text(), "未测")
+        self.assertEqual(self.window.hardware_table.item(0, 4).text(), "正常")
+        self.assertEqual(self.window.hardware_table.item(1, 4).text(), "未测")
         self.assertIn("正在检测：Ib", self.window.phase_label.text())
-        self.assertIn("2048", self.window.hardware_table.item(0, 1).text())
+        self.assertIn("2048", self.window.hardware_table.item(0, 2).text())
 
     def test_worker_exit_before_hardware_report_remains_visible(self):
         self.bind()
@@ -512,7 +872,7 @@ class QtProductionTests(unittest.TestCase):
         direction_results(report)
         self.window.on_completed(report, None, False)
         for row, expected in ((0, "#18765b"), (1, "#64748b"), (2, "#b03b42")):
-            for column in range(4):
+            for column in range(self.window.hardware_table.columnCount()):
                 self.assertEqual(
                     self.window.hardware_table.item(row, column).foreground().color().name(),
                     expected,
@@ -610,8 +970,8 @@ class QtProductionTests(unittest.TestCase):
         picture.fill(QColor("white"))
         path = Path(self.temp.name) / "curve.png"
         self.assertTrue(picture.save(str(path)))
-        w.navigation.setCurrentRow(2)
-        w.calibration.setCurrentIndex(0)
+        w.navigation.setCurrentRow(0)
+        w.maintenance.setCurrentWidget(w.pages["calibration"])
         w.resize(1280, 900)
         w.show()
         self.app.processEvents()
@@ -639,10 +999,15 @@ class QtProductionTests(unittest.TestCase):
     def test_calibration_archive_speed_and_stop(self):
         self.bind()
         w = self.window
+        w.display_probes([123, 456])
+        w.probe_selector.setCurrentIndex(w.probe_selector.findData(456))
+        self.bind()
         w.start_calibration(2)
         request = self.controller.calls[-1][0]
+        self.assertEqual(request["probe_serial"], 456)
         self.assertEqual(request["calibration_kind"], 2)
         self.assertEqual(request["archive"]["test_serial"], "0001")
+
         self.controller.busy = False
         w.start_speed()
         self.assertEqual(self.controller.calls[-1][0]["speed_limit"], 300)
@@ -652,10 +1017,41 @@ class QtProductionTests(unittest.TestCase):
         w.stop_button.click()
         self.assertEqual(self.controller.stops, 1)
 
+    def test_saved_calibration_readback_does_not_start_calibration(self):
+        self.bind()
+        self.window.launch(dict(profile="calibration_readback", probe_serial=None))
+        request = self.controller.calls[-1][0]
+        self.assertEqual(request["profile"], "calibration_readback")
+        self.assertEqual(request["expected_uid"], self.uid)
+        self.assertNotIn("calibration_kind", request)
+
+    def test_calibration_displays_raw_capture_result_separately(self):
+        self.bind()
+        report = dict(profile="motor_calibration", passed=True, uid=self.uid)
+        self.window.on_completed(dict(report, raw_capture=dict(error="未采集原码")), None, False)
+        self.assertIn("标定完成并保存", self.window.calibration_result.text())
+        self.assertIn("Hall 原码采集异常：未采集原码", self.window.calibration_result.text())
+        self.window.on_completed(dict(report, raw_capture=dict(samples=123)), None, False)
+        self.assertIn("123 组 Hall 原码", self.window.calibration_result.text())
+
+    def test_hall_waveform_result_displays_phase_ranges(self):
+        self.bind()
+        report = dict(profile="motor_calibration", passed=True, uid=self.uid)
+        waveform = dict(
+            status="detected",
+            radius_limit=0.90,
+            sectors=[dict(start_deg=40, width_deg=10), dict(start_deg=350, width_deg=20)],
+        )
+        self.window.on_completed(dict(report, hall_waveform=waveform), None, False)
+        text = self.window.calibration_result.text()
+        self.assertIn("标定完成并保存", text)
+        self.assertIn("检出重复凹陷", text)
+        self.assertIn("40～50°、350～10°", text)
+        self.assertIn("试验判线", text)
+
     def test_busy_disables_nonmotion_controls_but_allows_speed_target(self):
         self.bind()
         self.window.navigation.setCurrentRow(2)
-        self.window.calibration.setCurrentIndex(1)
         self.window.start_speed()
         self.assertFalse(self.window.navigation.isEnabled())
         self.assertFalse(self.window.axis.isEnabled())
@@ -666,12 +1062,14 @@ class QtProductionTests(unittest.TestCase):
         self.bind(7)
         w = self.window
         w.flow.record(dict(profile="jlink_flash", uid=self.uid, success=False), "old")
-        w.edits["current"].setText("2")
+        w.edits["ambient"].setText("23")
+        w.edits["power_rpm"].setText("47")
         w.next_device()
         self.assertIsNone(w.current_motor)
         self.assertFalse(w.flow.devices)
         self.assertEqual(w.node(), 7)
-        self.assertEqual(w.edits["current"].text(), "2")
+        self.assertEqual(w.edits["ambient"].text(), "23")
+        self.assertEqual(w.edits["power_rpm"].text(), "")
         self.assertEqual(len(list(w.root_log.rglob("production-sessions/*.json"))), 1)
         self.assertIsNone(w.report_dir)
 

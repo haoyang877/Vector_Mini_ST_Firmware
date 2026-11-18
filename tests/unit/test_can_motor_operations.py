@@ -26,17 +26,27 @@ class Endpoint:
         self.starts, self.cancelled = 0, False
         self.cal_kind = 1
         self.fault = ""
+        self.fault_bits = 0
         self.status_losses = 0
         self.speed_limit = 4000
         self.features = 0
         self.position = 1000
         self.position_after_target = None
+        self.status_coordinates = []
+        self.invalid_output = False
 
-    def status(self):
+    def status(self, *, motor_axis=False):
+        self.status_coordinates.append(motor_axis)
         data = bytearray(45)
+        struct.pack_into("<I", data, 4, self.fault_bits)
         struct.pack_into("<i", data, 12, self.position)
         struct.pack_into("<i", data, 20, round(self.actual_speed * 1000))
-        struct.pack_into("<H", data, 24, 0x29A)
+        valid = 0x29A
+        if (self.invalid_output and not motor_axis) or (
+            motor_axis and self.fault == "motor_feedback"
+        ):
+            valid &= ~10
+        struct.pack_into("<H", data, 24, valid)
         struct.pack_into("<h", data, 32, 50)
         data[42:] = bytes((6, self.state, self.mode))
         return bytes(data)
@@ -87,6 +97,11 @@ class Endpoint:
                 500,
                 500,
             )
+        if kind == 107:
+            if self.fault == "clear_denied":
+                return struct.pack("<HH", 7, 1)
+            self.fault_bits, self.state = 0, 5
+            return bytes(4)
         if kind in (120, 123):
             identifier = payload[0]
             saved_revision = self.revision + (self.fault == "saved_revision" and kind == 123)
@@ -393,6 +408,208 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertEqual(len(samples), 3)
         self.assertGreater(abs(samples[0]["position_rad"]), 10000)
         self.assertIsNone(motor_speed_fields(dict(speed="3", lease="0", target="0"))["travel"])
+
+    def test_output_axis_speed_test_converts_and_checks_geometry_before_enable(self):
+        self.endpoint.speed_limit = 50000
+        test = ops.OutputSpeedTest(0.1, 80)
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for uid, travel, reason in (("02" * 12, 50, "UID"), ("01" * 12, 30, "行程")):
+                result = ops.run_speed_control(
+                    None,
+                    6,
+                    1.0,
+                    travel,
+                    queue.Queue(),
+                    out,
+                    expected_uid=uid,
+                    output_test=test,
+                )
+                self.assertIn(reason, result["fatal"])
+                self.assertFalse(result["enable_attempted"])
+            for features, wire in ((0, 40000), (1 << 26, 1000)):
+                self.endpoint.features = features
+                result = ops.run_speed_control(
+                    None,
+                    6,
+                    1.0,
+                    50,
+                    queue.Queue(),
+                    out,
+                    expected_uid="01" * 12,
+                    output_test=test,
+                    counter_db=out / "counter.db",
+                )
+                self.assertTrue(result["passed"] and result["stop_confirmed"], result)
+                target = [payload for kind, payload, _ in self.endpoint.commands if kind == 116][-1]
+                self.assertEqual(struct.unpack_from("<i", target, 8)[0], wire)
+                self.assertAlmostEqual(result["last_feedback"]["output_rpm"], 9.5493, places=4)
+
+    def test_timed_speed_without_travel_checks_revision_and_stops_after_twelve_seconds(self):
+        self.endpoint.speed_limit = 50000
+        self.endpoint.position_after_target = 1000000000
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            incompatible = ops.run_speed_control(
+                None,
+                6,
+                1.0,
+                None,
+                queue.Queue(),
+                out,
+                expected_uid="01" * 12,
+                output_test=ops.OutputSpeedTest(12, 80, self.endpoint.revision + 1),
+            )
+            self.assertIn("保存修订", incompatible["fatal"])
+            self.assertFalse(incompatible["enable_attempted"])
+            with (
+                patch.object(ops.time, "monotonic", side_effect=lambda: clock[0]),
+                patch.object(ops.time, "sleep", side_effect=sleep),
+            ):
+                result = ops.run_speed_control(
+                    None,
+                    6,
+                    1.0,
+                    None,
+                    queue.Queue(),
+                    out,
+                    expected_uid="01" * 12,
+                    counter_db=out / "counter.db",
+                    output_test=ops.OutputSpeedTest(12, 80, self.endpoint.revision),
+                )
+        self.assertTrue(result["passed"] and result["stop_confirmed"], result)
+        self.assertEqual(result["verified_saved_revision"], self.endpoint.revision)
+        self.assertGreater(result["last_feedback"]["elapsed_s"], 11.9)
+        self.assertLess(result["last_feedback"]["elapsed_s"], 12)
+        self.assertGreaterEqual(clock[0], 12)
+        self.assertEqual(self.endpoint.commands[-1][0], 110)
+
+    def test_hall_fault_speed_recovery_requires_matching_fault_revision_and_motor_feedback(self):
+        cases = (
+            (0x4001, 0, 1, 1, "", "零故障", 0),
+            (0x4000, 1 << 26, 1, 1, "", "需升级以使用电机轴测速", 0),
+            (0x4000, 3 << 26, 1, 1, "motor_feedback", "编码器反馈无效", 0),
+            (0x4000, 3 << 26, 1, 1, "", None, 1),
+            (0x4000, 0, 2, 1, "", "保存修订", 0),
+            (0x4000, 0, 1, 2, "", "输出轴限速", 0),
+            (0x4000, 0, 1, 1, "clear_denied", "拒绝清除", 1),
+            (0x4000, 0, 1, 1, "", None, 1),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for faults, features, revision, target, fault, reason, clears in cases:
+                with self.subTest(
+                    faults=faults, features=features, revision=revision, reason=reason
+                ):
+                    self.endpoint.__init__()
+                    self.endpoint.fault_bits = faults
+                    self.endpoint.state = 8
+                    self.endpoint.features = features
+                    self.endpoint.invalid_output = bool(features & (1 << 27))
+                    self.endpoint.fault = fault
+                    self.endpoint.speed_limit = 50000
+                    samples = []
+                    result = ops.run_speed_control(
+                        None,
+                        6,
+                        target,
+                        None,
+                        queue.Queue(),
+                        out,
+                        expected_uid="01" * 12,
+                        output_test=ops.OutputSpeedTest(12, 80, revision, hall_fault=0x4000),
+                        counter_db=out / "counter.db",
+                        stopped=lambda samples=samples: len(samples) >= 2,
+                        feedback=samples.append,
+                    )
+                    self.assertEqual(
+                        sum(kind == 107 for kind, *_ in self.endpoint.requests), clears
+                    )
+                    if reason:
+                        self.assertIn(reason, result["fatal"])
+                        self.assertFalse(result["enable_attempted"])
+                    else:
+                        self.assertTrue(result["passed"] and result["stop_confirmed"], result)
+                        self.assertEqual(result["hall_fault_clear"]["before"]["faults"], 0x4000)
+                        self.assertEqual(result["motion_coordinate"], "motor_shaft")
+                        self.assertEqual(len(samples), 2)
+                        payload = next(
+                            value for kind, value, _ in self.endpoint.commands if kind == 116
+                        )
+                        self.assertEqual(payload[1], bool(features & (1 << 27)))
+                        self.assertEqual(struct.unpack_from("<i", payload, 8)[0], 40000)
+                        self.assertEqual(any(self.endpoint.status_coordinates), bool(payload[1]))
+
+    def test_adaptive_window_waits_through_ramp_and_does_not_restart_after_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for reaches_target in (True, False):
+                with self.subTest(reaches_target=reaches_target):
+                    self.endpoint.__init__()
+                    self.endpoint.speed_limit = 50000
+                    clock = [0.0]
+                    original = self.endpoint.status
+                    samples = []
+
+                    def status(clock=clock, original=original, reaches_target=reaches_target):
+                        data = bytearray(original())
+                        seconds = clock[0]
+                        fraction = min(1, seconds / 2.5) if reaches_target else 0.8
+                        if 2.55 <= seconds < 2.65 or 4.0 <= seconds < 4.05:
+                            fraction = 0.9
+                        struct.pack_into("<i", data, 20, round(40000 * fraction))
+                        return bytes(data)
+
+                    self.endpoint.status = status
+                    with (
+                        patch.object(
+                            ops.time, "monotonic", side_effect=lambda clock=clock: clock[0]
+                        ),
+                        patch.object(
+                            ops.time,
+                            "sleep",
+                            side_effect=lambda seconds, clock=clock: clock.__setitem__(
+                                0, clock[0] + seconds
+                            ),
+                        ),
+                    ):
+                        result = ops.run_speed_control(
+                            None,
+                            6,
+                            1.0,
+                            None,
+                            queue.Queue(),
+                            out,
+                            output_test=ops.OutputSpeedTest(
+                                10, 80, settling=ops.SpeedSettling(0.5, 10, 0.05, 0.2)
+                            ),
+                            counter_db=out / "counter.db",
+                            feedback=samples.append,
+                        )
+                    self.assertTrue(result["stop_confirmed"])
+                    if reaches_target:
+                        self.assertTrue(result["passed"], result)
+                        start, end = result["steady_window_s"]
+                        self.assertGreaterEqual(start, 3.15)
+                        self.assertLess(start, 3.25)
+                        self.assertAlmostEqual(end - start, 10)
+                        self.assertTrue(
+                            any(
+                                start < row["elapsed_s"] < end and row["actual_rad_s"] == 36
+                                for row in samples
+                            )
+                        )
+                        self.assertLess(end - samples[-1]["elapsed_s"], 0.2)
+                    else:
+                        self.assertTrue(result["settling_timed_out"])
+                        self.assertFalse(result["passed"])
+                        self.assertNotIn("steady_window_s", result)
+                        self.assertLess(clock[0], 10.1)
 
     def test_status_measurements_use_correct_fields_and_valid_bits(self):
         original = self.endpoint.status

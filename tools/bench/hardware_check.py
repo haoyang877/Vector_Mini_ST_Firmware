@@ -70,12 +70,12 @@ class Link:
         self.timeouts[kind] = self.timeouts.get(kind, 0) + 1
         raise TimeoutError(f"节点 {self.node} Type {kind} 未收到匹配应答")
 
-    def _read(self, kind: int) -> bytes:
+    def _read(self, kind: int, payload: bytes = b"") -> bytes:
         """只读快照丢应答时最多重读一次；每次仍按 50ms 记录超时。"""
         try:
-            return self.request(kind)
+            return self.request(kind, payload)
         except TimeoutError:
-            return self.request(kind)
+            return self.request(kind, payload)
 
     def command(self, kind, payload=b"", *, sequence=None):
         reply = self.request(kind, payload, sequence=sequence)
@@ -86,9 +86,9 @@ class Link:
             raise Rejected(f"Type {kind} 拒绝，result={code} detail={detail}")
         return code
 
-    def status(self):
+    def status(self, *, motor_axis: bool = False):
         for _ in range(3):
-            data = self._read(108)
+            data = self._read(108, b"\x01" if motor_axis else b"")
             if data != b"\x06\0\0\0" and not (len(data) == 45 and data[:2] == b"\x06\0"):
                 break
             self.status_busy_replies += 1
@@ -333,11 +333,14 @@ def drive_geometry(link, drive):
     # 附加一段租约超时滑行前的指令余量，并在每个往返检查实际位置。
     if 360 * drive.frequency_hz * (drive.leg_ms / 1000 + 0.5) / (poles * ratio) > drive.travel_deg:
         raise Rejected("所选电频和时长超过台架实际可用输出行程")
-    return ratio
+    return ratio, poles
 
 
-def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, target_seq):
-    ratio = drive_geometry(link, drive)
+def execute_drive(
+    link, report, drive, start_seq, refresh, stopped, lease, target_seq, *, angle_sample=None
+):
+    ratio, poles = drive_geometry(link, drive)
+    report["drive_pole_pairs"] = poles
     feedback_ratio = 1.0 if report.get("output_coordinates", False) else ratio
     before = link.status()
     report["drive_precheck"] = dict(
@@ -350,6 +353,8 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
             "尚未验证本轮旋向"
         )
     origin = struct.unpack_from("<i", before, 12)[0]
+    if angle_sample is not None:
+        angle_sample(link, before, None)
     refresh()
     if stopped() or report["stage"] != 2:
         raise Rejected("本轮已离开待驱动阶段")
@@ -423,6 +428,8 @@ def execute_drive(link, report, drive, start_seq, refresh, stopped, lease, targe
                     or abs(math.degrees(offset) / feedback_ratio) > drive.travel_deg
                 ):
                     raise Rejected("轴状态、位置有效性或机械行程超出本轮条件")
+                if angle_sample is not None:
+                    angle_sample(link, status, frequency)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -497,6 +504,9 @@ def run_check(
     phase_progress=lambda _: None,
     static_progress=lambda _: None,
     limits=None,
+    expected_uid: str | None = None,
+    expected_saved_revision: int | None = None,
+    angle_sample=None,
 ):
     """返回通信结论、本轮板端快照和命令方向核对结果；此处不打开设备。"""
     link = Link(bus, node, timeout_s=0.5)
@@ -544,6 +554,8 @@ def run_check(
         if len(info) == 4:
             raise Rejected("设备忙，已确认通信")
         report["uid"] = info[:12].hex()
+        if expected_uid is not None and report["uid"] != expected_uid:
+            raise Rejected("硬件检测前设备 UID 改变，请重新识别")
         report["app_version"] = int.from_bytes(info[20:24], "little")
         report["loader_version"] = int.from_bytes(info[24:28], "little")
         report["test_currents_a"] = [1.0, 2.0] if report["app_version"] >= 0x01080C else [0.5, 1.0]
@@ -588,6 +600,15 @@ def run_check(
             raise Rejected(f"实测环境温度不在 {low:g}～{high:g} °C，工况不满足")
         if drive and (not features & (1 << 13) or not modes & (1 << 10)):
             raise Rejected("驱动需要模式 10 和运动租约")
+        if expected_saved_revision is not None:
+            saved = link.request(123, bytes(4))
+            if (
+                len(saved) != 20
+                or saved[:6] != b"\0\0\0\0\0\x02"
+                or struct.unpack_from("<II", saved, 12) != (expected_saved_revision,) * 2
+            ):
+                raise Rejected("复检前活动或保存修订与本轮标定不一致")
+            report["verified_saved_revision"] = expected_saved_revision
         phase("communication", "已完成")
         previous_run = link.board()["run_id"]
         if stopped():
@@ -682,7 +703,17 @@ def run_check(
             link.timeout_s = 0.05
             report["drive_reply_timeout_ms"] = 50
             try:
-                execute_drive(link, report, drive, start_seq, refresh, stopped, lease, target)
+                execute_drive(
+                    link,
+                    report,
+                    drive,
+                    start_seq,
+                    refresh,
+                    stopped,
+                    lease,
+                    target,
+                    angle_sample=angle_sample,
+                )
             finally:
                 link.timeout_s = 0.5
             deadline = time.monotonic() + 0.5

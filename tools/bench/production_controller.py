@@ -108,9 +108,20 @@ class ProductionController(QObject):
 
     def stop(self) -> None:
         """烧录不能中断；运动/检测/升级按原工作进程约定结束。"""
-        self.pending = None
+        pending, self.pending = self.pending, None
         if self.busy and not self.settings["profile"].startswith("jlink_"):
             self.cancel.set()
+        if pending is not None and pending[0]["profile"] == "production_inspection":
+            self.completed.emit(
+                dict(
+                    profile="production_inspection",
+                    cancelled=True,
+                    verdict="已停止",
+                    note="已取消排队",
+                ),
+                pending[1],
+                False,
+            )
 
     def update_speed(self, value: float) -> None:
         if not self.busy or self.settings["profile"] != "motor_speed" or self.commands is None:
@@ -120,7 +131,6 @@ class ProductionController(QObject):
     def shutdown(self) -> None:
         """保持Qt事件循环，等待任务退出后再关闭常驻进程。"""
         self.closing = True
-        self.pending = None
         if self.waiting_shutdown:
             return
         if self.busy:
@@ -192,6 +202,14 @@ class ProductionController(QObject):
                     self.completed.emit(
                         dict(profile=pending[0]["profile"], fatal=str(exc)), pending[1], False
                     )
+            elif pending[0]["profile"] == "production_inspection":
+                self.completed.emit(
+                    dict(
+                        profile="production_inspection", fatal=report.get("fatal", "CAN 未能释放")
+                    ),
+                    pending[1],
+                    False,
+                )
 
     def _finish_shutdown(self) -> None:
         if self.session.process.is_alive():

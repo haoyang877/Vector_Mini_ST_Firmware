@@ -10,6 +10,19 @@ from production_flow import ProductionFlow
 
 
 class ProductionFlowTests(unittest.TestCase):
+    def test_cancel_before_device_reply_closes_bound_inspection(self):
+        flow = ProductionFlow()
+        flow.begin("a", "production_inspection")
+        self.assertIn("进行中", flow.summary("a"))
+        flow.record(
+            dict(
+                profile="production_inspection", expected_uid="a", cancelled=True, verdict="已停止"
+            ),
+            "cancelled",
+        )
+        self.assertIn("已停止", flow.summary("a"))
+        self.assertNotIn("已停止", flow.summary("b", integrated=True))
+
     def hardware(self, uid="a", scope="full"):
         report = empty_report(4)
         report.update(
@@ -75,6 +88,24 @@ class ProductionFlowTests(unittest.TestCase):
         self.assertIn("本台流程完成", flow.summary("a"))
         self.assertIn("本台流程未完成", flow.summary("b"))
         self.assertEqual(len(flow.devices["a"]["records"]), 5)
+
+    def test_swd_only_install_is_pending_can_not_failed_or_complete(self):
+        flow = ProductionFlow()
+        report = dict(
+            profile="jlink_flash",
+            uid="a",
+            success=True,
+            app_started=True,
+            protected_regions_verified=True,
+            swd_versions=dict(app=0x1081A, loader=0x20304),
+        )
+        flow.record(report, "swd-install")
+        self.assertIn("烧录：待 CAN 验证", flow.summary("a"))
+        self.assertIn("本台流程未完成", flow.summary("a"))
+        self.assertFalse(flow.devices["a"]["steps"]["flash"])
+        report.update(success=False, can_test=dict(version_verified=False))
+        flow.record(report, "failed-can")
+        self.assertIn("烧录：未通过", flow.summary("a"))
 
     def test_combined_zero_requires_verified_saved_flag(self):
         flow = ProductionFlow()

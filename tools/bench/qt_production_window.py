@@ -13,12 +13,12 @@ from can_motor_operations import describe_faults, speed_value
 from can_parameters import CATALOG, GROUPS, value_text
 from five_axis_can_stability import PER_NODE, encode_frames, version_text
 from five_axis_jlink import FIRST_FIT_AXES, firmware_versions
+from hall_waveform_check import hall_waveform_criterion
 from hardware_check import empty_report
 from hardware_limits import default_path, read_limits
 from production_backend import (
     AXES,
     AXIS_SPEED_LIMITS,
-    CHECK_DEFAULTS,
     MODES,
     RATES,
     STATUS_REFRESH_S,
@@ -28,9 +28,22 @@ from production_backend import (
 )
 from production_controller import ProductionController
 from production_flow import ProductionFlow
-from production_report import build_report, failure_summary, report_rows
+from production_inspection import (
+    INSPECTION_STAGES,
+    PRODUCTION_VERSION,
+    archive_inspection,
+    initial_inspection,
+    inspection_numbers,
+)
+from production_power_check import (
+    DEFAULT_POWER_MAX_W,
+    DEFAULT_POWER_MIN_W,
+    SUGGESTED_OUTPUT_RPM,
+    power_check_fields,
+)
+from production_report import build_report, failure_summary, inspection_overview, report_rows
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
+from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -38,7 +51,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -53,6 +65,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTableWidget,
@@ -62,12 +75,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qt_calibration_preview import CalibrationPreview
+from qt_inspection_table import InspectionTable
 from qt_parameter_page import ParameterPage
 from qt_production_icons import ICON_SIZE, icon
 from qt_production_theme import apply_theme
 from qt_speed_plot import SpeedPlot
+from qt_waveform_view import WaveformView
 
-VERSION = "2.1.7"
+VERSION = PRODUCTION_VERSION
 
 
 def label(text: str, name: str = "", wrap: bool = False) -> QLabel:
@@ -142,6 +157,7 @@ class ProductionWindow(QMainWindow):
         self.report_dir = self.report_path = self.curve_path = None
         self.records = []
         self.active_settings = None
+        self.inspection_binding = None
         self.next_refresh = 0.0
         self.next_pending = self.close_ready = False
         self.pages, self.edits = {}, {}
@@ -176,8 +192,8 @@ class ProductionWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(22, 18, 22, 14)
-        root.setSpacing(12)
+        root.setContentsMargins(18, 12, 18, 10)
+        root.setSpacing(8)
         heading = QHBoxLayout()
         heading.addWidget(label("电机生产测试上位机", "title"))
         heading.addWidget(label(f"PRODUCTION CONSOLE  /  v{VERSION}", "subtitle"))
@@ -185,141 +201,18 @@ class ProductionWindow(QMainWindow):
         self.next_button = button("归档并开始下一台", self.next_device, icon_name="next-device")
         heading.addWidget(self.next_button)
         root.addLayout(heading)
-        header = QHBoxLayout()
-        connection = QGroupBox("连接与当前电机")
-        connection.setObjectName("compactHeader")
-        form = QVBoxLayout(connection)
-        form.setContentsMargins(8, 8, 8, 6)
-        form.setSpacing(6)
-        self.axis = combo(
-            [f"{role} · {model} · 节点 {node}" for node, (role, model, _) in FIRST_FIT_AXES.items()]
-        )
-        self.axis.setCurrentIndex(3)
-        self.axis.currentIndexChanged.connect(self.select_motor)
-        self.scan_button = button(
-            "连接 / 扫描", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
-        )
-        selection = QHBoxLayout()
-        selection.addWidget(self.axis, 1)
-        selection.addWidget(self.scan_button)
-        form.addLayout(selection)
-        self.uid_label = label("尚未识别设备", "subtitle", True)
-        form.addWidget(self.uid_label)
-        self.channel = combo(("1", "2"))
-        self.nominal = combo(("500K", "1M"), "1M")
-        self.data_rate = combo(RATES, "5M")
-        rates = QHBoxLayout()
-        rates.setSpacing(6)
-        for text, widget, width in (
-            ("通道", self.channel, 64),
-            ("仲裁段", self.nominal, 84),
-            ("数据段", self.data_rate, 84),
-        ):
-            rates.addWidget(label(text))
-            widget.setFixedWidth(width)
-            rates.addWidget(widget)
-            widget.currentTextChanged.connect(self.connection_changed)
-        rates.addStretch()
-        form.addLayout(rates)
-        self.auto_refresh = QCheckBox("自动刷新 · 1 秒")
-        self.auto_refresh.setChecked(True)
-        self.connection_label = label("CAN 未连接", "subtitle")
-        self.disconnect_button = button(
-            "断开", lambda: self.launch(dict(profile="can_release")), icon_name="disconnect"
-        )
-        connection_status = QHBoxLayout()
-        self.connection_icon = QLabel()
-        self.connection_icon.setFixedSize(20, 20)
-        connection_status.addWidget(self.connection_icon)
-        connection_status.addWidget(self.connection_label)
-        connection_status.addStretch()
-        connection_status.addWidget(self.auto_refresh)
-        connection_status.addWidget(self.disconnect_button)
-        form.addLayout(connection_status)
-        header.addWidget(connection, 5)
-        device = QGroupBox("设备状态")
-        device.setObjectName("compactHeader")
-        form = QVBoxLayout(device)
-        form.setContentsMargins(8, 8, 8, 6)
-        form.setSpacing(4)
-        details = QGridLayout()
-        details.setHorizontalSpacing(18)
-        details.setVerticalSpacing(5)
-        self.version_label = label("APP 固件：—", "statusValue", True)
-        self.loader_label = label("Loader 固件：—", "statusValue", True)
-        self.status_label = label("运行状态：未读取", "statusValue", True)
-        self.mode_label = label("控制模式：未读取", "statusValue", True)
-        self.fault_label = label("故障信息：未读取", "statusValue", True)
-        details.addWidget(self.version_label, 0, 0)
-        details.addWidget(self.loader_label, 1, 0)
-        details.addWidget(self.status_label, 0, 1)
-        details.addWidget(self.mode_label, 1, 1)
-        fault_row = QHBoxLayout()
-        self.fault_icon = QLabel()
-        self.fault_icon.setFixedSize(20, 20)
-        fault_row.addWidget(self.fault_icon)
-        fault_row.addWidget(self.fault_label, 1)
-        details.setColumnStretch(0, 2)
-        details.setColumnStretch(1, 3)
-        metrics = QHBoxLayout()
-        self.voltage = label("— V", "metric")
-        self.current = label("— A", "metric")
-        self.temperature = label("— °C", "metric")
-        for widget, caption in (
-            (self.voltage, "母线电压"),
-            (self.current, "母线电流"),
-            (self.temperature, "电机温度"),
-        ):
-            tile = QWidget()
-            tile.setObjectName("telemetryTile")
-            metric = QHBoxLayout(tile)
-            metric.setContentsMargins(8, 6, 8, 6)
-            metric.setSpacing(6)
-            caption_row = QHBoxLayout()
-            badge = QLabel()
-            badge.setPixmap(
-                icon(
-                    "temperature"
-                    if caption == "电机温度"
-                    else "voltage"
-                    if caption == "母线电压"
-                    else "connect"
-                ).pixmap(18, 18)
-            )
-            caption_row.addWidget(badge)
-            caption_row.addWidget(label(caption, "subtitle"))
-            caption_row.addStretch()
-            metric.addLayout(caption_row)
-            metric.addWidget(widget)
-            metrics.addWidget(tile, 1)
-        form.addLayout(details)
-        form.addLayout(fault_row)
-        form.addLayout(metrics)
-        foot = QHBoxLayout()
-        self.last_read = label("等待设备连接", "subtitle")
-        foot.addWidget(self.last_read, 1)
-        self.status_button = button(
-            "刷新", lambda: self.launch(dict(profile="device_status")), icon_name="refresh"
-        )
-        self.fault_button = button(
-            "清故障", lambda: self.launch(dict(profile="clear_fault")), icon_name="clear-fault"
-        )
-        foot.addWidget(self.status_button)
-        foot.addWidget(self.fault_button)
-        form.addLayout(foot)
-        header.addWidget(device, 7)
-        root.addLayout(header)
-        self.flow_label = label(self.flow.summary(None), "subtitle", True)
+        root.addWidget(self.build_device_header())
+        self.flow_label = label(self.flow.summary(None, integrated=True), "subtitle", True)
         root.addWidget(self.flow_label)
         body = QHBoxLayout()
         self.navigation = QListWidget()
         self.navigation.setObjectName("navigation")
-        self.navigation.setFixedWidth(160)
+        self.navigation.setFixedWidth(150)
         self.navigation.setIconSize(QSize(22, 22))
         for name, text in (
             ("maintenance", "设备维护"),
             ("hardware-test", "生产检测"),
-            ("calibration", "电机标定"),
+            ("chart", "电机运动"),
             ("parameters", "参数配置"),
             ("records", "测试记录"),
         ):
@@ -344,6 +237,7 @@ class ProductionWindow(QMainWindow):
         self.build_maintenance()
         self.build_hardware()
         self.build_calibration()
+        self.build_motion()
         self.parameters = ParameterPage(self.parameter_action)
         self.stack.addWidget(self.parameters)
         self.build_records()
@@ -359,18 +253,120 @@ class ProductionWindow(QMainWindow):
             "本次记录", lambda: self.open_path(self.report_dir), icon_name="folder"
         )
         footer.addWidget(self.open_log_button)
-        footer.addWidget(
-            button(
-                "收起 / 展开日志",
-                lambda: self.log.setVisible(not self.log.isVisible()),
-                icon_name="records",
-            )
-        )
+        self.log_button = button("详细日志", self.toggle_log, icon_name="records")
+        footer.addWidget(self.log_button)
         self.stop_button = button("停止", self.controller.stop, icon_name="stop")
         self.stop_button.setObjectName("stop")
         footer.addWidget(self.stop_button)
         root.addLayout(footer)
         self.navigation.setCurrentRow(0)
+
+    def build_device_header(self) -> QWidget:
+        header = QWidget()
+        header.setObjectName("deviceHeader")
+        layout = QVBoxLayout(header)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(4)
+        connection = QHBoxLayout()
+        connection.setSpacing(9)
+        self.axis = combo(
+            [f"{role} · {model} · 节点 {node}" for node, (role, model, _) in FIRST_FIT_AXES.items()]
+        )
+        self.axis.setCurrentIndex(3)
+        self.axis.setAccessibleName("当前电机")
+        self.axis.currentIndexChanged.connect(self.select_motor)
+        connection.addWidget(self.axis)
+        self.connection_icon = QLabel()
+        self.connection_icon.setFixedSize(16, 16)
+        connection.addWidget(self.connection_icon)
+        self.connection_label = label("CAN 未连接", "subtitle")
+        connection.addWidget(self.connection_label)
+        connection.addSpacing(5)
+        self.version_label = label("APP 固件：—", "deviceVersion")
+        self.loader_label = label("Loader 固件：—", "deviceVersion")
+        for version in (self.version_label, self.loader_label):
+            version.setToolTip("当前板端版本：来自 CAN 回读或本次 SWD 安装核验")
+            connection.addWidget(version)
+        connection.addStretch()
+        self.build_connection_dialog()
+        self.connection_settings = button(
+            "连接设置", self.connection_dialog.show, icon_name="parameters"
+        )
+        connection.addWidget(self.connection_settings)
+        layout.addLayout(connection)
+
+        device = QHBoxLayout()
+        device.setSpacing(8)
+        self.status_label = label("运行状态：未读取", "statusValue")
+        self.mode_label = label("控制模式：未读取", "subtitle")
+        device.addWidget(self.status_label)
+        device.addWidget(self.mode_label)
+        self.fault_icon = QLabel()
+        self.fault_icon.setFixedSize(16, 16)
+        device.addWidget(self.fault_icon)
+        self.fault_label = label("故障信息：未读取", "statusValue", True)
+        self.fault_label.setMaximumWidth(230)
+        device.addWidget(self.fault_label)
+        self.fault_button = button(
+            "清故障", lambda: self.launch(dict(profile="clear_fault")), icon_name="clear-fault"
+        )
+        self.fault_button.setObjectName("rowAction")
+        device.addWidget(self.fault_button)
+        device.addStretch()
+        self.voltage = label("— V", "metric")
+        self.current = label("— A", "metric")
+        self.temperature = label("— °C", "metric")
+        for widget, caption in (
+            (self.voltage, "母线电压"),
+            (self.current, "母线电流"),
+            (self.temperature, "电机温度"),
+        ):
+            device.addWidget(label(caption, "subtitle"))
+            device.addWidget(widget)
+            device.addSpacing(6)
+        layout.addLayout(device)
+        return header
+
+    def build_connection_dialog(self) -> None:
+        self.connection_dialog = QDialog(self)
+        self.connection_dialog.setWindowTitle("连接设置")
+        layout = QVBoxLayout(self.connection_dialog)
+        self.uid_label = label("尚未识别设备", "subtitle", True)
+        layout.addWidget(self.uid_label)
+        self.channel = combo(("1", "2"))
+        self.nominal = combo(("500K", "1M"), "1M")
+        self.data_rate = combo(RATES, "5M")
+        rates = QFormLayout()
+        for caption, widget in (
+            ("通道", self.channel),
+            ("仲裁段", self.nominal),
+            ("数据段", self.data_rate),
+        ):
+            rates.addRow(caption, widget)
+            widget.currentTextChanged.connect(self.connection_changed)
+        layout.addLayout(rates)
+        actions = QHBoxLayout()
+        self.scan_button = button(
+            "连接 / 扫描", lambda: self.launch(dict(profile="can_scan")), icon_name="scan"
+        )
+        self.disconnect_button = button(
+            "断开", lambda: self.launch(dict(profile="can_release")), icon_name="disconnect"
+        )
+        actions.addWidget(self.scan_button)
+        actions.addWidget(self.disconnect_button)
+        actions.addStretch()
+        layout.addLayout(actions)
+        self.auto_refresh = QCheckBox("自动刷新 · 1 秒")
+        self.auto_refresh.setChecked(True)
+        layout.addWidget(self.auto_refresh)
+        status_actions = QHBoxLayout()
+        self.last_read = label("等待设备连接", "subtitle")
+        status_actions.addWidget(self.last_read, 1)
+        self.status_button = button(
+            "刷新", lambda: self.launch(dict(profile="device_status")), icon_name="refresh"
+        )
+        status_actions.addWidget(self.status_button)
+        layout.addLayout(status_actions)
 
     def tab_page(self, tabs, name, title):
         page = QWidget()
@@ -419,28 +415,40 @@ class ProductionWindow(QMainWindow):
         layout.addWidget(label("新板首次烧录", "sectionTitle"))
         layout.addWidget(
             label(
-                "01 识别板卡    →    02 确认电机类型    →    03 烧录整包    →    04 启动回读",
+                "按从左到右的顺序操作；烧录完成后自动启动并核验版本。",
                 "subtitle",
             )
         )
         self.install_label = label("连接 J-Link 与板卡电源，然后识别当前板卡。", wrap=True)
         layout.addWidget(self.install_label)
         content = QHBoxLayout()
-        firmware = QGroupBox("本批固件")
-        box = QVBoxLayout(firmware)
-        self.firmware_label = label("固件版本未确认", "metric", True)
-        box.addWidget(self.firmware_label)
-        box.addWidget(label("AT32F456  ·  CAN FD 1M / 5M", "subtitle"))
-        self.hex_path = self.resource / "firmware/five-axis.hex"
-        if not self.hex_path.is_file():
-            self.hex_path = None
-        self.hex_label = label("内置统一整包" if self.hex_path else "尚未选择本批 HEX", wrap=True)
-        box.addWidget(self.hex_label)
-        self.update_firmware_version()
-        self.add_action(box, "选择本批 HEX", self.choose_hex, icon_name="folder")
-        box.addStretch()
-        content.addWidget(firmware, 1)
-        self.initial_box = QGroupBox("2. 电机类型与轴配置")
+        content.setSpacing(8)
+        self.identify_box = QGroupBox("①  识别板卡")
+        self.identify_box.setObjectName("installStep")
+        identify = QVBoxLayout(self.identify_box)
+        identify.addWidget(label("选择目标 J-Link，再读取芯片身份。", "subtitle", True))
+        identify.addWidget(label("J-Link 探针"))
+        self.probe_selector = QComboBox()
+        self.probe_selector.addItem("单探针自动选择", None)
+        self.probe_selector.currentIndexChanged.connect(self.select_probe)
+        identify.addWidget(self.probe_selector)
+        self.add_action(
+            identify,
+            "扫描探针",
+            lambda: self.launch(dict(profile="jlink_probes")),
+            icon_name="scan",
+        )
+        identify.addStretch()
+        self.identify_button = self.add_action(
+            identify,
+            "识别板卡",
+            lambda: self.launch(dict(profile="jlink_identify")),
+            icon_name="scan",
+        )
+        content.addWidget(self.identify_box, 1)
+        content.addWidget(label("→", "stepArrow"))
+        self.initial_box = QGroupBox("②  确认电机类型")
+        self.initial_box.setObjectName("installStep")
         choices = QVBoxLayout(self.initial_box)
         self.initial_hint = label("新板烧录前选择实际电机类型，再识别板卡。", "subtitle", True)
         choices.addWidget(self.initial_hint)
@@ -451,21 +459,38 @@ class ProductionWindow(QMainWindow):
             choices.addWidget(radio)
             self.initial_choices[node] = radio
         content.addWidget(self.initial_box, 1)
-        layout.addLayout(content)
-        actions = QHBoxLayout()
-        self.identify_button = self.add_action(
-            actions,
-            "1. 识别板卡",
-            lambda: self.launch(dict(profile="jlink_identify")),
-            icon_name="scan",
-        )
+        content.addWidget(label("→", "stepArrow"))
+        self.flash_box = QGroupBox("③  烧录并校验")
+        self.flash_box.setObjectName("installStep")
+        box = QVBoxLayout(self.flash_box)
+        box.addWidget(label("本次烧录包", "subtitle"))
+        self.firmware_label = label("固件版本未确认", "packageVersion", True)
+        box.addWidget(self.firmware_label)
+        box.addWidget(label("AT32F456  ·  CAN FD 1M / 5M", "subtitle"))
+        self.hex_path = self.resource / "firmware/five-axis.hex"
+        if not self.hex_path.is_file():
+            self.hex_path = None
+        self.hex_label = label("内置统一整包" if self.hex_path else "尚未选择本批 HEX", wrap=True)
+        box.addWidget(self.hex_label)
+        self.update_firmware_version()
+        self.add_action(box, "选择本批 HEX", self.choose_hex, icon_name="folder")
+        self.verify_can = QCheckBox("烧录后执行 CAN 验收")
+        self.verify_can.setToolTip("仅接 J-Link 时取消勾选；仍会通过 SWD 核验安装版本。")
+        self.verify_can.setChecked(True)
+        box.addWidget(self.verify_can)
+        box.addStretch()
         self.flash_button = self.add_action(
-            actions,
-            "3. 烧录整包并校验",
+            box,
+            "烧录整包并校验",
             lambda: self.launch(dict(profile="jlink_flash")),
             True,
             icon_name="flash",
         )
+        content.addWidget(self.flash_box, 1)
+        layout.addLayout(content)
+        self.swd_version_label = label("板端 SWD 版本：尚未确认", "subtitle", True)
+        layout.addWidget(self.swd_version_label)
+        actions = QHBoxLayout()
         self.go_detection = button(
             "进入生产检测  →", lambda: self.navigation.setCurrentRow(1), icon_name="hardware-test"
         )
@@ -568,98 +593,149 @@ class ProductionWindow(QMainWindow):
         actions.addStretch()
         layout.addLayout(actions)
         erase_box = QGroupBox("Flash 擦除 · J-Link / SWD")
+        erase_box.setMaximumWidth(820)
         erase_layout = QVBoxLayout(erase_box)
+        identify_row = QHBoxLayout()
         self.erase_identify = self.add_action(
-            erase_layout,
+            identify_row,
             "识别擦除目标（J-Link）",
             lambda: self.launch(dict(profile="jlink_identify")),
             icon_name="scan",
         )
         self.erase_status = label("", "subtitle", True)
-        erase_layout.addWidget(self.erase_status)
+        identify_row.addWidget(self.erase_status, 1)
+        erase_layout.addLayout(identify_row)
         erase_layout.addWidget(label("操作前保存备份；擦除后需重新烧录。", wrap=True))
+        erase_actions = QHBoxLayout()
         self.erase_app = self.add_action(
-            erase_layout,
+            erase_actions,
             "擦除 APP · 保留参数和 Loader",
             lambda: self.erase("app"),
             icon_name="warning",
         )
         self.erase_all = self.add_action(
-            erase_layout, "整片擦除 · 含参数和身份", lambda: self.erase("all"), icon_name="warning"
+            erase_actions, "整片擦除 · 含参数和身份", lambda: self.erase("all"), icon_name="warning"
         )
+        erase_actions.addStretch()
+        erase_layout.addLayout(erase_actions)
         layout.addWidget(erase_box)
         layout.addStretch()
 
     def build_hardware(self) -> None:
         page = QWidget()
+        page.setObjectName("inspectionPage")
         self.stack.addWidget(page)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.addWidget(label("生产检测", "sectionTitle"))
-        self.phase_label = label("通信 → 静态 → 相电阻 → 双向动态 → 关相 / 结果", "subtitle", True)
-        layout.addWidget(self.phase_label)
-        splitter = QSplitter()
-        settings = QGroupBox("检测设置")
-        panel = QVBoxLayout(settings)
-        self.check_mode = combo(
-            ("关相静态", "静态＋相电阻", "静态和双向驱动"), CHECK_DEFAULTS["mode"]
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(6)
+        title = QHBoxLayout()
+        title.addWidget(label("生产检测", "sectionTitle"), 1)
+        self.build_inspection_settings()
+        self.inspection_settings_button = button(
+            "检测设置", self.inspection_settings.show, icon_name="parameters"
         )
-        self.check_mode.setMaximumWidth(260)
-        panel.addWidget(self.check_mode)
+        title.addWidget(self.inspection_settings_button)
+        layout.addLayout(title)
+        execution = QHBoxLayout()
+        execution.setSpacing(6)
+        self.number_fields = QWidget()
+        number_row = QHBoxLayout(self.number_fields)
+        number_row.setContentsMargins(0, 0, 0, 0)
+        number_row.setSpacing(6)
+        for caption, key in (("电机序列号", "motor_serial"), ("测试需求号", "test_requirement")):
+            number_row.addWidget(label(caption))
+            edit = self.edits[key] = QLineEdit()
+            edit.setAccessibleName(caption)
+            edit.setMaxLength(40)
+            edit.setFixedWidth(112)
+            edit.textChanged.connect(self.update_controls)
+            number_row.addWidget(edit)
+        execution.addWidget(self.number_fields)
+        self.bound_numbers = label("", "statusValue", True)
+        self.bound_numbers.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.bound_numbers.hide()
+        execution.addWidget(self.bound_numbers, 1)
+        self.confirm_numbers_button = button(
+            "确认编号", self.confirm_inspection_numbers, icon_name="pass"
+        )
+        execution.addWidget(self.confirm_numbers_button)
+        execution.addStretch(0)
+        self.hardware_start = self.add_action(
+            execution, "开始检测", self.start_hardware, True, icon_name="start"
+        )
+        self.hardware_start.setToolTip("整轮检测包含标定和一次高速检测，高速项使用可连续转动的工装")
+        self.inspection_stop = button("停止", self.controller.stop, icon_name="stop")
+        self.inspection_stop.setAccessibleName("停止检测")
+        self.inspection_stop.setObjectName("stop")
+        execution.addWidget(self.inspection_stop)
+        layout.addLayout(execution)
+
+        result_title = QHBoxLayout()
+        result_title.addWidget(label("本轮检测结果", "resultTitle"))
+        self.result_verdict = label("待开始", "resultVerdict")
+        result_title.addWidget(self.result_verdict)
+        self.result_counts = label("", "subtitle")
+        result_title.addWidget(self.result_counts, 1)
+        self.result_detail_button = button(
+            "结果详情", self.toggle_result_details, icon_name="records"
+        )
+        self.result_detail_button.hide()
+        result_title.addWidget(self.result_detail_button)
+        self.waveform_overview_button = button(
+            "波形总览",
+            lambda: self.show_inspection_curve("overview", "生产检测波形总览"),
+            icon_name="chart",
+        )
+        result_title.addWidget(self.waveform_overview_button)
+        self.open_report_button = button(
+            "查看报告", lambda: self.open_path(self.report_path), icon_name="records"
+        )
+        result_title.addWidget(self.open_report_button)
+        layout.addLayout(result_title)
+        self.phase_label = label("等待确认编号", "inspectionProgress")
+        self.phase_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.phase_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        layout.addWidget(self.phase_label)
+        self.failure = QPlainTextEdit()
+        self.failure.setReadOnly(True)
+        self.failure.setMaximumHeight(100)
+        self.failure.hide()
+        layout.addWidget(self.failure)
+        self.hardware_table = InspectionTable(self.show_inspection_curve)
+        self.inspection_plot = self.hardware_table.plot
+        layout.addWidget(self.hardware_table, 1)
+        self.reset_result_view()
+
+    def build_inspection_settings(self) -> None:
+        self.inspection_settings = QDialog(self)
+        self.inspection_settings.setWindowTitle("生产检测设置")
+        panel = QVBoxLayout(self.inspection_settings)
         self.add_action(
             panel,
             "打开检测阈值配置",
             lambda: self.open_path(default_path()),
             icon_name="parameters",
         )
-        panel.addWidget(
-            label("修改JSON并保存，下次检测生效；revision用于记录配置版本。", "subtitle", True)
-        )
         self.add_fields(
             panel,
             [
                 ("ambient", "室温 °C · 可空", "20"),
-                ("current", "相电流 A", "3"),
-                ("frequency", "电频 Hz", "3"),
-                ("leg", "单程 ms", "1500"),
-                ("travel", "两侧可用行程 °", "360"),
             ],
         )
-        self.hardware_start = self.add_action(
-            panel, "开始本轮检测", self.start_hardware, True, icon_name="start"
+        self.add_fields(
+            panel,
+            [
+                ("power_rpm", "高速目标 · 输出轴 rpm", ""),
+                ("power_min_w", "母线输入功率下限 W", ""),
+                ("power_max_w", "母线输入功率上限 W", ""),
+            ],
         )
-        self.open_report_button = button(
-            "打开单台报告", lambda: self.open_path(self.report_path), icon_name="records"
-        )
-        panel.addWidget(self.open_report_button)
-        panel.addStretch()
-        splitter.addWidget(settings)
-        result = QWidget()
-        panel = QVBoxLayout(result)
-        result_title = QHBoxLayout()
-        self.result_icon = QLabel()
-        self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
-        result_title.addWidget(self.result_icon)
-        result_title.addWidget(label("本轮检测结果", "statusValue"), 1)
-        panel.addLayout(result_title)
-        self.failure = QPlainTextEdit()
-        self.failure.setReadOnly(True)
-        self.failure.setMaximumHeight(110)
-        self.failure.setPlainText("尚未开始本轮检测")
-        panel.addWidget(self.failure)
-        self.hardware_table = table(["测试项目", "实测结果", "判定标准", "结果"])
-        self.hardware_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
-        panel.addWidget(self.hardware_table, 1)
-        splitter.addWidget(result)
-        splitter.setSizes([290, 780])
-        layout.addWidget(splitter, 1)
+        self.edits["power_rpm"].setPlaceholderText(f"预设 {SUGGESTED_OUTPUT_RPM[self.node()]} rpm")
+        self.edits["power_min_w"].setPlaceholderText(f"默认 {DEFAULT_POWER_MIN_W:g} W")
+        self.edits["power_max_w"].setPlaceholderText(f"默认 {DEFAULT_POWER_MAX_W:g} W")
 
     def build_calibration(self) -> None:
-        self.calibration = QTabWidget()
-        self.stack.addWidget(self.calibration)
-        layout = self.tab_page(self.calibration, "calibration", "角度与零位")
+        layout = self.tab_page(self.maintenance, "calibration", "标定维护")
         columns = QHBoxLayout()
         columns.setSpacing(16)
         settings = QGroupBox("标定信息")
@@ -684,6 +760,14 @@ class ProductionWindow(QMainWindow):
             lambda: self.start_calibration(2),
             icon_name="calibration",
         )
+        self.add_action(
+            controls,
+            "读取已保存标定曲线",
+            lambda: self.launch(
+                dict(profile="calibration_readback", probe_serial=self.probe_selector.currentData())
+            ),
+            icon_name="refresh",
+        )
         controls.addWidget(
             label("完成后回读 Flash 保存状态；减速轴沿用固件的联合标定流程。", "subtitle", True)
         )
@@ -702,7 +786,13 @@ class ProductionWindow(QMainWindow):
         chart_layout.addWidget(self.calibration_preview, 1)
         columns.addWidget(chart, 1)
         layout.addLayout(columns, 1)
-        layout = self.tab_page(self.calibration, "speed", "运行调试")
+
+    def build_motion(self) -> None:
+        page = QWidget()
+        self.stack.addWidget(page)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.addWidget(label("电机运动", "sectionTitle"))
         columns = QHBoxLayout()
         columns.setSpacing(16)
         controls = QGroupBox("速度模式")
@@ -783,16 +873,41 @@ class ProductionWindow(QMainWindow):
 
     def change_page(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
+        # 滚动区只采用当前页的最小尺寸，维护页的宽度不挤出检测表。
+        self.stack.setMinimumSize(
+            self.stack.currentWidget().minimumSizeHint().expandedTo(QSize(1, 1))
+        )
+        self.progress.setVisible(index != 1)
+        self.stop_button.setVisible(
+            index != 1 or self.stop_button.isEnabled() and not self.inspection_stop.isEnabled()
+        )
+        self.set_log_visible(index != 1)
+
+    def set_log_visible(self, visible: bool) -> None:
+        self.log.setVisible(visible)
+        self.log_button.setText("收起日志" if visible else "详细日志")
+        if visible and self.splitter.sizes()[1] < 100:
+            self.splitter.setSizes([max(240, self.splitter.height() - 140), 140])
+
+    def toggle_log(self) -> None:
+        self.set_log_visible(self.log.isHidden())
 
     def connection_changed(self, *_args) -> None:
         self.devices.clear()
         self.identity = self.verified_uid = None
+        self.swd_version_label.setText("板端 SWD 版本：尚未确认")
         self.select_motor()
 
     def select_motor(self, *_args) -> None:
         old = self.current_motor
         self.current_motor = self.devices.get(self.node())
         if not old or not self.current_motor or old["uid"] != self.current_motor["uid"]:
+            self.reset_inspection()
+            for key in ("power_rpm", "power_min_w", "power_max_w"):
+                self.edits[key].clear()
+            self.edits["power_rpm"].setPlaceholderText(
+                f"预设 {SUGGESTED_OUTPUT_RPM[self.node()]} rpm"
+            )
             self.parameters.reset(
                 (self.node(), self.current_motor["uid"]) if self.current_motor else None
             )
@@ -816,7 +931,7 @@ class ProductionWindow(QMainWindow):
             "CAN 已连接 · ISO FD + BRS" if self.controller.connected else "CAN 未连接"
         )
         self.connection_icon.setPixmap(
-            icon("connect" if self.controller.connected else "disconnect").pixmap(20, 20)
+            icon("connect" if self.controller.connected else "disconnect").pixmap(16, 16)
         )
         self.uid_label.setText("UID " + motor["uid"] if motor else "尚未识别设备")
         self.version_label.setText(
@@ -831,6 +946,13 @@ class ProductionWindow(QMainWindow):
                 else "未读取"
             )
         )
+        for widget, key in (
+            (self.version_label, "app_version"),
+            (self.loader_label, "loader_version"),
+        ):
+            widget.setProperty("unavailable", not motor.get(key))
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
         stamp = motor.get("checked_at")
         stale = bool(stamp and time.time() - stamp > 5)
         error = motor.get("status_error")
@@ -842,6 +964,9 @@ class ProductionWindow(QMainWindow):
             state = "Loader · 等待升级"
         status = "读取失败" if error else "数据已过期" if stale else state
         self.status_label.setText("运行状态：" + status)
+        self.status_label.setStyleSheet(
+            "color:#b42336;" if error or stale or state_code == 8 else ""
+        )
         modes = {
             0: "未使能",
             1: "电流闭环",
@@ -865,10 +990,15 @@ class ProductionWindow(QMainWindow):
             )
         )
         self.fault_label.setStyleSheet("color:#b42336;" if faults else "")
+        self.fault_label.setToolTip(
+            f"{describe_faults(faults)}（0x{faults:08X}）{historical}"
+            if faults
+            else self.fault_label.text()
+        )
         self.fault_icon.setPixmap(
             icon(
                 "warning" if faults is None or stale or error else "fail" if faults else "pass"
-            ).pixmap(20, 20)
+            ).pixmap(16, 16)
         )
         self.fault_icon.setVisible(faults is not None)
         self.status_label.setToolTip(str(error) if error else "")
@@ -887,9 +1017,12 @@ class ProductionWindow(QMainWindow):
             if stamp
             else "等待设备连接"
         )
-        self.flow_label.setText(self.flow.summary(motor.get("uid")))
+        self.flow_label.setText(self.flow.summary(motor.get("uid"), integrated=True))
 
     def update_controls(self, *_args) -> None:
+        # 搭建编号区时可能已经触发输入信号，等待其余控件就绪。
+        if not hasattr(self, "erase_status") or not hasattr(self, "parameters"):
+            return
         busy = self.controller.busy
         automatic = busy and self.controller.automatic
         for widget in self.action_buttons:
@@ -897,6 +1030,8 @@ class ProductionWindow(QMainWindow):
         for widget in (self.axis, self.channel, self.nominal, self.data_rate):
             widget.setEnabled(not busy)
         self.scan_button.setEnabled(not busy or automatic)
+        self.connection_settings.setEnabled(not busy or automatic)
+        self.inspection_settings_button.setEnabled(not busy or automatic)
         self.navigation.setEnabled(not busy or automatic)
         for key, edit in self.edits.items():
             edit.setEnabled(
@@ -904,7 +1039,7 @@ class ProductionWindow(QMainWindow):
                 or automatic
                 or (key == "speed" and self.controller.settings.get("profile") == "motor_speed")
             )
-        for tabs in (self.maintenance, self.calibration, self.communication_tabs):
+        for tabs in (self.maintenance, self.communication_tabs):
             for index in range(tabs.count()):
                 tabs.setTabEnabled(index, not busy or automatic or index == tabs.currentIndex())
         blank = self.identity is not None and self.identity.get("node") is None
@@ -929,6 +1064,8 @@ class ProductionWindow(QMainWindow):
             and self.identity is not None
             and (not blank or selected)
         )
+        self.probe_selector.setEnabled(not busy)
+        self.verify_can.setEnabled(not busy)
         self.go_detection.setEnabled(
             not busy
             and self.current_motor is not None
@@ -944,7 +1081,6 @@ class ProductionWindow(QMainWindow):
         self.multi_query.setEnabled(not busy)
         self.single_frame.setEnabled(not busy)
         self.test_mode.setEnabled(not busy)
-        self.check_mode.setEnabled(not busy)
         self.upgrade_table.setEnabled(not busy)
         for check in self.query_checks.values():
             check.setEnabled(not busy)
@@ -962,6 +1098,42 @@ class ProductionWindow(QMainWindow):
         self.render_speed_parameters()
         self.open_log_button.setEnabled(self.report_dir is not None)
         self.open_report_button.setEnabled(self.report_path is not None)
+        self.waveform_overview_button.setEnabled("overview" in self.inspection_curve_paths)
+        available = (not busy or automatic) and bool(
+            self.current_motor and self.current_motor.get("role") == 1
+        )
+        confirmed = self.inspection_binding is not None
+        self.confirm_numbers_button.setEnabled(
+            available
+            and (
+                confirmed
+                or all(
+                    self.edits[key].text().strip() for key in ("motor_serial", "test_requirement")
+                )
+            )
+        )
+        self.confirm_numbers_button.setText("修改编号" if confirmed else "确认编号")
+        self.number_fields.setVisible(not confirmed)
+        self.bound_numbers.setVisible(confirmed)
+        for key in ("motor_serial", "test_requirement"):
+            self.edits[key].setReadOnly(confirmed)
+        self.hardware_start.setEnabled(available and confirmed)
+        pending = getattr(self.controller, "pending", None)
+        self.inspection_stop.setEnabled(
+            busy
+            and (
+                self.controller.settings.get("profile") == "production_inspection"
+                or pending is not None
+                and pending[0]["profile"] == "production_inspection"
+            )
+        )
+        self.stop_button.setVisible(
+            self.navigation.currentRow() != 1
+            or self.stop_button.isEnabled()
+            and not self.inspection_stop.isEnabled()
+        )
+        if self.result_verdict.text() == "待开始":
+            self.set_inspection_progress("等待开始检测" if confirmed else "等待确认编号")
         self.curve_button.setEnabled(self.curve_path is not None)
         self.erase_all.setEnabled(not busy and self.identity is not None)
         self.erase_app.setEnabled(
@@ -970,7 +1142,7 @@ class ProductionWindow(QMainWindow):
         self.erase_status.setText(
             "当前任务进行中，结束后可识别或擦除。"
             if busy
-            else "请连接一只 J-Link，点击上方识别目标。CAN连接不能代替SWD识别。"
+            else "请在整包烧录页选择 J-Link 并识别目标。CAN连接不能代替SWD识别。"
             if not self.identity
             else f"已识别 UID {self.identity['uid']} · "
             + (
@@ -1023,6 +1195,27 @@ class ProductionWindow(QMainWindow):
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.firmware_label.setText("固件版本未确认")
             self.firmware_label.setToolTip(str(exc))
+
+    def select_probe(self) -> None:
+        """更换探针后丢弃原板身份与版本，下一次写入必须重新识别。"""
+        self.identity = self.verified_uid = None
+        self.devices.clear()
+        self.swd_version_label.setText("板端 SWD 版本：尚未确认")
+        self.install_label.setText("探针已更换，请重新识别板卡。")
+        self.select_motor()
+
+    def display_probes(self, serials: list[int]) -> None:
+        """保留仍存在的选择；多探针不猜测目标。"""
+        previous = self.probe_selector.currentData()
+        selected = previous if previous in serials else serials[0] if len(serials) == 1 else None
+        with QSignalBlocker(self.probe_selector):
+            self.probe_selector.clear()
+            self.probe_selector.addItem("请选择探针" if serials else "未发现探针", None)
+            for serial in serials:
+                self.probe_selector.addItem(f"J-Link · {serial}", serial)
+            self.probe_selector.setCurrentIndex(self.probe_selector.findData(selected))
+        if selected != previous or (self.identity and self.identity["serial"] != selected):
+            self.select_probe()
 
     def choose_package(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "选择包含 image.bin 和 manifest.bin 的目录")
@@ -1092,23 +1285,88 @@ class ProductionWindow(QMainWindow):
 
     def start_hardware(self) -> None:
         try:
+            if (
+                not self.inspection_binding
+                or not self.current_motor
+                or self.inspection_binding["uid"] != self.current_motor["uid"]
+                or self.inspection_binding["bus"] != self.bus()
+            ):
+                raise ValueError("请先确认当前电机的序列号和测试需求号")
             read_limits()
-            settings = hardware_check_fields(
-                {
-                    key: self.edits[key].text()
-                    for key in ("ambient", "current", "frequency", "leg", "travel")
-                },
-                self.check_mode.currentText() == "静态和双向驱动",
-            )
+            settings = hardware_check_fields({"ambient": self.edits["ambient"].text()}, False)
             self.launch(
                 dict(
-                    profile="hardware_check",
-                    resistance_only=self.check_mode.currentText() == "静态＋相电阻",
+                    profile="production_inspection",
+                    numbers=self.inspection_binding["numbers"].copy(),
+                    probe_serial=self.probe_selector.currentData(),
+                    power_check=power_check_fields(
+                        self.node(),
+                        rpm=self.edits["power_rpm"].text(),
+                        min_w=self.edits["power_min_w"].text(),
+                        max_w=self.edits["power_max_w"].text(),
+                    ),
                     **settings,
                 )
             )
         except ValueError as exc:
             self.error(str(exc))
+
+    def confirm_inspection_numbers(self) -> None:
+        """确认本轮编号并绑定当前设备及CAN设置。"""
+        if self.inspection_binding:
+            self.reset_inspection()
+        else:
+            try:
+                if not self.current_motor or self.current_motor.get("role") != 1:
+                    raise ValueError("请先扫描并选择运行 APP 的电机")
+                numbers = inspection_numbers(
+                    self.edits["motor_serial"].text(), self.edits["test_requirement"].text()
+                )
+                self.inspection_binding = dict(
+                    uid=self.current_motor["uid"], bus=self.bus(), numbers=numbers
+                )
+                summary = f"电机序列号 {numbers['motor_serial']} · 测试需求号 {numbers['test_requirement']}"
+                self.bound_numbers.setText(summary)
+                self.bound_numbers.setToolTip(summary)
+            except ValueError as exc:
+                self.error(str(exc))
+        self.update_controls()
+
+    def reset_inspection(self) -> None:
+        self.inspection_binding = None
+        if (self.active_settings or {}).get("profile") == "production_inspection":
+            self.report_dir = None
+        self.reset_result_view()
+
+    def reset_result_view(self, *, running: bool = False) -> None:
+        self.report_path = None
+        self.inspection_curve_paths: dict[str, Path] = {}
+        self.waveform_overview_button.setEnabled(False)
+        self.waveform_overview_button.setToolTip("检测结束后查看本轮波形")
+        self.hardware_table.clear_angles()
+        self.result_counts.setText(self.hardware_table.display(inspection_overview({})))
+        self.set_result_verdict("检测中" if running else "待开始", "running" if running else "")
+        self.set_inspection_progress("任务已提交" if running else "等待确认编号")
+        self.failure.clear()
+        self.failure.hide()
+        self.result_detail_button.hide()
+        self.result_detail_button.setText("结果详情")
+
+    def set_result_verdict(self, text: str, outcome: str) -> None:
+        self.result_verdict.setText(text)
+        self.result_verdict.setProperty("outcome", outcome)
+        self.result_verdict.style().unpolish(self.result_verdict)
+        self.result_verdict.style().polish(self.result_verdict)
+
+    def set_inspection_progress(self, text: str) -> None:
+        if self.phase_label.text() != text:
+            self.phase_label.setText(text)
+            self.phase_label.setToolTip(text)
+
+    def toggle_result_details(self) -> None:
+        visible = self.failure.isHidden()
+        self.failure.setVisible(visible)
+        self.result_detail_button.setText("收起详情" if visible else "结果详情")
 
     def start_calibration(self, kind: int) -> None:
         try:
@@ -1117,7 +1375,14 @@ class ProductionWindow(QMainWindow):
                 self.edits["specimen"].text(),
                 self.edits["serial"].text(),
             )
-            self.launch(dict(profile="motor_calibration", calibration_kind=kind, archive=archive))
+            self.launch(
+                dict(
+                    profile="motor_calibration",
+                    calibration_kind=kind,
+                    archive=archive,
+                    probe_serial=self.probe_selector.currentData(),
+                )
+            )
         except ValueError as exc:
             self.error(str(exc))
 
@@ -1197,11 +1462,16 @@ class ProductionWindow(QMainWindow):
             if swd:
                 settings.update(
                     identity=self.identity,
+                    probe_serial=self.probe_selector.currentData(),
                     hex=str(self.hex_path or ""),
                     restart_after_flash=True,
                     force_reflash=True,
                     first_fit_node=None,
                 )
+                if not self.verify_can.isChecked():
+                    settings["bus"] = None
+                if profile == "jlink_identify":
+                    settings["identity"] = None
                 if profile == "jlink_flash":
                     if not self.hex_path or not self.identity:
                         raise ValueError("请先选择固件并识别当前板卡")
@@ -1222,7 +1492,9 @@ class ProductionWindow(QMainWindow):
                 "clear_fault",
                 "motor_speed",
                 "motor_calibration",
+                "calibration_readback",
                 "hardware_check",
+                "production_inspection",
             ):
                 if not self.current_motor:
                     raise ValueError("请先识别当前电机")
@@ -1257,15 +1529,29 @@ class ProductionWindow(QMainWindow):
                         / model_directory_name(settings["archive"]["name"])
                         / ("测试-" + settings["archive"]["test_serial"])
                     )
+                elif profile == "production_inspection":
+                    numbers = inspection_numbers(**settings["numbers"])
+                    settings["numbers"] = numbers
+                    directory = (
+                        directory
+                        / "production"
+                        / numbers["motor_serial"]
+                        / numbers["test_requirement"]
+                    )
                 directory = directory / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
                 directory.mkdir(parents=True, exist_ok=False)
             if profile == "jlink_identify":
                 self.identity = self.verified_uid = None
                 self.select_motor()
             self.controller.start(settings, directory, automatic=automatic)
+            if profile in ("jlink_identify", "jlink_flash", "jlink_erase"):
+                self.swd_version_label.setText("板端 SWD 版本：正在操作，等待本次确认")
+                if self.current_motor:
+                    self.current_motor.pop("app_version", None)
+                    self.current_motor.pop("loader_version", None)
             if not automatic and profile not in ("can_release", "can_shutdown"):
                 self.active_settings = settings
-                self.report_dir, self.report_path = directory, None
+                self.report_dir = directory
                 self.flow.begin(
                     self.current_motor["uid"]
                     if self.current_motor
@@ -1281,14 +1567,19 @@ class ProductionWindow(QMainWindow):
                     self.verified_uid = None
                 if profile == "motor_speed":
                     self.plot.clear()
-                if profile == "motor_calibration":
+                if profile in ("motor_calibration", "calibration_readback"):
                     self.curve_path = None
                     self.calibration_preview.display(None)
-                    self.calibration_result.setText("标定进行中，等待保存及曲线导出")
-                if profile == "hardware_check":
-                    self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
-                    self.failure.setPlainText("本轮检测进行中，等待结果")
-                    self.hardware_table.setRowCount(0)
+                    self.calibration_result.setText(
+                        "正在只读回读保存记录"
+                        if profile == "calibration_readback"
+                        else "标定进行中，等待保存及曲线导出"
+                    )
+                if profile in ("hardware_check", "production_inspection"):
+                    self.reset_result_view(running=True)
+                if profile == "production_inspection":
+                    self.curve_path = None
+                    self.calibration_preview.display(None)
                 self.update_controls()
         except (ValueError, OSError, RuntimeError) as exc:
             if not automatic:
@@ -1311,6 +1602,30 @@ class ProductionWindow(QMainWindow):
                 "jlink_"
             ):
                 self.install_label.setText(str(value))
+        elif tag == "inspection_phases":
+            completed = sum(
+                status in ("已确认", "通过", "待复核", "已记录", "已归档")
+                for status in value.values()
+            )
+            self.progress.setValue(round(100 * completed / len(INSPECTION_STAGES)))
+            current = next(
+                (
+                    (key, value[key])
+                    for key in reversed(INSPECTION_STAGES)
+                    if value.get(key, "未测") != "未测"
+                ),
+                None,
+            )
+            if current:
+                key, status = current
+                self.set_inspection_progress(
+                    f"第 {list(INSPECTION_STAGES).index(key) + 1}/{len(INSPECTION_STAGES)} 步 · "
+                    f"{INSPECTION_STAGES[key]} · {status}"
+                )
+        elif tag == "inspection_results":
+            self.result_counts.setText(self.hardware_table.display(value))
+        elif tag == "inspection_angle":
+            self.hardware_table.append_angle(value)
         elif tag == "hardware_phases":
             names = {
                 "communication": "通信",
@@ -1374,19 +1689,16 @@ class ProductionWindow(QMainWindow):
 
     def display_hardware_rows(self, report: dict) -> None:
         """同轮逐项快照和终态报告共用数值、判定与颜色投影。"""
-        rows(
-            self.hardware_table,
-            [[r[k] for k in ("item", "measured", "limit", "result")] for r in report_rows(report)],
+        integrated = report.get("profile") == "production_inspection"
+        results = inspection_overview(report) if integrated else report_rows(report)
+        self.result_counts.setText(
+            self.hardware_table.display(
+                results,
+                available_curves=frozenset(self.inspection_curve_paths)
+                if integrated
+                else frozenset(),
+            )
         )
-        for row, result in enumerate(report_rows(report)):
-            color = {
-                "passed": "#18765b",
-                "failed": "#b03b42",
-                "pending": "#64748b",
-                "excluded": "#64748b",
-            }[result["outcome"]]
-            for col in range(4):
-                self.hardware_table.item(row, col).setForeground(QColor(color))
 
     def on_completed(self, report: dict, directory: Path | None, automatic: bool) -> None:
         profile = report["profile"]
@@ -1403,6 +1715,11 @@ class ProductionWindow(QMainWindow):
                 **empty_report((self.active_settings or {}).get("node", self.node())),
                 **report,
             }
+        if profile == "production_inspection" and "phase_states" not in report:
+            settings = self.active_settings or {}
+            if settings.get("profile") == profile and directory is not None:
+                report = {**initial_inspection(settings), **report}
+                archive_inspection(report, directory)
         self.flow.record(report, str(directory) if directory else "")
         if profile == "device_status":
             if report.get("device"):
@@ -1456,23 +1773,90 @@ class ProductionWindow(QMainWindow):
             ):
                 QTimer.singleShot(0, self.read_selected_status)
         elif profile.startswith("jlink_"):
-            self.display_install(report)
-        elif profile == "hardware_check":
-            if report.get("production_report") and directory:
-                self.report_path = directory / report["production_report"]
+            if "probes" in report:
+                self.display_probes(report["probes"])
+            if profile != "jlink_probes":
+                self.display_install(report)
+            else:
+                self.install_label.setText(
+                    report.get("fatal") or "扫描完成，请选择探针并识别板卡。"
+                )
+        elif profile in ("hardware_check", "production_inspection"):
+            self.report_path = (
+                directory / report["production_report"]
+                if report.get("production_report") and directory
+                else None
+            )
             data = build_report(report, tool_version=VERSION, created_at="")
-            self.result_icon.setPixmap(
-                icon("pass" if data["verdict"] == "本范围通过" else "fail").pixmap(20, 20)
+            verdict = data["verdict"]
+            outcome = {"本范围通过": "passed", "本轮通过": "passed", "待复核": "review"}.get(
+                verdict, "" if report.get("cancelled") else "failed"
             )
+            self.set_result_verdict(verdict, outcome)
             self.failure.setPlainText(
-                data["scope_name"] + " · " + data["verdict"] + "\n" + failure_summary(report)
+                data["scope_name"] + " · " + verdict + "\n" + failure_summary(report)
             )
-            self.display_hardware_rows(report)
+            self.result_detail_button.show()
             if report.get("phase_states"):
-                self.on_event("hardware_phases", report["phase_states"])
-        elif profile in ("motor_calibration", "motor_speed"):
-            if report.get("curves") and directory:
-                self.curve_path = directory / report["curves"]["png"]
+                self.on_event(
+                    "inspection_phases"
+                    if profile == "production_inspection"
+                    else "hardware_phases",
+                    report["phase_states"],
+                )
+            if profile == "production_inspection":
+                self.hardware_table.set_curve_expanded(False)
+                calibration = report.get("calibration", {})
+                combined = calibration.get("curves", {}).get("png")
+                encoder = calibration.get("saved_calibration_fault", {}).get("encoder_curves", {})
+                power_check = report.get("power_check", {})
+                paths = {
+                    kind: Path("calibration") / filename
+                    for kind, filename in (
+                        ("encoder", encoder.get("png") or combined),
+                        ("hall", calibration.get("hall_raw_png") or combined),
+                    )
+                    if filename
+                }
+                paths.update(power_check.get("curves", {}))
+                if report.get("waveform_overview"):
+                    paths["overview"] = Path(report["waveform_overview"])
+                if report.get("waveform_overview_error"):
+                    self.waveform_overview_button.setToolTip(report["waveform_overview_error"])
+                self.inspection_curve_paths = {
+                    kind: directory / filename
+                    for kind, filename in paths.items()
+                    if directory and (directory / filename).is_file()
+                }
+                self.curve_path = self.inspection_curve_paths.get(
+                    "encoder", self.inspection_curve_paths.get("hall")
+                )
+                self.calibration_preview.display(self.curve_path)
+                if self.current_motor and self.current_motor["uid"] == report.get("uid"):
+                    for step in (
+                        power_check.get("run", {}),
+                        report.get("electrical_zero", {}),
+                        calibration,
+                    ):
+                        if step.get("final_status"):
+                            self.current_motor.update(step["final_status"])
+                            break
+                detail = (
+                    report.get("report_error")
+                    or report.get("fatal")
+                    or power_check.get("curve_error")
+                    or report.get("note")
+                )
+                if not detail:
+                    detail = "已确认关相" if report.get("stop_confirmed") else "关相未确认"
+                    if self.report_path:
+                        detail += " · 报告已归档"
+                self.set_inspection_progress(f"检测结束 · {detail}")
+            self.display_hardware_rows(report)
+        elif profile in ("motor_calibration", "motor_speed", "calibration_readback"):
+            curve = report.get("curves", {}).get("png") or report.get("hall_raw_png")
+            if curve or profile == "motor_calibration":
+                self.curve_path = directory / curve if directory and curve else None
                 self.calibration_preview.display(self.curve_path)
             if profile == "motor_calibration":
                 text = (
@@ -1480,7 +1864,36 @@ class ProductionWindow(QMainWindow):
                 )
                 if report.get("curve_error"):
                     text += "；曲线未生成：" + report["curve_error"]
+                raw = report.get("raw_capture", {})
+                if raw.get("error"):
+                    text += "；Hall 原码采集异常：" + raw["error"]
+                elif raw.get("samples"):
+                    text += f"；已采集 {raw['samples']} 组 Hall 原码"
+                waveform = report.get("hall_waveform")
+                if waveform:
+                    status = waveform["status"]
+                    if status == "detected":
+                        phases = []
+                        for sector in waveform["sectors"]:
+                            start = sector["start_deg"]
+                            end = start + sector["width_deg"]
+                            phases.append(f"{start}～{end if end <= 360 else end % 360}°")
+                        text += (
+                            "\nHall 波形形状：检出重复凹陷（Hall 相位 " + "、".join(phases) + "）"
+                        )
+                    elif status == "clear":
+                        text += "\nHall 波形形状：未检出重复凹陷"
+                    else:
+                        text += "\nHall 波形形状：未测 · " + waveform["reason"]
+                    if status in ("detected", "clear"):
+                        text += "\n试验判线：" + hall_waveform_criterion(waveform)
                 self.calibration_result.setText(text)
+            elif profile == "calibration_readback":
+                self.calibration_result.setText(
+                    "已回读保存的标定曲线；未重新标定"
+                    if report.get("passed")
+                    else report.get("fatal", "标定曲线回读失败")
+                )
             if (
                 self.current_motor
                 and self.current_motor["uid"] == report.get("uid")
@@ -1516,7 +1929,7 @@ class ProductionWindow(QMainWindow):
                 or report.get("note")
                 or ("操作完成" if success else "操作已结束，查看本次结果")
             )
-            if profile == "hardware_check":
+            if profile in ("hardware_check", "production_inspection"):
                 text = self.failure.toPlainText().splitlines()[0]
             elif profile == "can_scan":
                 text = self.task_status.text()
@@ -1546,6 +1959,13 @@ class ProductionWindow(QMainWindow):
 
     def display_install(self, report: dict) -> None:
         self.verified_uid = None
+        versions = report.get("swd_versions")
+        self.swd_version_label.setText(
+            f"板端 SWD 已确认：APP v{version_text(versions['app'])} · "
+            f"Loader v{version_text(versions['loader'])}（配套镜像回读一致）"
+            if versions
+            else "板端 SWD 版本：尚未确认"
+        )
         identity = report.get("identity")
         if report["profile"] == "jlink_erase":
             self.identity = None
@@ -1572,7 +1992,9 @@ class ProductionWindow(QMainWindow):
                 node = identity["node"]
                 if node in self.initial_choices:
                     self.initial_choices[node].setChecked(True)
-                versions = report.get("can_test", {}).get("device_versions", {})
+                versions = report.get("can_test", {}).get("device_versions", {}) or report.get(
+                    "swd_versions", {}
+                )
                 status = report.get("device_status", {})
                 motor = dict(
                     node=node,
@@ -1591,6 +2013,12 @@ class ProductionWindow(QMainWindow):
                     self.axis.setCurrentIndex(list(FIRST_FIT_AXES).index(node))
                 self.select_motor()
                 self.install_label.setText("已识别已配板；再次烧录保留参数和标定数据")
+                if (
+                    report.get("success")
+                    and report.get("app_started")
+                    and report.get("swd_versions")
+                ):
+                    self.install_label.setText("烧录、启动及 SWD 版本确认通过；CAN 通信未验证。")
                 if (
                     report.get("success")
                     and report.get("app_started")
@@ -1664,15 +2092,15 @@ class ProductionWindow(QMainWindow):
         self.identity = self.verified_uid = None
         self.report_dir = self.report_path = self.curve_path = None
         self.upgrade_table.setRowCount(0)
-        self.hardware_table.setRowCount(0)
-        self.result_icon.setPixmap(icon("hardware-test").pixmap(20, 20))
-        self.failure.setPlainText("下一台尚未开始检测")
         self.calibration_result.setText("等待标定")
-        self.phase_label.setText("通信 → 静态 → 相电阻 → 双向动态 → 关相 / 结果")
+        self.reset_inspection()
         self.install_label.setText("下一台待识别；连接 J-Link 后点击识别板卡。")
+        self.swd_version_label.setText("板端 SWD 版本：尚未确认")
         self.progress.setValue(0)
         self.edits["specimen"].clear()
         self.edits["serial"].clear()
+        self.edits["motor_serial"].clear()
+        self.edits["test_requirement"].clear()
         self.select_motor()
         self.navigation.setCurrentRow(0)
         self.maintenance.setCurrentIndex(0)
@@ -1681,29 +2109,96 @@ class ProductionWindow(QMainWindow):
         self.update_controls()
 
     def show_curves(self) -> None:
-        if not self.curve_path:
+        self.show_curve_file(self.curve_path)
+
+    def show_inspection_curve(self, kind: str, title: str) -> None:
+        path = self.inspection_curve_paths.get(kind)
+        if kind == "overview":
+            self.show_curve_file(path, title=title, data_files=(), overview=True)
             return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("补偿曲线与原始数据")
-        dialog.resize(1120, 760)
-        layout = QVBoxLayout(dialog)
-        actions = QHBoxLayout()
-        for filename, title in (
-            (self.curve_path.name, "PNG"),
+        if kind == "hall":
+            self.show_curve_file(path)
+            return
+        if kind == "encoder":
+            self.show_curve_file(
+                path,
+                title="编码器标定 · 补偿曲线",
+                data_files=(
+                    ("angle-calibration.csv", "补偿CSV"),
+                    ("calibration-values.csv", "标定参数"),
+                ),
+            )
+            return
+        self.show_curve_file(
+            path,
+            title=title + " · 曲线",
+            data_files=(("speed.csv", "高速遥测 CSV"),),
+        )
+
+    def show_curve_file(
+        self,
+        curve_path: Path | None,
+        *,
+        title: str | None = None,
+        data_files: tuple[tuple[str, str], ...] = (
             ("angle-calibration.csv", "补偿CSV"),
             ("hall-raw.csv", "Hall原码"),
             ("calibration-values.csv", "标定参数"),
-        ):
-            path = self.curve_path.parent / filename
+        ),
+        overview: bool = False,
+    ) -> None:
+        if not curve_path:
+            return
+        pixmap = QPixmap(str(curve_path))
+        if pixmap.isNull():
+            self.error(f"无法读取波形图片：{curve_path.name}")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(
+            title
+            or (
+                "Hall 原码波形与 XY 轨迹"
+                if curve_path.name == "hall-raw.png"
+                else "补偿曲线与原始数据"
+            )
+        )
+        dialog.resize(QSize(1280, 840) if overview else QSize(1120, 760))
+        layout = QVBoxLayout(dialog)
+        actions = QHBoxLayout()
+        if overview:
+            dialog.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            scroll = WaveformView(pixmap)
+            actions.addWidget(button("适应宽度", lambda: scroll.set_scale(None), icon_name="chart"))
+            smaller = QPushButton("−")
+            smaller.setAccessibleName("缩小")
+            smaller.clicked.connect(lambda: scroll.zoom(0.8))
+            actions.addWidget(smaller)
+            scale = QLabel()
+            scale.setMinimumWidth(48)
+            scale.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            scroll.scale_changed.connect(lambda value: scale.setText(f"{value:.0%}"))
+            actions.addWidget(scale)
+            larger = QPushButton("+")
+            larger.setAccessibleName("放大")
+            larger.clicked.connect(lambda: scroll.zoom(1.25))
+            actions.addWidget(larger)
+            actions.addWidget(button("原始像素", lambda: scroll.set_scale(1.0), icon_name="chart"))
+            actions.addStretch(1)
+        else:
+            scroll = QScrollArea()
+            image = QLabel()
+            if pixmap.width() > 1060:
+                pixmap = pixmap.scaledToWidth(1060, Qt.TransformationMode.SmoothTransformation)
+            image.setPixmap(pixmap)
+            scroll.setWidget(image)
+        for filename, label in ((curve_path.name, "PNG"), *data_files):
+            path = curve_path.parent / filename
             if path.is_file():
                 actions.addWidget(
-                    button(title, lambda _=False, p=path: self.open_path(p), icon_name="chart")
+                    button(label, lambda _=False, p=path: self.open_path(p), icon_name="chart")
                 )
         layout.addLayout(actions)
-        scroll = QScrollArea()
-        image = QLabel()
-        image.setPixmap(QPixmap(str(self.curve_path)))
-        scroll.setWidget(image)
         layout.addWidget(scroll)
         self.curve_dialog = dialog
         dialog.show()

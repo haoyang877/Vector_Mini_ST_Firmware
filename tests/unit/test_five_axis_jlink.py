@@ -130,8 +130,8 @@ class FlashGuiTests(unittest.TestCase):
         self.probe.memory_write32 = self.write_register
         self.probe.restart = Mock()
         self.probe.halted = Mock(return_value=False)
-        desc = struct.pack(">4I", 0x59494431, 3, 0x53593549, 7)
-        self.probe.flash[0x4200:0x4210] = desc
+        desc = struct.pack(">8I", 0x59494431, 3, 0x53593549, 7, 0x04560100, 0x59473236, 2, 0x602)
+        self.probe.flash[0x4200:0x4220] = desc
         raw = bytearray([0x52] * 16384)
         struct.pack_into("<f", raw, 0, float(self.node))
         struct.pack_into("<II", raw, 2160, 14, 0x454E4332)
@@ -142,7 +142,11 @@ class FlashGuiTests(unittest.TestCase):
         self.image.frombytes(b"loader", offset=0x08000000)
         self.image.frombytes(b"x" * 512 + desc, offset=0x08004000)
         self.hex_file = self.directory / "paired.hex"
-        self.batch = {"motors": [{"uid": self.probe.uid.hex(), "node": self.node}]}
+        self.batch = {
+            "motors": [{"uid": self.probe.uid.hex(), "node": self.node}],
+            "app_version": 0x602,
+            "loader_version": 0x20200,
+        }
         self.freeze_image()
         self.probe.flash_file = Mock(side_effect=self.write_hex)
         self.probe.erase = Mock(side_effect=self.erase_all)
@@ -217,6 +221,8 @@ class FlashGuiTests(unittest.TestCase):
         erase_scope=None,
         erase_confirmed=False,
         auto_identify=False,
+        probe_serial=None,
+        with_can=True,
     ):
         self.number += 1
         directory = self.directory / str(self.number)
@@ -224,6 +230,7 @@ class FlashGuiTests(unittest.TestCase):
         settings = {
             "profile": mode,
             "identity": None if auto_identify else identity or self.identity,
+            "probe_serial": probe_serial,
             "hex": str(self.hex_file),
             "restart_after_flash": restart,
             "force_reflash": force,
@@ -232,6 +239,8 @@ class FlashGuiTests(unittest.TestCase):
             "erase_confirmed": erase_confirmed,
             "bus": {"channel_index": 0, "nominal_bps": 1000000, "data_bps": 5000000},
         }
+        if not with_can:
+            settings["bus"] = None
         events = SimpleQueue()
         with (
             patch.dict(sys.modules, {"pylink": self.pylink}),
@@ -249,6 +258,70 @@ class FlashGuiTests(unittest.TestCase):
             last = events.get()
         self.assertEqual(last, ("done", report))
         return report
+
+    def test_multiple_probes_require_selection_and_bind_the_selected_serial(self):
+        self.probe.connected_emulators.return_value.append(Mock(SerialNumber=456))
+        report = self.job("jlink_probes", auto_identify=True)
+        self.assertEqual(report["probes"], [123, 456])
+        self.probe.open.assert_not_called()
+        self.assertFalse(self.job("jlink_identify", auto_identify=True)["success"])
+        self.probe.open.assert_not_called()
+        report = self.job("jlink_identify", auto_identify=True, probe_serial=456)
+        self.assertTrue(report["success"], report)
+        self.assertEqual(report["identity"]["serial"], 456)
+        self.probe.open.assert_called_once_with(serial_no=456)
+        self.probe.open.reset_mock()
+        self.assertFalse(self.job(probe_serial=456)["success"])
+        self.assertFalse(self.job(probe_serial=789)["success"])
+        self.probe.open.assert_not_called()
+        self.assertTrue(self.job()["success"])
+        self.probe.open.assert_called_once_with(serial_no=123)
+
+    def test_no_can_flash_confirms_versions_and_boot_without_opening_can(self):
+        self.allow_core_reset()
+        report = self.job(restart=True, with_can=False)
+        self.assertTrue(report["success"] and report["app_started"], report)
+        self.assertEqual(report["swd_versions"], dict(app=0x602, loader=0x20200))
+        self.assertNotIn("can_test", report)
+        self.bus.__enter__.assert_not_called()
+
+    def test_removed_selected_probe_does_not_fall_back_to_another_probe(self):
+        self.probe.connected_emulators.return_value = [Mock(SerialNumber=456)]
+        report = self.job(probe_serial=self.serial)
+        self.assertFalse(report["success"] or report["write_started"])
+        self.assertIn("已断开", report["fatal"])
+        self.probe.open.assert_not_called()
+        self.probe.flash_file.assert_not_called()
+
+    def test_probe_scan_with_no_probes_does_not_connect_to_target(self):
+        self.probe.connected_emulators.return_value = []
+        report = self.job("jlink_probes")
+        self.assertTrue(report["success"], report)
+        self.assertEqual(report["probes"], [])
+        self.probe.open.assert_not_called()
+        self.probe.connect.assert_not_called()
+
+    def test_descriptor_changed_after_image_verification_cannot_confirm_version(self):
+        program = swd.program_motor
+
+        def change_descriptor(*args, **kwargs):
+            program(*args, **kwargs)
+            self.probe.flash[0x421F] ^= 1
+
+        with patch.object(swd, "program_motor", side_effect=change_descriptor):
+            report = self.job(restart=True, with_can=False)
+        self.assertTrue(report["protected_regions_verified"])
+        self.assertFalse(report["success"])
+        self.assertNotIn("swd_versions", report)
+        self.probe.reset.assert_not_called()
+
+    def test_invalid_version_metadata_blocks_flash_before_connection(self):
+        self.batch["app_version"] += 1
+        (self.directory / "five_axis_can_stability.json").write_text(json.dumps(self.batch))
+        report = self.job(with_can=False)
+        self.assertFalse(report["success"] or report["write_started"])
+        self.probe.open.assert_not_called()
+        self.assertNotIn("swd_versions", report)
 
     def test_identify_program_and_repeat(self):
         first = self.job("jlink_identify")

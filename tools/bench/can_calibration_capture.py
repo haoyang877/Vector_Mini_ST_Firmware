@@ -1,4 +1,4 @@
-"""采集 APP1.8.3～1.8.13 的 RTT Hall 原码；不修改控制参数或固件。"""
+"""按固件能力采集 CAN Hall 原码快照，兼容已验证的旧 RTT 格式。"""
 
 import csv
 import struct
@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from can_calibration_curves import calibration_probe
+from hardware_check import Link
 
 FRAME = struct.Struct("<8h")
 CHANNEL_NAME = "JScope_i2i2i2i2i2i2i2i2"
@@ -40,13 +41,17 @@ def decode_frames(data: bytes) -> tuple[int, list[tuple[int, ...]], int]:
 
 
 class HallRawCapture:
-    """一个工作线程独占探针；启动确认完成后，CAN才允许发标定命令。"""
+    """CAN由标定线程串行轮询；旧RTT由独立线程独占已选探针。"""
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, *, probe_serial: int | None = None):
         self.directory = directory
+        self.probe_serial = probe_serial
         self.stop = threading.Event()
         self.ready = threading.Event()
         self.thread = None
+        self.can_mode = False
+        self.first_read_ms = None
+        self.last_counter = None
         self.result = dict(
             source="RTT channel 1",
             nominal_hz=2000,
@@ -55,6 +60,19 @@ class HallRawCapture:
         )
 
     def start(self, report: dict) -> None:
+        if report.get("capabilities", 0) & (1 << 25):
+            self.can_mode = True
+            self.result.update(
+                source="CAN Hall snapshots",
+                nominal_hz=100,
+                sample_counter_available=True,
+                csv="hall-raw.csv",
+            )
+            (self.directory / "hall-raw.csv").write_text(
+                "sample_index,nominal_elapsed_s,sample_counter,device_read_ms,hall_sin_counts,hall_cos_counts\n",
+                encoding="utf-8",
+            )
+            return
         version = report["app_version"]
         if version in (0x01080E, 0x01080F):
             self.result["error"] = "当前 APP 的 RTT1 提供母线及三相 ADC 原码，没有 Hall 原码"
@@ -81,9 +99,44 @@ class HallRawCapture:
             self.result["error"] = "等待Hall原码采集启动超时"
             self.stop.set()
 
+    def sample(self, link: Link) -> None:
+        """由标定CAN线程串行轮询真实原码，不与命令争用端口。"""
+        if not self.can_mode or self.result.get("error"):
+            return
+        try:
+            data = link.request(195)
+            if len(data) != 20:
+                raise ValueError("Hall原码快照长度错误")
+            result, detail, version, flags, counter, millis, sin, cos = struct.unpack(
+                "<4H2I2H", data
+            )
+            if (result, detail, version, flags) != (0, 0, 1, 1) or max(sin, cos) > 4095:
+                raise ValueError("Hall原码快照无效")
+            if counter == self.last_counter:
+                return
+            if (
+                self.last_counter is not None
+                and ((counter - self.last_counter) & 0xFFFFFFFF) > 0x7FFFFFFF
+            ):
+                raise ValueError("Hall原码采样计数回退，停止采集")
+            if self.first_read_ms is None:
+                self.first_read_ms = millis
+            elapsed = ((millis - self.first_read_ms) & 0xFFFFFFFF) / 1000
+            with (self.directory / "hall-raw.csv").open(
+                "a", newline="", encoding="utf-8"
+            ) as stream:
+                csv.writer(stream).writerow(
+                    (self.result["samples"], elapsed, counter, millis, sin, cos)
+                )
+            self.last_counter = counter
+            self.result["samples"] += 1
+        except (TimeoutError, ValueError, OSError) as error:
+            self.result["error"] = str(error)
+            self.result["complete"] = False
+
     def _read(self, uid: str) -> None:
         try:
-            with calibration_probe(uid) as (probe, _):
+            with calibration_probe(uid, self.probe_serial) as (probe, _):
                 probe.rtt_start()
                 try:
                     deadline = time.monotonic() + 2
@@ -127,6 +180,8 @@ class HallRawCapture:
 
     def finish(self) -> dict:
         self.stop.set()
+        if self.can_mode:
+            return self.result
         if self.thread is not None:
             self.thread.join(timeout=5)
             if self.thread.is_alive():

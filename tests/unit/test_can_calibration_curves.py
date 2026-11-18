@@ -11,11 +11,12 @@ import unittest
 import zlib
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/bench"))
 import can_calibration_curves as curves
 import production_backend as desktop
+import production_inspection as inspection
 from can_calibration_capture import HallRawCapture
 
 
@@ -48,6 +49,8 @@ class Link:
         return bytes(data)
 
     def request(self, kind, payload=b"", *, page=None):
+        if kind == 2:
+            return bytes(16)
         if kind == 1:
             return bytes([2 if self.wrong_uid else 1]) * 12 + bytes(20)
         if kind == 123:
@@ -176,15 +179,221 @@ class CalibrationCurvesTests(unittest.TestCase):
                     curves.export_calibration_curves(None, {**self.report, field: False}, self.out)
                 read.assert_not_called()
 
+    def test_selected_probe_is_forwarded_to_flash_read(self):
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "_read_record", return_value=self.record) as read,
+        ):
+            curves.export_calibration_curves(None, self.report, self.out, probe_serial=456)
+        read.assert_called_once_with(self.report["uid"], 456)
+
+    def test_can_record_reassembly_and_changed_block_rejection(self):
+        data = self.record[:4372]
+        crc = zlib.crc32(data)
+        damaged = False
+
+        def respond(kind, payload):
+            self.assertEqual(kind, 194)
+            revision, expected_crc, offset, count, version = struct.unpack("<IIHBB", payload)
+            self.assertEqual(version, 1)
+            if count:
+                self.assertEqual((revision, expected_crc), (2, crc))
+            return struct.pack("<HHIIHHBB", 0, 0, 2, crc, 4372, offset, count, 1) + bytes(
+                value ^ int(damaged) for value in data[offset : offset + count]
+            )
+
+        link = SimpleNamespace(request=respond)
+        self.assertEqual(curves._read_record_can(link, 2), data)
+        with self.assertRaisesRegex(ValueError, "修订"):
+            curves._read_record_can(link, 3)
+        damaged = True
+        with self.assertRaisesRegex(ValueError, "完整性"):
+            curves._read_record_can(link, 2)
+
+    def test_committed_hall_fault_decodes_board_flags_and_rejects_old_revision(self):
+        failed = bytearray(self.record[:4372])
+        struct.pack_into("<I", failed, 2204, 0x48410106)
+        crc = zlib.crc32(failed[2144:2288], zlib.crc32(failed[:2140]))
+        struct.pack_into("<I", failed, 2140, crc)
+        report = dict(self.report, before_revision=dict(saved_revision=1))
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "_read_record_can", return_value=bytes(failed)) as read,
+        ):
+            result = curves.read_committed_calibration_fault(None, report, self.out)
+        read.assert_called_once_with(self.link, 2)
+        self.assertEqual(result["hall_fault_mask"], 6)
+        self.assertEqual(result["calibration_flags"], 3)
+        self.assertEqual(result["details"], ["Hall sin 最小值过低", "Hall sin 最大值过高"])
+        self.assertEqual((self.out / result["parameters_bin"]).read_bytes(), failed)
+        exported = result["encoder_curves"]
+        self.assertTrue((self.out / exported["png"]).is_file())
+        self.assertEqual(exported["points_per_curve"], 1024)
+        with (self.out / exported["csv"]).open(encoding="utf-8", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        self.assertEqual(len(rows), 1024)
+        self.assertEqual(rows[0]["motor_lut_q15"], "128")
+        self.assertNotIn("hall_lut_q15", rows[0])
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "_read_record_can", return_value=bytes(failed)),
+            patch.object(curves, "export_curves", side_effect=RuntimeError("绘图失败")),
+        ):
+            result = curves.read_committed_calibration_fault(None, report, self.out)
+        self.assertEqual(result["encoder_curve_error"], "绘图失败")
+        self.assertEqual(result["calibration_flags"], 3)
+        self.assertEqual(result["hall_fault_mask"], 6)
+        report["before_revision"]["saved_revision"] = 2
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "_read_record_can") as read,
+            self.assertRaisesRegex(ValueError, "新保存修订"),
+        ):
+            curves.read_committed_calibration_fault(None, report, self.out)
+        read.assert_not_called()
+
+    def test_committed_clipped_hall_exports_diagnostic_only_after_crc_validation(self):
+        failed = bytearray(self.record[:4372])
+        struct.pack_into("<I", failed, 2204, 0x48410106)
+        crc = zlib.crc32(failed[2144:2288], zlib.crc32(failed[:2140]))
+        struct.pack_into("<I", failed, 2140, crc)
+        struct.pack_into("<I", failed, 2292, crc)
+        struct.pack_into("<II", failed, 2312, 2, 3)
+        struct.pack_into("<I", failed, 4368, zlib.crc32(failed[2288:4368]))
+        report = dict(self.report, before_revision=dict(saved_revision=1), stop_faults=0x4000)
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "_read_record_can", return_value=bytes(failed)),
+        ):
+            result = curves.read_committed_calibration_fault(None, report, self.out)
+        self.assertTrue(result["hall_diagnostic_curve"])
+        self.assertEqual(result["hall_fault_mask"], 6)
+        csv_path = self.out / result["encoder_curves"]["csv"]
+        self.assertIn("hall_raw_minus_corrected_deg", csv_path.read_text(encoding="utf-8"))
+        failed[4368] ^= 1
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "_read_record_can", return_value=bytes(failed)),
+        ):
+            result = curves.read_committed_calibration_fault(None, report, self.out)
+        self.assertNotIn("hall_diagnostic_curve", result)
+        self.assertIn("CRC", result["hall_diagnostic_error"])
+        self.assertNotIn("hall_raw_minus_corrected_deg", csv_path.read_text(encoding="utf-8"))
+
+    def test_can_only_saved_readback_exports_without_opening_jlink(self):
+        original_request = self.link.request
+        data = self.record[:4372]
+        crc = zlib.crc32(data)
+
+        def respond(kind, payload=b"", *, page=None):
+            if kind == 2:
+                return struct.pack("<I", 1 << 24) + bytes(12)
+            if kind == 194:
+                _, _, offset, count, version = struct.unpack("<IIHBB", payload)
+                return (
+                    struct.pack("<HHIIHHBB", 0, 0, 2, crc, len(data), offset, count, version)
+                    + data[offset : offset + count]
+                )
+            return original_request(kind, payload, page=page)
+
+        self.link.request = respond
+        with (
+            patch.object(curves, "Link", return_value=self.link),
+            patch.object(curves, "calibration_probe") as probe,
+        ):
+            report = curves.read_saved_calibration(None, 6, self.report["uid"], self.out)
+        probe.assert_not_called()
+        self.assertEqual((self.out / "calibration-parameters.bin").read_bytes(), data)
+        self.assertFalse(report["curves"]["table_updated"])
+        self.assertIn("CAN", report["curves"]["source"])
+
+    def test_saved_output_pairing_fault_names_coverage_or_mapping(self):
+        data = bytearray(self.record[:4372])
+        for lut, text in ((1, "相位覆盖不足"), (2, "映射或相位误差超限")):
+            with self.subTest(lut=lut):
+                struct.pack_into("<II", data, 2312, 3, lut)
+                struct.pack_into("<I", data, 4368, zlib.crc32(data[2288:4368]))
+                failure = curves._saved_output_fault(data)
+                self.assertIn(text, failure["details"][0])
+
+    def test_can_hall_counter_wrap_and_failure_preserve_partial_samples(self):
+        capture = HallRawCapture(self.out)
+        capture.start(dict(app_version=0x1081B, capabilities=1 << 25))
+        samples = iter([(0xFFFFFFFE, 0xFFFFFFFE), (3, 3), (2, 4)])
+
+        def respond(_):
+            counter, millis = next(samples)
+            return struct.pack("<4H2I2H", 0, 0, 1, 1, counter, millis, 123, 4090)
+
+        link = SimpleNamespace(request=respond)
+        for _ in range(3):
+            capture.sample(link)
+        result = capture.finish()
+        self.assertEqual(result["samples"], 2)
+        self.assertFalse(result["complete"])
+        self.assertIn("回退", result["error"])
+        with (self.out / "hall-raw.csv").open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        self.assertEqual(float(rows[1]["nominal_elapsed_s"]), 0.005)
+
+    def test_can_hall_capture_uses_real_raw_values_and_skips_duplicate_counter(self):
+        capture = HallRawCapture(self.out)
+        capture.start(dict(app_version=0x1081B, capabilities=1 << 25))
+        link = SimpleNamespace(
+            request=lambda _: struct.pack("<4H2I2H", 0, 0, 1, 1, 200, 10, 100, 3900)
+        )
+        capture.sample(link)
+        capture.sample(link)
+        result = capture.finish()
+        self.assertEqual(result["samples"], 1)
+        self.assertEqual(result["source"], "CAN Hall snapshots")
+        with (self.out / "hall-raw.csv").open(newline="") as stream:
+            row = next(csv.DictReader(stream))
+        self.assertEqual((row["hall_sin_counts"], row["hall_cos_counts"]), ("100", "3900"))
+        self.assertEqual(row["sample_counter"], "200")
+
+    def test_multiple_probes_require_selection_and_validate_uid(self):
+        probe = Mock()
+        probe.connected_emulators.return_value = [Mock(SerialNumber=123), Mock(SerialNumber=456)]
+        probe.halted.return_value = False
+        pylink = Mock()
+        pylink.JLink.return_value = probe
+        with (
+            patch.dict(sys.modules, {"pylink": pylink}),
+            patch.object(curves.board.maintenance, "check_identity") as identity,
+            patch.object(curves.board.maintenance, "check_outputs_off"),
+            patch.object(curves.board.maintenance, "release_reset_catch"),
+        ):
+            with self.assertRaisesRegex(ValueError, "选择"):
+                with curves.calibration_probe(self.report["uid"]):
+                    self.fail("未选择时不得连接")
+            probe.open.assert_not_called()
+            with self.assertRaisesRegex(ValueError, "已断开"):
+                with curves.calibration_probe(self.report["uid"], 789):
+                    self.fail("失效的选择不得回退")
+            probe.open.assert_not_called()
+            with curves.calibration_probe(self.report["uid"], 456):
+                pass
+            probe.open.assert_called_once_with(serial_no=456)
+            identity.assert_called_once_with(
+                probe,
+                curves.board.maintenance.load_target("yg_esc_v1_at32f456"),
+                bytes.fromhex(self.report["uid"]),
+            )
+            identity.side_effect = ValueError("UID 不符")
+            with self.assertRaisesRegex(ValueError, "UID 不符"):
+                with curves.calibration_probe(self.report["uid"], 456):
+                    self.fail("错误芯片不得读取曲线")
+
     def test_curve_error_preserves_successful_calibration(self):
         report = {**self.report, "profile": "motor_calibration"}
         with (
             patch.object(desktop, "controlcan_dll_path", return_value=Path("test.dll")),
             patch.object(desktop.os, "add_dll_directory", create=True),
             patch.object(desktop, "ControlCanFd"),
-            patch.object(desktop, "run_angle_calibration", return_value=report),
+            patch.object(inspection, "run_angle_calibration", return_value=report),
             patch.object(
-                desktop, "export_calibration_curves", side_effect=OSError("J-Link absent")
+                inspection, "export_calibration_curves", side_effect=OSError("J-Link absent")
             ),
         ):
             desktop.acquire(
@@ -196,6 +405,7 @@ class CalibrationCurvesTests(unittest.TestCase):
         saved = json.loads((self.out / "summary.json").read_text(encoding="utf-8"))
         self.assertTrue(saved["passed"])
         self.assertEqual(saved["curve_error"], "J-Link absent")
+        self.assertEqual(saved["hall_waveform"]["status"], "not_measured")
 
     def test_raw_capture_preserves_integer_samples_and_separates_receive_time(self):
         rows = [(0, 0, 0, 0, 0, 3141, 123, 4090), (0, 0, 0, 0, 0, 3142, 321, 12)]

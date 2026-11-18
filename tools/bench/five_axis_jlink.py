@@ -544,6 +544,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
         batch = json.loads((resource / "five_axis_can_stability.json").read_text(encoding="utf-8"))
         motors = {item["uid"]: item["node"] for item in batch["motors"]}
         if mode == "jlink_flash":
+            app_version, loader_version = firmware_versions(Path(settings["hex"]), resource)
             raw = Path(settings["hex"]).read_bytes()
             report["hex_sha256"] = batch["hex_sha256"]
             segments = firmware_segments(raw, report["hex_sha256"], target)
@@ -553,7 +554,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                 "all",
             ):
                 raise ValueError("请先确认擦除范围和芯片UID")
-        elif mode != "jlink_identify":
+        elif mode not in ("jlink_identify", "jlink_probes"):
             raise ValueError("未知 J-Link 操作")
         stage("连接 J-Link / SWD")
         library = pylink.library.Library(dllpath=os.environ.get("JLINK_DLL") or None)
@@ -562,10 +563,19 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
         probe = pylink.JLink(lib=library)
         try:
             probes = probe.connected_emulators()
-            if len(probes) != 1:
-                raise RuntimeError(f"检测到 {len(probes)} 只 J-Link，请连接本次使用的一只探针")
-            serial = probes[0].SerialNumber
+            serials = sorted({p.SerialNumber for p in probes})
+            report["probes"] = serials
+            if mode == "jlink_probes":
+                report["success"] = True
+                return
             expected_identity = settings.get("identity")
+            serial = settings.get("probe_serial") or (expected_identity or {}).get("serial")
+            if serial is None and len(serials) == 1:
+                serial = serials[0]
+            if serial is None:
+                raise RuntimeError(f"检测到 {len(serials)} 只 J-Link，请扫描并选择本次使用的探针")
+            if serial not in serials:
+                raise RuntimeError("所选 J-Link 已断开，请重新扫描并识别")
             if expected_identity and expected_identity["serial"] != serial:
                 raise RuntimeError("J-Link 已更换，请重新识别")
             probe.open(serial_no=serial)
@@ -649,6 +659,19 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
                     force=settings.get("force_reflash", False),
                 )
                 phase("verify")
+                descriptor = maintenance.target_value(
+                    target, "TARGET_APP_BASE"
+                ) + maintenance.target_value(target, "TARGET_DESCRIPTOR_OFFSET")
+                actual = struct.unpack(">8I", maintenance.read_twice(probe, descriptor, 32))
+                offset = maintenance.target_value(target, "TARGET_DESCRIPTOR_OFFSET")
+                if (
+                    actual != struct.unpack_from(">8I", segments[1][1], offset)
+                    or actual[7] != app_version
+                ):
+                    raise RuntimeError("SWD 回读的 APP 版本与本批镜像不符")
+                # program_motor 已校验全部加载字节；Loader 版本由匹配该镜像的批次清单确认。
+                report["swd_versions"] = dict(app=actual[7], loader=loader_version)
+                stage("SWD 版本确认通过：APP 描述符及配套 Loader 镜像回读一致")
                 if settings.get("restart_after_flash", False):
                     stage("Loader、APP 和保护区已核验，正在通过 J-Link 复位芯片")
                     report.pop("cpu_halted", None)
@@ -663,7 +686,7 @@ def run_jlink(settings: dict, out: Path, events, stop) -> None:
         finally:
             if probe.opened():
                 probe.close()
-        if report.get("app_started"):
+        if report.get("app_started") and settings.get("bus"):
             bus = settings["bus"]
             stage(f"APP 已启动，参数区一致。打开 USB-CAN 通道 {bus['channel_index'] + 1}，1M/5M")
             result = {

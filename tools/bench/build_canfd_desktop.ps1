@@ -1,8 +1,8 @@
 ﻿param([Parameter(Mandatory = $true)][string]$Dll, [string]$FirmwareHex,
       [Parameter(Mandatory = $true)][string]$CanPackage,
       [string]$BatchFile,
-      [string[]]$PitchThermal = @('3','3','3600','0.8','0.7','1','0.5'),
-      [string[]]$YawThermal = @('3','3','3600','0.8','0.7','1','0.5'))
+      [string[]]$PitchThermal = @('3','7','3600','0.8','0.7','1','0.5'),
+      [string[]]$YawThermal = @('3','7','3600','0.8','0.7','1','0.5'))
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $sdk = (Resolve-Path -LiteralPath $Dll).Path
@@ -39,11 +39,13 @@ try {
     }
     $records = New-Item -ItemType Directory -Path (Join-Path $firmware.FullName 'first-fit') -Force
     foreach ($node in 3..8) {
-        $speed = @('30', '30', '30', '7.5', '7.5', '2.0943951')[$node - 3]
+        $speed = @('31.41592653589793', '31.41592653589793', '31.41592653589793',
+                   '6.283185307179586', '6.283185307179586', '2.0943951')[$node - 3]
         $model = @('HT8115-4','HT8115-4','HT8115-4','YQ-5740','YQ-5708','YQ-5740')[$node - 3]
         $thermal = @()
-        if ($node -in 6,8) { $thermal = @('--thermal') + $PitchThermal }
+        if ($node -eq 6) { $thermal = @('--thermal') + $PitchThermal }
         if ($node -eq 7) { $thermal = @('--thermal') + $YawThermal }
+        if ($node -eq 8) { $thermal = @('--thermal','3','3','3600','0.8','0.7','1','0.5') }
         $temp = Join-Path $records.FullName ("$node-" + [Guid]::NewGuid().ToString('N') + '.tmp')
         uv run --no-sync --extra dev python tools/build/make_axis_record.py --node $node --model $model --speed $speed --output-shaft --confirm-model @thermal --output $temp
         if ($LASTEXITCODE -ne 0) { throw "节点 $node 参数生成失败" }
@@ -52,7 +54,7 @@ try {
     uv run --no-sync --extra desktop python tools/build/make_desktop_icon.py --source tools/bench/assets/production_motor.svg --output "$output/resources/production_motor.ico"
     if ($LASTEXITCODE -ne 0) { throw "应用图标生成失败" }
     uv run --no-sync --extra maintenance --extra desktop --with pyinstaller==6.16.0 python -m PyInstaller --noconfirm --onedir --windowed `
-        --name 电机生产测试上位机-v2.1.7 --distpath "$output/dist" --workpath "$output/build" `
+        --name 电机生产测试上位机-v2.3.16 --distpath "$output/dist" --workpath "$output/build" `
         --icon "$($firmware.FullName)/production_motor.ico" --add-data "$root/tools/bench/assets;assets" `
         --specpath $output --paths loader/tools --paths host_app --paths shared/targets --paths tools/bench `
         --add-binary "${sdk};." --add-data "${BatchFile};." `
@@ -65,8 +67,8 @@ try {
         --exclude-module tkinter --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets `
         tools/bench/qt_production_desktop.py
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败 ($LASTEXITCODE)" }
-    Copy-Item -LiteralPath "$root/tools/bench/hardware_check_limits.json" -Destination "$output/dist/电机生产测试上位机-v2.1.7/hardware_check_limits.json"
-    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.1.7/电机生产测试上位机-v2.1.7.exe" -Algorithm SHA256
+    Copy-Item -LiteralPath "$root/tools/bench/hardware_check_limits.json" -Destination "$output/dist/电机生产测试上位机-v2.3.16/hardware_check_limits.json"
+    Get-FileHash -LiteralPath "$output/dist/电机生产测试上位机-v2.3.16/电机生产测试上位机-v2.3.16.exe" -Algorithm SHA256
 } finally {
     Pop-Location
 }

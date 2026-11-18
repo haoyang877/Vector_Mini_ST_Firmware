@@ -67,6 +67,8 @@ def _validate(uid: bytes, node: int, kind: int, payload: bytes, versions: tuple[
     ):
         raise ValueError("UID/version")
     features = 0xFFD00 if versions[0] >= 0x00010800 else 0x7FD00
+    if versions[0] >= 0x0001081B:
+        features |= 0x3F00000  # 已配套的检测扩展及标定记录/Hall原码回读。
     if kind == 2 and payload != struct.pack("<I6H", features, 0x64E, 64, 46, 0, 500, 500):
         raise ValueError("capabilities")
     if kind == 3 and payload != struct.pack("<HHBBHQ", 6, 0, 1, 0, 0, 0):

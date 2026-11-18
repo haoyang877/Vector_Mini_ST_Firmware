@@ -42,6 +42,7 @@ class Port:
         self.status_was_busy = False
         self.uid = bytes(range(12))
         self.output_coordinates = False
+        self.saved_revision = 7
 
     def send(self, identifier, data):
         node, kind, seq, size = struct.unpack_from("<BHHI", data, 5)
@@ -79,6 +80,18 @@ class Port:
                 0,
                 500,
                 500,
+            )
+        elif kind == 123:
+            reply = struct.pack(
+                "<HHBBHIII",
+                0,
+                0,
+                0,
+                2,
+                1,
+                self.saved_revision,
+                self.saved_revision,
+                self.saved_revision,
             )
         elif kind == 127:
             if len(payload) == 44:
@@ -475,6 +488,22 @@ class HardwareHostTest(unittest.TestCase):
         r["board_items"][8:] = [2, 3]
         hw.direction_results(r)
         self.assertEqual(list(r["items"].values())[-2:], ["异常", "未装"])
+
+    def test_inspection_recheck_binds_revision_and_samples_each_motion_phase(self):
+        rejected, port = self.check(drive=True, expected_saved_revision=6)
+        self.assertIn("修订", rejected["note"])
+        self.assertFalse(any(kind in (117, 127) for kind, _, _ in port.sent))
+        observed = []
+        accepted, port = self.check(
+            drive=True,
+            expected_saved_revision=7,
+            expected_uid=bytes(range(12)).hex(),
+            angle_sample=lambda _link, status, frequency: observed.append((status[43], frequency)),
+        )
+        self.assertEqual(accepted["verified_saved_revision"], 7)
+        self.assertEqual(observed[0], (5, None))
+        self.assertEqual({value for state, value in observed[1:] if state == 6}, {-2, 0, 2})
+        self.assertTrue(accepted["stop_confirmed"])
 
     def test_motion_without_production_identity(self):
         r, bus = self.check("unprovisioned", True)

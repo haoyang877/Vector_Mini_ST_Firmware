@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import struct
 import subprocess
@@ -32,11 +33,11 @@ class Axis:
 
 
 AXES = (
-    Axis("左轮", 3, 5, "HT8115-4", 30),
-    Axis("右轮", 4, 4, "HT8115-4", 30),
-    Axis("ROLL", 5, 1, "HT8115-4", 30),
-    Axis("PITCH", 6, 2, "YQ-5740", 7.5),
-    Axis("YAW", 7, 3, "YQ-5708", 7.5),
+    Axis("左轮", 3, 5, "HT8115-4", 5 * math.tau),
+    Axis("右轮", 4, 4, "HT8115-4", 5 * math.tau),
+    Axis("ROLL", 5, 1, "HT8115-4", 5 * math.tau),
+    Axis("PITCH", 6, 2, "YQ-5740", math.tau),
+    Axis("YAW", 7, 3, "YQ-5708", math.tau),
     Axis("Lift", 8, 6, "YQ-5740", 30.0),
 )
 # 仅为空板生成未确认型号记录。沿用 PITCH 空板台架的热配置占位值。

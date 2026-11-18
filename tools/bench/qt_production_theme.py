@@ -8,15 +8,28 @@ QMainWindow,QDialog { background:#f2f5f9; }
 QWidget { font-family:'Microsoft YaHei UI'; font-size:13px; color:#24354b; }
 QGroupBox { background:white; border:1px solid #dce4ed; border-radius:10px; margin-top:12px; padding:14px 12px 10px; }
 QGroupBox::title { subcontrol-origin:margin; left:14px; padding:0 5px; color:#52667e; font-weight:600; }
-QGroupBox#compactHeader { padding:6px 8px 4px; }
+QWidget#deviceHeader { background:white; border:1px solid #dce4ed; border-radius:7px; }
+QWidget#inspectionPage { background:white; }
 QLabel#title { font-size:23px; font-weight:700; color:#132e49; }
 QLabel#subtitle { color:#60758b; font-size:12px; }
 QLabel { background:transparent; border:0; }
 QLabel#statusValue { color:#253f58; font-weight:600; }
-QLabel#metric { font-size:19px; font-weight:600; color:#126c87; }
+QLabel#deviceVersion { font-size:15px; font-weight:700; color:#135f7b; background:#eaf4f9; border-radius:5px; padding:2px 6px; }
+QLabel#deviceVersion[unavailable="true"] { color:#718599; background:#f2f5f8; }
+QLabel#packageVersion { font-size:13px; color:#52667e; }
+QGroupBox#installStep { font-size:16px; font-weight:700; }
+QGroupBox#installStep::title { color:#1c3d59; }
+QLabel#stepArrow { font-size:22px; color:#7e9bb0; }
+QLabel#metric { font-size:14px; font-weight:700; color:#126c87; }
 QLabel#metric[unavailable="true"] { color:#8798a9; }
-QWidget#telemetryTile { background:#f3f7fa; border:1px solid #e3ebf2; border-radius:7px; }
 QLabel#sectionTitle { font-size:20px; font-weight:600; color:#1c3d59; }
+QLabel#resultTitle { font-size:17px; font-weight:700; color:#1c3d59; }
+QLabel#resultVerdict { font-weight:700; background:#eef3f7; border-radius:4px; padding:3px 8px; }
+QLabel#resultVerdict[outcome="passed"] { color:#18765b; background:#e8f5ef; }
+QLabel#resultVerdict[outcome="failed"] { color:#b03b42; background:#fff0f0; }
+QLabel#resultVerdict[outcome="review"] { color:#875313; background:#fff0db; }
+QLabel#resultVerdict[outcome="running"] { color:#126f94; background:#e9f4fb; }
+QLabel#inspectionProgress { font-size:12px; color:#52667e; background:#f2f6fa; padding:4px 8px; border-radius:4px; }
 QListWidget#navigation { background:#e8eef5; color:#334b62; border:0; border-radius:10px; padding:10px 6px; outline:0; }
 QListWidget#navigation::item { height:48px; padding-left:14px; border-radius:7px; margin:3px; }
 QListWidget#navigation::item:selected { background:#d4e7f3; color:#125e82; }
@@ -29,6 +42,8 @@ QPushButton#primary { color:white; background:#126f94; border-color:#126f94; fon
 QPushButton#primary:disabled { color:#a5b9c3; background:#dce6eb; border-color:#dce6eb; }
 QPushButton#stop { color:#b33b45; border-color:#e4b5b9; background:#fff7f7; }
 QPushButton#stop:disabled { color:#97a5b3; border-color:#e2e7ed; background:#f4f6f8; }
+QPushButton#rowAction { color:#126f94; background:white; border-radius:4px; min-height:17px; padding:2px 6px; }
+QPushButton#rowAction:disabled { color:#97a5b3; background:#f4f6f8; }
 QLineEdit,QComboBox { background:white; border:1px solid #cdd8e4; border-radius:5px; padding:6px 8px; min-height:20px; }
 QLineEdit:focus,QComboBox:focus { border:1px solid #1680a8; }
 QLineEdit:read-only { background:#f3f6fa; color:#62778d; }

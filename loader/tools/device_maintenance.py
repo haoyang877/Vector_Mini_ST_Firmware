@@ -161,8 +161,8 @@ def verify_protected(before: bytes, after: bytes, target: dict) -> dict:
 
 def validate_parameters(raw: bytes) -> dict:
     """只读解释schema14，不重建默认值或更改任何保存数据。"""
-    if len(raw) != 16384:
-        raise ValueError("参数必须包含完整16KiB")
+    if len(raw) not in (4372, 16384):
+        raise ValueError("参数必须包含完整4372字节记录或16KiB参数区")
     schema, magic = struct.unpack_from("<II", raw, 2160)
     if (schema, magic) != (14, 0x454E4332):
         raise ValueError("仅接受已校验的schema14；未知/空白格式只备份，不迁移")

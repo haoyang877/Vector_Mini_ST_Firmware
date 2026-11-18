@@ -1,4 +1,4 @@
-"""标定保存后核对CAN快照并只读回读Flash，复用工装补偿曲线导出。"""
+"""通过CAN或已选J-Link回读保存记录，核对身份与一致性并导出补偿曲线。"""
 
 import hashlib
 import json
@@ -179,7 +179,7 @@ def _saved_snapshot(link: Link, uid: str, revision: int) -> tuple[int, int]:
 
 
 @contextmanager
-def calibration_probe(uid: str):
+def calibration_probe(uid: str, probe_serial: int | None = None):
     """串行占用已核对身份、处于关相状态的探针；退出不复位目标。"""
     import pylink
 
@@ -189,9 +189,14 @@ def calibration_probe(uid: str):
     attached_running = False
     try:
         probes = probe.connected_emulators()
-        if len(probes) != 1:
-            raise ValueError("补偿表回读需要连接本次电机的一只J-Link")
-        probe.open(serial_no=probes[0].SerialNumber)
+        serials = [item.SerialNumber for item in probes]
+        if probe_serial is None and len(serials) == 1:
+            probe_serial = serials[0]
+        if probe_serial is None:
+            raise ValueError("请在整包烧录页选择本次电机的 J-Link，再读取标定曲线")
+        if probe_serial not in serials:
+            raise ValueError("所选 J-Link 已断开，请重新扫描并选择")
+        probe.open(serial_no=probe_serial)
         for command in (
             "SetAllowFlashCache = 0",
             "SetEnableMemCache = 0",
@@ -217,13 +222,173 @@ def calibration_probe(uid: str):
             probe.close()
 
 
-def _read_record(uid: str) -> bytes:
-    with calibration_probe(uid) as (probe, target):
+def _read_record(uid: str, probe_serial: int | None = None) -> bytes:
+    with calibration_probe(uid, probe_serial) as (probe, target):
         record = board.maintenance.read_twice(
             probe, board.maintenance.target_value(target, "TARGET_PARAM_BASE"), 16384
         )
         board.maintenance.check_outputs_off(probe, target)
         return record
+
+
+def _read_record_can(link: Link, revision: int) -> bytes:
+    """按v1分块重组真实保存记录；修订、CRC或元数据变化立即拒绝。"""
+
+    def request(offset: int = 0, count: int = 0, crc: int = 0) -> tuple[tuple, bytes]:
+        raw = link.request(
+            194, struct.pack("<IIHBB", revision if count else 0, crc, offset, count, 1)
+        )
+        if len(raw) < 18:
+            raise ValueError(f"CAN 标定记录回读被拒绝：{raw.hex()}")
+        header = struct.unpack_from("<HHIIHHBB", raw)
+        if header[:2] != (0, 0) or header[5:] != (offset, count, 1) or len(raw) != 18 + count:
+            raise ValueError("CAN 标定记录回读格式错误")
+        return header, raw[18:]
+
+    metadata, _ = request()
+    if metadata[2] != revision or metadata[4] != 4372:
+        raise ValueError("CAN 标定记录修订或布局不匹配")
+    record = bytearray()
+    for offset in range(0, metadata[4], 28):
+        count = min(28, metadata[4] - offset)
+        header, data = request(offset, count, metadata[3])
+        if header[2:5] != metadata[2:5]:
+            raise ValueError("CAN 标定记录读取期间已改变")
+        record.extend(data)
+    if request()[0] != metadata or zlib.crc32(record) != metadata[3]:
+        raise ValueError("CAN 标定记录完整性校验失败")
+    return bytes(record)
+
+
+def read_committed_calibration_fault(bus: Any, report: dict, out: Path) -> dict:
+    """只读回本轮已提交的联合标定失败记录，核对身份、关相和保存修订。"""
+    link = Link(bus, report["node"], timeout_s=0.5)
+
+    def saved_revision() -> int:
+        identity = link.request(1, page=0)
+        status = link.status()
+        saved = link.request(123, bytes(4))
+        if len(identity) != 32 or identity[:12].hex() != report["uid"]:
+            raise ValueError("标定诊断回读时设备身份改变")
+        if status[43:] not in (bytes((5, 0)), bytes((8, 0))):
+            raise ValueError("标定诊断回读需要板端已关相")
+        if len(saved) != 20 or saved[:6] != b"\0\0\0\0\0\x02":
+            raise ValueError("标定诊断无法读取保存修订")
+        active, revision = struct.unpack_from("<II", saved, 12)
+        if not revision or active != revision:
+            raise ValueError("标定诊断的活动修订与保存修订不一致")
+        return revision
+
+    revision = saved_revision()
+    before = report["before_revision"]["saved_revision"]
+    if revision <= before:
+        raise ValueError("Flash 未出现本次标定的新保存修订")
+    record = _read_record_can(link, revision)
+    if saved_revision() != revision:
+        raise ValueError("标定诊断回读期间保存修订改变")
+    info = board.maintenance.decode_parameters(record)
+    if info["node"] != report["node"]:
+        raise ValueError("标定诊断保存记录的节点不匹配")
+    diagnostic = (
+        _saved_output_fault(record)
+        if report.get("stop_faults") == 0x20
+        else _saved_hall_fault(record)
+    )
+    path = out / "failed-calibration-parameters.bin"
+    path.write_bytes(record)
+    result = dict(
+        diagnostic,
+        calibration_flags=info["calibration_flag"],
+        saved_revision=revision,
+        parameters_bin=path.name,
+    )
+    if info["calibration_flag"] & 1:
+        axis = SimpleNamespace(
+            model=report.get("archive", {}).get("name") or "Motor",
+            node=report["node"],
+        )
+        diagnostic_hall = False
+        if report.get("stop_faults") == 0x4000:
+            try:
+                diagnostic_hall = _has_hall_diagnostic_lut(record, result["hall_fault_mask"])
+            except (ValueError, struct.error) as error:
+                result["hall_diagnostic_error"] = str(error)
+        try:
+            result["encoder_curves"] = export_curves(
+                record,
+                axis,
+                False,
+                bytes.fromhex(report["uid"]),
+                out,
+                diagnostic_hall=diagnostic_hall,
+            )
+            if diagnostic_hall:
+                result["hall_diagnostic_curve"] = True
+        except Exception as error:
+            # 绘图失败不影响已核验的板端故障和保存标志。
+            result["encoder_curve_error"] = str(error)
+    return result
+
+
+def _has_hall_diagnostic_lut(record: bytes, faults: int) -> bool:
+    magic, binding, _, _, _, _, flags, lut_status = struct.unpack_from("<IIfffiII", record, 2288)
+    if lut_status != 3:
+        return False
+    lut = struct.unpack_from("<1024h", record, 2320)
+    if (
+        magic != 0x334E454F
+        or binding != struct.unpack_from("<I", record, 2140)[0]
+        or zlib.crc32(record[2288:4368]) != struct.unpack_from("<I", record, 4368)[0]
+        or not faults
+        or faults & ~0x1E
+        or flags & 0xFF != 2
+        or any(64 + lut[(i + 1) % 1024] - lut[i] <= 0 for i in range(1024))
+    ):
+        raise ValueError("Hall 诊断曲线记录的状态、绑定或 CRC 无效")
+    return True
+
+
+def _saved_hall_fault(record: bytes) -> dict:
+    tag = struct.unpack_from("<I", record, 2204)[0]
+    flags = tag & 0x7F
+    if tag & 0xFFFFFF80 != 0x48410100 or not flags:
+        raise ValueError("本轮保存记录没有有效的 Hall 失败标志")
+    descriptions = (
+        "Hall 扫圈无有效样本",
+        "Hall sin 最小值过低",
+        "Hall sin 最大值过高",
+        "Hall cos 最小值过低",
+        "Hall cos 最大值过高",
+        "Hall sin 幅值不足",
+        "Hall cos 幅值不足",
+    )
+    return dict(
+        hall_fault_mask=flags,
+        details=[text for bit, text in enumerate(descriptions) if flags & (1 << bit)],
+    )
+
+
+def _saved_output_fault(record: bytes) -> dict:
+    magic, binding, _, _, _, _, flags, lut = struct.unpack_from("<IIfffiII", record, 2288)
+    if (
+        magic != 0x334E454F
+        or binding != struct.unpack_from("<I", record, 2140)[0]
+        or zlib.crc32(record[2288:4368]) != struct.unpack_from("<I", record, 4368)[0]
+    ):
+        raise ValueError("输出轴标定诊断的记录绑定或 CRC 无效")
+    status = flags & 0xFF
+    reason = {
+        1: "输出轴与电机轴配对采样不足",
+        2: "输出轴 Hall 基础标定未通过",
+        3: {
+            0: "输出轴减速比校验失败",
+            1: "输出轴 Hall 补偿表相位覆盖不足",
+            2: "输出轴 Hall 与电机轴角映射或相位误差超限",
+        }.get(lut, "输出轴 Hall 与电机轴配对校验失败"),
+    }.get(status)
+    if not reason:
+        raise ValueError("本轮保存记录没有有效的输出轴配对失败标志")
+    return dict(output_status=status, hall_lut_status=lut, details=[reason])
 
 
 def _validate_record(record: bytes, node: int, crc: int, has_hall: bool) -> dict:
@@ -253,7 +418,9 @@ def _validate_record(record: bytes, node: int, crc: int, has_hall: bool) -> dict
     return info
 
 
-def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: str = "") -> dict:
+def export_calibration_curves(
+    bus: Any, report: dict, out: Path, model_label: str = "", *, probe_serial: int | None = None
+) -> dict:
     """导出本票据保存的LUT；无设备写入，回读前后核对UID、修订和记录CRC。"""
     if not report.get("passed") or not report.get("stop_confirmed"):
         raise ValueError("只有本次标定成功并确认关相后才能绘制")
@@ -261,7 +428,15 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
     revision = report["saved_revision"]["saved_revision"]
     try:
         crc, model = _saved_snapshot(link, report["uid"], revision)
-        record = _read_record(report["uid"])
+        caps = link.request(2, page=0)
+        if len(caps) != 16:
+            raise ValueError("标定回读能力应答无效")
+        can_readback = bool(int.from_bytes(caps[:4], "little") & (1 << 24))
+        record = (
+            _read_record_can(link, revision)
+            if can_readback
+            else _read_record(report["uid"], probe_serial)
+        )
         info = _validate_record(record, report["node"], crc, model in (2, 3))
         if _saved_snapshot(link, report["uid"], revision) != (crc, model):
             raise ValueError("补偿表回读期间活动配置已改变")
@@ -298,7 +473,9 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
             encoding="utf-8",
         )
         curves.update(
-            source="本次Flash保存表（J-Link只读回读）",
+            source="本次Flash保存表（CAN只读回读）"
+            if can_readback
+            else "本次Flash保存表（J-Link只读回读）",
             calibration_flags=info["calibration_flag"],
             saved_revision=revision,
             record_crc32=info["record_crc32"],
@@ -338,3 +515,29 @@ def export_calibration_curves(bus: Any, report: dict, out: Path, model_label: st
         return curves
     finally:
         report["curve_read_timeouts"] = link.timeouts
+
+
+def read_saved_calibration(
+    bus: Any, node: int, uid: str, out: Path, probe_serial: int | None = None
+) -> dict:
+    """读取已有保存记录，不启动标定，不把回读结果当作新的标定票据。"""
+    link = Link(bus, node, timeout_s=0.5)
+    info = link.request(1, page=0)
+    saved = link.request(123, bytes(4))
+    if len(info) != 32 or info[:12].hex() != uid or len(saved) != 20:
+        raise ValueError("保存记录的设备身份或参数回复无效")
+    revision = struct.unpack_from("<I", saved, 16)[0]
+    if not revision:
+        raise ValueError("设备没有可验证的已保存记录")
+    report = dict(
+        profile="calibration_readback",
+        node=node,
+        uid=uid,
+        passed=True,
+        stop_confirmed=True,
+        kind=0,
+        app_version=struct.unpack_from("<I", info, 20)[0],
+        saved_revision={"saved_revision": revision},
+    )
+    report["curves"] = export_calibration_curves(bus, report, out, probe_serial=probe_serial)
+    return report

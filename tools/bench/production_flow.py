@@ -16,13 +16,20 @@ class ProductionFlow:
             "jlink_erase",
             "motor_calibration",
             "hardware_check",
+            "production_inspection",
         ):
             return
         device = self.devices.setdefault(uid, dict(uid=uid, steps={}, records=[]))
         steps = device["steps"]
         if profile in ("jlink_flash", "jlink_erase"):
             steps.clear()
+            device.pop("inspection", None)
+        elif profile == "production_inspection":
+            for key in ("hardware", "angle", "zero", "recheck"):
+                steps.pop(key, None)
+            device["inspection"] = "进行中"
         elif profile == "motor_calibration":
+            device.pop("inspection", None)
             steps.pop("recheck", None)
             if kind == 1:
                 steps.pop("angle", None)
@@ -37,26 +44,49 @@ class ProductionFlow:
         """只接收有设备UID的实际操作报告；保存证据目录而非复制原始数据。"""
         profile = report.get("profile")
         uid = report.get("uid") or report.get("identity", {}).get("uid")
+        if not uid and profile == "production_inspection" and not report.get("passed"):
+            # 尚未取得板端UID的失败或排队取消，也须结束已绑定设备的本轮状态。
+            uid = report.get("expected_uid")
         if not uid:
             return
         if profile == "parameters" and (report.get("applied") or report.get("save_sent")):
-            steps = self.devices.get(uid, {}).get("steps", {})
+            device = self.devices.get(uid, {})
+            device.pop("inspection", None)
+            steps = device.get("steps", {})
             for key in ("hardware", "recheck"):
                 steps.pop(key, None)
             return
-        if profile not in ("jlink_flash", "hardware_check", "motor_calibration"):
+        if profile not in (
+            "jlink_flash",
+            "hardware_check",
+            "motor_calibration",
+            "production_inspection",
+        ):
             return
         if report.get("needs_initial_setup"):
             return
         device = self.devices.setdefault(uid, dict(uid=uid, steps={}, records=[]))
         steps = device["steps"]
-        if profile == "jlink_flash":
+        if profile == "production_inspection":
+            device["inspection"] = report.get("verdict", "未通过 / 未完成")
+        elif profile == "jlink_flash":
             steps.clear()
+            device.pop("inspection", None)
             steps["flash"] = bool(
                 report.get("success")
                 and report.get("app_started")
                 and report.get("can_test", {}).get("version_verified")
             )
+            if (
+                not steps["flash"]
+                and report.get("success")
+                and report.get("app_started")
+                and report.get("protected_regions_verified")
+                and report.get("swd_versions")
+                and "can_test" not in report
+            ):
+                # SWD 已通过但未执行 CAN 验收；既不是失败，也不能计为完整通过。
+                steps["flash"] = None
         elif profile == "motor_calibration":
             steps.pop("recheck", None)
             if report.get("kind") == 1:
@@ -82,9 +112,17 @@ class ProductionFlow:
             )
         device["records"].append(dict(profile=profile, directory=directory, steps=steps.copy()))
 
-    def summary(self, uid: str | None) -> str:
+    def summary(self, uid: str | None, *, integrated: bool = False) -> str:
         """只汇总当前UID的本次证据；完整顺序要求不代替整机出厂验收。"""
-        steps = self.devices.get(uid, {}).get("steps", {})
+        device = self.devices.get(uid, {})
+        steps = device.get("steps", {})
+        if integrated or "inspection" in device:
+            flash = (
+                "待 CAN 验证"
+                if "flash" in steps and steps["flash"] is None
+                else ("完成" if steps.get("flash") else "未确认")
+            )
+            return f"烧录：{flash}    整轮生产检测：{device.get('inspection', '未开始')}"
         labels = (
             ("flash", "烧录"),
             ("hardware", "完整检测"),
@@ -93,7 +131,11 @@ class ProductionFlow:
             ("recheck", "完整复检"),
         )
         parts = [
-            f"{name}：{'完成' if steps[key] else '未通过'}" if key in steps else f"{name}：未完成"
+            f"{name}：待 CAN 验证"
+            if key == "flash" and key in steps and steps[key] is None
+            else f"{name}：{'完成' if steps[key] else '未通过'}"
+            if key in steps
+            else f"{name}：未完成"
             for key, name in labels
         ]
         complete = all(steps.get(key) for key, _ in labels)

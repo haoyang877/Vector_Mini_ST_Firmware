@@ -74,6 +74,15 @@ def main() -> int:
         expected_coordinates = coordinates["feedback_offsets_8_to_23_hex"]
         if "VECTOR output_coordinates_v2 " + expected_coordinates not in result.stdout.splitlines():
             raise RuntimeError("输出轴坐标v2黄金向量不匹配")
+        motor_axis = json.loads(
+            (ROOT / "tests/fixtures/protocol/motor_axis_speed_v1.json").read_text(encoding="utf-8")
+        )
+        for name, key in (
+            ("motor_axis_speed_v1", "feedback_offsets_8_to_23_hex"),
+            ("motor_axis_target_v1", "target_payload_hex"),
+        ):
+            if f"VECTOR {name} {motor_axis[key]}" not in result.stdout.splitlines():
+                raise RuntimeError(f"电机轴速度黄金向量不匹配 {name}")
     executable = args.out.resolve() / "at32f456_foundation.exe"
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += [

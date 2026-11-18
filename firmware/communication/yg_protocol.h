@@ -131,6 +131,45 @@ typedef struct
 #define PROTOCOL_COMMIT_MOTOR_CONFIGURATION 192U
 #define PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION 193U
 #define PROTOCOL_FEATURE_MOTOR_CONFIGURATION (1UL << 17U)
+#define PROTOCOL_READ_SAVED_CALIBRATION 194U
+#define PROTOCOL_READ_HALL_RAW 195U
+#define PROTOCOL_FEATURE_SAVED_CALIBRATION (1UL << 24U)
+#define PROTOCOL_FEATURE_HALL_RAW (1UL << 25U)
+#define PROTOCOL_CALIBRATION_BLOCK_BYTES 28U
+
+/** @brief 已保存记录的只读分块请求；全零修订/CRC/位置/长度表示查询元数据。 */
+typedef struct
+{
+    uint32_t revision, crc32;
+    uint16_t offset;
+    uint8_t count;
+} ProtocolCalibrationRequest;
+
+/** @brief 前台读取的保存记录片段；data只在成功且count非零时有效。 */
+typedef struct
+{
+    uint32_t revision, crc32;
+    uint16_t total;
+    uint8_t data[PROTOCOL_CALIBRATION_BLOCK_BYTES];
+} ProtocolCalibrationBlock;
+
+/** @brief 同拍Hall原码；时间为板端快照读取时间，计数为实际快采样计数。 */
+typedef struct
+{
+    uint32_t sample_counter, read_time_ms;
+    uint16_t sin_counts, cos_counts, flags;
+} ProtocolHallRaw;
+
+/** @brief 只读标定诊断绑定；仅由前台串行调用，空回调表示不支持。 */
+typedef struct
+{
+    void *context;
+    ProtocolCode (*read_record)(void *context,
+                                const ProtocolCalibrationRequest *request,
+                                ProtocolCalibrationBlock *block,
+                                uint16_t *detail);
+    ProtocolCode (*read_hall)(void *context, ProtocolHallRaw *sample);
+} ProtocolCalibrationReadback;
 
 /** @brief 型号配置值请求；速度 mrad/s，热参数依次为 mA/mA/ms 和四个百万分比。 */
 typedef struct
@@ -275,6 +314,7 @@ typedef struct
     uint8_t mode;
     uint32_t renewal_counter;
     uint8_t start_flags;
+    bool motor_axis_speed;
     int32_t position_mrad;
     int32_t speed_mrad_s;
     int32_t iq_mA;
@@ -315,6 +355,8 @@ typedef struct
     void (*host_position_keepalive)(void *context);
     /** 前台填写线路状态和有效测量。未测字段保留预置哨兵，返回是否有状态样本。 */
     bool (*read_feedback)(void *context, ProtocolFeedback *feedback);
+    /** 显式查询电机编码器坐标，单位和反馈布局同常规状态。 */
+    bool (*read_motor_axis)(void *context, ProtocolFeedback *feedback);
     /** 前台读取有版本的输出轴状态；失败时通信回复BUSY。 */
     bool (*read_output)(void *context, MotorOutputFeedback *feedback);
 } ProtocolMotor;
@@ -673,6 +715,7 @@ struct ProtocolEndpoint
     ProtocolHardwareCheck hardware_check;
     ProtocolJobs jobs;
     ProtocolParameters parameters;
+    ProtocolCalibrationReadback calibration_readback;
     ProtocolMotorConfiguration configuration;
     BootEntryService loader;
     ProtocolDeviceStatus device_status;

@@ -9,6 +9,8 @@
 #include "bsp_system.h"
 #include "device_identity.h"
 #include "yg_protocol_common.h"
+#include "crc32.h"
+#include <string.h>
 
 #include "application_config.h"
 #include "board_config.h"
@@ -115,6 +117,64 @@ static void handle_parameter_request(void *context,
 
 static void update_identity_info_page(void *context);
 
+static ProtocolCode read_saved_calibration(void *context,
+                                           const ProtocolCalibrationRequest *request,
+                                           ProtocolCalibrationBlock *block,
+                                           uint16_t *detail)
+{
+    MotorAxis *axis = context;
+    ParameterValue value = {0};
+    ParameterStatus status = MotorAxis_ReadParameter(axis, 0U, true, &value);
+    if (status != PARAMETER_OK || axis->parameters.saved_revision == 0U)
+    {
+        *detail = status == PARAMETER_WRONG_STATE ? 5U : 7U;
+        return status == PARAMETER_WRONG_STATE ? PROTOCOL_RESULT_DENIED : PROTOCOL_RESULT_FAILED;
+    }
+    const MotorAxisRecord *record = &axis->calibration.storage.record;
+    block->total = sizeof(*record);
+    block->revision = axis->parameters.saved_revision;
+    block->crc32 = Crc32_Compute(record, sizeof(*record), 0U);
+    if (request->count == 0U)
+    {
+        return PROTOCOL_RESULT_OK;
+    }
+    if (request->revision != block->revision || request->crc32 != block->crc32)
+    {
+        *detail = 6U;
+        return PROTOCOL_RESULT_DENIED;
+    }
+    if ((uint32_t)request->offset + request->count > block->total)
+    {
+        return PROTOCOL_RESULT_OUT_OF_RANGE;
+    }
+    memcpy(block->data, (const uint8_t *)record + request->offset, request->count);
+    return PROTOCOL_RESULT_OK;
+}
+
+#if BSP_ENABLED_LINEAR_HALL
+static ProtocolCode read_hall_raw(void *context, ProtocolHallRaw *sample)
+{
+    MotorAxis *axis = context;
+    if (!MotorAxisPreset_HasLinearHall(axis->configuration.preset))
+    {
+        return PROTOCOL_RESULT_UNSUPPORTED;
+    }
+    /* 仅复制一个已发布的同拍样本，不改变外环的读槽所有权。 */
+    uint32_t mask = BspSystem_EnterCritical();
+    uint8_t slot = axis->hall_published_slot;
+    sample->sin_counts = axis->hall_samples[slot].sin_counts;
+    sample->cos_counts = axis->hall_samples[slot].cos_counts;
+    sample->sample_counter = axis->state_machine.fast_sample_ticks;
+    sample->read_time_ms = BspSystem_TimeMs();
+    BspSystem_ExitCritical(mask);
+    sample->flags =
+        sample->sample_counter != 0U && sample->sin_counts <= 4095U && sample->cos_counts <= 4095U
+            ? 1U
+            : 0U;
+    return PROTOCOL_RESULT_OK;
+}
+#endif
+
 /**
  * @brief 初始化电机、CAN 节点及运行时设备信息，绑定本机协议回调。
  * @note main在Bsp_Init后调用一次；依次绑定，任一步失败便停止后续绑定并关相。
@@ -133,6 +193,11 @@ void App_Init(AppContext *app)
     AppMotorConfiguration_Init(&app->motor_configuration, &app->axis, &app->endpoint);
 
     app->endpoint.parameters = (ProtocolParameters){&app->axis, handle_parameter_request};
+    app->endpoint.calibration_readback.context = &app->axis;
+    app->endpoint.calibration_readback.read_record = read_saved_calibration;
+#if BSP_ENABLED_LINEAR_HALL
+    app->endpoint.calibration_readback.read_hall = read_hall_raw;
+#endif
     app->communication_ready =
         Protocol_Init(&app->endpoint, app->axis.configuration.device.node_id);
 #if BSP_BOARD == BSP_BOARD_AT32F456
@@ -239,7 +304,8 @@ static bool configure_protocol_device_info(AppContext *app)
     ProtocolCaps capabilities = {
         .default_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
         .max_watchdog_ms = PROTOCOL_MOTION_LEASE_MS,
-        .features = PROTOCOL_FEATURE_OUTPUT_COORDINATES | PROTOCOL_FEATURE_MOTOR_CONFIGURATION |
+        .features = PROTOCOL_FEATURE_MOTOR_AXIS_SPEED | PROTOCOL_FEATURE_OUTPUT_COORDINATES |
+                    PROTOCOL_FEATURE_SAVED_CALIBRATION | PROTOCOL_FEATURE_MOTOR_CONFIGURATION |
                     PROTOCOL_FEATURE_HOST_POSITION_SESSION | PROTOCOL_FEATURE_MOTION_LEASE |
                     PROTOCOL_FEATURE_PARAMETER_SERVICE | PROTOCOL_FEATURE_JOB_STATUS |
                     PROTOCOL_FEATURE_OUTPUT_FEEDBACK | (1UL << 8U) | (1UL << 10U) | (1UL << 11U) |
@@ -247,6 +313,12 @@ static bool configure_protocol_device_info(AppContext *app)
         .supported_modes = (1U << 1) | (1U << 2) | (1U << 3) | (1U << 6) | (1U << 9) | (1U << 10),
         .max_full_frame = YG_PROTOCOL_MAX_FRAME_SIZE,
         .max_block_data = YG_PROTOCOL_MAX_PAYLOAD_SIZE};
+#if BSP_ENABLED_LINEAR_HALL
+    if (MotorAxisPreset_HasLinearHall(app->axis.configuration.preset))
+    {
+        capabilities.features |= PROTOCOL_FEATURE_HALL_RAW;
+    }
+#endif
     if (app->endpoint.hardware_check.handle != NULL)
     {
         capabilities.features |= PROTOCOL_FEATURE_HARDWARE_CHECK;

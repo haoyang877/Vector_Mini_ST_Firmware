@@ -629,6 +629,54 @@ static void test_maintenance_storage_exclusion(void)
     assert(MotorAxis_ReadParameter(axis, 0x70U, false, &value) == PARAMETER_OK);
 }
 
+static void calibration_readback_services(void)
+{
+    MotorAxis *axis = &apps[0].axis;
+    ProtocolCalibrationReadback *service = &apps[0].endpoint.calibration_readback;
+    ProtocolCalibrationRequest request = {0};
+    ProtocolCalibrationBlock block = {0};
+    uint16_t detail = 0U;
+    axis->parameters.saved_revision = 0U;
+    assert(service->read_record(service->context, &request, &block, &detail) ==
+           PROTOCOL_RESULT_FAILED);
+    axis->parameters.saved_revision = 7U;
+    assert(service->read_record(service->context, &request, &block, &detail) == PROTOCOL_RESULT_OK);
+    assert(block.total == sizeof(MotorAxisRecord));
+    assert(block.crc32 == Crc32_Compute(&devices[0].saved, sizeof(devices[0].saved), 0U));
+    request = (ProtocolCalibrationRequest){block.revision, block.crc32, 7U, 28U};
+    assert(service->read_record(service->context, &request, &block, &detail) == PROTOCOL_RESULT_OK);
+    assert(memcmp(block.data, (const uint8_t *)&devices[0].saved + 7U, 28U) == 0);
+    request.offset = block.total - 1U;
+    assert(service->read_record(service->context, &request, &block, &detail) ==
+           PROTOCOL_RESULT_OUT_OF_RANGE);
+    request.offset = 7U;
+    ++request.revision;
+    assert(service->read_record(service->context, &request, &block, &detail) ==
+           PROTOCOL_RESULT_DENIED);
+    assert(detail == 6U);
+    axis->state_machine.maintenance_capture = true;
+    request = (ProtocolCalibrationRequest){0};
+    assert(service->read_record(service->context, &request, &block, &detail) ==
+           PROTOCOL_RESULT_DENIED);
+    assert(detail == 5U);
+    axis->state_machine.maintenance_capture = false;
+#if BSP_ENABLED_LINEAR_HALL
+    const MotorAxisPreset *previous = axis->configuration.preset;
+    const MotorAxisPreset preset = {.has_linear_hall = true};
+    axis->configuration.preset = &preset;
+    axis->hall_published_slot = 1U;
+    axis->hall_samples[1].sin_counts = 123U;
+    axis->hall_samples[1].cos_counts = 3456U;
+    axis->state_machine.fast_sample_ticks = 7U;
+    ProtocolHallRaw sample = {0};
+    assert(service->read_hall(service->context, &sample) == PROTOCOL_RESULT_OK);
+    assert(sample.flags == 1U && sample.sin_counts == 123U && sample.cos_counts == 3456U);
+    assert(sample.sample_counter == 7U);
+    axis->configuration.preset = previous;
+#endif
+    puts("PASS saved-record blocks, revision/CRC/limit guards and raw Hall snapshot");
+}
+
 /* 真实快拍、发布、Flash记录和重载均不得改写电机原点。 */
 static void output_mechanical_zero(void)
 {
@@ -686,6 +734,7 @@ int main(void)
     motion_permission_expires();
     test_maintenance_storage_exclusion();
     parameter_and_output_services();
+    calibration_readback_services();
     output_mechanical_zero();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");

@@ -328,3 +328,57 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     encoder->params = (OutputEncoderParams){ratio, phase, 0.0f, direction, OUTPUT_ENCODER_CAL_OK};
     return true;
 }
+
+void OutputEncoder_CalibHallDiagnostic(const OutputEncoderCalib *cal,
+                                       const LinearHallCalibration *sweep,
+                                       LinearHall *hall,
+                                       const OutputEncoder *encoder,
+                                       const EncoderCalibration *motor)
+{
+    const uint8_t extrema_faults = LINEAR_HALL_CAL_FAULT_SIN_LOW | LINEAR_HALL_CAL_FAULT_SIN_HIGH |
+                                   LINEAR_HALL_CAL_FAULT_COS_LOW | LINEAR_HALL_CAL_FAULT_COS_HIGH;
+    if (hall->calibration_success || hall->calibration_faults == 0U ||
+        (hall->calibration_faults & ~extrema_faults) != 0U ||
+        cal->count != OUTPUT_ENCODER_CAL_SAMPLES)
+    {
+        return;
+    }
+    OutputEncoderCalibSample previous = OutputEncoder_CalibGetSample(cal, 0U);
+    for (unsigned i = 1U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
+    {
+        OutputEncoderCalibSample sample = OutputEncoder_CalibGetSample(cal, i);
+        bool sin_at_limit =
+            sample.sin_counts <= HALL_CAL_MIN_COUNTS || sample.sin_counts >= HALL_CAL_MAX_COUNTS;
+        bool cos_at_limit =
+            sample.cos_counts <= HALL_CAL_MIN_COUNTS || sample.cos_counts >= HALL_CAL_MAX_COUNTS;
+        if (sin_at_limit && cos_at_limit && sample.sin_counts == previous.sin_counts &&
+            sample.cos_counts == previous.cos_counts &&
+            sample.motor_counts != previous.motor_counts)
+        {
+            /* 两路同锁于限幅区而参考在动，滤波不能恢复丢失的角度。 */
+            hall->lut_status = LINEAR_HALL_LUT_MAPPING;
+            return;
+        }
+        previous = sample;
+    }
+    float sin_offset = hall->sin_off_counts, cos_offset = hall->cos_off_counts;
+    float sin_amplitude = hall->sin_amp, cos_amplitude = hall->cos_amp;
+    LinearHallSample value = hall->val;
+    hall->sin_off_counts = (sweep->sin_max + sweep->sin_min) * 0.5f;
+    hall->cos_off_counts = (sweep->cos_max + sweep->cos_min) * 0.5f;
+    hall->sin_amp = (sweep->sin_max - sweep->sin_min) * 0.5f;
+    hall->cos_amp = (sweep->cos_max - sweep->cos_min) * 0.5f;
+    hall->calibration_success = true;
+    OutputEncoder diagnostic;
+    OutputEncoder_Init(&diagnostic, encoder->params.gear_ratio);
+    if (OutputEncoder_CalibEnd(&diagnostic, cal, hall, motor))
+    {
+        hall->lut_status = LINEAR_HALL_LUT_DIAGNOSTIC;
+    }
+    hall->calibration_success = false;
+    hall->sin_off_counts = sin_offset;
+    hall->cos_off_counts = cos_offset;
+    hall->sin_amp = sin_amplitude;
+    hall->cos_amp = cos_amplitude;
+    hall->val = value;
+}

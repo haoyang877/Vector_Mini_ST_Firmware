@@ -91,7 +91,7 @@ static void setup(void)
     memset(&endpoint, 0, sizeof(endpoint));
     memset(&service, 0, sizeof(service));
     axis.hardware = &hardware;
-    assert(Param_CreateAxis(5U, -2.0f, 2.0f, 1.0f, NULL, &axis.configuration));
+    assert(Param_CreateAxis(5U, 0.0f, 0.0f, 1.0f, NULL, &axis.configuration));
     axis.configuration.configuration_confirmed = true;
     axis.configuration.device.encoder.calib_flag = ENC_CALIB_ALL;
     Param_Upload(&axis.calibration.storage.record.motor, &axis.configuration);

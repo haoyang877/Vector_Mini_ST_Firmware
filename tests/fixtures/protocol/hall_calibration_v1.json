@@ -3,5 +3,7 @@
   "record_bytes": 2288,
   "offset": 2188,
   "successful": "0000e144004003450000c8440080bb4480014148",
-  "no_samples": "0000e144004003450000c8440080bb4401014148"
+  "no_samples": "0000e144004003450000c8440080bb4401014148",
+  "diagnostic_output_status_offset": 2312,
+  "diagnostic_output_status": "0200000003000000"
 }

@@ -233,8 +233,91 @@ static void test_hardware_wire(void)
           exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN);
 }
 
+static unsigned readback_calls;
+static ProtocolCode readback_record(void *context,
+                                    const ProtocolCalibrationRequest *request,
+                                    ProtocolCalibrationBlock *block,
+                                    uint16_t *detail)
+{
+    (void)context;
+    (void)detail;
+    ++readback_calls;
+    block->revision = 3U;
+    block->crc32 = 0x12345678U;
+    block->total = 4372U;
+    for (unsigned i = 0; i < request->count; ++i)
+    {
+        block->data[i] = (uint8_t)(request->offset + i);
+    }
+    return PROTOCOL_RESULT_OK;
+}
+static ProtocolCode readback_hall(void *context, ProtocolHallRaw *sample)
+{
+    (void)context;
+    *sample = (ProtocolHallRaw){.sample_counter = 10U,
+                                .read_time_ms = 123456U,
+                                .sin_counts = 100U,
+                                .cos_counts = 4000U,
+                                .flags = 1U};
+    return PROTOCOL_RESULT_OK;
+}
+static void print_readback(const char *name, const ProtocolResponse *response)
+{
+    printf("%s ", name);
+    for (unsigned i = 0; i < response->length; ++i)
+    {
+        printf("%02x", response->data[i]);
+    }
+    puts("");
+}
+static void test_calibration_readback(void)
+{
+    CHECK(test_reset_protocol(3U));
+    endpoint.calibration_readback =
+        (ProtocolCalibrationReadback){NULL, readback_record, readback_hall};
+    uint8_t data[12] = {0};
+    data[11] = 1U;
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .source_node = 2U,
+                                             .destination_node = 3U,
+                                             .message_type = PROTOCOL_READ_SAVED_CALIBRATION,
+                                             .payload_length = 12U,
+                                             .payload = data}};
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.length == 18U);
+    print_readback("CALIBRATION_METADATA", &exchange.reply);
+    YgProtocol_WriteU32Le(data, 3U);
+    YgProtocol_WriteU32Le(data + 4U, 0x12345678U);
+    data[8] = 4U;
+    data[10] = 3U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.length == 21U);
+    print_readback("CALIBRATION_BLOCK", &exchange.reply);
+    unsigned calls = readback_calls;
+    data[10] = 29U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD && readback_calls == calls);
+    exchange.request.source_node = 5U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN && readback_calls == calls);
+    exchange.request.source_node = 2U;
+    exchange.request.payload_length = 11U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH && readback_calls == calls);
+    exchange.request.message_type = PROTOCOL_READ_HALL_RAW;
+    exchange.request.payload_length = 0U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.length == 20U);
+    print_readback("HALL_RAW", &exchange.reply);
+    endpoint.calibration_readback.read_hall = NULL;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_UNSUPPORTED);
+}
+
 int main(void)
 {
+    test_calibration_readback();
     test_hardware_wire();
     test_host_position_session_wire();
     test_minimal_state();

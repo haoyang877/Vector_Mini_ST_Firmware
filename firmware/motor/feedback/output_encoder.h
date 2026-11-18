@@ -166,4 +166,19 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
                             LinearHall *hall,
                             const EncoderCalibration *motor);
 
+/**
+ * @brief 极值超限时用本轮系数尝试生成可回读的诊断表。
+ * @param cal 已停止采集的配对工作区。
+ * @param sweep 本轮两路原码极值。
+ * @param hall 已结算失败的发布候选；保留故障和原系数。
+ * @param encoder 已结算的输出候选；提供减速比。
+ * @param motor 本次新发布的电机编码器 LUT。
+ * @note 成功时表仅供序列化，调用方在发布前丢弃诊断表。
+ */
+void OutputEncoder_CalibHallDiagnostic(const OutputEncoderCalib *cal,
+                                       const LinearHallCalibration *sweep,
+                                       LinearHall *hall,
+                                       const OutputEncoder *encoder,
+                                       const EncoderCalibration *motor);
+
 #endif

@@ -2,6 +2,7 @@
 #include "bsp_system.h"
 #include "motor_fault.h"
 #include <math.h>
+#include <string.h>
 
 /* 低频使用的测量分支留在Flash，避免挤占正常控制快环SRAM。 */
 __attribute__((noinline)) static MotorTaskResult step_resistance(MotorCalibration *calibration)
@@ -189,6 +190,11 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
                                                 &calibration->drive.configuration->device.encoder);
         if (!hall_ok)
         {
+            OutputEncoder_CalibHallDiagnostic(&calibration->storage.output_calibration,
+                                              &calibration->hall_sweep,
+                                              hall,
+                                              &output,
+                                              &calibration->drive.configuration->device.encoder);
             fault = MOTOR_FAULT_LINEAR_HALL_CALIBRATION;
         }
         else if (!output_ok)
@@ -204,6 +210,11 @@ void MotorCalibration_ProcessPublication(MotorCalibration *calibration)
         Param_StoreLinearHall(&calibration->record->motor, hall);
     }
     Param_StoreOutputEncoder(calibration->record, &output, hall);
+    if (hall->lut_status == LINEAR_HALL_LUT_DIAGNOSTIC)
+    {
+        memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
+        hall->lut_status = 0U;
+    }
 #else
     Param_StoreOutputEncoder(calibration->record, &output, NULL);
 #endif

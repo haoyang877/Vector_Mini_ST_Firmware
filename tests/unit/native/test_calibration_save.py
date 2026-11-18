@@ -12,7 +12,7 @@ def fixture() -> str:
     golden = json.loads((ROOT / "tests/fixtures/protocol/hall_calibration_v1.json").read_text())
     vectors = "\n".join(
         f"static const uint8_t {name}[]={{" + ",".join(map(str, bytes.fromhex(golden[name]))) + "};"
-        for name in ("successful", "no_samples")
+        for name in ("successful", "no_samples", "diagnostic_output_status")
     )
     return (
         r"""
@@ -278,7 +278,7 @@ int main(void) {
  const float moving_speeds[] = {1.0f,-1.0f,NAN,INFINITY};
  for(unsigned i=0;i<sizeof(moving_speeds)/sizeof(moving_speeds[0]);++i) {
   reset();
-  assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+  assert(Param_CreateAxis(6,0,0,0.5f,&heat,&s_motor_configuration));
   kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
   machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
   s_rotor_encoder.mechanical_velocity_continuous_rad_s=moving_speeds[i];
@@ -291,7 +291,7 @@ int main(void) {
   assert(publication_failures==1 && !writes);
  }
  /* 任一超速拍重新计时；200 ms 恰好允许请求。 */
- reset(); assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+ reset(); assert(Param_CreateAxis(6,0,0,0.5f,&heat,&s_motor_configuration));
  kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
  MotorCalibration_ProcessPublication(&calibration);
@@ -303,7 +303,7 @@ int main(void) {
  now_ms=399; MotorCalibration_ProcessPublication(&calibration);
  assert(calibration.lut_request_epoch==session_epoch && !writes);
  /* 无符号差值跨毫秒计数回绕仍维持同一稳定窗口。 */
- reset(); assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+ reset(); assert(Param_CreateAxis(6,0,0,0.5f,&heat,&s_motor_configuration));
  kind=MOTOR_CALIBRATION_ENCODER_LINEARIZATION;
  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION; released=false;
  now_ms=UINT32_MAX-100U; MotorCalibration_ProcessPublication(&calibration);
@@ -314,7 +314,7 @@ int main(void) {
 
  /* 同一条 Flash 记录同时保存编码器和四个 Hall 系数；模拟重启及后续零位标定。 */
  reset();
- assert(Param_CreateAxis(6,-1,1,0.5f,&heat,&s_motor_configuration));
+ assert(Param_CreateAxis(6,0,0,0.5f,&heat,&s_motor_configuration));
  s_motor_configuration.configuration_confirmed=true;
  LinearHall_Init(&s_linear_hall);
  const float ratio = s_motor_configuration.preset->gear_ratio;
@@ -402,6 +402,45 @@ int main(void) {
   MotorCalibration_ProcessPublication(&calibration);
   assert(writes==before+1 && saved_publications==completed);
   assert(s_motor_state.fault_code==MOTOR_FAULT_CALIBRATION_STORAGE);
+ }
+ /* 限幅相位可分辨时保存诊断表；两路同拍平台仍拒绝。 */
+ for(unsigned plateau=0;plateau<2U;++plateau) {
+  reset(); assert(Param_CreateAxis(6,0,0,0.5f,&heat,&s_motor_configuration));
+  s_motor_configuration.device.encoder.calib_flag=ENC_CALIB_ALL;
+  LinearHall_Init(&s_linear_hall);
+  OutputEncoder_Init(&s_output_encoder,ratio);
+  LinearHall_CalibrationBegin(&calibration.hall_sweep);
+  calibration.storage.output_calibration.count=OUTPUT_ENCODER_CAL_SAMPLES;
+  for(unsigned i=0;i<OUTPUT_ENCODER_CAL_SAMPLES;++i) {
+   int32_t counts=(int32_t)(i*ratio*65536.0f*1.01f/(OUTPUT_ENCODER_CAL_SAMPLES-1U));
+   float h=(float)counts*(6.283185307f/(65536.0f*ratio));
+   uint16_t sin_counts=(uint16_t)lroundf(fminf(4095.0f,fmaxf(0.0f,2048.0f-2220.0f*sinf(h))));
+   uint16_t cos_counts=(uint16_t)lroundf(2048.0f+1780.0f*cosf(h));
+   if(plateau && i>=300U && i<310U) sin_counts=cos_counts=4095U;
+   LinearHall_CalibrationSample(&calibration.hall_sweep,sin_counts,cos_counts);
+   OutputEncoder_CalibSetSample(&calibration.storage.output_calibration,i,
+                                (OutputEncoderCalibSample){counts,sin_counts,cos_counts});
+  }
+  kind=MOTOR_CALIBRATION_COMBINED_ELECTRICAL_ZERO;
+  machine.calibration_handoff=MOTOR_CALIBRATION_AWAITING_PUBLICATION;
+  MotorCalibration_ProcessPublication(&calibration);
+  assert(writes==1 && saved_publications==1 && s_motor_state.fault_code==MOTOR_FAULT_LINEAR_HALL_CALIBRATION);
+  assert(!s_linear_hall.calibration_success && s_linear_hall.sin_amp==1829.5f);
+  assert(stored_axis.output.params.status==OUTPUT_ENCODER_CAL_HALL);
+  if(plateau) {
+   assert(stored_axis.output.hall_lut_status==LINEAR_HALL_LUT_MAPPING);
+  } else {
+   assert(!memcmp((uint8_t *)&stored_axis+2312U,diagnostic_output_status,sizeof diagnostic_output_status));
+   assert(LinearHall_LutIsMonotonic(stored_axis.output.hall_lut_q15));
+   bool nonzero=false;
+   for(unsigned i=0;i<LINEAR_HALL_LUT_SIZE;++i) nonzero|=stored_axis.output.hall_lut_q15[i]!=0;
+   assert(nonzero && s_linear_hall.lut_status==0U);
+  }
+  for(unsigned i=0;i<LINEAR_HALL_LUT_SIZE;++i) assert(s_linear_hall.lut_q15[i]==0);
+  LinearHall_Init(&hall); Param_RestoreLinearHall(&stored_record,&hall);
+  OutputEncoder_Init(&reboot,ratio);
+  assert(Param_RestoreOutputEncoder(&stored_axis,&reboot,&hall)==(plateau!=0U));
+  assert(!hall.calibration_success && !OutputEncoder_IsReady(&reboot));
  }
 #endif
  puts("PASS calibration publication: cancellation, stale session, schema14, Hall thresholds and Flash errors");

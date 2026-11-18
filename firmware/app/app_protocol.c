@@ -76,7 +76,9 @@ static void request_motor_start(void *context, const ProtocolCommand *request, P
 
 static bool target_values_match(const ProtocolCommand *previous, const ProtocolCommand *request)
 {
-    return request->mode == previous->mode && request->position_mrad == previous->position_mrad &&
+    return request->mode == previous->mode &&
+           request->motor_axis_speed == previous->motor_axis_speed &&
+           request->position_mrad == previous->position_mrad &&
            request->speed_mrad_s == previous->speed_mrad_s && request->iq_mA == previous->iq_mA &&
            request->v_q_mV == previous->v_q_mV &&
            request->electrical_frequency_mHz == previous->electrical_frequency_mHz &&
@@ -141,7 +143,8 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
                           .frequency_hz = request->electrical_frequency_mHz * 0.001f,
                           .id_a = request->id_mA / 1000.0f,
                           .vd_v = request->vd_mV * 0.001f};
-    if (mode == MOTOR_CONTROL_POSITION || mode == MOTOR_CONTROL_SPEED)
+    if (mode == MOTOR_CONTROL_POSITION ||
+        (mode == MOTOR_CONTROL_SPEED && !request->motor_axis_speed))
     {
         MotorStatus status;
         if (!MotorStateMachine_ReadStatus(adapter->state_machine, &status))
@@ -459,7 +462,7 @@ static int32_t encode_feedback_measurement(
     return rounded.negative ? -(int32_t)rounded.magnitude : (int32_t)rounded.magnitude;
 }
 
-static bool read_motor_feedback(void *context, ProtocolFeedback *values)
+static bool read_feedback(void *context, ProtocolFeedback *values, bool motor_axis)
 {
     AppProtocol *adapter = context;
     MotorStatus status;
@@ -475,20 +478,28 @@ static bool read_motor_feedback(void *context, ProtocolFeedback *values)
         return true;
     }
     uint16_t *valid = &values->valid_bits;
-    const MotorOutputTelemetry *output = &status.output;
-    float output_scale = output_coordinate_scale(&status);
-    float output_position = isfinite(output_scale) ? output->tracked_position_rad : NAN;
-    /* 参考位置沿用同一输出原点；保留多圈值，不作单圈回绕。 */
-    float output_reference =
-        output_position + (status.position_reference_rad - status.position_rad) * output_scale;
+    float position = status.position_rad;
+    float reference = status.position_reference_rad;
+    float speed_reference = status.speed_reference_rad_s;
+    float speed = status.speed_rad_s;
+    if (!motor_axis)
+    {
+        const MotorOutputTelemetry *output = &status.output;
+        float scale = output_coordinate_scale(&status);
+        position = isfinite(scale) ? output->tracked_position_rad : NAN;
+        /* 参考位置沿用同一输出原点；保留多圈值，不作单圈回绕。 */
+        reference = position + (reference - status.position_rad) * scale;
+        speed_reference *= scale;
+        speed = isfinite(scale) ? output->speed_rad_s : NAN;
+    }
     values->reference_position_mrad =
-        encode_feedback_measurement(output_reference, 1000, INT32_MAX, 1U << 0, valid);
+        encode_feedback_measurement(reference, 1000, INT32_MAX, 1U << 0, valid);
     values->actual_position_mrad =
-        encode_feedback_measurement(output_position, 1000, INT32_MAX, 1U << 1, valid);
-    values->reference_speed_mrad_s = encode_feedback_measurement(
-        status.speed_reference_rad_s * output_scale, 1000, INT32_MAX, 1U << 2, valid);
-    values->actual_speed_mrad_s = encode_feedback_measurement(
-        isfinite(output_scale) ? output->speed_rad_s : NAN, 1000, INT32_MAX, 1U << 3, valid);
+        encode_feedback_measurement(position, 1000, INT32_MAX, 1U << 1, valid);
+    values->reference_speed_mrad_s =
+        encode_feedback_measurement(speed_reference, 1000, INT32_MAX, 1U << 2, valid);
+    values->actual_speed_mrad_s =
+        encode_feedback_measurement(speed, 1000, INT32_MAX, 1U << 3, valid);
     values->bus_voltage_cV =
         (int16_t)encode_feedback_measurement(status.bus_voltage_v, 100, INT16_MAX, 1U << 4, valid);
     values->bus_current_mA =
@@ -510,6 +521,16 @@ static bool read_motor_feedback(void *context, ProtocolFeedback *values)
     values->v_d_mV =
         (int16_t)encode_feedback_measurement(status.vd_v, 1000, INT16_MAX, 1U << 11, valid);
     return true;
+}
+
+static bool read_motor_feedback(void *context, ProtocolFeedback *values)
+{
+    return read_feedback(context, values, false);
+}
+
+static bool read_motor_axis(void *context, ProtocolFeedback *values)
+{
+    return read_feedback(context, values, true);
 }
 
 static bool read_output_feedback(void *context, MotorOutputFeedback *feedback)
@@ -563,6 +584,7 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorSta
                                       .clear_fault = request_motor_fault_clear,
                                       .host_position_keepalive = keep_host_position_alive,
                                       .read_feedback = read_motor_feedback,
+                                      .read_motor_axis = read_motor_axis,
                                       .read_output = read_output_feedback};
     endpoint->jobs = (ProtocolJobs){adapter, request_encoder_calibration};
     endpoint->device_status.role = PROTOCOL_DEVICE_ROLE_APP;

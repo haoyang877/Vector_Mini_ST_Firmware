@@ -28,7 +28,6 @@ LR_IROM1 0x08000000 0x0001C000 {
     encoder_spi.o (i.McuEncoder_Init)
     encoder_feedback.o (i.Encoder_InitFeedback)
     encoder_feedback.o (i.Encoder_UpdateSlowEstimate)
-    encoder_feedback.o (i.Encoder_SetMechanicalZero)
     encoder_feedback.o (i.Encoder_GetCalibrationFlag)
     encoder_feedback.o (i.Encoder_GetMechPos)
     motor_current.o (i.MotorCurrentOffsets_Init)

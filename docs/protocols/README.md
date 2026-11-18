@@ -134,6 +134,8 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 | 126 | OUTPUT_FEEDBACK v1 | 0 | 成功32 B，错误4 B |
 | 127 | HARDWARE_CHECK v2 | 0 / 8 | AT32 APP bit19：状态21 B；bit20：实测32 B；错误4 B |
 | 190 / 191 / 192 / 193 | READ / PREPARE / COMMIT / ACTIVATE_MOTOR_CONFIGURATION | 4 / 40 / 16 / 16 | bit17能力门控；完整UID提交和显式重启 |
+| 194 | READ_SAVED_CALIBRATION v1 | 12 | bit24；保存记录分块，最多28字节数据 |
+| 195 | READ_HALL_RAW v1 | 0 | bit25；20字节同拍 Hall 原始 ADC 快照 |
 | 124 | MOTION_FEEDBACK | 不接收 | 设备发送 45 B |
 | 160 | START_JOB | 4 | 12 B；仅 kind=1、2、6 |
 | 161 / 162 | GET_JOB_STATUS / CANCEL_JOB | 4 | 12 B；票据查询及取消 |
@@ -141,6 +143,28 @@ APP 合法请求均为单帧，拒绝分片。控制、标定、参数和升级�
 
 未列出的 CMD 不执行，也不回复。公共 result：**0 完成、1 已受理、2 不支持、3 长度错、
 4 字段错、5 拒绝、6 忙、7 未授权、8 内部失败、11 超范围、17 故障**。detail 按命令解释。
+
+### 标定只读回读 v1（APP v1.8.27）
+
+194/195 仅接受主站2；GET_CAPS bit24/25分别声明记录/Hall原码能力，旧固件不声明且不回包。
+旧主机不受影响，参数 schema14/OEN3 及原命令 ABI 不变。
+
+194 请求小端：`saved_revision:u32, record_crc32:u32, offset:u16, count:u8, version:u8=1`。
+元数据请求前四项全0，回复当前保存修订、完整4372字节记录CRC32及总长度；
+块请求 count=1..28，必须匹配元数据的修订/CRC且offset+count不超总长。
+成功回复：`result:u16=0, detail:u16=0, saved_revision:u32, record_crc32:u32,
+total:u16, offset:u16, count:u8, version:u8=1, data[count]`，最长46字节。
+仅关相停止且无标定/维护采集时读取，复用前台记录工作区；不启动任务、不保存、不重建默认值。
+无有效保存记录或读取失败返回8；状态不允许返回5/detail5，修订/CRC变化返回5/detail6，越界11。
+主机读取前后核对UID、修订及元数据，对重组后的完整记录校验CRC；失败不显示为有效曲线。
+
+195 成功回复小端：`result:u16=0, detail:u16=0, version:u16=1, flags:u16,
+sample_counter:u32, read_time_ms:u32, hall_sin:u16, hall_cos:u16`。
+flags bit0表示有效样本，其余位0。sin/cos为同一已发布ADC样本的原始count，未滤波、未补偿。
+sample_counter为实际快采样计数；read_time_ms为获取快照时的板端毫秒时间，不宣称逐拍采样时间。
+快照在短临界区内复制，不改变输出、模式或标定；无Hall目标返回2。
+CAN轮询是降采样观察，并非完整20kHz记录。主机记录计数、时间和超时，不合成缺失原码。
+请求和应答的字节样例见[回读 v1 黄金向量](../../tests/fixtures/protocol/calibration_readback_v1.json)。
 
 <a id="control"></a>
 ## 启停和目标
@@ -616,6 +640,20 @@ mechanical_zero_q15、机械零位标记或内部位置原点。旧schema14/OEN3
 
 反向8:1减速及跨圈参考的[黄金向量](../../tests/fixtures/protocol/output_coordinates_v2.json)
 由STM32G4、AT32F456协议适配测试共同验证。
+
+### 电机轴测速接口 v1
+
+AT32F456 APP v1.8.30 起，CAPS.features 位 27 声明可显式使用电机编码器坐标。
+
+- Type108 发送单字节 `01`，45 B 应答的四个位置、转速字段使用电机机械坐标，单位 mrad / mrad/s。
+  数据来自同一电机状态快照，编码器及采样无效时沿用有效位和 INT32_MIN 协议；携带选择字节的查询不续期主机位置会话。
+- Type116 的 20 B 模式 2 目标把偏移 1 写成 `01`，速度字段直接使用电机机械 mrad/s，
+  偏移 2、3 继续为零。电机轴目标执行同一板端速度上限、活跃会话、序号和租约检查；
+  同序号改坐标选择按冲突重发拒绝。Type117 启动、118 续租及 STOP 不变。
+- 空载荷 Type108、Type116 偏移 1 为零和 Type124 继续使用已声明的常规坐标。
+  未声明位 27 的客户端与设备使用原请求，位 26 与位 27 可同时声明。
+
+[电机轴测速黄金向量](../../tests/fixtures/protocol/motor_axis_speed_v1.json)包含 40:1、输出目标 50 rpm 的示例。
 
 ### AT32F456 CAN 波特率 v1
 

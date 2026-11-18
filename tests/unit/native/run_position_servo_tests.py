@@ -98,6 +98,13 @@ bool BspCan_ConfigureBitrate(uint8_t profile) { assert(profile == 0U);return rea
 static bool configure_protocol_device_info(AppContext *context) { assert(context==&app);log_step(4);return ready; }
 bool Protocol_Start(ProtocolEndpoint *endpoint) { assert(endpoint==&app.endpoint);log_step(5);return ready; }
 void BspPwm_Disable(void) { log_step(8); }
+static ProtocolCode read_saved_calibration(void *context,
+                                          const ProtocolCalibrationRequest *request,
+                                          ProtocolCalibrationBlock *block,
+                                          uint16_t *detail) {
+ (void)context; (void)request; (void)block; (void)detail;
+ return PROTOCOL_RESULT_UNSUPPORTED;
+}
 """
         + "static void handle_parameter_request(void *c, const ProtocolParameterRequest *q, "
         "ProtocolParameterReply *r) { (void)c; (void)q; r->status=PROTOCOL_UNSUPPORTED; }\n"
@@ -107,6 +114,8 @@ void BspPwm_Disable(void) { log_step(8); }
 int main(void) {
  app.axis.state_machine.fast_sample_ticks=app.axis.state_machine.supervisor_ticks=9;
  App_Init(&app);assert(count==3 && app.communication_ready && app.axis.state_machine.fast_sample_ticks==0 && app.axis.state_machine.supervisor_ticks==0);
+ assert(app.endpoint.calibration_readback.context==&app.axis &&
+        app.endpoint.calibration_readback.read_record==read_saved_calibration);
  App_Start(&app);assert(count==4 && app.communication_ready);
  const unsigned expected[]={1,2,4,5};
  for(unsigned i=0;i<4;i++) assert(order[i]==expected[i]);

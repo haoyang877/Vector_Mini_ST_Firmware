@@ -55,6 +55,8 @@ static yg_protocol_result_t handle_job_command(ProtocolEndpoint *endpoint,
                                                ProtocolExchange *exchange);
 static yg_protocol_result_t handle_parameter_command(ProtocolEndpoint *endpoint,
                                                      ProtocolExchange *exchange);
+static yg_protocol_result_t handle_calibration_readback(ProtocolEndpoint *endpoint,
+                                                        ProtocolExchange *exchange);
 static yg_protocol_result_t handle_configuration_command(ProtocolEndpoint *endpoint,
                                                          ProtocolExchange *exchange);
 
@@ -597,6 +599,9 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
     case PROTOCOL_WRITE_PARAMETER:
     case PROTOCOL_SAVE_PARAMETER:
         return handle_parameter_command(endpoint, exchange);
+    case PROTOCOL_READ_SAVED_CALIBRATION:
+    case PROTOCOL_READ_HALL_RAW:
+        return handle_calibration_readback(endpoint, exchange);
     case PROTOCOL_READ_MOTOR_CONFIGURATION:
     case PROTOCOL_PREPARE_MOTOR_CONFIGURATION:
     case PROTOCOL_COMMIT_MOTOR_CONFIGURATION:
@@ -612,6 +617,82 @@ static yg_protocol_result_t handle_command(ProtocolEndpoint *endpoint, ProtocolE
 }
 
 /* 设备查询 */
+
+static yg_protocol_result_t handle_calibration_readback(ProtocolEndpoint *endpoint,
+                                                        ProtocolExchange *exchange)
+{
+    const yg_protocol_message_t *message = &exchange->request;
+    ProtocolResponse *response = &exchange->reply;
+    ProtocolCalibrationReadback *service = &endpoint->calibration_readback;
+    if (message->source_node != PROTOCOL_MASTER_ID)
+    {
+        Protocol_WriteResult(response, PROTOCOL_RESULT_FORBIDDEN, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    if (message->message_type == PROTOCOL_READ_HALL_RAW)
+    {
+        ProtocolHallRaw sample = {0};
+        ProtocolCode code = PROTOCOL_RESULT_UNSUPPORTED;
+        if (message->payload_length != 0U)
+        {
+            Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_LENGTH, 0U);
+            return YG_PROTOCOL_OK;
+        }
+        if (service->read_hall != NULL)
+        {
+            code = service->read_hall(service->context, &sample);
+        }
+        Protocol_WriteResult(response, code, 0U);
+        if (code == PROTOCOL_RESULT_OK)
+        {
+            YgProtocol_WriteU16Le(response->data + 4U, 1U);
+            YgProtocol_WriteU16Le(response->data + 6U, sample.flags);
+            YgProtocol_WriteU32Le(response->data + 8U, sample.sample_counter);
+            YgProtocol_WriteU32Le(response->data + 12U, sample.read_time_ms);
+            YgProtocol_WriteU16Le(response->data + 16U, sample.sin_counts);
+            YgProtocol_WriteU16Le(response->data + 18U, sample.cos_counts);
+            response->length = 20U;
+        }
+        return YG_PROTOCOL_OK;
+    }
+    if (message->payload_length != 12U || message->payload == NULL)
+    {
+        Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_LENGTH, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    const uint8_t *data = message->payload;
+    ProtocolCalibrationRequest request = {.revision = YgProtocol_ReadU32Le(data),
+                                          .crc32 = YgProtocol_ReadU32Le(data + 4U),
+                                          .offset = YgProtocol_ReadU16Le(data + 8U),
+                                          .count = data[10]};
+    if (data[11] != 1U || request.count > PROTOCOL_CALIBRATION_BLOCK_BYTES ||
+        (request.count == 0U &&
+         (request.revision != 0U || request.crc32 != 0U || request.offset != 0U)))
+    {
+        Protocol_WriteResult(response, PROTOCOL_RESULT_BAD_FIELD, 0U);
+        return YG_PROTOCOL_OK;
+    }
+    ProtocolCalibrationBlock block = {0};
+    uint16_t detail = 0U;
+    ProtocolCode code = PROTOCOL_RESULT_UNSUPPORTED;
+    if (service->read_record != NULL)
+    {
+        code = service->read_record(service->context, &request, &block, &detail);
+    }
+    Protocol_WriteResult(response, code, detail);
+    if (code == PROTOCOL_RESULT_OK)
+    {
+        YgProtocol_WriteU32Le(response->data + 4U, block.revision);
+        YgProtocol_WriteU32Le(response->data + 8U, block.crc32);
+        YgProtocol_WriteU16Le(response->data + 12U, block.total);
+        YgProtocol_WriteU16Le(response->data + 14U, request.offset);
+        response->data[16] = request.count;
+        response->data[17] = 1U;
+        memcpy(response->data + 18U, block.data, request.count);
+        response->length = 18U + request.count;
+    }
+    return YG_PROTOCOL_OK;
+}
 
 static yg_protocol_result_t handle_configuration_command(ProtocolEndpoint *endpoint,
                                                          ProtocolExchange *exchange)
@@ -904,6 +985,7 @@ static yg_protocol_result_t decode_target_command(const yg_protocol_message_t *m
     decoded.source_node = message->source_node;
     decoded.sequence = message->sequence;
     decoded.mode = payload[0];
+    decoded.motor_axis_speed = payload[1] == PROTOCOL_MOTOR_AXIS_SELECTOR;
     decoded.position_mrad = (int32_t)YgProtocol_ReadU32Le(payload + 4U);
     decoded.speed_mrad_s = (int32_t)YgProtocol_ReadU32Le(payload + 8U);
     decoded.iq_mA = (int32_t)YgProtocol_ReadU32Le(payload + 12U);
@@ -921,7 +1003,8 @@ static yg_protocol_result_t decode_target_command(const yg_protocol_message_t *m
         decoded.vd_mV = (int32_t)YgProtocol_ReadU32Le(payload + 28U);
     }
     if (decoded.mode < 1U || decoded.mode > 10U || decoded.mode == 7U || decoded.mode == 8U ||
-        payload[1] != 0U || payload[2] != 0U || payload[3] != 0U ||
+        (payload[1] != 0U && !(decoded.mode == 2U && decoded.motor_axis_speed)) ||
+        payload[2] != 0U || payload[3] != 0U ||
         (decoded.mode != 3U && decoded.mode != 4U && decoded.position_mrad != 0) ||
         (decoded.mode != 2U && decoded.mode != 4U && decoded.speed_mrad_s != 0) ||
         (decoded.mode != 1U && decoded.mode != 4U && decoded.mode != 10U && decoded.iq_mA != 0) ||
@@ -1070,16 +1153,19 @@ static yg_protocol_result_t encode_feedback_reply(const ProtocolEndpoint *endpoi
                                                   ProtocolResponse *response)
 {
     bool query = request->message_type == PROTOCOL_GET_MOTOR_STATE;
+    bool motor_axis = query && request->payload_length == 1U && code == PROTOCOL_RESULT_OK;
+    bool (*read_feedback)(void *, ProtocolFeedback *) =
+        motor_axis ? endpoint->motor.read_motor_axis : endpoint->motor.read_feedback;
     uint8_t node_id = query ? request->destination_node : endpoint->node_id;
     if (node_id == 0U || node_id == YG_PROTOCOL_BROADCAST_NODE_ID ||
-        (query && endpoint->motor.read_feedback == NULL))
+        (query && read_feedback == NULL))
     {
         return YG_PROTOCOL_INVALID_ARGUMENT;
     }
     ProtocolFeedback feedback = s_empty_feedback;
-    if (endpoint->motor.read_feedback != NULL)
+    if (read_feedback != NULL)
     {
-        bool available = endpoint->motor.read_feedback(endpoint->motor.context, &feedback);
+        bool available = read_feedback(endpoint->motor.context, &feedback);
         if (query && !available && code == PROTOCOL_RESULT_OK)
         {
             code = PROTOCOL_RESULT_BUSY;
@@ -1105,7 +1191,12 @@ static yg_protocol_result_t handle_target_command(ProtocolEndpoint *endpoint,
     if (request->source_node == PROTOCOL_MASTER_ID)
     {
         yg_protocol_result_t decoded = decode_target_command(request, &command);
-        if (decoded == YG_PROTOCOL_OK)
+        if (decoded == YG_PROTOCOL_OK && command.motor_axis_speed &&
+            (endpoint->device.capabilities.features & PROTOCOL_FEATURE_MOTOR_AXIS_SPEED) == 0U)
+        {
+            code = PROTOCOL_RESULT_BAD_FIELD;
+        }
+        else if (decoded == YG_PROTOCOL_OK)
         {
             ProtocolReply reply = {.status = PROTOCOL_FAILED};
             Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){.motor = command});
@@ -1188,6 +1279,21 @@ static yg_protocol_result_t handle_motor_status_query(ProtocolEndpoint *endpoint
         }
         Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){0});
         code = PROTOCOL_RESULT_OK;
+    }
+    else if (request->payload_length == 1U)
+    {
+        bool supported =
+            (endpoint->device.capabilities.features & PROTOCOL_FEATURE_MOTOR_AXIS_SPEED) != 0U &&
+            endpoint->motor.read_motor_axis != NULL;
+        bool motor_axis = supported && request->payload != NULL &&
+                          request->payload[0] == PROTOCOL_MOTOR_AXIS_SELECTOR;
+        code = motor_axis  ? PROTOCOL_RESULT_OK
+               : supported ? PROTOCOL_RESULT_BAD_FIELD
+                           : PROTOCOL_RESULT_BAD_LENGTH;
+        if (motor_axis)
+        {
+            Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){0});
+        }
     }
     return encode_feedback_reply(endpoint, request, code, &exchange->reply);
 }

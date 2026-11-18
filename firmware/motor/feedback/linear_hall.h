@@ -11,6 +11,7 @@
 #define LINEAR_HALL_LUT_OK 0x80U
 #define LINEAR_HALL_LUT_COVERAGE 1U
 #define LINEAR_HALL_LUT_MAPPING 2U
+#define LINEAR_HALL_LUT_DIAGNOSTIC 3U /* 只供关相后的回读，不用于运行反馈。 */
 
 /**
  * @brief 校验单通道存储系数能否还原为合格的 ADC 极值。

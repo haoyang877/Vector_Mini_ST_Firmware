@@ -73,25 +73,31 @@ static inline bool MotorAxisProfile_IsContinuousWheel(const MotorAxisProfile *pr
 /**
  * @brief 选择位置使能、指令及轨迹参考共用的行程策略。
  * @param profile 已验证的轴记录。
- * @return 连续车轮及调试镜像显式解除行程限制的关节返回 false。
+ * @return 连续旋转产品轴及调试镜像显式解除行程限制的关节返回 false。
  */
 static inline bool MotorAxisProfile_UsesPositionLimits(const MotorAxisProfile *profile)
 {
-#if MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS || MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
     if (profile != NULL && profile->magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
         profile->version == MOTOR_AXIS_PROFILE_NUMERIC_VERSION &&
         profile->identity.numeric.config_revision == MOTOR_PRODUCT_AXIS_REVISION)
     {
         uint32_t joint = profile->identity.numeric.joint_type;
+        if ((MotorAxisProfile_IsContinuousWheel(profile) || joint == MOTOR_JOINT_ROLL ||
+             joint == MOTOR_JOINT_PITCH || joint == MOTOR_JOINT_YAW) &&
+            profile->minimum_position_rad == 0.0f && profile->maximum_position_rad == 0.0f)
+        {
+            return false;
+        }
+#if MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS || MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS
         if (joint == MOTOR_JOINT_PITCH || joint == MOTOR_JOINT_LIFT ||
             (MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS &&
              (joint == MOTOR_JOINT_ROLL || joint == MOTOR_JOINT_YAW)))
         {
             return false;
         }
-    }
 #endif
-    return !MotorAxisProfile_IsContinuousWheel(profile);
+    }
+    return true;
 }
 
 /**

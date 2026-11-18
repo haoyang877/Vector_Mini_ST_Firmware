@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -106,6 +107,36 @@ class KeilLoaderAppTests(unittest.TestCase):
         self.assertEqual(bytes(decoded), debug)
         self.assertEqual(report["image_token"], 7)
 
+    def test_after_build_prints_image_and_required_loader_versions(self) -> None:
+        """初次构建和重复后处理均按镜像及目标契约输出十进制版本。"""
+        target = json.loads(
+            (ROOT / "shared/targets/vector_mini_st_g431.json").read_text(encoding="utf-8")
+        )
+        target["constants"]["TARGET_APP_VERSION"] = "0x00010819U"
+        target["constants"]["TARGET_LOADER_VERSION"] = "0x00020304U"
+        target_path = self.axf.parent / "target.json"
+        target_path.write_text(json.dumps(target), encoding="utf-8")
+        raw = bytearray(self.axf.read_bytes())
+        struct.pack_into(">I", raw, 52 + 512 + 28, 0x00010819)
+        self.axf.write_bytes(raw)
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools/build/keil_loader_app.py"),
+                        str(self.axf),
+                        "--target",
+                        str(target_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("APP version: v1.8.25", result.stdout)
+                self.assertIn("Required Loader version: v2.3.4", result.stdout)
+
     def test_invalid_axf_leaves_existing_file_untouched(self) -> None:
         """错误目标或占位损坏必须使后处理失败，不生成可下载文件。"""
         original = self.axf.read_bytes()
@@ -137,6 +168,16 @@ class KeilLoaderAppTests(unittest.TestCase):
         self.assertFalse(self.axf.with_suffix(".hex").exists())
         self.assertFalse(self.axf.with_suffix(".bin").exists())
         self.assertFalse((self.axf.parent / "app-package/image.bin").exists())
+
+    def test_changed_report_version_invalidates_download_outputs(self) -> None:
+        """清单版本必须与已校验镜像一致，防止重复构建显示错误版本。"""
+        report = synchronize(self.axf, 7)
+        report["image_version"] = 0x00090102
+        self.axf.with_suffix(".debug.json").write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "版本与清单不一致"):
+            synchronize(self.axf, 7)
+        self.assertFalse(self.axf.with_suffix(".debug.json").exists())
+        self.assertFalse(self.axf.with_suffix(".hex").exists())
 
     def test_bad_new_axf_clears_previous_success_outputs(self) -> None:
         """成功构建后 AXF 损坏，旧清单与旧 CAN 包不能被复用。"""

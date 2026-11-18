@@ -449,10 +449,13 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     }
     configuration->preset = NULL;
     const MotorAxisPreset *preset = NULL;
+    bool restore_geared_speed = false;
     MotorAxisProfile *axis = &configuration->application.axis_profile;
     if (BSP_BOARD == BSP_BOARD_AT32F456)
     {
         preset = MotorAxisProfile_ForNode((uint8_t)param->node_id);
+        restore_geared_speed = preset != NULL && (preset->joint == MOTOR_JOINT_PITCH ||
+                                                  preset->joint == MOTOR_JOINT_YAW);
         if (preset == NULL || !MotorAxisProfile_Restore(&param->axis_profile, axis) ||
             axis->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
             axis->identity.numeric.config_revision != MOTOR_PRODUCT_AXIS_REVISION ||
@@ -594,8 +597,9 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     }
     configuration->application.speed_limit_rad_s =
         isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f &&
-                param->speed_limit_rad_s <=
-                    (preset == NULL ? PARAM_APP_SPEED_CEILING_RAD_S : preset->speed_ceiling_rad_s)
+                (restore_geared_speed ||
+                 param->speed_limit_rad_s <=
+                     (preset == NULL ? PARAM_APP_SPEED_CEILING_RAD_S : preset->speed_ceiling_rad_s))
             ? Math_Constrain(
                   param->speed_limit_rad_s, 0.0f, configuration->application.speed_ceiling_rad_s)
             : Math_Min(configuration->application.speed_ceiling_rad_s,

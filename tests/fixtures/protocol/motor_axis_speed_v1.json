@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "capability_bit": 27,
+  "status_request_type": 108,
+  "status_request_payload_hex": "01",
+  "target_type": 116,
+  "target_payload_hex": "0201000000000000203203000000000000000000",
+  "feedback_offsets_8_to_23_hex": "00000080204e0000203203005c320300"
+}

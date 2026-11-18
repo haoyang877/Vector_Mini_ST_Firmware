@@ -43,7 +43,7 @@ def main() -> None:
         "for(unsigned installed=0; installed<=1; ++installed) {\n"
         "app->endpoint.hardware_check.handle = installed ? hardware_report : NULL;\n"
         + capabilities.group(0)
-        + "\nuint8_t expected[16] = {0x00,0xfd,7,4,0x4e,0x06,0x40,0,"
+        + "\nuint8_t expected[16] = {0x00,0xfd,7,0x0d,0x4e,0x06,0x40,0,"
         "0x2e,0,0,0,0xf4,1,0xf4,1};\nProtocolResponse response = {0};\n"
         "if(installed){expected[2]=15;}\n"
         "if(encode_device_caps(&capabilities, &response) != YG_PROTOCOL_OK ||"
@@ -83,6 +83,16 @@ def main() -> None:
     subprocess.run(command, check=True)
     result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
     print(result.stdout, end="")
+    readback = json.loads(
+        (ROOT / "tests/fixtures/protocol/calibration_readback_v1.json").read_text()
+    )
+    for name, field in (
+        ("CALIBRATION_METADATA", "metadata"),
+        ("CALIBRATION_BLOCK", "block"),
+        ("HALL_RAW", "hall_raw"),
+    ):
+        if f"{name} {readback[field]}" not in result.stdout.splitlines():
+            raise RuntimeError("标定回读黄金向量不匹配：" + name)
     hardware = json.loads((ROOT / "tests/fixtures/protocol/hardware_check_v2.json").read_text())
     if f"HARDWARE_REPORT {hardware['report_payload']}" not in result.stdout.splitlines():
         raise RuntimeError("Type127 生产编码与 v2 黄金报告不符")

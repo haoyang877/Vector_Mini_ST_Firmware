@@ -184,6 +184,66 @@ static void check_output_coordinates(void)
     assert((feedback.valid_bits & 15U) == 0U);
 }
 
+static void check_motor_axis_speed(void)
+{
+    static const uint8_t target[PROTOCOL_CONTROL_SIZE] = {
+        2U, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0x20U, 0x32U, 0x03U, 0U};
+    static const uint8_t selector = 1U;
+    s_status = (MotorStatus){.measurements_valid = true,
+                             .position_reference_rad = NAN,
+                             .position_rad = 20.0f,
+                             .speed_reference_rad_s = 209.44f,
+                             .speed_rad_s = 209.5f,
+                             .output = {.gear_ratio = 40.0f}};
+    ProtocolExchange exchange = {.request = {.destination_node = 1U,
+                                             .source_node = PROTOCOL_MASTER_ID,
+                                             .message_type = PROTOCOL_GET_MOTOR_STATE,
+                                             .payload_length = 1U,
+                                             .payload = &selector}};
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_LENGTH);
+    endpoint.device.capabilities.features |= PROTOCOL_FEATURE_MOTOR_AXIS_SPEED;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_OK);
+    assert((YgProtocol_ReadU16Le(exchange.reply.data + 24U) & 15U) == 14U);
+    printf("VECTOR motor_axis_speed_v1 ");
+    for (unsigned i = 8U; i < 24U; ++i)
+    {
+        printf("%02x", exchange.reply.data[i]);
+    }
+    puts("");
+    exchange.request.payload_length = 0U;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert((YgProtocol_ReadU16Le(exchange.reply.data + 24U) & 15U) == 0U);
+
+    unsigned before = s_target_calls;
+    exchange.request.message_type = PROTOCOL_CONTROL;
+    exchange.request.sequence = (uint16_t)(adapter.last_target.sequence + 1U);
+    exchange.request.payload = target;
+    exchange.request.payload_length = sizeof(target);
+    endpoint.device.capabilities.features &= ~PROTOCOL_FEATURE_MOTOR_AXIS_SPEED;
+    assert(handle_target_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD &&
+           s_target_calls == before);
+    endpoint.device.capabilities.features |= PROTOCOL_FEATURE_MOTOR_AXIS_SPEED;
+    assert(handle_target_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_OK &&
+           s_target_calls == before + 1U && s_last_target.speed_rad_s == 209.44f);
+    printf("VECTOR motor_axis_target_v1 ");
+    for (unsigned i = 0U; i < sizeof(target); ++i)
+    {
+        printf("%02x", target[i]);
+    }
+    puts("");
+    uint8_t conflicting[sizeof(target)];
+    memcpy(conflicting, target, sizeof(target));
+    conflicting[1] = 0U;
+    exchange.request.payload = conflicting;
+    assert(handle_target_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD &&
+           s_target_calls == before + 1U);
+}
+
 /* 同一轮查询、写目标、再查询；发送忙时读取已排队的真实反馈，不重复采样。 */
 static void check_feedback_dispatch(void)
 {
@@ -257,6 +317,7 @@ int main(void)
     check_feedback_dispatch();
     check_scaling_boundaries();
     check_output_coordinates();
+    check_motor_axis_speed();
     const uint8_t states[] = {5U, 3U, 4U, 6U, 8U};
     for (unsigned i = 0; i <= MOTOR_STATE_FAULT; ++i)
     {

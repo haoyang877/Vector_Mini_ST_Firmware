@@ -16,8 +16,10 @@ void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
                               FocState *foc,
                               bool bus_current_enabled)
 {
-    *calibration = (CurrentOffsetCalibration){.phases_disabled = BspPwm_ArePhasesDisabled};
-    calibration->bus_current_enabled = bus_current_enabled;
+    *calibration = (CurrentOffsetCalibration){.bus_current_enabled = bus_current_enabled,
+                                              .phases_disabled = BspPwm_ArePhasesDisabled,
+                                              .phase_offset_counts = {NAN, NAN, NAN},
+                                              .bus_offset_counts = NAN};
     configuration->device.phase_a_offset_counts = NAN;
     configuration->device.phase_b_offset_counts = NAN;
     configuration->device.phase_c_offset_counts = NAN;
@@ -79,6 +81,16 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
     const float offsets[3] = {(float)calibration->phase_sum_raw[0] * scale,
                               (float)calibration->phase_sum_raw[1] * scale,
                               (float)calibration->phase_sum_raw[2] * scale};
+    float bus_offset_counts = NAN;
+    if (calibration->bus_current_enabled)
+    {
+        bus_offset_counts = (float)calibration->bus_sum_raw / (float)CURRENT_OFFSET_SAMPLE_COUNT;
+    }
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        calibration->phase_offset_counts[phase] = offsets[phase];
+    }
+    calibration->bus_offset_counts = bus_offset_counts;
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
         if (!MotorCurrentOffset_InRange(offsets[phase]))
@@ -87,7 +99,6 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
             return false;
         }
     }
-    float bus_offset_counts = (float)calibration->bus_sum_raw / (float)CURRENT_OFFSET_SAMPLE_COUNT;
     if (calibration->bus_current_enabled && !MotorCurrentOffset_InRange(bus_offset_counts))
     {
         fail_current_offset_calibration(calibration, motor_state);

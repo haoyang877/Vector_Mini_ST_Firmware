@@ -11,6 +11,9 @@ def main() -> None:
     root = Path(__file__).resolve().parents[2]
     source = root / "shared/protocol/hardware_check_limits_v1.json"
     fields = json.loads(source.read_text(encoding="utf-8"))["fields"]
+    defaults = {name: f"{default}U" for name, default, *_ in fields}
+    current_bias_default = defaults["current_bias_counts"]
+    defaults["current_bias_counts"] = "CHECK_DEFAULT_CURRENT_BIAS_COUNTS"
     lines = [
         "/* 由 generate_hardware_limits.py 生成，修改版本化JSON契约。 */",
         "#ifndef HARDWARE_CHECK_LIMITS_H",
@@ -21,8 +24,10 @@ def main() -> None:
         *[f"    CHECK_{name.upper()}," for name, *_ in fields],
         "    CHECK_LIMIT_COUNT",
         "};",
+        f"#define CHECK_DEFAULT_CURRENT_BIAS_COUNTS {current_bias_default}",
+        f"#define CHECK_LIMIT_DEFAULTS {{{', '.join(defaults.values())}}}",
     ]
-    for label, index in (("DEFAULTS", 1), ("MINIMUMS", 2), ("MAXIMUMS", 3)):
+    for label, index in (("MINIMUMS", 2), ("MAXIMUMS", 3)):
         values = ", ".join(str(field[index]) + "U" for field in fields)
         lines.append(f"#define CHECK_LIMIT_{label} {{{values}}}")
     lines += ["#endif", ""]

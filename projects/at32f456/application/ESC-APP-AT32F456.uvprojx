@@ -704,7 +704,7 @@
                   <Cads>
                     <interw>2</interw>
                     <Optim>4</Optim>
-                    <oTime>1</oTime>
+                    <oTime>0</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
                     <Strict>2</Strict>
@@ -1452,7 +1452,7 @@
                   <Cads>
                     <interw>2</interw>
                     <Optim>4</Optim>
-                    <oTime>1</oTime>
+                    <oTime>0</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
                     <Strict>2</Strict>

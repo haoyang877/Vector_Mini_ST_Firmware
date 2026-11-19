@@ -11,6 +11,8 @@
 /* 位置控制内部固定值，不属于共享参数边界。 */
 #define POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO 1.50f
 #define POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S 0.03f
+#define POSITION_CASCADE_HOLD_EXIT_WINDOW_RATIO 1.5f
+#define POSITION_CASCADE_HOLD_EXIT_SPEED_RAD_S 0.08f
 
 static float position_cascade_clamp(float value, float limit)
 {
@@ -44,6 +46,53 @@ static bool position_cascade_config_valid(const PositionCascadeConfig *config)
            isfinite(config->current_limit_a) && config->current_limit_a > 0.0f &&
            isfinite(config->speed_kp * config->current_limit_a) &&
            isfinite(config->speed_ki * config->current_limit_a);
+}
+
+static bool position_cascade_in_target_window(const PositionCascadeConfig *config,
+                                              float position_error_rad,
+                                              float speed_rad_s)
+{
+    return fabsf(position_error_rad) <= config->position_error_window &&
+           fabsf(speed_rad_s) <= POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S;
+}
+
+static void position_cascade_reset_hold(PositionCascadeState *state)
+{
+    state->hold_phase = POSITION_CASCADE_MOVE;
+    state->hold_settle_ticks = 0U;
+}
+
+static void position_cascade_update_hold(PositionCascadeState *state,
+                                         float position_error_rad,
+                                         float speed_rad_s)
+{
+    const PositionCascadeConfig *config = &state->config;
+    if (state->hold_phase == POSITION_CASCADE_HOLD)
+    {
+        if (fabsf(position_error_rad) >
+                config->position_error_window * POSITION_CASCADE_HOLD_EXIT_WINDOW_RATIO ||
+            fabsf(speed_rad_s) > POSITION_CASCADE_HOLD_EXIT_SPEED_RAD_S)
+        {
+            state->hold_phase = POSITION_CASCADE_SETTLE;
+            state->hold_settle_ticks = 0U;
+        }
+        return;
+    }
+
+    state->hold_phase = POSITION_CASCADE_SETTLE;
+    if (!position_cascade_in_target_window(config, position_error_rad, speed_rad_s))
+    {
+        state->hold_settle_ticks = 0U;
+    }
+    else if (state->hold_settle_ticks == config->hold_confirm_ticks)
+    {
+        state->hold_phase = POSITION_CASCADE_HOLD;
+    }
+    else
+    {
+        /* 按首个合格样本之后经过的控制拍计时。 */
+        ++state->hold_settle_ticks;
+    }
 }
 
 static bool position_cascade_run(PositionCascadeState *state,
@@ -87,8 +136,19 @@ static bool position_cascade_run(PositionCascadeState *state,
         {
             return false;
         }
-        iq_reference_a =
-            PiController_Run(&state->speed_controller, speed_command_rad_s, filtered_speed_rad_s);
+        if (config->hold_confirm_ticks != 0U)
+        {
+            position_cascade_update_hold(state, position_error_rad, filtered_speed_rad_s);
+        }
+        PiController *speed_pi = &state->speed_controller;
+        float integral_gain = speed_pi->integral_gain;
+        if (state->hold_phase == POSITION_CASCADE_HOLD)
+        {
+            /* 暂停本拍误差积分，保留支撑积分和 PI 的常规配置。 */
+            speed_pi->integral_gain = 0.0f;
+        }
+        iq_reference_a = PiController_Run(speed_pi, speed_command_rad_s, filtered_speed_rad_s);
+        speed_pi->integral_gain = integral_gain;
         if (!isfinite(iq_reference_a))
         {
             return false;
@@ -102,8 +162,7 @@ static bool position_cascade_run(PositionCascadeState *state,
     output->speed_feedback_rad_s = state->filtered_speed_rad_s;
     output->iq_reference = state->speed_controller.output;
     output->target_reached =
-        fabsf(position_error_rad) <= config->position_error_window &&
-        fabsf(state->filtered_speed_rad_s) <= POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S;
+        position_cascade_in_target_window(config, position_error_rad, state->filtered_speed_rad_s);
     return true;
 }
 
@@ -147,6 +206,12 @@ bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
     {
         state->filtered_speed_rad_s = measured_speed;
     }
+    if (state->hold_phase != POSITION_CASCADE_MOVE &&
+        (config->hold_confirm_ticks != state->config.hold_confirm_ticks ||
+         config->target_position != state->config.target_position))
+    {
+        position_cascade_reset_hold(state);
+    }
     state->config = *config;
     state->velocity_filter_alpha = alpha;
     state->configured = true;
@@ -173,6 +238,11 @@ bool PositionCascade_UpdateTargetControl(PositionCascadeState *state,
         !isfinite(measured_position) || !isfinite(measured_speed))
     {
         return false;
+    }
+    if (state->config.hold_confirm_ticks != 0U && target_position != state->config.target_position)
+    {
+        state->config.hold_confirm_ticks = 0U;
+        position_cascade_reset_hold(state);
     }
     state->config.target_position = target_position;
     return position_cascade_run(state, measured_position, measured_speed, output);

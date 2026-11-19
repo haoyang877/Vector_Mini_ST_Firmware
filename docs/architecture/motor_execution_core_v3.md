@@ -139,6 +139,20 @@ Iq = PI_speed(vcommand - vfiltered)
 不更改Flash配置、电流限制或其他故障保护。
 实现见[position_control.c](../../firmware/motor/control/position_control.c)、[position_otg.h](../../firmware/motor/control/position_otg.h)。
 
+### Roll 终点保持
+
+外环依据已校验的 `MotorAxisPreset` 轴角色，只为 `MOTOR_JOINT_ROLL` 打开保持资格。
+串级控制器仅在 OTG 已完成当前目标时接收保持资格，继续使用同一位置和速度参考。
+Yaw、Pitch 及其他轴使用普通位置 PD 和速度 PI。
+
+- **MOVE**：正常跟踪。规划结束且终点仍匹配当前目标时进入 SETTLE。
+- **SETTLE**：按普通串级计算电流。位置误差在现有到位窗口内且滤波速度不超过 0.03 rad/s，连续满足 50 ms 后进入 HOLD。任一条件越界清零确认计时。
+- **HOLD**：暂停速度误差积分，沿用进入时的积分与闭环比例修正。电流额度仍约束输出和积分跟踪。位置误差超过到位窗口的 1.5 倍或滤波速度超过 0.08 rad/s 时恢复积分并回到 SETTLE；新目标使控制器回到 MOVE。
+
+每轴的 `PositionCascadeState` 独占保持状态和确认计时，沿用位置外环复位。到位状态继续按原判定发布。
+上述确认时间和退出滞回为初始整定值，实际响应由 Roll 台架验证。
+AT32F456 LoaderApp 将 `motor_control.c` 和 `position_control.c` 设为空间优先编译，以满足 APP 槽容量。
+
 ## 编码器与磁链观测
 
 转子采样经方向、LUT和零位修正后进入控制。20kHz二阶PLL估计机械速度，

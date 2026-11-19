@@ -308,8 +308,90 @@ static void test_instance_isolation(void)
            goals[1].target_position);
 }
 
+static void test_hold_confirmation_and_hysteresis(void)
+{
+    PositionCascadeConfig value = config();
+    PositionCascadeControlOutput output;
+    PositionCascade_Reset(&cascade);
+    value.target_position = 0.0f;
+    value.hold_confirm_ticks = 50U;
+    const float quiet_position_rad = -0.5f * value.position_error_window;
+    for (unsigned step = 0U; step < 30U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.0f, &output));
+    }
+    assert(cascade.hold_phase == POSITION_CASCADE_SETTLE);
+    /* 速度刚越过进入阈值，恢复合格后仍需完整确认时间。 */
+    assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.04f, &output));
+    for (unsigned step = 0U; step < 50U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.0f, &output));
+        assert(cascade.hold_phase == POSITION_CASCADE_SETTLE);
+    }
+    const float integral_before_hold_a = cascade.speed_controller.integral_output;
+    const float iq_before_hold_a = output.iq_reference;
+    assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.0f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_HOLD && output.target_reached);
+    assert(cascade.speed_controller.integral_output == integral_before_hold_a);
+    assert(output.iq_reference == iq_before_hold_a);
+
+    const float small_disturbance_rad = -1.25f * value.position_error_window;
+    assert(PositionCascade_UpdateControl(&cascade, &value, small_disturbance_rad, 0.0f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_HOLD && !output.target_reached);
+    assert(cascade.speed_controller.integral_output == integral_before_hold_a);
+    assert(output.iq_reference > iq_before_hold_a);
+    assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.06f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_HOLD && !output.target_reached);
+    assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.081f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_SETTLE);
+    assert(cascade.speed_controller.integral_output < integral_before_hold_a);
+
+    for (unsigned step = 0U; step <= 50U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&cascade, &value, quiet_position_rad, 0.0f, &output));
+    }
+    assert(cascade.hold_phase == POSITION_CASCADE_HOLD);
+    assert(PositionCascade_UpdateControl(
+        &cascade, &value, -1.51f * value.position_error_window, 0.0f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_SETTLE);
+}
+
+static void test_hold_limit_and_new_reference(void)
+{
+    PositionCascadeConfig value = config();
+    PositionCascadeControlOutput output;
+    PositionCascade_Reset(&cascade);
+    value.target_position = 0.0f;
+    value.speed_ki = 4.0f;
+    value.hold_confirm_ticks = 50U;
+    for (unsigned step = 0U; step < 100U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&cascade, &value, -0.1f, 0.0f, &output));
+    }
+    assert(cascade.hold_phase == POSITION_CASCADE_SETTLE);
+    for (unsigned step = 0U; step <= 50U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&cascade, &value, 0.0f, 0.0f, &output));
+    }
+    assert(cascade.hold_phase == POSITION_CASCADE_HOLD && output.iq_reference > 0.125f);
+    assert(PositionCascade_UpdateControlLimited(&cascade, &value, 0.0f, 0.0f, 0.125f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_HOLD && output.iq_reference == 0.125f);
+    assert(cascade.speed_controller.integral_output == 0.125f);
+    assert(PositionCascade_UpdateControl(&cascade, &value, 0.0f, 0.0f, &output));
+    assert(output.iq_reference == 0.125f);
+
+    assert(PositionCascade_UpdateTargetControl(&cascade, 0.1f, 0.0f, 0.0f, &output));
+    assert(cascade.hold_phase == POSITION_CASCADE_MOVE);
+    assert(cascade.speed_controller.integral_output > 0.125f);
+    PositionCascade_Reset(&cascade);
+    assert(cascade.hold_phase == POSITION_CASCADE_MOVE &&
+           cascade.speed_controller.integral_output == 0.0f);
+}
+
 int main(void)
 {
+    test_hold_confirmation_and_hysteresis();
+    test_hold_limit_and_new_reference();
     test_instance_isolation();
     test_direct_control();
     test_limits_and_anti_windup();
@@ -319,6 +401,6 @@ int main(void)
     test_dynamic_current_limit();
     test_dynamic_limit_rejection_and_legacy_equivalence();
     puts("PASS basic cascade: direct target/Kd/PI scaling, limits, anti-windup, filter, reset, "
-         "live limit, dynamic budget/nominal gains, invalid-input rejection");
+         "live limit, dynamic budget/nominal gains, invalid-input rejection, terminal hold");
     return 0;
 }

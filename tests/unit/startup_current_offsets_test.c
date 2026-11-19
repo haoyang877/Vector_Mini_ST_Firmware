@@ -535,6 +535,8 @@ static void test_full_window(void)
         if (i < CURRENT_OFFSET_SAMPLE_COUNT - 1U)
         {
             assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
+            assert(isnan(axis.current_offsets.phase_offset_counts[0]));
+            assert(isnan(axis.current_offsets.bus_offset_counts));
             assert(isnan(axis.foc.phase_current_a.a));
             assert(isnan(axis.foc.bus_current_a));
         }
@@ -548,13 +550,18 @@ static void test_full_window(void)
     assert(axis.configuration.device.phase_a_offset_counts == 2032.625f);
     assert(axis.configuration.device.phase_b_offset_counts == 2051.25f);
     assert(axis.configuration.device.phase_c_offset_counts == 2036.5f);
+    assert(axis.current_offsets.phase_offset_counts[0] == 2032.625f);
+    assert(axis.current_offsets.phase_offset_counts[1] == 2051.25f);
+    assert(axis.current_offsets.phase_offset_counts[2] == 2036.5f);
     if (BSP_ENABLED_BUS_CURRENT)
     {
         assert(bsp_bus_offset == 2049.5f);
+        assert(axis.current_offsets.bus_offset_counts == 2049.5f);
         assert(fabsf(axis.foc.bus_current_a - 0.05f) < 1e-6f);
     }
     else
     {
+        assert(isnan(axis.current_offsets.bus_offset_counts));
         assert(isnan(axis.foc.bus_current_a));
     }
     unsigned prior_raw_reads = current_reads + bus_raw_reads;
@@ -760,7 +767,7 @@ static void test_fast_tick_order(void)
 
 static void test_offset_limits(void)
 {
-    const uint16_t raw_sums[] = {1948U * 4U, 2148U * 4U, 1948U * 4U - 1U, 2148U * 4U + 1U};
+    const uint16_t raw_sums[] = {1748U * 4U + 1U, 2348U * 4U - 1U, 1748U * 4U, 2348U * 4U};
     for (unsigned test = 0U; test < sizeof(raw_sums) / sizeof(raw_sums[0]); ++test)
     {
         initialize();
@@ -773,6 +780,14 @@ static void test_offset_limits(void)
         assert(axis.current_offsets.complete == valid);
         assert(axis.current_offsets.failed != valid);
         assert(MotorCurrentOffsets_IsValid(&axis.configuration) == valid);
+        for (unsigned phase = 0U; phase < 3U; ++phase)
+        {
+            assert(axis.current_offsets.phase_offset_counts[phase] == raw_sums[test] / 4.0f);
+        }
+        if (BSP_ENABLED_BUS_CURRENT)
+        {
+            assert(axis.current_offsets.bus_offset_counts == bus_sample_raw);
+        }
     }
 }
 
@@ -782,7 +797,7 @@ static void test_bus_offset_limits(void)
     {
         return;
     }
-    const float bus_offsets[] = {1948.0f, 2148.0f, 1947.0f, 2149.0f};
+    const float bus_offsets[] = {1749.0f, 2347.0f, 1748.0f, 2348.0f};
     for (unsigned test = 0U; test < sizeof(bus_offsets) / sizeof(bus_offsets[0]); ++test)
     {
         initialize();
@@ -794,6 +809,7 @@ static void test_bus_offset_limits(void)
         bool valid = test < 2U;
         assert(axis.current_offsets.complete == valid);
         assert(axis.current_offsets.failed != valid);
+        assert(axis.current_offsets.bus_offset_counts == bus_offsets[test]);
         assert(phase_offset_writes == (valid ? 1U : 0U));
         assert(bus_offset_writes == (valid ? 1U : 0U));
         assert(MotorCurrentOffsets_IsValid(&axis.configuration) == valid);
@@ -806,6 +822,8 @@ static void test_bus_offset_limits(void)
     bus_sample_raw = NAN;
     sample_test_currents();
     assert(axis.current_offsets.failed && !axis.current_offsets.complete);
+    assert(isnan(axis.current_offsets.phase_offset_counts[0]));
+    assert(isnan(axis.current_offsets.bus_offset_counts));
     assert(phase_offset_writes == 0U && bus_offset_writes == 0U);
 }
 
@@ -1025,7 +1043,7 @@ static void test_output_encoder_startup(void)
 int main(void)
 {
     /* Watch类型与对象布局不随零偏计算的所属目录迁移而变化。 */
-    assert(sizeof(CurrentOffsetCalibration) == 24U + sizeof(axis.current_offsets.phases_disabled));
+    assert(sizeof(CurrentOffsetCalibration) == 40U + sizeof(axis.current_offsets.phases_disabled));
     assert(offsetof(CurrentOffsetCalibration, phase_sum_raw) == 0U);
     assert(offsetof(CurrentOffsetCalibration, bus_sum_raw) == 12U);
     assert(offsetof(CurrentOffsetCalibration, sample_count) == 16U);

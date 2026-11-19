@@ -22,10 +22,11 @@ enum
     CHECK_RESISTANCE_MAX_PERMILLE,
     CHECK_LIMIT_COUNT
 };
+#define CHECK_DEFAULT_CURRENT_BIAS_COUNTS 300U
 #define CHECK_LIMIT_DEFAULTS                                                                       \
     {10U,                                                                                          \
      50U,                                                                                          \
-     300U,                                                                                         \
+     CHECK_DEFAULT_CURRENT_BIAS_COUNTS,                                                            \
      27000U,                                                                                       \
      29000U,                                                                                       \
      1000U,                                                                                        \

@@ -4,6 +4,7 @@
 #include "motor_config.h"
 #include "application_config.h"
 #include "foc.h"
+#include "hardware_check_limits.h"
 #include "motor_types.h"
 
 /** @brief 上电零偏采样状态；Axis持有实例，采样模块通过显式对象独占推进。 */
@@ -15,11 +16,13 @@ typedef struct
     volatile bool complete, failed;
     bool bus_current_enabled;
     bool (*phases_disabled)(void);
+    volatile float phase_offset_counts[3];
+    volatile float bus_offset_counts;
 } CurrentOffsetCalibration;
 
 /**
  * @brief 清除本次上电零偏资格及电流测量，不沿用存储零偏。
- * @param calibration Axis持有的校正状态，调用后清零。
+ * @param calibration Axis持有的校正状态；重置累计值和标志，实测零偏设为NAN。
  * @param configuration 活动配置，三相零偏设为NAN。
  * @param foc 测量对象，三相及母线电流设为NAN。
  * @param bus_current_enabled 硬件是否提供母线电流通道；提供时必须与三相一起校正。
@@ -32,8 +35,8 @@ void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
 
 /**
  * @brief 累计三相及已启用的母线电流原码，2048拍后校验并一次发布全部零偏。
- * @param calibration Axis持有的校正状态，完成或失败后不再读写ADC零偏。
- * @param configuration 活动配置，成功时更新三相零偏，单位counts；母线零偏仅写BSP。
+ * @param calibration Axis持有的校正状态；采满后保留实测均值（counts），包括均值越界时。
+ * @param configuration 活动配置，成功时更新三相零偏，单位counts；母线补偿值发布到BSP。
  * @param motor_state 当前控制模式及故障所有者，非关相、原码或均值越界时锁存零偏故障。
  * @return 本拍首次完成并发布返回true，其余返回false；失败状态由calibration报告。
  * @note 仅由INIT状态的20kHz快拍调用；不启相、不重试、不写Flash。
@@ -87,12 +90,14 @@ bool McuTemperature_IsFresh(const volatile McuTemperatureTelemetry *temperature)
 
 /**
  * @brief 检查 ADC 零偏是否处于启动校正允许范围。
- * @param counts 单个相电流 ADC 偏置，counts。
- * @return 有限且在闭区间内返回 true。
+ * @param counts 单路相电流或母线电流 ADC 偏置，counts。
+ * @return 与 ADC 中点的偏差严格小于产测默认门限时返回 true。
  */
 static inline bool MotorCurrentOffset_InRange(float counts)
 {
-    return counts >= 1948.0f && counts <= 2148.0f;
+    const float midpoint_counts = 2048.0f;
+    const float limit_counts = (float)CHECK_DEFAULT_CURRENT_BIAS_COUNTS;
+    return counts > midpoint_counts - limit_counts && counts < midpoint_counts + limit_counts;
 }
 
 /**
@@ -108,9 +113,9 @@ static inline bool MotorDeviceOffsets_InRange(const MotorDeviceConfig *device)
 }
 
 /**
- * @brief 按既有 ADC 零偏范围验证三相偏置。
+ * @brief 按启动校正的 ADC 零偏范围验证三相偏置。
  * @param configuration 所属活动配置，只读，偏置单位为 ADC counts。
- * @return 三个偏置均有限且位于原保护范围时返回 true。
+ * @return 三个偏置均有限且位于允许范围时返回 true。
  * @note 无 I/O，不改变阈值或配置。
  */
 bool MotorCurrentOffsets_IsValid(const MotorConfiguration *configuration);

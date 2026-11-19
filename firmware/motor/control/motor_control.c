@@ -177,6 +177,9 @@ static bool position_mode_update_control(MotorOuterLoop *outer,
     config.speed_kp = configuration->application.speed_kp;
     config.speed_ki = configuration->application.speed_ki;
     config.current_limit_a = configuration->application.current_limit_a;
+    config.hold_at_reference = configuration->preset != NULL &&
+                               configuration->preset->joint == MOTOR_JOINT_ROLL && otg->has_plan &&
+                               otg->finished && otg->target_rad == motor->position_target_rad;
     return PositionCascade_UpdateControlLimited(&outer->cascade,
                                                 &config,
                                                 position_rad,

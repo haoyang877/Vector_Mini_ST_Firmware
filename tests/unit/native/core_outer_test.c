@@ -389,6 +389,71 @@ static void check_runtime(void)
     CHECK(s_current_calls == 2U && s_phase_rad == 1.25f && s_phase_velocity_rad_s == 5.0f);
 }
 
+static void check_roll_position_hold(void)
+{
+    static const MotorAxisPreset s_test_presets[] = {{.joint = MOTOR_JOINT_UNKNOWN},
+                                                     {.joint = MOTOR_JOINT_PITCH},
+                                                     {.joint = MOTOR_JOINT_YAW},
+                                                     {.joint = MOTOR_JOINT_ROLL}};
+    enum
+    {
+        RESPONSE_TICKS = 8
+    };
+    float regular_iq_a[RESPONSE_TICKS];
+    for (unsigned axis = 0U; axis < sizeof(s_test_presets) / sizeof(s_test_presets[0]); ++axis)
+    {
+        setup(MOTOR_CONTROL_POSITION);
+        s_configuration.preset = axis == 0U ? NULL : &s_test_presets[axis];
+        bool roll = s_test_presets[axis].joint == MOTOR_JOINT_ROLL;
+        tick();
+        CHECK(outer.cascade.hold_phase == POSITION_CASCADE_MOVE &&
+              !s_motor.position_target_reached);
+        for (unsigned step = 0U;
+             step < CASCADE_POSITION_LOOP_FREQ / 100U && !s_motor.position_target_reached;
+             ++step)
+        {
+            tick();
+        }
+        CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.position_target_reached);
+        /* 同一到位样本之后两种板型均须完成 50 ms，位置到位状态仍即时发布。 */
+        for (unsigned step = 1U; step < CASCADE_POSITION_LOOP_FREQ / 20U; ++step)
+        {
+            tick();
+        }
+        CHECK(outer.cascade.hold_phase == (roll ? POSITION_CASCADE_SETTLE : POSITION_CASCADE_MOVE));
+        tick();
+        CHECK(outer.cascade.hold_phase == (roll ? POSITION_CASCADE_HOLD : POSITION_CASCADE_MOVE));
+
+        s_position_rad -= 0.5f * s_configuration.application.position_error_window_rad;
+        for (unsigned step = 0U; step < RESPONSE_TICKS; ++step)
+        {
+            tick();
+            CHECK(s_motor.position_target_reached && s_motor.position_reference_rad == 0.3f &&
+                  s_motor.position_trajectory_speed_rad_s == 0.0f && s_motor.iq_target_a > 0.0f);
+            if (axis == 0U)
+            {
+                regular_iq_a[step] = s_motor.iq_target_a;
+            }
+            else if (!roll)
+            {
+                CHECK(s_motor.iq_target_a == regular_iq_a[step]);
+            }
+            else
+            {
+                CHECK(s_motor.iq_target_a < regular_iq_a[step]);
+            }
+        }
+        if (roll)
+        {
+            s_motor.position_target_rad = 0.4f;
+            tick();
+            CHECK(outer.cascade.hold_phase == POSITION_CASCADE_MOVE &&
+                  !s_motor.position_target_reached && s_motor.position_reference_rad == 0.3f);
+            CHECK(outer.cascade.speed_controller.integral_output > 0.0f);
+        }
+    }
+}
+
 /* 复用冻结 5665ff87 的纯核合同：正反转、收敛、acc/jerk 与前馈限幅。 */
 static void check_feedforward_core(void)
 {
@@ -579,6 +644,7 @@ int main(int argc, char **argv)
     else
     {
         check_runtime();
+        check_roll_position_hold();
     }
     printf("core outer %s: %s\n", argv[1], s_failures == 0U ? "PASS" : "FAIL");
     return s_failures == 0U ? 0 : 1;

@@ -314,7 +314,7 @@ static void test_hold_confirmation_and_hysteresis(void)
     PositionCascadeControlOutput output;
     PositionCascade_Reset(&cascade);
     value.target_position = 0.0f;
-    value.hold_at_reference = true;
+    value.hold_confirm_ticks = 50U;
     const float quiet_position_rad = -0.5f * value.position_error_window;
     for (unsigned step = 0U; step < 30U; ++step)
     {
@@ -363,7 +363,7 @@ static void test_hold_limit_and_new_reference(void)
     PositionCascade_Reset(&cascade);
     value.target_position = 0.0f;
     value.speed_ki = 4.0f;
-    value.hold_at_reference = true;
+    value.hold_confirm_ticks = 50U;
     for (unsigned step = 0U; step < 100U; ++step)
     {
         assert(PositionCascade_UpdateControl(&cascade, &value, -0.1f, 0.0f, &output));

@@ -28,6 +28,8 @@ static float position_mode_maximum_speed(const MotorConfiguration *configuration
 /* 预留 4 ms 前台建表时间。旧轨迹照常推进；相同绝对时刻的 p/v/a 作为新段表起点。 */
 #define POSITION_PLAN_LEAD_TICKS (CASCADE_POSITION_LOOP_FREQ / 250U)
 
+#define ROLL_HOLD_CONFIRM_TICKS (CASCADE_POSITION_LOOP_FREQ / 20U) /* 50 ms */
+
 bool MotorOuterLoop_TakePositionPlan(MotorOuterLoop *outer, MotorPositionPlan *work)
 {
     if (outer->plan.state != PLAN_QUEUED)
@@ -177,9 +179,11 @@ static bool position_mode_update_control(MotorOuterLoop *outer,
     config.speed_kp = configuration->application.speed_kp;
     config.speed_ki = configuration->application.speed_ki;
     config.current_limit_a = configuration->application.current_limit_a;
-    config.hold_at_reference = configuration->preset != NULL &&
-                               configuration->preset->joint == MOTOR_JOINT_ROLL && otg->has_plan &&
-                               otg->finished && otg->target_rad == motor->position_target_rad;
+    if (configuration->preset != NULL && configuration->preset->joint == MOTOR_JOINT_ROLL &&
+        otg->finished && otg->target_rad == motor->position_target_rad)
+    {
+        config.hold_confirm_ticks = ROLL_HOLD_CONFIRM_TICKS;
+    }
     return PositionCascade_UpdateControlLimited(&outer->cascade,
                                                 &config,
                                                 position_rad,

@@ -10,6 +10,7 @@ typedef struct
 {
     float update_period_s;
     uint16_t call_divider;
+    uint16_t hold_confirm_ticks; /* 终点保持的确认间隔数，0 表示普通跟踪。 */
     float target_position;       /* 本拍位置参考，rad。 */
     float reference_speed_rad_s; /* 本拍规划速度，rad/s。 */
     float position_error_window;
@@ -21,7 +22,6 @@ typedef struct
     float speed_kp;
     float speed_ki;
     float current_limit_a;
-    bool hold_at_reference; /* 本拍为可进入保持的终点参考，常规跟踪时为 false。 */
 } PositionCascadeConfig;
 
 /* 零初始化从普通跟踪开始。 */
@@ -40,7 +40,7 @@ typedef struct
     float filtered_speed_rad_s;
     float velocity_filter_alpha;
     PositionCascadeHoldPhase hold_phase;
-    uint32_t hold_settle_ticks;
+    uint16_t hold_settle_ticks;
     uint16_t loop_count;
     bool configured;
 } PositionCascadeState;

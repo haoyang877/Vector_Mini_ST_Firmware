@@ -151,6 +151,7 @@ Yaw、Pitch 及其他轴使用普通位置 PD 和速度 PI。
 
 每轴的 `PositionCascadeState` 独占保持状态和确认计时，沿用位置外环复位。到位状态继续按原判定发布。
 上述确认时间和退出滞回为初始整定值，实际响应由 Roll 台架验证。
+AT32F456 LoaderApp 将 `motor_control.c` 和 `position_control.c` 设为空间优先编译，以满足 APP 槽容量。
 
 ## 编码器与磁链观测
 

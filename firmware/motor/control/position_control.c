@@ -11,7 +11,6 @@
 /* 位置控制内部固定值，不属于共享参数边界。 */
 #define POSITION_SERVO_SPEED_CORRECTION_HEADROOM_RATIO 1.50f
 #define POSITION_CASCADE_TARGET_REACHED_SPEED_RAD_S 0.03f
-#define POSITION_CASCADE_HOLD_SETTLE_TIME_S 0.05f
 #define POSITION_CASCADE_HOLD_EXIT_WINDOW_RATIO 1.5f
 #define POSITION_CASCADE_HOLD_EXIT_SPEED_RAD_S 0.08f
 
@@ -85,31 +84,15 @@ static void position_cascade_update_hold(PositionCascadeState *state,
     {
         state->hold_settle_ticks = 0U;
     }
-    else if ((float)state->hold_settle_ticks * config->update_period_s >=
-             POSITION_CASCADE_HOLD_SETTLE_TIME_S)
+    else if (state->hold_settle_ticks == config->hold_confirm_ticks)
     {
         state->hold_phase = POSITION_CASCADE_HOLD;
     }
-    else if (state->hold_settle_ticks < UINT32_MAX)
+    else
     {
-        /* 按首个合格样本之后经过的控制拍计时，避免累加周期的舍入漂移。 */
+        /* 按首个合格样本之后经过的控制拍计时。 */
         ++state->hold_settle_ticks;
     }
-}
-
-static void position_cascade_configure_pi(PositionCascadeState *state, float limit_a)
-{
-    const PositionCascadeConfig *config = &state->config;
-    /* 暂停误差积分，保留比例修正和 PI 已积累的支撑电流。 */
-    float integral_gain = state->hold_phase == POSITION_CASCADE_HOLD
-                              ? 0.0f
-                              : config->speed_ki * config->current_limit_a;
-    PiController_Configure(&state->speed_controller,
-                           config->speed_kp * config->current_limit_a,
-                           integral_gain,
-                           config->update_period_s,
-                           -limit_a,
-                           limit_a);
 }
 
 static bool position_cascade_run(PositionCascadeState *state,
@@ -153,17 +136,19 @@ static bool position_cascade_run(PositionCascadeState *state,
         {
             return false;
         }
-        if (config->hold_at_reference)
+        if (config->hold_confirm_ticks != 0U)
         {
-            bool was_holding = state->hold_phase == POSITION_CASCADE_HOLD;
             position_cascade_update_hold(state, position_error_rad, filtered_speed_rad_s);
-            if (was_holding != (state->hold_phase == POSITION_CASCADE_HOLD))
-            {
-                position_cascade_configure_pi(state, state->speed_controller.output_max);
-            }
         }
-        iq_reference_a =
-            PiController_Run(&state->speed_controller, speed_command_rad_s, filtered_speed_rad_s);
+        PiController *speed_pi = &state->speed_controller;
+        float integral_gain = speed_pi->integral_gain;
+        if (state->hold_phase == POSITION_CASCADE_HOLD)
+        {
+            /* 暂停本拍误差积分，保留支撑积分和 PI 的常规配置。 */
+            speed_pi->integral_gain = 0.0f;
+        }
+        iq_reference_a = PiController_Run(speed_pi, speed_command_rad_s, filtered_speed_rad_s);
+        speed_pi->integral_gain = integral_gain;
         if (!isfinite(iq_reference_a))
         {
             return false;
@@ -222,9 +207,8 @@ bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
         state->filtered_speed_rad_s = measured_speed;
     }
     if (state->hold_phase != POSITION_CASCADE_MOVE &&
-        (!config->hold_at_reference || config->target_position != state->config.target_position ||
-         config->update_period_s != state->config.update_period_s ||
-         config->call_divider != state->config.call_divider))
+        (config->hold_confirm_ticks != state->config.hold_confirm_ticks ||
+         config->target_position != state->config.target_position))
     {
         position_cascade_reset_hold(state);
     }
@@ -232,7 +216,12 @@ bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
     state->velocity_filter_alpha = alpha;
     state->configured = true;
     float limit_a = fminf(available_current_a, config->current_limit_a);
-    position_cascade_configure_pi(state, limit_a);
+    PiController_Configure(&state->speed_controller,
+                           config->speed_kp * config->current_limit_a,
+                           config->speed_ki * config->current_limit_a,
+                           config->update_period_s,
+                           -limit_a,
+                           limit_a);
     /* 下调电流上限即使落在分频等待拍也立即作用，不清掉已有支撑积分。 */
     PiController_TrackOutput(&state->speed_controller,
                              position_cascade_clamp(state->speed_controller.output, limit_a));
@@ -250,11 +239,10 @@ bool PositionCascade_UpdateTargetControl(PositionCascadeState *state,
     {
         return false;
     }
-    if (state->config.hold_at_reference && target_position != state->config.target_position)
+    if (state->config.hold_confirm_ticks != 0U && target_position != state->config.target_position)
     {
-        state->config.hold_at_reference = false;
+        state->config.hold_confirm_ticks = 0U;
         position_cascade_reset_hold(state);
-        position_cascade_configure_pi(state, state->speed_controller.output_max);
     }
     state->config.target_position = target_position;
     return position_cascade_run(state, measured_position, measured_speed, output);

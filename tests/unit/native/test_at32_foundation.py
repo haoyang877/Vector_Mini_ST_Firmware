@@ -40,6 +40,7 @@ def main() -> int:
                 f"-DBSP_BOARD={profile}",
                 str(native / "app_bus_current_test.c"),
                 str(ROOT / "firmware/app/app_protocol.c"),
+                str(ROOT / "firmware/motor/math/scaled_integer.c"),
                 str(ROOT / "shared/protocol/yg_protocol_crc.c"),
                 str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
                 str(ROOT / "shared/protocol/yg_protocol_can_id.c"),

@@ -24,6 +24,7 @@ def build_generator(executable: Path, cc: Path) -> None:
         "firmware/motor/math/control_math.c",
         "firmware/motor/control/speed_feedforward.c",
         "firmware/parameters/parameter_values.c",
+        "firmware/motor/math/scaled_integer.c",
     ]
     subprocess.run(
         [

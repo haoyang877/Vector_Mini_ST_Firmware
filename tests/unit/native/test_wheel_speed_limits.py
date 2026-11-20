@@ -380,6 +380,7 @@ def main():
         str(ROOT / "firmware/parameters/motor_axis_profile.c"),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/parameters/parameter_values.c"),
+        str(ROOT / "firmware/motor/math/scaled_integer.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
         str(ROOT / "firmware/motor/control/speed_feedforward.c"),

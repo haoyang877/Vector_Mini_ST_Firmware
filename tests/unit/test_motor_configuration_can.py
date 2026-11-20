@@ -26,6 +26,7 @@ class MotorConfigurationCanTest(unittest.TestCase):
             "firmware/motor/math/control_math.c",
             "firmware/motor/control/speed_feedforward.c",
             "firmware/parameters/parameter_values.c",
+            "firmware/motor/math/scaled_integer.c",
         ]
         with tempfile.TemporaryDirectory() as directory:
             for board in (1, 2):

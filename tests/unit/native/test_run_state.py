@@ -24,6 +24,7 @@ def main() -> None:
         ROOT / "firmware/app/motor_state_machine.c",
         ROOT / "firmware/motor/protection/motor_fault.c",
         ROOT / "firmware/app/app_protocol.c",
+        ROOT / "firmware/motor/math/scaled_integer.c",
         ROOT / "shared/protocol/yg_protocol_crc.c",
         ROOT / "shared/protocol/yg_protocol_frame_codec.c",
         ROOT / "shared/protocol/yg_protocol_can_id.c",

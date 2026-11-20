@@ -76,6 +76,7 @@ def main() -> None:
         )
         if name == "core_protocol":
             command += [
+                str(ROOT / "firmware/motor/math/scaled_integer.c"),
                 str(ROOT / "shared/protocol/yg_protocol_crc.c"),
                 str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
                 str(ROOT / "shared/protocol/yg_protocol_can_id.c"),

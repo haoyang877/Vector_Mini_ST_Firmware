@@ -53,6 +53,7 @@ typedef struct
     bool position_target_reached;
     float position_target_rad, position_reference_rad;
     float position_velocity_filtered_rad_s;
+    uint32_t roll_phase_overlimit_ticks; /* 快环独占，退出运行时清零。 */
     /* 模式 3 规划轨迹速度；遥测无效窗口为 NaN。 */
     float position_trajectory_speed_rad_s, position_trajectory_acceleration_rad_s2;
 

@@ -106,6 +106,12 @@ void HardwareCheck_CaptureFast(MotorAxis *axis)
     s_write = write + 1U;
 }
 
+/* ADC 采集入口沿用原优化选项，前台硬件检测使用空间优先。 */
+#if defined(__CC_ARM)
+#pragma O2
+#pragma Ospace
+#endif
+
 static void end_check(MotorAxis *axis, uint8_t stage)
 {
     if (s_report.stage == RESISTANCE && stage == ABORTED && s_resistance.failure == 0U)

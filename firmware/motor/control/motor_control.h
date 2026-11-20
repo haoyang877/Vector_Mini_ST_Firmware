@@ -16,7 +16,7 @@ typedef struct
     PositionOtg trajectory;
     PositionOtgLimits limits;
     float target_rad;
-    uint32_t serial;
+    uint32_t serial, lead_ticks;
 } MotorPositionPlan;
 
 typedef enum

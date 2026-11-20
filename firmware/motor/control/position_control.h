@@ -23,6 +23,11 @@ typedef struct
     float speed_ki;
     float current_limit_a;
     float damper_current_a; /* 标称阻尼补偿电流，0 关闭。 */
+    float final_target_rad;
+    float reference_acceleration_rad_s2;
+    uint16_t measured_position_q15;
+    bool roll_motion_enabled;
+    bool trajectory_matches_target;
 } PositionCascadeConfig;
 
 /* 零初始化从普通跟踪开始。 */
@@ -32,6 +37,30 @@ typedef enum
     POSITION_CASCADE_SETTLE,
     POSITION_CASCADE_HOLD
 } PositionCascadeHoldPhase;
+
+enum
+{
+    POSITION_ROLL_SPEED_WINDOW_MS = 40
+};
+
+typedef struct
+{
+    float target_rad;
+    float direction;
+    float entry_speed_rad_s;
+    float distance_gain_per_s;
+    float transition;
+    bool parked;
+} PositionTerminalState;
+
+typedef struct
+{
+    uint16_t positions_q15[POSITION_ROLL_SPEED_WINDOW_MS + 1];
+    uint8_t index;
+    uint8_t ready_samples;
+    uint8_t interval_ticks;
+    float speed_rad_s;
+} PositionSpeedWindow;
 
 /** @brief 一根轴独占的位置控制器；零初始化后串行推进。 */
 typedef struct
@@ -44,6 +73,9 @@ typedef struct
     float damper_feedforward_a;
     float damper_assist_direction;
     float damper_assist_speed_rad_s;
+    float inertia_feedforward_a;
+    PositionTerminalState terminal;
+    PositionSpeedWindow speed_window;
     PositionCascadeHoldPhase hold_phase;
     uint16_t hold_settle_ticks;
     uint16_t loop_count;

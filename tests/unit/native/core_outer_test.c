@@ -416,8 +416,11 @@ static void check_roll_position_hold(void)
         CHECK(fabsf(outer.cascade.config.damper_current_a - (roll ? 2.7207f : 0.0f)) < 1e-4f);
         CHECK(outer.cascade.hold_phase == POSITION_CASCADE_MOVE &&
               !s_motor.position_target_reached);
+        CHECK(outer.cascade.config.roll_motion_enabled == roll);
+        CHECK(outer.plan.apply_tick == (roll ? 3U * (CASCADE_POSITION_LOOP_FREQ / 250U)
+                                             : CASCADE_POSITION_LOOP_FREQ / 250U));
         for (unsigned step = 0U;
-             step < CASCADE_POSITION_LOOP_FREQ / 100U && !s_motor.position_target_reached;
+             step < CASCADE_POSITION_LOOP_FREQ / 50U && !s_motor.position_target_reached;
              ++step)
         {
             tick();
@@ -629,6 +632,37 @@ static void check_feedforward_runtime(void)
     CHECK(s_pi.proportional_gain == 0.5f && s_pi.integral_gain == 2.0f);
 }
 
+static void check_roll_sustained_phase_current(void)
+{
+    static const MotorAxisPreset s_roll = {.joint = MOTOR_JOINT_ROLL};
+    FocState foc = {0};
+    FluxObserverState observer = {0};
+    setup(MOTOR_CONTROL_POSITION);
+    s_configuration.preset = &s_roll;
+    foc.phase_current_a.b = -7.01f;
+    for (unsigned tick_index = 0; tick_index < 5U * FOC_FREQ - 1U; ++tick_index)
+    {
+        (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    }
+    CHECK(s_motor.fault_code == MOTOR_FAULT_NONE);
+    CHECK(s_motor.roll_phase_overlimit_ticks == 5U * FOC_FREQ - 1U);
+    foc.phase_current_a.b = -7.0f;
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    CHECK(s_motor.roll_phase_overlimit_ticks == 0U);
+    for (unsigned tick_index = 0; tick_index < 5U * FOC_FREQ; ++tick_index)
+    {
+        foc.phase_current_a.a = (tick_index & 1U) ? 7.01f : 0.0f;
+        foc.phase_current_a.c = (tick_index & 1U) ? 0.0f : -7.01f;
+        (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    }
+    CHECK(s_motor.fault_code == MOTOR_FAULT_OVERCURRENT);
+    setup(MOTOR_CONTROL_SPEED);
+    s_configuration.preset = &s_roll;
+    s_motor.roll_phase_overlimit_ticks = 5U * FOC_FREQ - 1U;
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    CHECK(s_motor.fault_code == MOTOR_FAULT_NONE && s_motor.roll_phase_overlimit_ticks == 0U);
+}
+
 /** @brief 执行单项核心组合合同；失败返回非零，不接触硬件。 */
 int main(int argc, char **argv)
 {
@@ -653,6 +687,7 @@ int main(int argc, char **argv)
     {
         check_runtime();
         check_roll_position_hold();
+        check_roll_sustained_phase_current();
     }
     printf("core outer %s: %s\n", argv[1], s_failures == 0U ? "PASS" : "FAIL");
     return s_failures == 0U ? 0 : 1;

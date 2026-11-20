@@ -37,18 +37,93 @@ static float smooth_fraction(float value)
     return x * x * (3.0f - 2.0f * x);
 }
 
+/* Roll 外环每毫秒记录一次编码器码，40 ms 窗口按最短角差测速。 */
+static float update_roll_speed_window(PositionSpeedWindow *window,
+                                      uint16_t position_q15,
+                                      float initial_speed_rad_s)
+{
+    if (window->interval_ticks == 0U)
+    {
+        const uint8_t history =
+            window->index == POSITION_ROLL_SPEED_WINDOW_MS ? 0U : (uint8_t)(window->index + 1U);
+        if (window->ready_samples < POSITION_ROLL_SPEED_WINDOW_MS)
+        {
+            ++window->ready_samples;
+            window->speed_rad_s = initial_speed_rad_s;
+        }
+        else
+        {
+            const uint16_t difference = (uint16_t)(position_q15 - window->positions_q15[history]);
+            const int32_t delta = difference < 32768U ? difference : (int32_t)difference - 65536;
+            window->speed_rad_s = delta * (6.2831853072f / (65536.0f * 0.040f));
+        }
+        window->positions_q15[window->index] = position_q15;
+        window->index = history;
+    }
+    window->interval_ticks =
+        (uint8_t)((window->interval_ticks + 1U) % (CASCADE_POSITION_LOOP_FREQ / 1000U));
+    return window->speed_rad_s;
+}
+
+static void update_roll_terminal(PositionTerminalState *terminal,
+                                 const PositionCascadeConfig *config,
+                                 float position_rad,
+                                 float speed_rad_s)
+{
+    if (!config->trajectory_matches_target || terminal->target_rad != config->final_target_rad)
+    {
+        *terminal = (PositionTerminalState){.target_rad = config->final_target_rad};
+    }
+    if (!config->trajectory_matches_target)
+    {
+        return;
+    }
+    const float remaining_rad = terminal->target_rad - position_rad;
+    const float reference_rad_s = config->reference_speed_rad_s;
+    if (terminal->direction == 0.0f &&
+        reference_rad_s * config->reference_acceleration_rad_s2 < -0.004f &&
+        fabsf(reference_rad_s) > 0.12f && fabsf(speed_rad_s) > 0.12f &&
+        remaining_rad * reference_rad_s > 0.0f && speed_rad_s * reference_rad_s > 0.0f)
+    {
+        terminal->direction = copysignf(1.0f, reference_rad_s);
+        terminal->entry_speed_rad_s = fabsf(speed_rad_s);
+        terminal->distance_gain_per_s =
+            terminal->entry_speed_rad_s / fmaxf(0.045f, fabsf(remaining_rad));
+    }
+    if (terminal->direction != 0.0f)
+    {
+        terminal->transition = fminf(1.0f, terminal->transition + config->update_period_s / 0.12f);
+        /* 停车入口不得放宽现有到位窗口。离开窗口后恢复纠偏。 */
+        if (terminal->parked)
+        {
+            terminal->parked =
+                fabsf(remaining_rad) <= fminf(0.00837758f, config->position_error_window * 1.5f) &&
+                fabsf(speed_rad_s) <= 0.035f;
+        }
+        else if (config->hold_confirm_ticks != 0U &&
+                 fabsf(remaining_rad) <= fminf(0.00733038f, config->position_error_window) &&
+                 fabsf(speed_rad_s) < 0.018f)
+        {
+            terminal->parked = true;
+        }
+    }
+}
+
 static void track_current_budget(PositionCascadeState *state)
 {
     PiController *pi = &state->speed_controller;
-    pi->output_min = -state->current_budget_a - state->damper_feedforward_a;
-    pi->output_max = state->current_budget_a - state->damper_feedforward_a;
+    const float feedforward_a = state->damper_feedforward_a + state->inertia_feedforward_a;
+    pi->output_min = -state->current_budget_a - feedforward_a;
+    pi->output_max = state->current_budget_a - feedforward_a;
     PiController_TrackOutput(pi, fminf(fmaxf(pi->output, pi->output_min), pi->output_max));
 }
 
 static void update_damper_feedforward(PositionCascadeState *state,
                                       float error_rad,
                                       float speed_rad_s,
-                                      float plan_weight)
+                                      float plan_weight,
+                                      float terminal_weight,
+                                      float final_error_rad)
 {
     const PositionCascadeConfig *config = &state->config;
     const float dt_s = config->update_period_s;
@@ -83,6 +158,14 @@ static void update_damper_feedforward(PositionCascadeState *state,
                          ? 0.0f
                          : config->damper_current_a * (plan_sign * plan_weight * tracking_weight +
                                                        (1.0f - plan_weight) * correction);
+    if (terminal_weight > 0.0f && !holding)
+    {
+        const float terminal_direction = state->terminal.direction;
+        const float assist_a =
+            terminal_direction * config->damper_current_a *
+            smooth_fraction(terminal_direction * final_error_rad / POSITION_DAMPER_FULL_RAD);
+        target_a += terminal_weight * (assist_a - target_a);
+    }
     target_a = position_cascade_clamp(target_a, state->current_budget_a);
     float previous_a = state->damper_feedforward_a;
     float slew_a_s =
@@ -188,9 +271,20 @@ static bool position_cascade_run(PositionCascadeState *state,
         state->loop_count = 0U;
         if (config->velocity_filter_hz > 0.0f)
         {
-            filtered_speed_rad_s =
-                state->filtered_speed_rad_s +
-                state->velocity_filter_alpha * (measured_speed_rad_s - state->filtered_speed_rad_s);
+            float alpha = state->velocity_filter_alpha;
+            if (config->roll_motion_enabled)
+            {
+                const float slow_ratio = 62.83185307f * CASCADE_POSITION_LOOP_TS_S;
+                const float slow_alpha = slow_ratio / (1.0f + slow_ratio); /* 10 Hz */
+                const float slow_rad_s = update_roll_speed_window(
+                    &state->speed_window, config->measured_position_q15, measured_speed_rad_s);
+                const float moving =
+                    smooth_fraction((fabsf(slow_rad_s) - 0.034906585f) / 0.06981317f);
+                measured_speed_rad_s = slow_rad_s + moving * (measured_speed_rad_s - slow_rad_s);
+                alpha = slow_alpha + moving * (alpha - slow_alpha);
+            }
+            filtered_speed_rad_s = state->filtered_speed_rad_s +
+                                   alpha * (measured_speed_rad_s - state->filtered_speed_rad_s);
         }
         if (!isfinite(filtered_speed_rad_s))
         {
@@ -217,6 +311,35 @@ static bool position_cascade_run(PositionCascadeState *state,
                                                          config->position_kp * position_error_rad -
                                                          config->position_kd * filtered_speed_rad_s,
                                                      speed_limit_rad_s);
+        float terminal_weight = 0.0f;
+        float acceleration_rad_s2 = config->reference_acceleration_rad_s2;
+        const float final_error_rad = config->final_target_rad - measured_position_rad;
+        const PositionTerminalState *terminal = &state->terminal;
+        if (config->roll_motion_enabled)
+        {
+            update_roll_terminal(
+                &state->terminal, config, measured_position_rad, filtered_speed_rad_s);
+            if (terminal->direction != 0.0f)
+            {
+                terminal_weight = smooth_fraction(terminal->transition);
+                float distance_speed_rad_s = terminal->distance_gain_per_s * final_error_rad;
+                const float limit_rad_s = terminal->direction * final_error_rad < 0.0f
+                                              ? 0.025f
+                                              : terminal->entry_speed_rad_s;
+                const float terminal_speed_rad_s =
+                    terminal->parked ? 0.0f
+                                     : position_cascade_clamp(distance_speed_rad_s, limit_rad_s);
+                speed_command_rad_s = position_cascade_clamp(
+                    speed_command_rad_s +
+                        terminal_weight * (terminal_speed_rad_s - speed_command_rad_s),
+                    speed_limit_rad_s);
+                const float closing_rad_s = fmaxf(0.0f, terminal->direction * filtered_speed_rad_s);
+                const float braking_rad_s2 =
+                    -terminal->direction *
+                    fminf(1.5f, terminal->distance_gain_per_s * closing_rad_s);
+                acceleration_rad_s2 += terminal_weight * (braking_rad_s2 - acceleration_rad_s2);
+            }
+        }
         if (!isfinite(speed_command_rad_s) || !isfinite(speed_command_rad_s - filtered_speed_rad_s))
         {
             return false;
@@ -227,11 +350,32 @@ static bool position_cascade_run(PositionCascadeState *state,
         }
         if (config->damper_current_a > 0.0f)
         {
-            update_damper_feedforward(state, position_error_rad, filtered_speed_rad_s, plan_weight);
+            update_damper_feedforward(state,
+                                      position_error_rad,
+                                      filtered_speed_rad_s,
+                                      plan_weight,
+                                      terminal_weight,
+                                      final_error_rad);
+        }
+        if (config->roll_motion_enabled)
+        {
+            const float remaining_a = state->current_budget_a - fabsf(state->damper_feedforward_a);
+            state->inertia_feedforward_a =
+                position_cascade_clamp((0.57f / 0.55f) * acceleration_rad_s2, remaining_a);
+        }
+        if (config->damper_current_a > 0.0f || config->roll_motion_enabled)
+        {
             track_current_budget(state);
         }
         PiController *speed_pi = &state->speed_controller;
-        float integral_gain = speed_pi->integral_gain;
+        const float integral_gain = speed_pi->integral_gain;
+        const float proportional_gain = speed_pi->proportional_gain;
+        if (terminal_weight > 0.0f)
+        {
+            const float moving = smooth_fraction(fabsf(filtered_speed_rad_s) / 0.035f);
+            speed_pi->proportional_gain += terminal_weight * (2.0f + 5.0f * moving);
+            speed_pi->integral_gain *= terminal->parked ? 0.0f : 1.0f - 0.65f * terminal_weight;
+        }
         if (state->hold_phase == POSITION_CASCADE_HOLD)
         {
             /* 暂停本拍误差积分，保留支撑积分和 PI 的常规配置。 */
@@ -239,6 +383,7 @@ static bool position_cascade_run(PositionCascadeState *state,
         }
         iq_reference_a = PiController_Run(speed_pi, speed_command_rad_s, filtered_speed_rad_s);
         speed_pi->integral_gain = integral_gain;
+        speed_pi->proportional_gain = proportional_gain;
         if (!isfinite(iq_reference_a))
         {
             return false;
@@ -251,7 +396,8 @@ static bool position_cascade_run(PositionCascadeState *state,
     output->speed_reference = state->speed_controller.reference;
     output->speed_feedback_rad_s = state->filtered_speed_rad_s;
     output->iq_reference = position_cascade_clamp(
-        state->speed_controller.output + state->damper_feedforward_a, state->current_budget_a);
+        state->speed_controller.output + state->damper_feedforward_a + state->inertia_feedforward_a,
+        state->current_budget_a);
     output->target_reached =
         position_cascade_in_target_window(config, position_error_rad, state->filtered_speed_rad_s);
     return true;
@@ -278,7 +424,10 @@ bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
     float alpha;
     if (output == NULL || !isfinite(measured_position) || !isfinite(measured_speed) ||
         !isfinite(available_current_a) || available_current_a < 0.0f ||
-        !position_cascade_config_valid(config))
+        !position_cascade_config_valid(config) ||
+        (config->roll_motion_enabled &&
+         (config->call_divider != 1U || config->update_period_s != CASCADE_POSITION_LOOP_TS_S ||
+          !isfinite(config->final_target_rad) || !isfinite(config->reference_acceleration_rad_s2))))
     {
         return false;
     }
@@ -303,6 +452,12 @@ bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
     {
         position_cascade_reset_hold(state);
     }
+    if (state->config.roll_motion_enabled && !config->roll_motion_enabled)
+    {
+        state->terminal = (PositionTerminalState){0};
+        state->speed_window = (PositionSpeedWindow){0};
+        state->inertia_feedforward_a = 0.0f;
+    }
     state->config = *config;
     state->velocity_filter_alpha = alpha;
     state->configured = true;
@@ -315,6 +470,8 @@ bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
     }
     state->damper_feedforward_a =
         position_cascade_clamp(state->damper_feedforward_a, state->current_budget_a);
+    state->inertia_feedforward_a = position_cascade_clamp(
+        state->inertia_feedforward_a, state->current_budget_a - fabsf(state->damper_feedforward_a));
     PiController_Configure(&state->speed_controller,
                            config->speed_kp * config->current_limit_a,
                            config->speed_ki * config->current_limit_a,
@@ -343,6 +500,8 @@ bool PositionCascade_UpdateTargetControl(PositionCascadeState *state,
         position_cascade_reset_hold(state);
     }
     state->config.target_position = target_position;
+    state->config.trajectory_matches_target = false;
+    state->config.reference_acceleration_rad_s2 = 0.0f;
     return position_cascade_run(state, measured_position, measured_speed, output);
 }
 

@@ -426,8 +426,60 @@ static void test_damper_feedforward_with_current_budget(void)
     assert(output.iq_reference == 0.0f);
 }
 
+static void test_roll_speed_window_and_terminal(void)
+{
+    PositionCascadeState state = {0};
+    PositionCascadeConfig value = config();
+    PositionCascadeControlOutput output;
+    value.roll_motion_enabled = true;
+    value.update_period_s = CASCADE_POSITION_LOOP_TS_S;
+    value.velocity_filter_hz = 35.0f;
+    value.measured_position_q15 = 65535U;
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 2U; ++i)
+    {
+        assert(PositionCascade_UpdateControl(&state, &value, 0.2f, -0.0043f, &output));
+    }
+    assert(fabsf(output.speed_feedback_rad_s) < 1e-7f);
+    value.measured_position_q15 = 0U;
+    float peak_rad_s = 0.0f;
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 4U; ++i)
+    {
+        assert(PositionCascade_UpdateControl(&state, &value, 0.2f, -0.0043f, &output));
+        peak_rad_s = fmaxf(peak_rad_s, output.speed_feedback_rad_s);
+    }
+    assert(peak_rad_s > 0.0020f && peak_rad_s < 0.0024f);
+    assert(fabsf(output.speed_feedback_rad_s) < 1e-7f);
+
+    PositionCascade_Reset(&state);
+    value.trajectory_matches_target = true;
+    value.final_target_rad = 0.3f;
+    value.reference_speed_rad_s = 0.3f;
+    value.reference_acceleration_rad_s2 = -0.7f;
+    value.damper_current_a = 2.72f;
+    assert(PositionCascade_UpdateControl(&state, &value, 0.2f, 0.3f, &output));
+    assert(state.terminal.direction == 1.0f && state.inertia_feedforward_a < 0.0f);
+
+    value.hold_confirm_ticks = 3U;
+    value.target_position = value.final_target_rad;
+    value.reference_speed_rad_s = 0.0f;
+    value.reference_acceleration_rad_s2 = 0.0f;
+    for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 2U; ++i)
+    {
+        assert(PositionCascade_UpdateControlLimited(&state, &value, 0.297f, 0.0f, 0.15f, &output));
+        assert(fabsf(output.iq_reference) <= 0.15f);
+    }
+    assert(!state.terminal.parked && !output.target_reached);
+    assert(PositionCascade_UpdateControl(&state, &value, 0.2995f, 0.0f, &output));
+    assert(state.terminal.parked && output.target_reached && output.speed_reference == 0.0f);
+    value.final_target_rad = -0.1f;
+    value.trajectory_matches_target = false;
+    assert(PositionCascade_UpdateControl(&state, &value, 0.2995f, 0.0f, &output));
+    assert(!state.terminal.parked && state.terminal.direction == 0.0f);
+}
+
 int main(void)
 {
+    test_roll_speed_window_and_terminal();
     test_damper_feedforward_with_current_budget();
     test_hold_confirmation_and_hysteresis();
     test_hold_limit_and_new_reference();

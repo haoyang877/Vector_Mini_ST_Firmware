@@ -277,6 +277,7 @@ static void reset_targets_and_controllers(MotorStateMachine *machine)
     motor->position_reference_rad = 0.0f;
     motor->position_target_reached = false;
     motor->position_velocity_filtered_rad_s = 0.0f;
+    motor->roll_phase_overlimit_ticks = 0U;
     machine->drive.foc->current_dq_a.d = 0.0f;
     machine->drive.foc->current_dq_a.q = 0.0f;
     Foc_ResetCurrent(machine->drive.foc);

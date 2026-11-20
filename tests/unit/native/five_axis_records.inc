@@ -125,27 +125,42 @@ int main(void)
             assert(Param_CreateAxis(node, -travel, travel, output_limit * ratio, &heat, &full));
             assert(!Param_CreateAxis(node, -travel, travel, (output_limit + 0.001f) * ratio, &heat, &full));
         }
-        assert(configuration.application.speed_kp == (ht ? .05f : .048f));
-        assert(configuration.application.speed_ki == .5f);
+        assert(configuration.application.speed_kp == (node == 5 ? .55f : ht ? .05f : .048f));
+        assert(configuration.application.speed_ki == (node == 5 ? 2.5f : .5f));
         if (node == 5)
         {
+            assert(configuration.application.cascade_position_kp == 16.0f);
+            assert(configuration.application.cascade_position_kd == 1.6f);
             InterfaceParam old = record;
+            old.cascade_pos_kp = 8.0f;
+            old.cascade_pos_kd = 2.0f;
             old.speed_kp = .5f;
             old.speed_ki = 1.f;
             old.record_crc32 = Param_RecordCrc(&old);
             InterfaceParam unchanged = old;
             MotorConfiguration migrated;
             Param_Download(&old, sizeof(old), &migrated);
-            assert(migrated.application.speed_kp == .05f && migrated.application.speed_ki == .5f);
+            assert(migrated.application.speed_kp == .55f && migrated.application.speed_ki == 2.5f);
+            assert(migrated.application.cascade_position_kp == 16.0f);
+            assert(migrated.application.cascade_position_kd == 1.6f);
             assert(migrated.configuration_confirmed && migrated.device.encoder.calib_flag == ENC_CALIB_ALL);
             assert(migrated.device.encoder.linearization_lut_q15[71] == -42);
             assert(migrated.model.calibration_current_a == 5.f);
             assert(memcmp(&old, &unchanged, sizeof(old)) == 0);
-            old.speed_kp = .02f;
-            old.speed_ki = .2f;
+            old.speed_kp = .05f;
+            old.speed_ki = .5f;
+            old.cascade_pos_kp = 17.0f;
+            old.cascade_pos_kd = 2.0f;
             old.record_crc32 = Param_RecordCrc(&old);
             Param_Download(&old, sizeof(old), &migrated);
-            assert(migrated.application.speed_kp == .02f && migrated.application.speed_ki == .2f);
+            assert(migrated.application.speed_kp == .55f && migrated.application.speed_ki == 2.5f);
+            assert(migrated.application.cascade_position_kp == 17.0f);
+            assert(migrated.application.cascade_position_kd == 2.0f);
+            old.speed_kp = .7f;
+            old.speed_ki = 2.5f;
+            old.record_crc32 = Param_RecordCrc(&old);
+            Param_Download(&old, sizeof(old), &migrated);
+            assert(migrated.application.speed_kp == .7f && migrated.application.speed_ki == 2.5f);
         }
         /* 标定使用独立增益；调整标定PI不能改动运行速度PI。 */
         assert(p->startup->speed_kp == (ht ? .05f : .012f));
@@ -198,7 +213,7 @@ int main(void)
                 assert(memcmp(&unchanged, &old, sizeof(old)) == 0);
             }
         }
-        assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));
+        assert(p->damper_torque_nm == (node == 5 ? 1.5f : wheel ? 0.0f : 2.0f));
         assert(MotorAxisPreset_HasLinearHall(p) == (!ht));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, 0, 0));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, -8.0f, 14.0f) == unrestricted);

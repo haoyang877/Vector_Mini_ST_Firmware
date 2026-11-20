@@ -391,10 +391,11 @@ static void check_runtime(void)
 
 static void check_roll_position_hold(void)
 {
-    static const MotorAxisPreset s_test_presets[] = {{.joint = MOTOR_JOINT_UNKNOWN},
-                                                     {.joint = MOTOR_JOINT_PITCH},
-                                                     {.joint = MOTOR_JOINT_YAW},
-                                                     {.joint = MOTOR_JOINT_ROLL}};
+    static const MotorAxisPreset s_test_presets[] = {
+        {.joint = MOTOR_JOINT_UNKNOWN},
+        {.joint = MOTOR_JOINT_PITCH},
+        {.joint = MOTOR_JOINT_YAW},
+        {.joint = MOTOR_JOINT_ROLL, .damper_torque_nm = 1.5f}};
     enum
     {
         RESPONSE_TICKS = 8
@@ -405,7 +406,14 @@ static void check_roll_position_hold(void)
         setup(MOTOR_CONTROL_POSITION);
         s_configuration.preset = axis == 0U ? NULL : &s_test_presets[axis];
         bool roll = s_test_presets[axis].joint == MOTOR_JOINT_ROLL;
+        s_configuration.model.motor_pole_pairs = 21;
+        s_configuration.model.motor_flux_wb = 0.0175025f;
         tick();
+        float regular_filter_hz =
+            s_encoder.speed_pll_hz > 0.0f ? 0.0f : POSITION_SERVO_VELOCITY_FILTER_HZ;
+        CHECK(outer.cascade.config.velocity_filter_hz ==
+              (roll ? ROLL_POSITION_VELOCITY_FILTER_HZ : regular_filter_hz));
+        CHECK(fabsf(outer.cascade.config.damper_current_a - (roll ? 2.7207f : 0.0f)) < 1e-4f);
         CHECK(outer.cascade.hold_phase == POSITION_CASCADE_MOVE &&
               !s_motor.position_target_reached);
         for (unsigned step = 0U;

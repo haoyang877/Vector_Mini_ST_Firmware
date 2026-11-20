@@ -139,9 +139,15 @@ Iq = PI_speed(vcommand - vfiltered)
 不更改Flash配置、电流限制或其他故障保护。
 实现见[position_control.c](../../firmware/motor/control/position_control.c)、[position_otg.h](../../firmware/motor/control/position_otg.h)。
 
-### Roll 终点保持
+### Roll 位置跟踪和终点保持
 
-外环依据已校验的 `MotorAxisPreset` 轴角色，只为 `MOTOR_JOINT_ROLL` 打开保持资格。
+外环按已校验的 Roll 轴预设为位置串级启用 35 Hz 速度反馈低通和 1.5 N·m 标称阻尼补偿。
+阻尼电流按 `τ/(1.5 × 极对数 × 磁链)` 计算，21 极对、0.0175025 Wb 时约为 2.72 A。
+巡航按规划速度方向施加前馈，超出规划速度时退坡，减速后按剩余误差助推并在 HOLD 时退至零。
+追赶方向与规划一致时，串级速度指令的余量平滑提高到规划上限的 1.30 倍，并受配置速度限制。
+前馈和 PI 共用运行电流及热模型额度，PI 按扣除前馈后的可用区间做积分跟踪。
+运行增益和旧记录迁移见[参数所有权](parameter_ownership_v1.md#roll-运行增益默认迁移)。
+
 串级控制器仅在 OTG 已完成当前目标时接收保持资格，继续使用同一位置和速度参考。
 Yaw、Pitch 及其他轴使用普通位置 PD 和速度 PI。
 
@@ -151,7 +157,8 @@ Yaw、Pitch 及其他轴使用普通位置 PD 和速度 PI。
 
 每轴的 `PositionCascadeState` 独占保持状态和确认计时，沿用位置外环复位。到位状态继续按原判定发布。
 上述确认时间和退出滞回为初始整定值，实际响应由 Roll 台架验证。
-AT32F456 LoaderApp 将 `motor_control.c` 和 `position_control.c` 设为空间优先编译，以满足 APP 槽容量。
+AT32F456 LoaderApp 将 `motor_control.c`、`position_control.c` 和前台协议模块
+`yg_protocol.c` 设为空间优先编译，以满足 APP 槽容量。
 
 ## 编码器与磁链观测
 

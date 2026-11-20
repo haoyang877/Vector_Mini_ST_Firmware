@@ -610,13 +610,6 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     configuration->application.speed_deceleration_rad_s2 = param->speed_deceleration_rad_s2;
     configuration->application.speed_kp = param->speed_kp;
     configuration->application.speed_ki = param->speed_ki;
-    /* ROLL旧默认PI随当前预设更新；其他显式整定保留，启动不回写Flash。 */
-    if (preset != NULL && preset->joint == MOTOR_JOINT_ROLL && param->speed_kp == 0.5f &&
-        param->speed_ki == 1.0f)
-    {
-        configuration->application.speed_kp = preset->control.speed_kp;
-        configuration->application.speed_ki = preset->control.speed_ki;
-    }
     configuration->application.position_acceleration_rad_s2 =
         isfinite(param->position_acceleration_rad_s2) && param->position_acceleration_rad_s2 > 0.0f
             ? Math_Constrain(
@@ -658,6 +651,21 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     else
     {
         MotorApplicationConfig *app = &configuration->application;
+        /* 仅将已知 Roll 历史默认组合迁移到当前整定，启动不回写 Flash。 */
+        if (preset->joint == MOTOR_JOINT_ROLL)
+        {
+            if ((app->speed_kp == 0.05f && app->speed_ki == 0.5f) ||
+                (app->speed_kp == 0.5f && app->speed_ki == 1.0f))
+            {
+                app->speed_kp = preset->control.speed_kp;
+                app->speed_ki = preset->control.speed_ki;
+            }
+            if (app->cascade_position_kp == 8.0f && app->cascade_position_kd == 2.0f)
+            {
+                app->cascade_position_kp = preset->control.position_kp;
+                app->cascade_position_kd = preset->control.position_kd;
+            }
+        }
         /* 旧轮记录的 0/0 表示当时未启用位置环，启动时采用车轮保持增益。 */
         if (MotorAxisProfile_IsContinuousWheel(&app->axis_profile) &&
             app->cascade_position_kp == 0.0f && app->cascade_position_kd == 0.0f)

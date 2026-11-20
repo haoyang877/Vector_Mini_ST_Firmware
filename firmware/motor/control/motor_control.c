@@ -179,17 +179,29 @@ static bool position_mode_update_control(MotorOuterLoop *outer,
     config.speed_kp = configuration->application.speed_kp;
     config.speed_ki = configuration->application.speed_ki;
     config.current_limit_a = configuration->application.current_limit_a;
-    if (configuration->preset != NULL && configuration->preset->joint == MOTOR_JOINT_ROLL &&
-        otg->finished && otg->target_rad == motor->position_target_rad)
+    float available_current_a = config.current_limit_a;
+    const MotorAxisPreset *preset = configuration->preset;
+    if (preset != NULL && preset->joint == MOTOR_JOINT_ROLL)
     {
-        config.hold_confirm_ticks = ROLL_HOLD_CONFIRM_TICKS;
+        config.velocity_filter_hz = ROLL_POSITION_VELOCITY_FILTER_HZ;
+        config.speed_limit_rad_s = configuration->application.speed_limit_rad_s;
+        float torque_per_amp =
+            1.5f * configuration->model.motor_pole_pairs * configuration->model.motor_flux_wb;
+        if (torque_per_amp > 0.0f && isfinite(torque_per_amp))
+        {
+            config.damper_current_a = preset->damper_torque_nm / torque_per_amp;
+        }
+        if (motor->thermal_limit_active)
+        {
+            available_current_a = motor->thermal_current_limit_a;
+        }
+        if (otg->finished && otg->target_rad == motor->position_target_rad)
+        {
+            config.hold_confirm_ticks = ROLL_HOLD_CONFIRM_TICKS;
+        }
     }
-    return PositionCascade_UpdateControlLimited(&outer->cascade,
-                                                &config,
-                                                position_rad,
-                                                speed_rad_s,
-                                                configuration->application.current_limit_a,
-                                                output);
+    return PositionCascade_UpdateControlLimited(
+        &outer->cascade, &config, position_rad, speed_rad_s, available_current_a, output);
 }
 
 /* OUTER_RUNTIME_BEGIN

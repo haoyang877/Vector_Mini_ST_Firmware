@@ -388,8 +388,47 @@ static void test_hold_limit_and_new_reference(void)
            cascade.speed_controller.integral_output == 0.0f);
 }
 
+static void test_damper_feedforward_with_current_budget(void)
+{
+    PositionCascadeState state = {0};
+    PositionCascadeConfig value = config();
+    PositionCascadeControlOutput output;
+    value.damper_current_a = 2.72f;
+    value.speed_kp = 0.0f;
+    value.speed_ki = 0.0f;
+    value.reference_speed_rad_s = 0.2f;
+    assert(PositionCascade_UpdateControl(&state, &value, 0.0f, 0.2f, &output));
+    assert(fabsf(output.iq_reference - 10.0f * value.update_period_s) < 1e-6f);
+    for (unsigned step = 0; step < 1000U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&state, &value, 0.0f, 0.2f, &output));
+    }
+    assert(fabsf(output.iq_reference - 2.72f) < 1e-6f);
+
+    value.call_divider = 2U;
+    assert(PositionCascade_UpdateControlLimited(&state, &value, 0.0f, 0.2f, 0.25f, &output));
+    assert(output.iq_reference == 0.25f);
+    assert(state.speed_controller.output_max == 0.0f);
+    value.reference_speed_rad_s = -0.2f;
+    for (unsigned step = 0; step < 1000U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&state, &value, 0.0f, -0.2f, &output));
+    }
+    assert(fabsf(output.iq_reference + 2.72f) < 1e-6f);
+
+    value.reference_speed_rad_s = 0.0f;
+    value.hold_confirm_ticks = 2U;
+    for (unsigned step = 0; step < 1000U; ++step)
+    {
+        assert(PositionCascade_UpdateControl(&state, &value, value.target_position, 0.0f, &output));
+    }
+    assert(state.hold_phase == POSITION_CASCADE_HOLD);
+    assert(output.iq_reference == 0.0f);
+}
+
 int main(void)
 {
+    test_damper_feedforward_with_current_budget();
     test_hold_confirmation_and_hysteresis();
     test_hold_limit_and_new_reference();
     test_instance_isolation();

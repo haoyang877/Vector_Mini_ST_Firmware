@@ -22,6 +22,7 @@ typedef struct
     float speed_kp;
     float speed_ki;
     float current_limit_a;
+    float damper_current_a; /* 标称阻尼补偿电流，0 关闭。 */
 } PositionCascadeConfig;
 
 /* 零初始化从普通跟踪开始。 */
@@ -39,6 +40,10 @@ typedef struct
     PiController speed_controller;
     float filtered_speed_rad_s;
     float velocity_filter_alpha;
+    float current_budget_a;
+    float damper_feedforward_a;
+    float damper_assist_direction;
+    float damper_assist_speed_rad_s;
     PositionCascadeHoldPhase hold_phase;
     uint16_t hold_settle_ticks;
     uint16_t loop_count;

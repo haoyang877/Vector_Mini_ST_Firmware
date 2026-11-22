@@ -8,6 +8,7 @@
 - [ARCHITECTURE.md](ARCHITECTURE.md)：唯一稳定架构边界，包括职责、依赖、状态所有权与执行环境。
 - [docs/README.md](docs/README.md)：现行主题入口；具体契约从这里定位。
 - [文档规则](docs/guides/documentation.md)：计划、结果和归档方式。
+- 分支、评审、验证与发布回流见[开发流程](docs/guides/development_workflow.md)。
 - [固件发布规范](docs/guides/firmware_release_standard.md)：发布要求。
 
 优先级及例外按 STYLE.md 执行；具体模块契约只在所属文档维护并由架构入口引用。

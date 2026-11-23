@@ -1066,6 +1066,37 @@ bool MotorStateMachine_ReadBootHealth(MotorStateMachine *machine, uint32_t *prog
     return healthy;
 }
 
+static uint32_t output_feedback_age_ms(uint32_t sample_counter, uint32_t sample_ms, uint32_t now_ms)
+{
+    return sample_counter != 0U ? (uint32_t)(now_ms - sample_ms) : UINT32_MAX;
+}
+
+bool MotorStateMachine_ReadOutputCoordinates(const MotorStateMachine *machine,
+                                             MotorOutputCoordinates *coordinates)
+{
+    const volatile MotorOutputTelemetry *output = machine->drive.output;
+    if (output == NULL || !machine->fast_samples_fresh || (output->flags & 2U) == 0U)
+    {
+        return false;
+    }
+
+    uint32_t sample_counter = output->sample_counter;
+    uint32_t sample_ms = output->sample_ms;
+    if (output_feedback_age_ms(sample_counter, sample_ms, BspSystem_TimeMs()) > 10U)
+    {
+        return false;
+    }
+
+    const volatile EncoderState *encoder = machine->drive.rotor_encoder;
+    *coordinates = (MotorOutputCoordinates){
+        .motor_position_rad = encoder->has_valid_sample ? encoder->mechanical_position_rad : NAN,
+        .output_position_rad = output->tracked_position_rad,
+        .gear_ratio = output->gear_ratio,
+        .direction = output->direction,
+    };
+    return true;
+}
+
 static MotorStatus build_motor_feedback_snapshot(const MotorStateMachine *machine)
 {
     const MotorControlState *motor = machine->drive.motor;
@@ -1083,10 +1114,7 @@ static MotorStatus build_motor_feedback_snapshot(const MotorStateMachine *machin
     if (machine->drive.output != NULL)
     {
         output = *machine->drive.output;
-        if (output.sample_counter != 0U)
-        {
-            age_ms = (uint32_t)(now_ms - output.sample_ms);
-        }
+        age_ms = output_feedback_age_ms(output.sample_counter, output.sample_ms, now_ms);
         if (age_ms > 10U)
         {
             output.flags &= (uint16_t)~3U;

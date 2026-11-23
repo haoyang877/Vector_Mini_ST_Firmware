@@ -90,6 +90,13 @@ typedef struct
     int8_t direction; /* 电机到输出的安装方向，取 +1 或 -1。 */
 } MotorOutputTelemetry;
 
+/** @brief 输出目标换算所需的轴角与安装关系。 */
+typedef struct
+{
+    float motor_position_rad, output_position_rad, gear_ratio;
+    int8_t direction;
+} MotorOutputCoordinates;
+
 /** @brief 一次性读取的状态值；模式和故障使用电机内部编号，不是线路编号。 */
 typedef struct
 {
@@ -175,9 +182,10 @@ struct MotorStateMachine
     volatile bool motion_lease_active;   /* 仅协议启动启用，结束会话撤销。 */
     volatile bool parameters_updating;   /* 关相前台正在提交配置，禁止启相和配置扫描。 */
     volatile bool
-        maintenance_capture; /* 检测独占维护存储；仅内部相电阻任务可并行，禁止记录编码。 */
-    bool start_pending;      /* 普通启动已受理，尚未确认三相输出开启。 */
-    bool fault_locked, fast_samples_fresh, starts_locked;
+        maintenance_capture;          /* 检测独占维护存储；仅内部相电阻任务可并行，禁止记录编码。 */
+    bool start_pending;               /* 普通启动已受理，尚未确认三相输出开启。 */
+    volatile bool fast_samples_fresh; /* 监督发布的快采样有效性。 */
+    bool fault_locked, starts_locked;
 };
 
 /**
@@ -390,5 +398,15 @@ bool MotorStateMachine_IsStopped(const MotorStateMachine *machine);
  * @note 仅串行前台调用，不屏蔽 ADC、外环或监督中断。
  */
 bool MotorStateMachine_ReadStatus(const MotorStateMachine *machine, MotorStatus *status);
+
+/**
+ * @brief 直接读取输出跟踪坐标及电机位置。
+ * @param machine 已初始化的状态机。
+ * @param coordinates 非空坐标接收对象；无有效转子样本时电机位置为NAN。
+ * @return 输出跟踪与快采样均有效且新鲜时返回true；失败不写入coordinates。
+ * @note 仅前台调用；不屏蔽中断，字段可能来自相邻外环周期。
+ */
+bool MotorStateMachine_ReadOutputCoordinates(const MotorStateMachine *machine,
+                                             MotorOutputCoordinates *coordinates);
 
 #endif

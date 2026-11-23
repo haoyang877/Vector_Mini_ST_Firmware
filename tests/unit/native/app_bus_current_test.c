@@ -15,6 +15,7 @@ static AppProtocol adapter;
 static MotorStateMachine machine = {.epoch = 1U};
 static MotorStatus s_status;
 static unsigned s_status_reads;
+static bool s_status_busy;
 static MotorTarget s_last_target;
 static unsigned s_target_calls;
 
@@ -22,7 +23,27 @@ bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus
 {
     assert(instance == &machine);
     ++s_status_reads;
+    if (s_status_busy)
+    {
+        return false;
+    }
     *status = s_status;
+    return true;
+}
+
+bool MotorStateMachine_ReadOutputCoordinates(const MotorStateMachine *instance,
+                                             MotorOutputCoordinates *coordinates)
+{
+    assert(instance == &machine);
+    if (!s_status.measurements_valid || (s_status.output.flags & 2U) == 0U)
+    {
+        return false;
+    }
+    *coordinates =
+        (MotorOutputCoordinates){.motor_position_rad = s_status.position_rad,
+                                 .output_position_rad = s_status.output.tracked_position_rad,
+                                 .gear_ratio = s_status.output.gear_ratio,
+                                 .direction = s_status.output.direction};
     return true;
 }
 
@@ -152,8 +173,17 @@ static void check_output_coordinates(void)
                               .sequence = (uint16_t)(adapter.last_target.sequence + 1U),
                               .position_mrad = 7000};
     ProtocolReply reply;
+    s_status_busy = true;
+    unsigned status_reads = s_status_reads;
     endpoint.motor.target(endpoint.motor.context, &target, &reply);
     assert(reply.status == PROTOCOL_OK && s_last_target.position_rad == 24.0f);
+    assert(s_status_reads == status_reads);
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_OK, &response) ==
+           YG_PROTOCOL_OK);
+    assert(s_status_reads == status_reads + 1U);
+    assert(YgProtocol_ReadU16Le(response.data) == PROTOCOL_RESULT_OK &&
+           YgProtocol_ReadU16Le(response.data + 24U) == 0U);
+    s_status_busy = false;
     ++target.sequence;
     target.mode = 2U;
     target.position_mrad = 0;

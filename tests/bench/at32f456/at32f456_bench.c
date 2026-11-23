@@ -122,14 +122,13 @@ bool AT32_BenchPoll(void)
         }
         s_tx_pending = false;
     }
-    uint32_t mask = BspSystem_EnterCritical();
+    /* 调试器最后提交 nonce；读取后再核对，避免采用跨次命令的参数。 */
+    uint32_t nonce = g_at32_bench.nonce;
     uint32_t command = g_at32_bench.command;
     uint32_t inverse = g_at32_bench.command_inverse;
-    uint32_t nonce = g_at32_bench.nonce;
     uint32_t confirmation = g_at32_bench.arguments[0];
-    BspSystem_ExitCritical(mask);
     if (g_at32_bench.magic != AT32_BENCH_MAGIC || g_at32_bench.version != 1U || command == 0U ||
-        nonce == 0U || nonce == s_nonce || inverse != ~command)
+        nonce == 0U || nonce == s_nonce || nonce != g_at32_bench.nonce || inverse != ~command)
     {
         return false;
     }
@@ -203,63 +202,47 @@ void AT32_BenchCanReceive(const BspCanFrame *frame)
     }
 }
 
-void AT32_BenchPublish(uint32_t supervisor_ticks,
-                       uint32_t fast_samples,
-                       uint32_t encoder_samples,
-                       uint32_t encoder_errors,
-                       uint32_t max_cycles,
-                       uint32_t angle,
-                       uint32_t angle_min,
-                       uint32_t angle_max,
-                       const AdcMotorTemperatureSample *temperature)
+void AT32_BenchPublish(AT32BenchSnapshot *sample,
+                       uint32_t revision,
+                       const volatile uint32_t *adc_revision)
 {
     static uint32_t s_published_ms = UINT32_MAX;
     uint32_t now = BspSystem_TimeMs();
-    if (s_snapshot_held || now == s_published_ms || temperature == NULL)
+    if (s_snapshot_held || now == s_published_ms)
+    {
+        return;
+    }
+    sample->milliseconds = now;
+    sample->cctrl = TMR1->cctrl;
+    sample->brk = TMR1->brk;
+    sample->gpioa_input = GPIOA->idt;
+    sample->gpiob_input = GPIOB->idt;
+    sample->phase_a =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_A) * AT32_ADC_ACCUMULATIONS);
+    sample->phase_b =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_B) * AT32_ADC_ACCUMULATIONS);
+    sample->phase_c =
+        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_C) * AT32_ADC_ACCUMULATIONS);
+    sample->vbus = (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) * AT32_ADC_ACCUMULATIONS);
+    float bus_counts = BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT);
+    sample->bus_current = isfinite(bus_counts) ? (uint32_t)bus_counts : UINT32_MAX;
+    sample->can_rx = s_can_rx;
+    sample->can_tx_ok = s_can_tx_ok;
+    sample->can_tx_failed = s_can_tx_failed;
+    sample->can_ctrl = CAN1->ctrlstat;
+    sample->core_hz = system_core_clock;
+    BspSystem_MemoryBarrier();
+    if (revision != *adc_revision)
     {
         return;
     }
     s_published_ms = now;
-    uint32_t state = BspSystem_EnterCritical();
     uint32_t version = (g_at32_snapshot.begin + 2U) & ~1U;
-    g_at32_snapshot.begin = version | 1U;
-    g_at32_snapshot.milliseconds = now;
-    g_at32_snapshot.supervisor_ticks = supervisor_ticks;
-    g_at32_snapshot.fast_samples = fast_samples;
-    g_at32_snapshot.encoder_samples = encoder_samples;
-    g_at32_snapshot.encoder_errors = encoder_errors;
-    g_at32_snapshot.fast_max_cycles = max_cycles;
-    g_at32_snapshot.angle = angle;
-    g_at32_snapshot.angle_min = angle_min;
-    g_at32_snapshot.angle_max = angle_max;
-    g_at32_snapshot.cctrl = TMR1->cctrl;
-    g_at32_snapshot.brk = TMR1->brk;
-    g_at32_snapshot.gpioa_input = GPIOA->idt;
-    g_at32_snapshot.gpiob_input = GPIOB->idt;
-    g_at32_snapshot.phase_a =
-        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_A) * AT32_ADC_ACCUMULATIONS);
-    g_at32_snapshot.phase_b =
-        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_B) * AT32_ADC_ACCUMULATIONS);
-    g_at32_snapshot.phase_c =
-        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_PHASE_CURRENT_C) * AT32_ADC_ACCUMULATIONS);
-    g_at32_snapshot.vbus =
-        (uint16_t)(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) * AT32_ADC_ACCUMULATIONS);
-    float bus_counts = BspAdc_ReadRawChannel(BSP_ADC_BUS_CURRENT);
-    g_at32_snapshot.bus_current = isfinite(bus_counts) ? (uint32_t)bus_counts : UINT32_MAX;
-    g_at32_snapshot.ntc_sequence = temperature->sequence;
-    g_at32_snapshot.ntc_raw = temperature->raw_counts;
-    g_at32_snapshot.ntc_status = temperature->status;
-    uint32_t bits;
-    memcpy(&bits, &temperature->resistance_ohm, sizeof(bits));
-    g_at32_snapshot.ntc_ohm_bits = bits;
-    memcpy(&bits, &temperature->celsius, sizeof(bits));
-    g_at32_snapshot.ntc_celsius_bits = bits;
-    g_at32_snapshot.can_rx = s_can_rx;
-    g_at32_snapshot.can_tx_ok = s_can_tx_ok;
-    g_at32_snapshot.can_tx_failed = s_can_tx_failed;
-    g_at32_snapshot.can_ctrl = CAN1->ctrlstat;
-    g_at32_snapshot.core_hz = system_core_clock;
-    g_at32_snapshot.end = version;
+    sample->begin = version | 1U;
+    sample->end = version;
+    g_at32_snapshot.begin = sample->begin;
+    BspSystem_MemoryBarrier();
+    g_at32_snapshot = *sample;
+    BspSystem_MemoryBarrier();
     g_at32_snapshot.begin = version;
-    BspSystem_ExitCritical(state);
 }

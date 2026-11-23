@@ -40,6 +40,7 @@ def main() -> None:
             "-Werror",
             str(ROOT / "tests/unit/parameter_value_service_test.c"),
             str(ROOT / "firmware/parameters/parameter_values.c"),
+            str(ROOT / "firmware/motor/math/scaled_integer.c"),
             str(ROOT / "firmware/parameters/motor_axis_profile.c"),
             str(ROOT / "shared/checksum/crc32.c"),
             str(ROOT / "firmware/motor/protection/motor_thermal.c"),

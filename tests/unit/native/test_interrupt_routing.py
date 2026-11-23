@@ -5,8 +5,8 @@ from run_position_servo_tests import ROOT, function_source
 
 RTT_FIXTURE = r"""
 static unsigned rtt_writes;
-void RTT_Sampling(void) {
- assert(g_app_fast_samples == rtt_writes + 1U);
+void RTT_Sampling(uint32_t tick) {
+ assert(tick == g_app.axis.state_machine.fast_sample_ticks && tick == rtt_writes + 1U);
  ++rtt_writes;
 }
 """
@@ -14,18 +14,34 @@ void RTT_Sampling(void) {
 
 OUTER_STUB = r"""
 #include "config.h"
+#if BSP_BOARD == BSP_BOARD_AT32F456
+#include "status_lights.h"
+static StatusLights s_lights;
+static unsigned light_calls;
+bool StatusLights_Step(StatusLights *lights, MotorState state, bool fault, bool checking) {
+ assert(lights==&s_lights && state==g_app.axis.state_machine.state && !fault && !checking);
+ assert(g_app.axis.state_machine.supervisor_ticks==1U);
+ ++light_calls; return true;
+}
+void BspSystem_WriteStatusLights(bool red, bool blue) { assert(light_calls==1U && !red && !blue); }
+static volatile bool g_hardware_check_capture;
+static unsigned captures;
+static void HardwareCheck_CaptureFast(const MotorAxis *axis) {
+ assert(axis == &g_app.axis && axis->state_machine.fast_sample_ticks > 0U); ++captures;
+}
+#endif
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
 static volatile bool s_outer_outstanding;
 static unsigned requests, outer_calls, overruns;
 void BspSystem_PendOuterTick(void) { ++requests; }
-void MotorAxis_OuterTick(void) { ++outer_calls; }
-void MotorAxis_OuterOverrun(void) { ++overruns; }
+void MotorAxis_OuterTick(MotorAxis *axis) { assert(axis==&g_app.axis); ++outer_calls; }
+void MotorAxis_OuterOverrun(MotorAxis *axis) { assert(axis==&g_app.axis); ++overruns; }
 #endif
 """
 
 
 def rtt_sampling_fixture() -> str:
-    """检查通道1的帧宽、单圈角缩放及两路霍尔原码。"""
+    """验证单帧六个 int16 的通道、顺序、ADC 量化、满缓冲及序号回绕。"""
     return r"""
 #include <assert.h>
 #include <stdint.h>
@@ -33,31 +49,32 @@ def rtt_sampling_fixture() -> str:
 #include <string.h>
 #include "app.h"
 #include "bsp_adc.h"
-#include "motor_axis.h"
-static const LinearHall hall = {.val = {.angle_rad = 1.75f}};
-const MotorAxisFeedback MotorAxis_Feedback = {.linear_hall = &hall};
-static unsigned configured, position_frames;
+static unsigned configured, writes;
+static const uint16_t ticks[] = {65534, 65535, 0};
 float BspAdc_ReadRawChannel(BspAdcChannel channel) {
- assert(channel==BSP_ADC_LINEAR_HALL_SIN || channel==BSP_ADC_LINEAR_HALL_COS);
- return channel==BSP_ADC_LINEAR_HALL_SIN ? 1234 : 4095;
+ switch (channel) {
+ case BSP_ADC_BUS_VOLTAGE: return 1124;
+ case BSP_ADC_BUS_CURRENT: return 2035;
+ case BSP_ADC_PHASE_CURRENT_A: return 2045.25f;
+ case BSP_ADC_PHASE_CURRENT_B: return 2047.5f;
+ case BSP_ADC_PHASE_CURRENT_C: return 4095;
+ default: assert(0); return 0;
+ }
 }
 int SEGGER_RTT_ConfigUpBuffer(unsigned ch,const char *name,void *buf,unsigned bytes,unsigned flags) {
- assert(buf && bytes==4096 && flags==0 && ch==1);
- assert(strcmp(name,"JScope_i2i2i2i2i2i2i2i2")==0);
+ assert(buf && bytes>=24 && flags==0 && ch==1);
+ assert(strcmp(name,"JScope_i2i2i2i2i2i2")==0);
  ++configured; return 0;
 }
-unsigned SEGGER_RTT_Write(unsigned ch,const void *data,unsigned bytes) {
- int16_t frame[8];
- assert(ch==1 && bytes==sizeof(frame)); memcpy(frame,data,sizeof(frame));
- for(unsigned i=0;i<5;++i) assert(frame[i]==0);
- assert(frame[5]==1750);
- assert(frame[6]==1234 && frame[7]==4095);
- ++position_frames; return bytes;
+unsigned SEGGER_RTT_WriteSkipNoLock(unsigned ch,const void *data,unsigned bytes) {
+ int16_t frame[6]; assert(ch==1 && bytes==sizeof(frame)); memcpy(frame,data,sizeof(frame));
+ assert(frame[0]==1124 && frame[1]==2035 && frame[2]==2045 && frame[3]==2048 && frame[4]==4095);
+ assert((uint16_t)frame[5]==ticks[writes]); ++writes; return writes==2U ? 0U : 1U;
 }
 int main(void) {
  RTT_Init(); assert(configured==1);
- RTT_Sampling(); assert(position_frames==1);
- puts("PASS RTT Hall angle and raw counts"); return 0;
+ for(uint32_t tick=65534;tick<=65536;++tick) RTT_Sampling(tick);
+ assert(writes==3U); puts("PASS RTT1 ADC samples and sequence wrap"); return 0;
 }
 """
 
@@ -65,7 +82,6 @@ int main(void) {
 def routing_fixture(platform: str) -> str:
     """编译实际入口和应用节拍，BSP替身只产生已确认事件。"""
     entry = (ROOT / f"projects/{platform}/application/main.c").read_text(encoding="utf-8")
-    app = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf-8")
     mapping = ROOT / f"firmware/platform/bsp/mcu/{platform}/interrupt_map.h"
     return (
         f'#include "{mapping.as_posix()}"\n'
@@ -76,14 +92,15 @@ def routing_fixture(platform: str) -> str:
 #include "bsp.h"
 #include "bsp_adc.h"
 #include "bsp_system.h"
-volatile uint32_t g_app_fast_samples;
-static volatile uint32_t s_supervisor_ticks;
+#include "app.h"
+static AppContext g_app;
+
 static unsigned order[8], count, ticks;
 static bool event_ready;
 static void step(unsigned event) { assert(count < 8U); order[count++] = event; }
-static void MotorAxis_SampleFast(void) { assert(g_app_fast_samples == 0U); step(2U); }
-static void MotorAxis_ControlFast(void) { assert(g_app_fast_samples == 0U); step(3U); }
-static void MotorAxis_SupervisorTick(void) { assert(s_supervisor_ticks == 0U); step(5U); }
+void MotorAxis_SampleFast(MotorAxis *axis) { assert(axis==&g_app.axis); assert(g_app.axis.state_machine.fast_sample_ticks == 0U); step(2U); }
+void MotorAxis_ControlFast(MotorAxis *axis) { assert(axis==&g_app.axis); assert(g_app.axis.state_machine.fast_sample_ticks == 0U); step(3U); ++axis->state_machine.fast_sample_ticks; }
+void MotorAxis_SupervisorTick(MotorAxis *axis) { assert(axis==&g_app.axis); assert(g_app.axis.state_machine.supervisor_ticks == 0U); step(5U); ++axis->state_machine.supervisor_ticks; }
 bool BspAdc_CompleteFast(void) { step(1U); return event_ready; }
 void BspAdc_HandleInterrupt(void) {
  step(1U);
@@ -98,7 +115,12 @@ void BspSystem_HandleTickInterrupt(void) { ++ticks; }
         + RTT_FIXTURE
         + OUTER_STUB
         + "\n".join(
-            function_source(app, name) for name in ("BspApp_OnFastSample", "App_SupervisorTick")
+            [
+                function_source(
+                    (ROOT / "projects/stm32g4/application/main.c").read_text(encoding="utf-8"),
+                    "BspApp_OnFastSample",
+                ),
+            ]
         )
         + "\n".join(
             function_source(entry, name)
@@ -114,13 +136,16 @@ int main(void) {
  event_ready = false;
  MCU_ADC_IRQ_HANDLER(); MCU_CONTROL_IRQ_HANDLER();
  assert(count == 2U && order[0] == 1U && order[1] == 4U);
- assert(g_app_fast_samples == 0U && s_supervisor_ticks == 0U);
+ assert(g_app.axis.state_machine.fast_sample_ticks == 0U && g_app.axis.state_machine.supervisor_ticks == 0U);
  count = 0U; event_ready = true;
  MCU_ADC_IRQ_HANDLER(); MCU_CONTROL_IRQ_HANDLER();
- assert(count == 5U && g_app_fast_samples == 1U && s_supervisor_ticks == 1U);
+ assert(count == 5U && g_app.axis.state_machine.fast_sample_ticks == 1U && g_app.axis.state_machine.supervisor_ticks == 1U);
  for (unsigned i = 0U; i < count; ++i) { assert(order[i] == i + 1U); }
  MCU_SYSTICK_IRQ_HANDLER();
- assert(ticks == 1U && count == 5U && g_app_fast_samples == 1U && s_supervisor_ticks == 1U);
+ assert(ticks == 1U && count == 5U && g_app.axis.state_machine.fast_sample_ticks == 1U && g_app.axis.state_machine.supervisor_ticks == 1U);
+#if BSP_BOARD == BSP_BOARD_AT32F456
+ assert(light_calls==1U);
+#endif
  puts("PASS main IRQ routing: hardware confirmation, one task/count per event, independent SysTick");
  return 0;
 }
@@ -160,16 +185,17 @@ static unsigned tmr_flag_get(unsigned timer, unsigned flag) {
 static void tmr_flag_clear(unsigned timer, unsigned flag) {
  assert(timer == 6U && flag == 1U); timer_flag = 0U; step(4U);
 }
-volatile uint32_t g_app_fast_samples;
-void MotorAxis_SampleFast(void) {
+#include "app.h"
+static AppContext g_app;
+void MotorAxis_SampleFast(MotorAxis *axis) { assert(axis==&g_app.axis);
  assert((fast_adc.flags & ADC_PCCE_FLAG) == 0U);
  assert((aux_adc.flags & ADC_PCCE_FLAG) == 0U);
- assert(g_app_fast_samples == fast_calls);
+ assert(g_app.axis.state_machine.fast_sample_ticks == fast_calls);
  step(3U);
 }
-void MotorAxis_ControlFast(void) {
- assert(count == 3U && trace[2] == 3U && g_app_fast_samples == fast_calls);
- ++fast_calls; step(4U);
+void MotorAxis_ControlFast(MotorAxis *axis) { assert(axis==&g_app.axis);
+ assert(count == 3U && trace[2] == 3U && g_app.axis.state_machine.fast_sample_ticks == fast_calls);
+ ++fast_calls; ++axis->state_machine.fast_sample_ticks; step(4U);
 }
 void BspApp_OnControlTick(void) { assert(timer_flag == 0U); ++control_calls; step(5U); }
 """
@@ -193,23 +219,25 @@ int main(void) {
  fast_adc.flags = ADC_PCCE_FLAG;
  MCU_ADC_IRQ_HANDLER(); assert(count == 1U && trace[0] == 1U && fast_calls == 0U);
  count = 0U; fast_adc.flags = aux_adc.flags = ADC_PCCE_FLAG;
- MCU_ADC_IRQ_HANDLER(); assert(count == 4U && fast_calls == 1U && g_app_fast_samples == 1U);
+ MCU_ADC_IRQ_HANDLER(); assert(count == 4U && fast_calls == 1U && g_app.axis.state_machine.fast_sample_ticks == 1U);
  assert(trace[0] == 1U && trace[1] == 2U && trace[2] == 3U && trace[3] == 4U);
- assert(rtt_writes == 0U);
+ assert(rtt_writes == 1U);
  count = 0U; aux_adc.flags = ADC_PCCE_FLAG;
- MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 1U && rtt_writes == 0U);
+ MCU_ADC_IRQ_HANDLER(); assert(count == 0U && fast_calls == 1U && rtt_writes == 1U);
  BspSystem_HandleControlInterrupt(); assert(count == 0U && control_calls == 0U);
  timer_flag = 1U; BspSystem_HandleControlInterrupt();
  assert(count == 2U && trace[0] == 4U && trace[1] == 5U && control_calls == 1U);
  s_milliseconds = UINT32_MAX; BspSystem_HandleTickInterrupt();
  assert(s_milliseconds == 0U && count == 2U);
  for(unsigned valid_samples=2;valid_samples<=15;valid_samples++) {
+   g_hardware_check_capture = valid_samples >= 8;
    count=0; fast_adc.flags=aux_adc.flags=ADC_PCCE_FLAG;
    MCU_ADC_IRQ_HANDLER();
    assert(requests == (valid_samples<5 ? 0U : valid_samples<10 ? 1U : 2U));
    if(valid_samples==5) { assert(s_outer_outstanding); PendSV_Handler(); }
  }
  assert(outer_calls==1U && overruns==1U && s_outer_outstanding);
+ assert(captures==8U && rtt_writes==fast_calls);
  PendSV_Handler(); assert(outer_calls==2U && !s_outer_outstanding);
  puts("PASS AT32 hardware IRQ: missing/paired events, clear-before-callback, SysTick wrap");
  return 0;
@@ -321,8 +349,20 @@ def main() -> None:
     """运行双板入口与硬件事件顺序夹具。"""
     args = arguments(__doc__)
     for board, platform in ((1, "stm32g4"), (2, "at32f456")):
-        run_c(args, f"{platform}_main_irqs", routing_fixture(platform), board)
-    run_c(args, "at32_hardware_irqs", at32_hardware_fixture(), 2)
+        run_c(
+            args,
+            f"{platform}_main_irqs",
+            routing_fixture(platform),
+            board,
+            ["-I", ROOT / "projects/at32f456/application"],
+        )
+    run_c(
+        args,
+        "at32_hardware_irqs",
+        at32_hardware_fixture(),
+        2,
+        ["-I", ROOT / "projects/at32f456/application"],
+    )
     run_c(
         args,
         "at32_rtt_sampling",

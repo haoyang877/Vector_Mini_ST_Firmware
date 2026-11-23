@@ -121,8 +121,9 @@ void LoaderPlatform_Jump(void)
 {
     longjmp(finish, 2);
 }
-bool LoaderCan_Init(uint8_t node_in)
+bool LoaderCan_Init(uint8_t node_in, uint8_t profile)
 {
+    assert(profile == 0U);
     stop_ticks = ticks + 100U + (sizeof(LoaderV2Image) + 63U) / 64U;
     return node_in == (parameter_case == 0U ? 3U : TARGET_RESCUE_NODE);
 }

@@ -34,20 +34,20 @@ class At32TargetTests(unittest.TestCase):
         old = ET.parse(old_path)
         group_names = [group.findtext("GroupName") for group in old.findall(".//Group")]
         shared_groups = ("00_App", "10_Motor", "20_Parameters", "30_Communication", "50_Shared")
-        # AT32 使用用户整理后的显示名称；共享源码、选项及板级隔离仍逐项比较。
-        at32_group_names = {
-            "00_App": "App",
-            "10_Motor": "Motor",
-            "20_Parameters": "Parameters",
-            "30_Communication": "Communication",
-            "40_Platform": "Platform",
-            "50_Shared": "Shared",
-            "90_Vendor": "Mcu_SDK",
-        }
 
         def files_by_group(tree, project):
+            # AT32工程去掉显示序号并将厂商组命名为Mcu_SDK；源码/编译选项仍完整核对。
+            names = {
+                "App": "00_App",
+                "Motor": "10_Motor",
+                "Parameters": "20_Parameters",
+                "Communication": "30_Communication",
+                "Platform": "40_Platform",
+                "Shared": "50_Shared",
+                "Mcu_SDK": "90_Vendor",
+            }
             return {
-                group.findtext("GroupName"): [
+                names.get(group.findtext("GroupName"), group.findtext("GroupName")): [
                     (
                         (project.parent / file.findtext("FilePath").replace("\\", "/"))
                         .resolve()
@@ -67,29 +67,26 @@ class At32TargetTests(unittest.TestCase):
             )
 
         def shared_options(path, options):
-            if path.name in (
-                "motor_state_machine.c",
-                "motor_lifecycle.c",
-            ):
+            if path.name in ("motor_state_machine.c",):
                 options = ET.fromstring(ET.tostring(options))
                 for tag in ("Optim", "oTime"):
                     options.find(f".//Cads/{tag}").text = "board-timing-option"
             return canonical(options)
 
         baseline = files_by_group(old, old_path)
-        for name in ("ESC-APP-AT32F456",):
+        for name in ("ESC-APP-AT32F456-Standalone",):
             project = ROOT / f"projects/at32f456/application/{name}.uvprojx"
             tree = ET.parse(project)
             with self.subTest(target=name):
                 actual = files_by_group(tree, project)
-                self.assertEqual(list(actual), [*(at32_group_names[g] for g in group_names), "RTT"])
+                self.assertEqual(list(actual), [*group_names, "RTT"])
                 self.assertEqual(
                     [path.as_posix() for path, _ in actual["RTT"]],
                     ["firmware/third_party/segger_rtt/SEGGER_RTT.c"],
                 )
                 self.assertIn(
                     Path("firmware/app/composition/app_rtt.c"),
-                    [path for path, _ in actual["App"]],
+                    [path for path, _ in actual["00_App"]],
                 )
                 for setting in ("ToolsetNumber", "ToolsetName", "pCCUsed", "uAC6"):
                     self.assertEqual(tree.findtext(f".//{setting}"), old.findtext(f".//{setting}"))
@@ -98,7 +95,7 @@ class At32TargetTests(unittest.TestCase):
                     self.assertEqual(
                         sorted(
                             (path, shared_options(path, options))
-                            for path, options in actual[at32_group_names[group]]
+                            for path, options in actual[group]
                             if path != Path("firmware/app/composition/app_rtt.c")
                         ),
                         sorted(
@@ -107,10 +104,7 @@ class At32TargetTests(unittest.TestCase):
                         ),
                     )
                 for file in tree.findall(".//File"):
-                    if file.findtext("FileName") in (
-                        "motor_state_machine.c",
-                        "motor_lifecycle.c",
-                    ):
+                    if file.findtext("FileName") in ("motor_state_machine.c",):
                         self.assertEqual(file.findtext(".//Cads/Optim"), "4")
                         self.assertEqual(file.findtext(".//Cads/oTime"), "1")
                 old_cads = old.find(".//TargetArmAds/Cads")
@@ -135,7 +129,7 @@ class At32TargetTests(unittest.TestCase):
                     canonical(tree.find(".//TargetArmAds/Aads")),
                     canonical(old.find(".//TargetArmAds/Aads")),
                 )
-                for path, _ in actual["Platform"]:
+                for path, _ in actual["40_Platform"]:
                     self.assertTrue(
                         path.as_posix().startswith(
                             (
@@ -149,11 +143,11 @@ class At32TargetTests(unittest.TestCase):
                         in {
                             "projects/at32f456/application/startup_at32f456_app.s",
                             "firmware/platform/devices/encoder_mt6835.c",
-                            "firmware/app/composition/bus_current_feedback.c",
+                            "firmware/app/bus_current_feedback.c",
                             "firmware/platform/bsp/pwm_output_permit.c",
                         }
                     )
-                for path, _ in actual["Mcu_SDK"]:
+                for path, _ in actual["90_Vendor"]:
                     self.assertTrue(
                         path.as_posix().startswith(
                             ("firmware/third_party/", "firmware/platform/sdk/")
@@ -165,7 +159,7 @@ class At32TargetTests(unittest.TestCase):
         projects = (
             ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx",
             ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431-LoaderApp.uvprojx",
-            ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx",
+            ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx",
         )
         old_entry = ROOT / "projects/stm32g4/application/main.c"
         new_entry = ROOT / "projects/at32f456/application/main.c"
@@ -190,7 +184,7 @@ class At32TargetTests(unittest.TestCase):
     def test_all_full_app_targets_share_identical_portable_sources(self):
         projects = (
             ROOT / "projects/stm32g4/MDK-ARM/ESC-APP-STM32G431.uvprojx",
-            ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx",
+            ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx",
         )
         source_sets = []
         for project in projects:
@@ -205,7 +199,7 @@ class At32TargetTests(unittest.TestCase):
                     if path.suffix == ".c"
                     and path.as_posix()
                     not in {
-                        "firmware/app/composition/bus_current_feedback.c",
+                        "firmware/app/bus_current_feedback.c",
                         "firmware/app/composition/app_rtt.c",  # 板级选择的调试通道。
                     }
                     and not path.as_posix().startswith("firmware/app/targets/")
@@ -231,11 +225,13 @@ class At32TargetTests(unittest.TestCase):
                     "pi_controller.o",
                     "motor_current.o",
                     "motor_voltage.o",
-                    "mcu_temperature_sensing.o",
                     "encoder_feedback.o",
                 ):
                     self.assertIn(f"{obj} (+RO)", fast)
+                self.assertIn("mcu_temperature_sensing.o (+RO)", flash)
+                self.assertIn("ScatterAssert(ImageLimit(RW_IRAM1) <= 0x2000FFE0)", text)
                 self.assertIn("encoder_calibration.o (i.EncoderCalibration_PublishLut)", flash)
+                self.assertIn("motor_state_machine.o (i.MotorStateMachine_NextState)", fast)
 
     def test_app_stack_is_separate_from_vendor(self):
         base = ROOT / "projects/at32f456/application"
@@ -254,11 +250,18 @@ class At32TargetTests(unittest.TestCase):
             local[local.index("__Vectors       DCD") :],
             vendor[vendor.index("__Vectors       DCD") :],
         )
-        project = (base / "ESC-APP-AT32F456.uvprojx").read_text(encoding="utf8")
-        self.assertIn("<FilePath>startup_at32f456_app.s</FilePath>", project)
+        project = (base / "ESC-APP-AT32F456-Standalone.uvprojx").read_text(encoding="utf8")
+        self.assertIn("<FilePath>startup_at32f456_ram48.s</FilePath>", project)
+        wrapper = (base / "startup_at32f456_ram48.s").read_text(encoding="utf8")
+        self.assertIn("APP_STACK_BYTES EQU     0x00001000", wrapper)
+        self.assertIn("GET     startup_at32f456_app.s", wrapper)
+        loader = (ROOT / "loader/targets/yg_esc_v1_at32f456/ESC-LOADER-AT32F456.uvprojx").read_text(
+            encoding="utf8"
+        )
+        self.assertNotIn("startup_at32f456_ram48.s", loader)
 
     def test_app_off_links_shared_application_and_explicit_board(self):
-        project = ROOT / "projects/at32f456/application/ESC-APP-AT32F456.uvprojx"
+        project = ROOT / "projects/at32f456/application/ESC-APP-AT32F456-Standalone.uvprojx"
         errors, _, _ = check_project(project)
         self.assertEqual(errors, [])
         tree = ET.parse(project)
@@ -269,10 +272,12 @@ class At32TargetTests(unittest.TestCase):
             "app_protocol.c",
             "motor_axis.c",
             "motor_state_machine.c",
+            "motor_calibration.c",
             "system.c",
             "boot.c",
         ):
             self.assertTrue(any(path.endswith("/" + name) for path in paths), name)
+        self.assertFalse(any(path.endswith("/app_loader.c") for path in paths))
         self.assertFalse(any("stm32g4" in path.lower() for path in paths))
         self.assertFalse(
             any("closedloop_bench" in path or "openloop_model" in path for path in paths)
@@ -283,20 +288,20 @@ class At32TargetTests(unittest.TestCase):
                 self.assertEqual(tree.findtext(f".//{hook}/RunUserProg{index}"), "0")
         entry = (ROOT / "projects/at32f456/application/main.c").read_text(encoding="utf8")
         platform = (ROOT / "firmware/platform/bsp/mcu/at32f456/system.c").read_text(encoding="utf8")
-        startup = (ROOT / "firmware/app/composition/app.c").read_text(encoding="utf8")
+        startup = (ROOT / "firmware/app/app.c").read_text(encoding="utf8")
         for call in (
-            "App_Init();",
-            "App_Process();",
+            "App_Init(&g_app);",
+            "App_Process(&g_app);",
             "Bsp_Init()",
             "Bsp_Start()",
-            "App_Start();",
+            "App_Start(&g_app);",
         ):
             self.assertIn(call, entry)
         adc = (ROOT / "firmware/platform/bsp/mcu/at32f456/adc.c").read_text(encoding="utf8")
         self.assertIn("if (BspAdc_CompleteFast())", entry)
-        self.assertIn("MotorAxis_SampleFast();", entry)
-        self.assertIn("MotorAxis_ControlFast();", entry)
-        self.assertIn("++g_app_fast_samples;", entry)
+        self.assertIn("MotorAxis_SampleFast(&g_app.axis);", entry)
+        self.assertIn("MotorAxis_ControlFast(&g_app.axis);", entry)
+        self.assertIn("MotorAxis_SupervisorTick(&g_app.axis);", entry)
         self.assertNotIn("BspAdc_HandleInterrupt", adc)
         self.assertIn("BspApp_OnControlTick();", platform)
         for method in ("Init", "Start"):
@@ -404,6 +409,33 @@ class At32TargetTests(unittest.TestCase):
             values["AT32_PARAM_BASE"] + values["AT32_PARAM_BYTES"],
             values["AT32_FLASH_BASE"] + values["AT32_FLASH_BYTES"],
         )
+        self.assertEqual(values["AT32_FLASH_BYTES"], 128 * 1024)
+
+    def test_keil_flash_algorithm_uses_lower_128_kib(self):
+        projects = sorted((ROOT / "projects/at32f456").rglob("*.uvprojx"))
+        projects.extend((ROOT / "loader/targets/yg_esc_v1_at32f456").glob("*.uvprojx"))
+        for project in projects:
+            with self.subTest(project=project.name):
+                tree = ET.parse(project)
+                driver = tree.findtext(".//FlashDriverDll")
+                options = [driver]
+                if project.with_suffix(".uvoptx").is_file():
+                    options.extend(
+                        entry.text
+                        for entry in ET.parse(project.with_suffix(".uvoptx")).findall(".//Name")
+                        if entry.text and "-FS0" in entry.text
+                    )
+                for option in options:
+                    span = re.search(r"-FS0([0-9A-Fa-f]+) -FL0([0-9A-Fa-f]+)", option)
+                    self.assertIsNotNone(span)
+                    self.assertEqual(
+                        tuple(int(x, 16) for x in span.groups()), (0x08000000, 0x20000)
+                    )
+                for name in ("IROM", "OCR_RVCT4"):
+                    region = tree.find(f".//OnChipMemories/{name}")
+                    start = int(region.findtext("StartAddress"), 0)
+                    size = int(region.findtext("Size"), 0)
+                    self.assertTrue(0x08000000 <= start < start + size <= 0x08020000)
 
     def test_vendor_import_retains_manifest_content(self):
         base = ROOT / "firmware/platform/sdk/at32f45x"

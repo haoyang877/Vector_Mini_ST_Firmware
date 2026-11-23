@@ -19,7 +19,8 @@ void OutputEncoder_Init(OutputEncoder *encoder, float gear_ratio)
     *encoder =
         (OutputEncoder){.params = {.gear_ratio = gear_ratio,
                                    .direction = 1,
-                                   .status = gear_ratio == 1.0f ? OUTPUT_ENCODER_CAL_OK : 0U}};
+                                   .status = gear_ratio == 1.0f ? OUTPUT_ENCODER_CAL_OK : 0U},
+                        .speed_rad_s = NAN};
 }
 
 void OutputEncoder_Locate(OutputEncoder *encoder, uint16_t motor_q15, float hall_rad)
@@ -104,10 +105,12 @@ void OutputEncoder_CalibSample(OutputEncoderCalib *cal,
         (float)cal->count * (float)cal->step_counts)
     {
         uint32_t n = cal->sample_count;
-        cal->samples[cal->count++] =
+        OutputEncoder_CalibSetSample(
+            cal,
+            cal->count++,
             (OutputEncoderCalibSample){(int32_t)lroundf((float)cal->motor_sum_counts / (float)n),
                                        (uint16_t)((cal->sin_sum_counts + n / 2U) / n),
-                                       (uint16_t)((cal->cos_sum_counts + n / 2U) / n)};
+                                       (uint16_t)((cal->cos_sum_counts + n / 2U) / n)});
         cal->motor_sum_counts = 0;
         cal->sin_sum_counts = cal->cos_sum_counts = cal->sample_count = 0U;
     }
@@ -125,29 +128,31 @@ static float sample_phase(const OutputEncoderCalibSample *sample,
     return motor_rad - (float)direction * ratio * hall->val.angle_rad;
 }
 
-static int32_t corrected_counts(const OutputEncoderCalibSample *sample,
-                                const EncoderCalibration *motor)
+static int32_t corrected_counts(int32_t motor_counts, const EncoderCalibration *motor)
 {
-    uint16_t raw = (uint16_t)sample->motor_counts;
-    return sample->motor_counts + (int16_t)(Encoder_Linearize(motor, raw) - raw);
+    uint16_t raw = (uint16_t)motor_counts;
+    return motor_counts + (int16_t)(Encoder_Linearize(motor, raw) - raw);
 }
 
-/* 同一窗口处理三路；仅建表使用，保留同一有效采样时刻。 */
-static OutputEncoderCalibSample filtered_sample(const OutputEncoderCalib *cal, unsigned i)
+/* 同窗计算配对角度。Hall 均值保留小数，避免重新量化造成局部角度倒退。 */
+static int32_t read_filtered_pair(const OutputEncoderCalib *cal,
+                                  unsigned i,
+                                  LinearHall *hall,
+                                  const EncoderCalibration *motor)
 {
     static const unsigned weights[9] = {1U, 8U, 28U, 56U, 70U, 56U, 28U, 8U, 1U};
     float motor_sum = 0.0f;
     uint32_t sin_sum = 0U, cos_sum = 0U;
     for (unsigned k = 0U; k < 9U; ++k)
     {
-        const OutputEncoderCalibSample *sample = &cal->samples[i + k - 4U];
+        const OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i + k - 4U);
+        const OutputEncoderCalibSample *sample = &value;
         motor_sum += (float)sample->motor_counts * (float)weights[k];
         sin_sum += sample->sin_counts * weights[k];
         cos_sum += sample->cos_counts * weights[k];
     }
-    return (OutputEncoderCalibSample){(int32_t)lroundf(motor_sum / 256.0f),
-                                      (uint16_t)((sin_sum + 128U) / 256U),
-                                      (uint16_t)((cos_sum + 128U) / 256U)};
+    LinearHall_Update(hall, (float)sin_sum / 256.0f, (float)cos_sum / 256.0f);
+    return corrected_counts((int32_t)lroundf(motor_sum / 256.0f), motor);
 }
 
 static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
@@ -155,29 +160,22 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
                                const EncoderCalibration *motor,
                                float ratio,
                                int32_t direction,
-                               float travel,
-                               OutputEncoderCalibrationProgress progress)
+                               float travel)
 {
     uint8_t covered[LINEAR_HALL_LUT_SIZE / 8U] = {0};
     unsigned count = 0U;
     int32_t sum = 0;
     float first_angle = 0.0f, previous_angle = 0.0f, unwrapped = 0.0f, previous_error = 0.0f;
     float older_error = 0.0f, filtered_angle = 0.0f, filtered_error = 0.0f;
-    OutputEncoderCalibSample first_sample = filtered_sample(cal, 4U);
-    int32_t first_motor = corrected_counts(&first_sample, motor);
+    int32_t first_motor = 0;
     const float step = _2PI / (float)LINEAR_HALL_LUT_SIZE;
     for (unsigned i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES - 8U; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
-        OutputEncoderCalibSample filtered_sample_value = filtered_sample(cal, i + 4U);
-        const OutputEncoderCalibSample *sample = &filtered_sample_value;
-        LinearHall_Update(hall, sample->sin_counts, sample->cos_counts);
+        int32_t motor_counts = read_filtered_pair(cal, i + 4U, hall, motor);
         float angle = hall->val.angle_raw_rad;
         if (i == 0U)
         {
+            first_motor = motor_counts;
             first_angle = previous_angle = unwrapped = angle;
             continue;
         }
@@ -187,9 +185,8 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
             return LINEAR_HALL_LUT_MAPPING;
         }
         float end = unwrapped + span;
-        float reference = (float)direction *
-                          (float)(corrected_counts(sample, motor) - first_motor) *
-                          (_2PI / 65536.0f) / ratio;
+        float reference =
+            (float)direction * (float)(motor_counts - first_motor) * (_2PI / 65536.0f) / ratio;
         float error = reference - (end - first_angle);
         /* 先抑制配对点间的高频误差，再从 2048 点重采样至 1024 点。 */
         if (i >= 2U)
@@ -249,8 +246,7 @@ static uint32_t build_hall_lut(const OutputEncoderCalib *cal,
 bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
                             const OutputEncoderCalib *cal,
                             LinearHall *hall,
-                            const EncoderCalibration *motor,
-                            OutputEncoderCalibrationProgress progress)
+                            const EncoderCalibration *motor)
 {
     encoder->ready = false;
     memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
@@ -268,24 +264,25 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
             !hall->calibration_success ? OUTPUT_ENCODER_CAL_HALL : OUTPUT_ENCODER_CAL_NO_SAMPLES;
         return false;
     }
-    LinearHall corrected = *hall;
+    LinearHallSample saved_value = hall->val;
     float travel = 0.0f, previous = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
-        LinearHall_Update(&corrected, cal->samples[i].sin_counts, cal->samples[i].cos_counts);
+        LinearHall_Update(hall,
+                          OutputEncoder_CalibGetSample(cal, i).sin_counts,
+                          OutputEncoder_CalibGetSample(cal, i).cos_counts);
         if (i != 0U)
         {
-            travel += delta(corrected.val.angle_rad - previous);
+            travel += delta(hall->val.angle_rad - previous);
         }
-        previous = corrected.val.angle_rad;
+        previous = hall->val.angle_rad;
     }
+    hall->val = saved_value;
     float motor_travel =
-        (float)(corrected_counts(&cal->samples[OUTPUT_ENCODER_CAL_SAMPLES - 1U], motor) -
-                corrected_counts(&cal->samples[0], motor)) *
+        (float)(corrected_counts(
+                    OutputEncoder_CalibGetSample(cal, OUTPUT_ENCODER_CAL_SAMPLES - 1U).motor_counts,
+                    motor) -
+                corrected_counts(OutputEncoder_CalibGetSample(cal, 0).motor_counts, motor)) *
         (_2PI / 65536.0f);
     int32_t direction = travel * motor_travel >= 0.0f ? 1 : -1;
     float ratio = encoder->params.gear_ratio;
@@ -295,22 +292,19 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
         encoder->params.status = OUTPUT_ENCODER_CAL_RELATION;
         return false;
     }
-    hall->lut_status = build_hall_lut(cal, hall, motor, ratio, direction, travel, progress);
+    hall->lut_status = build_hall_lut(cal, hall, motor, ratio, direction, travel);
     if (hall->lut_status != LINEAR_HALL_LUT_OK)
     {
         memset(hall->lut_q15, 0, sizeof(hall->lut_q15));
         encoder->params.status = OUTPUT_ENCODER_CAL_RELATION;
         return false;
     }
-    corrected = *hall;
+    saved_value = hall->val;
     float sine = 0.0f, cosine = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
-        float phase = sample_phase(&cal->samples[i], &corrected, motor, ratio, direction);
+        OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i);
+        float phase = sample_phase(&value, hall, motor, ratio, direction);
         sine += sinf(phase);
         cosine += cosf(phase);
     }
@@ -318,13 +312,11 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     float peak_error = 0.0f;
     for (uint16_t i = 0U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
     {
-        if ((i & 127U) == 0U)
-        {
-            progress();
-        }
-        float error = sample_phase(&cal->samples[i], &corrected, motor, ratio, direction) - phase;
+        OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(cal, i);
+        float error = sample_phase(&value, hall, motor, ratio, direction) - phase;
         peak_error = fmaxf(peak_error, fabsf(delta(error)));
     }
+    hall->val = saved_value;
     /* 辨圈边界为 π 电机轴 rad；保留一半余量，且不能把错误减速比拟合成有效关系。 */
     if (!isfinite(peak_error) || peak_error >= _PI * 0.5f)
     {
@@ -335,4 +327,58 @@ bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
     }
     encoder->params = (OutputEncoderParams){ratio, phase, 0.0f, direction, OUTPUT_ENCODER_CAL_OK};
     return true;
+}
+
+void OutputEncoder_CalibHallDiagnostic(const OutputEncoderCalib *cal,
+                                       const LinearHallCalibration *sweep,
+                                       LinearHall *hall,
+                                       const OutputEncoder *encoder,
+                                       const EncoderCalibration *motor)
+{
+    const uint8_t extrema_faults = LINEAR_HALL_CAL_FAULT_SIN_LOW | LINEAR_HALL_CAL_FAULT_SIN_HIGH |
+                                   LINEAR_HALL_CAL_FAULT_COS_LOW | LINEAR_HALL_CAL_FAULT_COS_HIGH;
+    if (hall->calibration_success || hall->calibration_faults == 0U ||
+        (hall->calibration_faults & ~extrema_faults) != 0U ||
+        cal->count != OUTPUT_ENCODER_CAL_SAMPLES)
+    {
+        return;
+    }
+    OutputEncoderCalibSample previous = OutputEncoder_CalibGetSample(cal, 0U);
+    for (unsigned i = 1U; i < OUTPUT_ENCODER_CAL_SAMPLES; ++i)
+    {
+        OutputEncoderCalibSample sample = OutputEncoder_CalibGetSample(cal, i);
+        bool sin_at_limit =
+            sample.sin_counts <= HALL_CAL_MIN_COUNTS || sample.sin_counts >= HALL_CAL_MAX_COUNTS;
+        bool cos_at_limit =
+            sample.cos_counts <= HALL_CAL_MIN_COUNTS || sample.cos_counts >= HALL_CAL_MAX_COUNTS;
+        if (sin_at_limit && cos_at_limit && sample.sin_counts == previous.sin_counts &&
+            sample.cos_counts == previous.cos_counts &&
+            sample.motor_counts != previous.motor_counts)
+        {
+            /* 两路同锁于限幅区而参考在动，滤波不能恢复丢失的角度。 */
+            hall->lut_status = LINEAR_HALL_LUT_MAPPING;
+            return;
+        }
+        previous = sample;
+    }
+    float sin_offset = hall->sin_off_counts, cos_offset = hall->cos_off_counts;
+    float sin_amplitude = hall->sin_amp, cos_amplitude = hall->cos_amp;
+    LinearHallSample value = hall->val;
+    hall->sin_off_counts = (sweep->sin_max + sweep->sin_min) * 0.5f;
+    hall->cos_off_counts = (sweep->cos_max + sweep->cos_min) * 0.5f;
+    hall->sin_amp = (sweep->sin_max - sweep->sin_min) * 0.5f;
+    hall->cos_amp = (sweep->cos_max - sweep->cos_min) * 0.5f;
+    hall->calibration_success = true;
+    OutputEncoder diagnostic;
+    OutputEncoder_Init(&diagnostic, encoder->params.gear_ratio);
+    if (OutputEncoder_CalibEnd(&diagnostic, cal, hall, motor))
+    {
+        hall->lut_status = LINEAR_HALL_LUT_DIAGNOSTIC;
+    }
+    hall->calibration_success = false;
+    hall->sin_off_counts = sin_offset;
+    hall->cos_off_counts = cos_offset;
+    hall->sin_amp = sin_amplitude;
+    hall->cos_amp = cos_amplitude;
+    hall->val = value;
 }

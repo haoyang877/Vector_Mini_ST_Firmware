@@ -17,7 +17,8 @@ void Foc_Step(const MotorConfiguration *configuration,
     {
         return;
     }
-    BspPwm_SetDuty(foc->duty_abc.a, foc->duty_abc.b, foc->duty_abc.c);
+    void (*set_duty)(float, float, float) = foc->set_duty != NULL ? foc->set_duty : BspPwm_SetDuty;
+    set_duty(foc->duty_abc.a, foc->duty_abc.b, foc->duty_abc.c);
     Foc_Complete(foc, law);
 }
 

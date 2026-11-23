@@ -10,9 +10,6 @@
 #define OUTPUT_ENCODER_ZERO_SET 0x100U
 #define OUTPUT_ENCODER_CAL_SAMPLES 2048U
 
-/** @brief 有限计算批次后的前台健康服务，不修改标定数据。 */
-typedef void (*OutputEncoderCalibrationProgress)(void);
-
 typedef enum
 {
     OUTPUT_ENCODER_CAL_NONE = 0,
@@ -33,6 +30,7 @@ typedef struct
 {
     OutputEncoderParams params;
     float position_rad, initial_position_rad;
+    float speed_rad_s; /* 外环更新的输出轴机械角速度，无有效采样时为 NaN。 */
     int64_t motor_delta_q15;
     uint16_t previous_motor_q15;
     bool ready;
@@ -47,12 +45,47 @@ typedef struct
 
 typedef struct
 {
-    OutputEncoderCalibSample samples[OUTPUT_ENCODER_CAL_SAMPLES];
+    int32_t sample_motor_counts[OUTPUT_ENCODER_CAL_SAMPLES];
+    uint8_t sample_hall_counts[OUTPUT_ENCODER_CAL_SAMPLES][3];
     int32_t motor_counts, first_counts, step_counts;
     uint16_t previous_q15, count;
     int64_t motor_sum_counts;
     uint32_t sin_sum_counts, cos_sum_counts, sample_count;
 } OutputEncoderCalib;
+
+/**
+ * @brief 无损读取一组标定区间均值。
+ * @param cal 已采样的标定工作区。
+ * @param index 小于count的样本编号。
+ * @return 原32位电机计数与两路12位Hall整数。
+ */
+static inline OutputEncoderCalibSample OutputEncoder_CalibGetSample(const OutputEncoderCalib *cal,
+                                                                    unsigned index)
+{
+    const uint8_t *hall = cal->sample_hall_counts[index];
+    return (OutputEncoderCalibSample){
+        cal->sample_motor_counts[index],
+        (uint16_t)((uint16_t)hall[0] | ((uint16_t)(hall[1] & 15U) << 8U)),
+        (uint16_t)((uint16_t)(hall[1] >> 4U) | ((uint16_t)hall[2] << 4U))};
+}
+
+/**
+ * @brief 无损存入一组标定区间均值，不改变采样计数。
+ * @param cal 调用方独占的标定工作区。
+ * @param index 小于OUTPUT_ENCODER_CAL_SAMPLES的样本编号。
+ * @param sample 电机连续计数与两路0..4095的Hall区间整数均值。
+ * @note 两路Hall由12位ADC采集；不能用于存储滤波后的分数计数。
+ */
+static inline void OutputEncoder_CalibSetSample(OutputEncoderCalib *cal,
+                                                unsigned index,
+                                                OutputEncoderCalibSample sample)
+{
+    cal->sample_motor_counts[index] = sample.motor_counts;
+    uint8_t *hall = cal->sample_hall_counts[index];
+    hall[0] = (uint8_t)sample.sin_counts;
+    hall[1] = (uint8_t)((sample.sin_counts >> 8U) | ((sample.cos_counts & 15U) << 4U));
+    hall[2] = (uint8_t)(sample.cos_counts >> 4U);
+}
 
 /**
  * @brief 初始化输出轴反馈，减速比为 1 时使用直驱编码器。
@@ -125,14 +158,27 @@ void OutputEncoder_CalibSample(OutputEncoderCalib *cal,
  * @param cal 已停止采集的工作区。
  * @param hall 本次完成幅值、偏置标定的候选对象；写入新表和结果，失败清表。
  * @param motor 本次新发布的电机编码器 LUT。
- * @param progress 非空前台健康服务；每处理至多128组调用，不得修改标定输入或候选结果。
  * @return 配对样本覆盖整圈且关系一致时返回 true。
  * @note 只在可抢占的停机前台调用，调用方复核会话后提交结果。
  */
 bool OutputEncoder_CalibEnd(OutputEncoder *encoder,
                             const OutputEncoderCalib *cal,
                             LinearHall *hall,
-                            const EncoderCalibration *motor,
-                            OutputEncoderCalibrationProgress progress);
+                            const EncoderCalibration *motor);
+
+/**
+ * @brief 极值超限时用本轮系数尝试生成可回读的诊断表。
+ * @param cal 已停止采集的配对工作区。
+ * @param sweep 本轮两路原码极值。
+ * @param hall 已结算失败的发布候选；保留故障和原系数。
+ * @param encoder 已结算的输出候选；提供减速比。
+ * @param motor 本次新发布的电机编码器 LUT。
+ * @note 成功时表仅供序列化，调用方在发布前丢弃诊断表。
+ */
+void OutputEncoder_CalibHallDiagnostic(const OutputEncoderCalib *cal,
+                                       const LinearHallCalibration *sweep,
+                                       LinearHall *hall,
+                                       const OutputEncoder *encoder,
+                                       const EncoderCalibration *motor);
 
 #endif

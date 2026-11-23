@@ -4,12 +4,14 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include "motor_lifecycle.h"
+#include "motor_state_machine.h"
 #include "axis_config.h"
 #include "control_math.h"
 #include "motor_control.h"
 #include "speed_control.h"
 #include "application_config.h"
+
+static MotorOuterLoop outer;
 
 static MotorConfiguration s_configuration;
 static MotorControlState s_motor;
@@ -107,16 +109,19 @@ void Foc_RunVq(const MotorConfiguration *configuration,
 {
     Foc_RunCurrent(configuration, foc, motor, phase, speed);
 }
-void PositionCascade_Reset(void)
+void PositionCascade_Reset(PositionCascadeState *instance)
 {
+    (void)instance;
     ++s_resets;
 }
-bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControlLimited(PositionCascadeState *instance,
+                                          const PositionCascadeConfig *config,
                                           float position,
                                           float speed,
                                           float available_current_a,
                                           PositionCascadeControlOutput *output)
 {
+    (void)instance;
     ++s_updates;
     s_config = *config;
     if (!s_core_valid)
@@ -161,12 +166,12 @@ static void setup(MotorControlMode mode)
     s_configuration.application.cascade_position_kd = 2.0f;
     s_motor.position_target_rad = 0.3f;
     s_motor.speed_target_rad_s = 0.2f;
-    MotorOuterLoop_RequestReset();
+    MotorOuterLoop_RequestReset(&outer);
 }
 static void tick_without_foreground(void)
 {
     MotorConfiguration before = s_configuration;
-    MotorOuterLoop_SlowTick(&s_configuration, &s_motor, &s_pi, &s_encoder);
+    MotorOuterLoop_SlowTick(&outer, &s_configuration, &s_motor, &s_pi, &s_encoder);
     CHECK(memcmp(&before, &s_configuration, sizeof(before)) == 0);
 }
 
@@ -174,10 +179,10 @@ static void tick(void)
 {
     tick_without_foreground();
     MotorPositionPlan plan;
-    if (MotorOuterLoop_TakePositionPlan(&plan))
+    if (MotorOuterLoop_TakePositionPlan(&outer, &plan))
     {
         bool ok = MotorOuterLoop_BuildPositionPlan(&plan);
-        MotorOuterLoop_PublishPositionPlan(&plan, ok);
+        MotorOuterLoop_PublishPositionPlan(&outer, &plan, ok);
     }
 }
 
@@ -185,7 +190,7 @@ static void check_configuration(void)
 {
     setup(MOTOR_CONTROL_POSITION);
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == 4.0f);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 4.0f);
     CHECK(s_config.call_divider == 1U && s_config.update_period_s == SPEED_LOOP_TS_S);
     CHECK(s_config.target_position == 0.3f &&
           s_config.velocity_filter_hz ==
@@ -214,6 +219,25 @@ static void check_configuration(void)
 }
 static void check_validation(void)
 {
+    setup(MOTOR_CONTROL_POSITION);
+    s_motor.host_position_unlimited = true;
+    s_position_rad = 8.0f;
+    s_motor.position_target_rad = 12.0f;
+    s_configuration.application.axis_profile.magic = 1U;
+    s_configuration.application.axis_profile.minimum_position_rad = -1.0f;
+    s_configuration.application.axis_profile.maximum_position_rad = 1.0f;
+    s_configuration.application.axis_profile.maximum_speed_rad_s = 0.4f;
+    for (unsigned i = 0U; i < 100U; ++i)
+    {
+        tick();
+    }
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.fault_code == MOTOR_FAULT_NONE);
+    CHECK(s_config.target_position >= 8.0f && s_config.maximum_speed == 0.4f);
+    CHECK(s_motor.iq_target_a <= s_configuration.application.current_limit_a);
+    s_motor.host_position_unlimited = false;
+    tick();
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
+
     const size_t offsets[] = {
         offsetof(MotorConfiguration, application.current_limit_a),
         offsetof(MotorConfiguration, application.speed_kp),
@@ -233,7 +257,7 @@ static void check_validation(void)
         memcpy((char *)&s_configuration + offsets[i], &invalid, sizeof(invalid));
         tick();
         CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
-        CHECK(s_motor.iq_target_a == 0.0f && !MotorOuterLoop_IsReady());
+        CHECK(s_motor.iq_target_a == 0.0f && !MotorOuterLoop_IsReady(&outer));
     }
     /* 最终目标与实测位置均在界内，但已有速度使本拍参考越过上界。 */
     setup(MOTOR_CONTROL_POSITION);
@@ -278,10 +302,10 @@ static void check_runtime(void)
         setup((MotorControlMode)mode);
         tick();
         unsigned resets = s_resets;
-        MotorOuterLoop_RequestReset();
-        CHECK(!MotorOuterLoop_IsReady());
+        MotorOuterLoop_RequestReset(&outer);
+        CHECK(!MotorOuterLoop_IsReady(&outer));
         tick();
-        CHECK(s_resets > resets && MotorOuterLoop_IsReady());
+        CHECK(s_resets > resets && MotorOuterLoop_IsReady(&outer));
         s_motor.fault_code = MOTOR_FAULT_OVERCURRENT;
         s_motor.iq_target_a = 0.0f;
         tick();
@@ -298,10 +322,11 @@ static void check_runtime(void)
     {
         tick();
     }
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a > 0.0f && s_motor.iq_target_a <= 0.5f);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a > 0.0f &&
+          s_motor.iq_target_a <= 0.5f);
     s_configuration.application.current_limit_a = 0.0f;
     tick();
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 0.0f);
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
     setup(MOTOR_CONTROL_POSITION);
     s_motor.position_target_rad = 0.6f;
@@ -330,7 +355,7 @@ static void check_runtime(void)
         CHECK(fabsf(acceleration - last_acceleration) <=
               10.0f * CASCADE_POSITION_LOOP_TS_S + 0.0006f);
         last_acceleration = acceleration;
-        CHECK(MotorOuterLoop_IsReady() &&
+        CHECK(MotorOuterLoop_IsReady(&outer) &&
               fabsf(s_motor.speed_ramped_rad_s) <=
                   s_configuration.application.position_maximum_speed_rad_s);
     }
@@ -340,17 +365,17 @@ static void check_runtime(void)
     setup(MOTOR_CONTROL_POSITION);
     tick_without_foreground();
     MotorPositionPlan stale;
-    CHECK(MotorOuterLoop_TakePositionPlan(&stale));
-    MotorOuterLoop_RequestReset();
+    CHECK(MotorOuterLoop_TakePositionPlan(&outer, &stale));
+    MotorOuterLoop_RequestReset(&outer);
     tick_without_foreground();
     MotorPositionPlan fresh;
-    CHECK(MotorOuterLoop_TakePositionPlan(&fresh) && fresh.serial != stale.serial);
-    MotorOuterLoop_PublishPositionPlan(&stale, MotorOuterLoop_BuildPositionPlan(&stale));
+    CHECK(MotorOuterLoop_TakePositionPlan(&outer, &fresh) && fresh.serial != stale.serial);
+    MotorOuterLoop_PublishPositionPlan(&outer, &stale, MotorOuterLoop_BuildPositionPlan(&stale));
     for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 250U; ++i)
     {
         tick_without_foreground();
     }
-    CHECK(s_motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && !MotorOuterLoop_IsReady() &&
+    CHECK(s_motor.fault_code == MOTOR_FAULT_CONTROL_OVERRUN && !MotorOuterLoop_IsReady(&outer) &&
           s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_CURRENT);
     FocState foc = {0};
@@ -362,6 +387,82 @@ static void check_runtime(void)
     observer.electrical_velocity_rad_s = 5.0f;
     (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
     CHECK(s_current_calls == 2U && s_phase_rad == 1.25f && s_phase_velocity_rad_s == 5.0f);
+}
+
+static void check_roll_position_hold(void)
+{
+    static const MotorAxisPreset s_test_presets[] = {
+        {.joint = MOTOR_JOINT_UNKNOWN},
+        {.joint = MOTOR_JOINT_PITCH},
+        {.joint = MOTOR_JOINT_YAW},
+        {.joint = MOTOR_JOINT_ROLL, .damper_torque_nm = 1.5f}};
+    enum
+    {
+        RESPONSE_TICKS = 8
+    };
+    float regular_iq_a[RESPONSE_TICKS];
+    for (unsigned axis = 0U; axis < sizeof(s_test_presets) / sizeof(s_test_presets[0]); ++axis)
+    {
+        setup(MOTOR_CONTROL_POSITION);
+        s_configuration.preset = axis == 0U ? NULL : &s_test_presets[axis];
+        bool roll = s_test_presets[axis].joint == MOTOR_JOINT_ROLL;
+        s_configuration.model.motor_pole_pairs = 21;
+        s_configuration.model.motor_flux_wb = 0.0175025f;
+        tick();
+        float regular_filter_hz =
+            s_encoder.speed_pll_hz > 0.0f ? 0.0f : POSITION_SERVO_VELOCITY_FILTER_HZ;
+        CHECK(outer.cascade.config.velocity_filter_hz ==
+              (roll ? ROLL_POSITION_VELOCITY_FILTER_HZ : regular_filter_hz));
+        CHECK(fabsf(outer.cascade.config.damper_current_a - (roll ? 2.7207f : 0.0f)) < 1e-4f);
+        CHECK(outer.cascade.hold_phase == POSITION_CASCADE_MOVE &&
+              !s_motor.position_target_reached);
+        CHECK(outer.cascade.config.roll_motion_enabled == roll);
+        CHECK(outer.plan.apply_tick == (roll ? 3U * (CASCADE_POSITION_LOOP_FREQ / 250U)
+                                             : CASCADE_POSITION_LOOP_FREQ / 250U));
+        for (unsigned step = 0U;
+             step < CASCADE_POSITION_LOOP_FREQ / 50U && !s_motor.position_target_reached;
+             ++step)
+        {
+            tick();
+        }
+        CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.position_target_reached);
+        /* 同一到位样本之后两种板型均须完成 50 ms，位置到位状态仍即时发布。 */
+        for (unsigned step = 1U; step < CASCADE_POSITION_LOOP_FREQ / 20U; ++step)
+        {
+            tick();
+        }
+        CHECK(outer.cascade.hold_phase == (roll ? POSITION_CASCADE_SETTLE : POSITION_CASCADE_MOVE));
+        tick();
+        CHECK(outer.cascade.hold_phase == (roll ? POSITION_CASCADE_HOLD : POSITION_CASCADE_MOVE));
+
+        s_position_rad -= 0.5f * s_configuration.application.position_error_window_rad;
+        for (unsigned step = 0U; step < RESPONSE_TICKS; ++step)
+        {
+            tick();
+            CHECK(s_motor.position_target_reached && s_motor.position_reference_rad == 0.3f &&
+                  s_motor.position_trajectory_speed_rad_s == 0.0f && s_motor.iq_target_a > 0.0f);
+            if (axis == 0U)
+            {
+                regular_iq_a[step] = s_motor.iq_target_a;
+            }
+            else if (!roll)
+            {
+                CHECK(s_motor.iq_target_a == regular_iq_a[step]);
+            }
+            else
+            {
+                CHECK(s_motor.iq_target_a < regular_iq_a[step]);
+            }
+        }
+        if (roll)
+        {
+            s_motor.position_target_rad = 0.4f;
+            tick();
+            CHECK(outer.cascade.hold_phase == POSITION_CASCADE_MOVE &&
+                  !s_motor.position_target_reached && s_motor.position_reference_rad == 0.3f);
+            CHECK(outer.cascade.speed_controller.integral_output > 0.0f);
+        }
+    }
 }
 
 /* 复用冻结 5665ff87 的纯核合同：正反转、收敛、acc/jerk 与前馈限幅。 */
@@ -441,7 +542,7 @@ static void check_feedforward_runtime(void)
 
     start_feedforward();
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.uses_speed_ramp);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.uses_speed_ramp);
     CHECK(fabsf(s_motor.speed_ramped_rad_s - 0.00005f) < 0.00000001f);
     CHECK(fabsf(s_motor.iq_target_a - 0.0201002f) < 0.0000001f);
     float first_speed = s_motor.speed_ramped_rad_s;
@@ -450,22 +551,22 @@ static void check_feedforward_runtime(void)
     {
         tick();
     }
-    MotorOuterLoop_RequestReset();
-    CHECK(!MotorOuterLoop_IsReady());
+    MotorOuterLoop_RequestReset(&outer);
+    CHECK(!MotorOuterLoop_IsReady(&outer));
     tick();
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
 
     /* STOP/NONE、故障、切入位置再返回，均不能沿用旧规划与积分。 */
     s_motor.control_mode = MOTOR_CONTROL_NONE;
     tick();
-    CHECK(!MotorOuterLoop_IsReady());
+    CHECK(!MotorOuterLoop_IsReady(&outer));
     s_motor.control_mode = MOTOR_CONTROL_SPEED;
     tick();
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
     s_motor.fault_code = MOTOR_FAULT_OVERCURRENT;
     s_motor.iq_target_a = 0.0f;
     tick();
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 0.0f);
     s_motor.fault_code = MOTOR_FAULT_NONE;
     tick();
     CHECK(s_motor.speed_ramped_rad_s == first_speed && s_motor.iq_target_a == first_current_a);
@@ -515,19 +616,51 @@ static void check_feedforward_runtime(void)
     s_configuration.application.speed_feedforward.gain_a_per_rad_s2 = NAN;
     tick();
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.id_target_a == 0.0f && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.id_target_a == 0.0f &&
+          s_motor.iq_target_a == 0.0f);
     start_feedforward();
     tick();
     s_pi.integral_output = NAN;
     tick();
     CHECK(s_motor.fault_code == MOTOR_FAULT_INVALID_PARAMETERS);
-    CHECK(!MotorOuterLoop_IsReady() && s_motor.iq_target_a == 0.0f);
+    CHECK(!MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == 0.0f);
     setup(MOTOR_CONTROL_SPEED);
     s_configuration.application.current_limit_a = 0.5f;
     s_speed_rad_s = 100.0f;
     tick();
-    CHECK(MotorOuterLoop_IsReady() && s_motor.iq_target_a == -0.5f);
+    CHECK(MotorOuterLoop_IsReady(&outer) && s_motor.iq_target_a == -0.5f);
     CHECK(s_pi.proportional_gain == 0.5f && s_pi.integral_gain == 2.0f);
+}
+
+static void check_roll_sustained_phase_current(void)
+{
+    static const MotorAxisPreset s_roll = {.joint = MOTOR_JOINT_ROLL};
+    FocState foc = {0};
+    FluxObserverState observer = {0};
+    setup(MOTOR_CONTROL_POSITION);
+    s_configuration.preset = &s_roll;
+    foc.phase_current_a.b = -7.01f;
+    for (unsigned tick_index = 0; tick_index < 5U * FOC_FREQ - 1U; ++tick_index)
+    {
+        (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    }
+    CHECK(s_motor.fault_code == MOTOR_FAULT_NONE);
+    CHECK(s_motor.roll_phase_overlimit_ticks == 5U * FOC_FREQ - 1U);
+    foc.phase_current_a.b = -7.0f;
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    CHECK(s_motor.roll_phase_overlimit_ticks == 0U);
+    for (unsigned tick_index = 0; tick_index < 5U * FOC_FREQ; ++tick_index)
+    {
+        foc.phase_current_a.a = (tick_index & 1U) ? 7.01f : 0.0f;
+        foc.phase_current_a.c = (tick_index & 1U) ? 0.0f : -7.01f;
+        (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    }
+    CHECK(s_motor.fault_code == MOTOR_FAULT_OVERCURRENT);
+    setup(MOTOR_CONTROL_SPEED);
+    s_configuration.preset = &s_roll;
+    s_motor.roll_phase_overlimit_ticks = 5U * FOC_FREQ - 1U;
+    (void)MotorControl_Step(&s_configuration, &foc, &s_motor, &s_encoder, &observer);
+    CHECK(s_motor.fault_code == MOTOR_FAULT_NONE && s_motor.roll_phase_overlimit_ticks == 0U);
 }
 
 /** @brief 执行单项核心组合合同；失败返回非零，不接触硬件。 */
@@ -553,6 +686,8 @@ int main(int argc, char **argv)
     else
     {
         check_runtime();
+        check_roll_position_hold();
+        check_roll_sustained_phase_current();
     }
     printf("core outer %s: %s\n", argv[1], s_failures == 0U ? "PASS" : "FAIL");
     return s_failures == 0U ? 0 : 1;

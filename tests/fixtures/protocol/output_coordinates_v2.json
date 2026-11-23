@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "capability_bit": 26,
+  "coordinate": "output_shaft",
+  "motor_position_rad": 20.0,
+  "motor_reference_position_rad": 24.0,
+  "motor_speed_rad_s": -8.0,
+  "motor_reference_speed_rad_s": 16.0,
+  "tracked_output_position_rad": 7.5,
+  "gear_ratio": 8.0,
+  "direction": -1,
+  "feedback_offsets_8_to_23_hex": "581b00004c1d000030f8ffffe8030000"
+}

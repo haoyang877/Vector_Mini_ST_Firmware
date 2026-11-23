@@ -1,0 +1,11 @@
+{
+  "contract": "host_position_session_v1",
+  "feature_mask": 262144,
+  "caps_payload_hex": "00fd07004e0640002e000000f401f401",
+  "host_start_payload_hex": "03010000",
+  "ordinary_start_payload_hex": "03000000",
+  "legacy_firmware_result": 4,
+  "invalid_flag_payloads_hex": ["03020000", "02010000", "03010100", "03010001"],
+  "lease_ms": 500,
+  "policy": "host position session only; STOP/fault/reset/lease expiry clears; no persistence"
+}

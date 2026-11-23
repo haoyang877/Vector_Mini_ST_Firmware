@@ -13,12 +13,18 @@ typedef struct
     float speed_rad_s, acceleration_rad_s2, jerk_rad_s3;
 } PositionOtgLimits;
 
+/* 用两个单精度分量记录段边界和累计时间，seconds 是最近可表示值。 */
+typedef struct
+{
+    float seconds, remainder_s;
+} PositionOtgTime;
+
 /* 实例内的系数表，供静态分配；调用者通过下面的接口更新。 */
 typedef struct
 {
     PositionOtgReference start;
     float jerk_rad_s3;
-    double duration_s;
+    PositionOtgTime duration;
 } PositionOtgSegment;
 
 typedef struct
@@ -26,7 +32,7 @@ typedef struct
     PositionOtgReference reference;
     PositionOtgLimits limits;
     PositionOtgSegment segments[7];
-    double segment_elapsed_s;
+    PositionOtgTime segment_elapsed;
     unsigned segment_count, segment_index;
     float target_rad;
     bool initialized, has_plan, finished;

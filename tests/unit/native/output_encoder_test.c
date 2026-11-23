@@ -4,11 +4,6 @@
 #include <string.h>
 #include "output_encoder.h"
 #include "parameter_record.h"
-static unsigned progress_calls;
-static void calibration_progress(void)
-{
-    ++progress_calls;
-}
 #include "control_math.h"
 #include "crc32.h"
 
@@ -112,9 +107,7 @@ static void geared_drive(float ratio, int direction, float phase)
                                   (uint16_t)lroundf(2000 + 1800 * cosf(h)));
     }
     assert(cal.count == OUTPUT_ENCODER_CAL_SAMPLES);
-    unsigned before_progress = progress_calls;
-    assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
-    assert(progress_calls - before_progress == 64U);
+    assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
     assert(encoder.params.direction == direction);
     near_angle(encoder.params.phase_rad, phase, .003f);
     assert(encoder.params.status == OUTPUT_ENCODER_CAL_OK);
@@ -139,16 +132,29 @@ static void geared_drive(float ratio, int direction, float phase)
     OutputEncoder_SetZero(&encoder);
     assert(encoder.position_rad == 0);
     roundtrip(&encoder);
+    if (ratio == 40.0f)
+    {
+        /* 连续几组 Hall 原码相同，窗内外的样本仍给出严格单调的分数码均值。 */
+        for (unsigned i = 500U; i < 508U; ++i)
+        {
+            OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(&cal, i);
+            OutputEncoderCalibSample reference = OutputEncoder_CalibGetSample(&cal, 503);
+            value.sin_counts = reference.sin_counts;
+            value.cos_counts = reference.cos_counts;
+            OutputEncoder_CalibSetSample(&cal, i, value);
+        }
+        assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
+    }
     /* 错误减速比及没有覆盖整圈的采样不能保存成功状态。 */
     OutputEncoder wrong;
     OutputEncoder_Init(&wrong, ratio + 1);
-    assert(!OutputEncoder_CalibEnd(&wrong, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(&wrong, &cal, &hall, &motor));
     assert(wrong.params.status == OUTPUT_ENCODER_CAL_RELATION);
     OutputEncoder_CalibBegin(&cal, ratio);
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
     assert(encoder.params.status == OUTPUT_ENCODER_CAL_NO_SAMPLES && !encoder.ready);
     hall.calibration_success = false;
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
     assert(encoder.params.status == OUTPUT_ENCODER_CAL_HALL);
 }
 
@@ -181,9 +187,7 @@ static void nonlinear_hall(int direction, int rotation, float phase, bool skew, 
             (uint16_t)lroundf(1900 - 1750 * sinf(angle + (skew ? .21f : 0))),
             (uint16_t)lroundf(2000 + 1800 * cosf(angle) + (ripple ? 7 * cosf(112 * truth) : 0)));
     }
-    unsigned before_progress = progress_calls;
-    assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
-    assert(progress_calls - before_progress == 64U);
+    assert(OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
     assert(hall.lut_status == LINEAR_HALL_LUT_OK);
     assert(encoder.params.direction == direction);
     assert(LinearHall_LutIsMonotonic(hall.lut_q15));
@@ -234,16 +238,19 @@ static void nonlinear_hall(int direction, int rotation, float phase, bool skew, 
 
     /* 缺覆盖与原曲线折返失败；失败后的角度仍能输出，旧表不能残留。 */
     cal.count = 10;
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
     assert(hall.lut_status == LINEAR_HALL_LUT_COVERAGE);
     for (unsigned i = 0; i < LINEAR_HALL_LUT_SIZE; ++i)
     {
         assert(hall.lut_q15[i] == 0);
     }
     cal.count = OUTPUT_ENCODER_CAL_SAMPLES;
-    cal.samples[50].sin_counts = cal.samples[10].sin_counts;
-    cal.samples[50].cos_counts = cal.samples[10].cos_counts;
-    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor, calibration_progress));
+    OutputEncoderCalibSample value = OutputEncoder_CalibGetSample(&cal, 50);
+    OutputEncoderCalibSample reference = OutputEncoder_CalibGetSample(&cal, 10);
+    value.sin_counts = reference.sin_counts;
+    value.cos_counts = reference.cos_counts;
+    OutputEncoder_CalibSetSample(&cal, 50, value);
+    assert(!OutputEncoder_CalibEnd(&encoder, &cal, &hall, &motor));
     assert(hall.lut_status == LINEAR_HALL_LUT_MAPPING);
     LinearHall_Update(&hall, 1000, 3000);
     assert(hall.val.angle_rad == hall.val.angle_raw_rad);
@@ -260,21 +267,47 @@ static void paired_interval_mean(void)
         OutputEncoder_CalibSample(
             &cal, (uint16_t)(65534 + i), (uint16_t)(100 * i), (uint16_t)(1000 * i));
     }
-    assert(cal.count == 2 && cal.samples[1].motor_counts == 65537);
-    assert(cal.samples[1].sin_counts == 250 && cal.samples[1].cos_counts == 2500);
+    assert(cal.count == 2 && OutputEncoder_CalibGetSample(&cal, 1).motor_counts == 65537);
+    assert(OutputEncoder_CalibGetSample(&cal, 1).sin_counts == 250 &&
+           OutputEncoder_CalibGetSample(&cal, 1).cos_counts == 2500);
     OutputEncoder_CalibSample(&cal, 3, 4000, 4000);
     OutputEncoder_CalibBegin(&cal, 8);
     OutputEncoder_CalibSample(&cal, 7, 123, 456);
-    assert(cal.samples[0].motor_counts == 7 && cal.samples[0].sin_counts == 123 &&
-           cal.samples[0].cos_counts == 456);
+    assert(OutputEncoder_CalibGetSample(&cal, 0).motor_counts == 7 &&
+           OutputEncoder_CalibGetSample(&cal, 0).sin_counts == 123 &&
+           OutputEncoder_CalibGetSample(&cal, 0).cos_counts == 456);
+}
+
+static void lossless_storage(void)
+{
+    OutputEncoderCalib cal = {.count = 1U};
+    uint32_t bits = 0x9e3779b9U;
+    for (unsigned sin_counts = 0; sin_counts < 4096U; ++sin_counts)
+    {
+        for (unsigned cos_counts = 0; cos_counts < 4096U; ++cos_counts)
+        {
+            bits = bits * 1664525U + 1013904223U;
+            int32_t motor_counts;
+            memcpy(&motor_counts, &bits, sizeof(motor_counts));
+            OutputEncoderCalibSample sample = {motor_counts, sin_counts, cos_counts};
+            OutputEncoder_CalibSetSample(&cal, 0U, sample);
+            OutputEncoderCalibSample restored = OutputEncoder_CalibGetSample(&cal, 0U);
+            assert(restored.motor_counts == motor_counts);
+            assert(restored.sin_counts == sin_counts && restored.cos_counts == cos_counts);
+        }
+    }
+    assert(sizeof(cal.sample_motor_counts) + sizeof(cal.sample_hall_counts) == 14336U);
 }
 
 int main(void)
 {
+    lossless_storage();
     direct_drive();
     paired_interval_mean();
     geared_drive(8, 1, 2.9f);
     geared_drive(8, -1, -2.9f);
+    geared_drive(40, 1, 2.9f);
+    geared_drive(40, -1, -2.9f);
     geared_drive(12, -1, .1f);
     geared_drive(3, 1, -.7f);
     for (int direction = -1; direction <= 1; direction += 2)

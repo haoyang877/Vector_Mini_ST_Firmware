@@ -81,6 +81,8 @@ YG2026-ESC-FULL-STM32G431CB-debug-LOADER-v2.0.0-APP-v1.4.1-20261017.hex
 它的清单必须列出两镜像版本、layout、各自基址与长度、合并文件 SHA-256。
 文件名和离线校验不能替代实机启动、通信及安全验收。
 
+Windows 生产上位机与固件合包使用 `电机生产测试上位机-v工具版本-LOADER-v引导版本-APP-v应用版本-win64-YYYYMMDD.zip`。ZIP 顶层目录与包名同名（去掉 .zip），配套校验文件名为完整包名加 .sha256。
+
 ## 3. 版本号管理
 
 采用 `vX.Y.Z`：

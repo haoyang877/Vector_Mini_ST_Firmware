@@ -116,6 +116,12 @@ int main(void)
     voltage_sample_v = NAN;
     MotorVoltage_Update(&measurement);
     assert(isnan(measurement.bus_voltage_v) && isnan(measurement.bus_voltage_filtered_v));
+    voltage_sample_v = 28.0f;
+    MotorVoltage_Update(&measurement);
+    assert(measurement.bus_voltage_v == 28.0f && measurement.bus_voltage_filtered_v == 28.0f);
+    voltage_sample_v = 30.0f;
+    MotorVoltage_Update(&measurement);
+    assert(fabsf(measurement.bus_voltage_filtered_v - 28.1f) < 0.0001f);
     puts("PASS current sampling: four channels once per update, phase refresh with invalid bus, "
          "configurable filters, signed samples, missing/recovered input, isolation");
     return 0;

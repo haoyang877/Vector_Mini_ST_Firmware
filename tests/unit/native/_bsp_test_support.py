@@ -1,6 +1,7 @@
 """BSP离线夹具共用编译入口；函数体逐字取自生产文件，硬件状态由测试注入。"""
 
 import argparse
+import json
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,6 +18,12 @@ def arguments(description: str) -> argparse.Namespace:
     args.out = args.out.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
     return args
+
+
+def bitrate_cases(executable: Path) -> list[list[str]]:
+    """为两个真实 CAN 端口使用相同的 12 组黄金寄存器值。"""
+    path = ROOT / "tests/fixtures/protocol/at32f456_can_bitrate_v1.json"
+    return [[str(executable), *map(str, row)] for row in json.loads(path.read_text())["registers"]]
 
 
 def production(board: int, module: str, *names: str) -> str:

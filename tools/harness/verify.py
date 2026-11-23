@@ -73,9 +73,15 @@ def record_check(
 
 def firmware_artifacts() -> list[dict]:
     artifacts = []
-    build_root = ROOT / "outputs/build/keil"
-    for target in ("ESC-APP-STM32G431",):
-        directory = build_root / target
+    from build.build_firmware import RELEASE_PROJECTS
+
+    for kind, project in RELEASE_PROJECTS.items():
+        target = project.stem
+        if kind in ("g431-loader", "at32-loader"):
+            selection = "vector_mini_st_g431" if kind == "g431-loader" else "yg_esc_v1_at32f456"
+            directory = ROOT / "outputs/build/loader" / selection
+        else:
+            directory = ROOT / "outputs/build/keil" / target
         target_files = []
         for suffix in (".axf", ".hex", ".map"):
             candidates = sorted(directory.glob(f"*{suffix}")) if directory.exists() else []

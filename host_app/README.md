@@ -1,19 +1,17 @@
-# YG_MC_HOST
+# 上位机产品入口
 
-Rust实机候选v2.1.2位于`rust/`，配套版本、layout、schema及ABI读取shared目标契约；
-原GUI计划的APP1.5.1是历史验收起点，当前工作树声明已到APP1.5.7，须按实际候选重新冻结。
-保留七工作区与深色工具主题。连接页显式填写CAN设备索引与节点；
-不自动尝试其他适配器。启用原生辅助功能接口，用于键盘操作和 GUI 验证。
-本轮范围和验收见[GUI 实机验证计划](../docs/plans/active/2026-10-21-host-gui-bench-v1.md)。
-界面候选存在不代表实机通过；实际结果以本轮 `outputs/host-live-test/` 记录为准。
+核对日期：2026-11-17。仓库中有三个独立入口，版本和打包方式不能混用。
 
-```powershell
-$env:CARGO_TARGET_DIR = "$PWD/outputs/host-rust-cargo"
-cargo fmt --manifest-path host_app/rust/Cargo.toml --check
-cargo clippy --manifest-path host_app/rust/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path host_app/rust/Cargo.toml --locked
-cargo build --manifest-path host_app/rust/Cargo.toml --release --locked
-```
+| 产品 | 当前源码版本与入口 | 用途与文档 |
+| --- | --- | --- |
+| Rust工作台候选 | 3.1.3；`host_app/rust`，版本来源Cargo.toml | 双板设备、四模式调试、参数、标定和SWD；[构建](rust/README.md)、[需求](../docs/architecture/yg_mc_host_design_v1.md#设计验收要求)、[设计](../docs/architecture/yg_mc_host_design_v1.md)。 |
+| Qt生产工具 | 2.1.7；`tools/bench/qt_production_desktop.py` | 单台烧录、检测、标定、参数、速度和报告；[操作](../docs/architecture/qt_production_design_v1.md)、[设计](../docs/architecture/qt_production_design_v1.md)。 |
+| C++/Qt兼容工具 | 1.4.4；本目录CMake工程 | 保留的单页CAN读回/速度/升级工具，构建及边界见下文。 |
+
+版本表表示源码，不证明已经发布或当前设备运行此版本。板端版本须读回，交付包须核对manifest和哈希。
+Python/PySide6早期草案见，不作为当前需求。
+
+## C++ / Qt 1.4.4兼容工具
 
 v1.4.4 是单页 CAN FD 台架工具，配套共享目标契约的 schema 14 / 参数 ABI 0x000E08F0。默认断开且所有设备值显示未知；没有演示设备、导航、参数写入或标定任务。程序与 APP、Loader 独立构建。
 

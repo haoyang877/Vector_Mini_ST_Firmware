@@ -111,14 +111,22 @@ def prepare(
         if schema == 10 and legacy_layout != "vector-mini-schema10-delivery-v1":
             raise ValueError("保留schema10标定必须显式指定已核对的旧交付布局")
         model = struct.unpack_from("<5f", record, 16)
+        # 迁移后的三相偏置须通过 APP 的 MotorCurrentOffset_InRange。
         offsets = struct.unpack_from("<3f", record, 4)
+        limit_contract = (
+            Path(__file__).resolve().parents[2] / "shared/protocol/hardware_check_limits_v1.json"
+        )
+        limit_fields = json.loads(limit_contract.read_text(encoding="utf-8"))["fields"]
+        bias_limit_counts = next(
+            default for name, default, *_ in limit_fields if name == "current_bias_counts"
+        )
         tuning = struct.unpack_from("<11f", record, 2092)
         limits = struct.unpack_from("<3f", record, 2144)
         if (
             not all(math.isfinite(value) and value > 0 for value in model)
             or not model[0].is_integer()
             or model[0] >= 2147483648
-            or not all(math.isfinite(value) and 1948 <= value <= 2148 for value in offsets)
+            or not all(abs(value - 2048) < bias_limit_counts for value in offsets)
             or not all(math.isfinite(value) and value >= 0 for value in tuning + limits)
         ):
             raise ValueError("旧模型、偏置或整定参数非法；不能保留标定迁移")

@@ -12,6 +12,7 @@
 #include "../../../firmware/platform/bsp/bsp_internal.h"
 #include "at32f456_bench.h"
 #include <math.h>
+#include <string.h>
 
 /* 仅用于底层启动/链接验收的独立镜像，未连接APP或电机控制。
  * 本目标接入ADC、CAN、MT6835，但没有完整APP及功率启动调用，不作为可用APP发布。 */
@@ -23,7 +24,7 @@ static volatile uint16_t s_encoder_angle;
 static volatile AdcMotorTemperatureSample s_motor_temperature;
 static volatile uint32_t s_motor_temperature_samples;
 static uint32_t s_parameter_first_word;
-static volatile uint32_t s_fast_samples, s_fast_max_cycles;
+static volatile uint32_t s_fast_samples, s_fast_max_cycles, s_adc_revision;
 static volatile uint16_t s_angle_min = UINT16_MAX, s_angle_max;
 
 static void halt_disabled(void)
@@ -45,6 +46,7 @@ void SysTick_Handler(void)
 void ADC1_2_IRQHandler(void)
 {
     uint32_t begin = DWT->CYCCNT;
+    ++s_adc_revision;
     if (BspAdc_CompleteFast())
     {
         ++s_fast_samples;
@@ -130,6 +132,8 @@ int main(void)
             ++s_received_frames;
             AT32_BenchCanReceive(&frame);
         }
+        uint32_t revision = s_adc_revision;
+        BspSystem_MemoryBarrier();
         float raw_counts = BspAdc_ReadRawChannel(BSP_ADC_MOTOR_TEMPERATURE);
         float celsius = BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE);
         /* 诊断序号记录前台读数次数，ADC接口只返回数值。 */
@@ -140,15 +144,20 @@ int main(void)
             NAN,
             celsius};
         s_motor_temperature = temperature;
-        AT32_BenchPublish(s_supervisor_ticks,
-                          s_fast_samples,
-                          s_encoder_samples,
-                          s_encoder_errors,
-                          s_fast_max_cycles,
-                          s_encoder_angle,
-                          s_angle_min,
-                          s_angle_max,
-                          &temperature);
+        AT32BenchSnapshot sample = {.supervisor_ticks = s_supervisor_ticks,
+                                    .fast_samples = s_fast_samples,
+                                    .encoder_samples = s_encoder_samples,
+                                    .encoder_errors = s_encoder_errors,
+                                    .fast_max_cycles = s_fast_max_cycles,
+                                    .angle = s_encoder_angle,
+                                    .angle_min = s_angle_min,
+                                    .angle_max = s_angle_max,
+                                    .ntc_sequence = temperature.sequence,
+                                    .ntc_raw = temperature.raw_counts,
+                                    .ntc_status = temperature.status};
+        memcpy(&sample.ntc_ohm_bits, &temperature.resistance_ohm, sizeof(uint32_t));
+        memcpy(&sample.ntc_celsius_bits, &temperature.celsius, sizeof(uint32_t));
+        AT32_BenchPublish(&sample, revision, &s_adc_revision);
         if (AT32_BenchPoll())
         {
             halt_disabled();

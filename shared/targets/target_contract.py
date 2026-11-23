@@ -7,6 +7,17 @@ import re
 from pathlib import Path
 
 DEFAULT_TARGET = "vector_mini_st_g431"
+LEGACY_CAN_BPS = (500_000, 2_000_000)
+
+
+def can_bitrates(defaults, nominal: int | None = None, data: int | None = None) -> tuple[int, int]:
+    """分别选择两段速率，旧契约沿用 G431 默认值。"""
+    nominal_default, data_default = defaults
+    nominal = nominal_default if nominal is None else nominal
+    data = data_default if data is None else data
+    if not all(type(value) is int and 0 < value <= 0xFFFFFFFF for value in (nominal, data)):
+        raise ValueError("两段 CAN 速率均须为正 u32")
+    return nominal, data
 
 
 def target_value(target: dict, name: str) -> int:
@@ -53,6 +64,16 @@ def load_target(selection: str | Path | None = None, *, directory: Path | None =
     values = {key: target_value(target, key) for key in target["constants"]}
     if values["TARGET_PROGRAM_BYTES"] != 8 or not 0 < values["TARGET_APP_BYTES"] <= 131072:
         raise ValueError("目标不兼容现有 v3 写入单位或 APP 容量上限")
+    budget = target.get("deployment_bytes")
+    if budget is not None and (
+        budget != 131072
+        or values["TARGET_LOADER_BYTES"] != 16384
+        or values["TARGET_APP_BYTES"] != 98304
+        or values["TARGET_PARAM_BYTES"] != 16384
+        or values["TARGET_PARAM_BASE"] + values["TARGET_PARAM_BYTES"]
+        != values["TARGET_FLASH_BASE"] + budget
+    ):
+        raise ValueError("双板部署必须采用前128 KiB的16/96/16 KiB布局")
     for name in (
         "TARGET_LAYOUT",
         "TARGET_MCU",
@@ -64,6 +85,9 @@ def load_target(selection: str | Path | None = None, *, directory: Path | None =
             raise ValueError(f"目标身份不能为零：{name}")
     flash = values["TARGET_FLASH_BASE"]
     end = flash + values["TARGET_FLASH_BYTES"]
+    physical = target.get("physical_flash_bytes", values["TARGET_FLASH_BYTES"])
+    if not isinstance(physical, int) or not end <= flash + physical <= 0x100000000:
+        raise ValueError("物理 Flash 容量不足或地址越界")
     app = values["TARGET_APP_BASE"]
     param = values["TARGET_PARAM_BASE"]
     identity = values["TARGET_IDENTITY_BASE"]

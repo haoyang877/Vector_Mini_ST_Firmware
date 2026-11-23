@@ -7,11 +7,12 @@
 #include "bsp_adc.h"
 
 /* 监督 ISR 更新、前台快照读取。 */
-static volatile McuTemperatureTelemetry s_mcu_temperature;
 
 /* 内部温度轮询、结果发布、失效超时与过温跳闸。
  * 板级可选策略只影响故障判定，绝不把缺失样本转换成有效温度。 */
-void McuTemperature_Update(FocState *foc, MotorControlState *motor_state)
+void McuTemperature_Update(volatile McuTemperatureTelemetry *temperature,
+                           FocState *foc,
+                           MotorControlState *motor_state)
 {
     struct
     {
@@ -31,21 +32,21 @@ void McuTemperature_Update(FocState *foc, MotorControlState *motor_state)
 #endif
     if (poll.sample_ready)
     {
-        s_mcu_temperature.raw_ts = poll.raw_ts;
-        s_mcu_temperature.raw_vref = poll.raw_vref;
+        temperature->raw_ts = poll.raw_ts;
+        temperature->raw_vref = poll.raw_vref;
         good = poll.conversion_ok;
         if (good)
         {
             /* 0.01 @2 kHz 与原 1 kHz 的 0.02 等效，保持约 50 ms 时间常数。 */
             foc->temperature_c =
-                s_mcu_temperature.valid
+                temperature->valid
                     ? foc->temperature_c + 0.01f * (poll.celsius - foc->temperature_c)
                     : poll.celsius;
-            s_mcu_temperature.raw_celsius = poll.celsius;
-            s_mcu_temperature.vdda_mv = poll.vdda_mv;
-            s_mcu_temperature.valid = 1U;
-            s_mcu_temperature.missed_ticks = 0U;
-            ++s_mcu_temperature.sample_count;
+            temperature->raw_celsius = poll.celsius;
+            temperature->vdda_mv = poll.vdda_mv;
+            temperature->valid = 1U;
+            temperature->missed_ticks = 0U;
+            ++temperature->sample_count;
             /* 90°C 比后缀 6 器件的 105°C 结温上限低 15°C，为校准公差与测量
              * 误差留余量；不覆盖绕组/MOSFET 温度。 */
             if (BSP_REQUIRED_MCU_TEMPERATURE && poll.celsius >= MCU_TEMPERATURE_TRIP_C &&
@@ -56,24 +57,23 @@ void McuTemperature_Update(FocState *foc, MotorControlState *motor_state)
         }
         else
         {
-            s_mcu_temperature.valid = 0U;
+            temperature->valid = 0U;
             foc->temperature_c = NAN;
         }
     }
     if (!good)
     {
-        if (s_mcu_temperature.missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS)
+        if (temperature->missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS)
         {
-            ++s_mcu_temperature.missed_ticks;
+            ++temperature->missed_ticks;
         }
-        if (!s_mcu_temperature.valid ||
-            s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS)
+        if (!temperature->valid || temperature->missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS)
         {
-            s_mcu_temperature.valid = 0U;
+            temperature->valid = 0U;
             foc->temperature_c = NAN;
         }
         if (BSP_REQUIRED_MCU_TEMPERATURE &&
-            s_mcu_temperature.missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
+            temperature->missed_ticks >= MCU_TEMPERATURE_TIMEOUT_TICKS &&
             motor_state->fault_code == MOTOR_FAULT_NONE)
         {
             MotorFault_Report(motor_state, MOTOR_FAULT_TEMPERATURE_SENSOR);
@@ -81,8 +81,7 @@ void McuTemperature_Update(FocState *foc, MotorControlState *motor_state)
     }
 }
 
-bool McuTemperature_IsFresh(void)
+bool McuTemperature_IsFresh(const volatile McuTemperatureTelemetry *temperature)
 {
-    return s_mcu_temperature.valid != 0U &&
-           s_mcu_temperature.missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS;
+    return temperature->valid != 0U && temperature->missed_ticks < MCU_TEMPERATURE_TIMEOUT_TICKS;
 }

@@ -60,26 +60,14 @@ bool AT32_BenchPoll(void);
  * @note 前台调用，繁忙时丢弃额外测试帧；不会启动功率输出。
  */
 void AT32_BenchCanReceive(const BspCanFrame *frame);
-/** @brief 发布一致性诊断快照。
- * @param supervisor_ticks 监督中断累计次数。
- * @param fast_samples 快采样累计次数。
- * @param encoder_samples 编码器有效样本次数。
- * @param encoder_errors 编码器错误次数。
- * @param max_cycles 快采样中断最大执行周期。
- * @param angle 最近有效编码器角度，单圈65536计数。
- * @param angle_min 本次启动有效角度最小值。
- * @param angle_max 本次启动有效角度最大值。
- * @param temperature 私有电机温度诊断值。
- * @note 前台调用，短临界区复制；主机仅接受begin=end且为非零偶数的快照。
+/** @brief 发布同一 ADC 拍内取得的台架诊断数据。
+ * @param sample 前台已采集的计数与温度，本函数补齐板级诊断字段。
+ * @param revision 开始采集前的 ADC 中断序号。
+ * @param adc_revision 本板 ADC 中断更新的序号。
+ * @note 仅前台调用，采集被 ADC 抢占时保留上一帧。
  */
-void AT32_BenchPublish(uint32_t supervisor_ticks,
-                       uint32_t fast_samples,
-                       uint32_t encoder_samples,
-                       uint32_t encoder_errors,
-                       uint32_t max_cycles,
-                       uint32_t angle,
-                       uint32_t angle_min,
-                       uint32_t angle_max,
-                       const AdcMotorTemperatureSample *temperature);
+void AT32_BenchPublish(AT32BenchSnapshot *sample,
+                       uint32_t revision,
+                       const volatile uint32_t *adc_revision);
 
 #endif

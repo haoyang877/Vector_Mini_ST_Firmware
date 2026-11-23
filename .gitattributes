@@ -1,5 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+docs/hardware/*.pdf binary
 
 # 固定来源的第三方源码保留原始字节，确保跨平台检出后仍匹配manifest哈希。
 firmware/platform/sdk/** -text

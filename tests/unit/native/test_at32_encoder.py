@@ -82,6 +82,7 @@ static struct {uint32_t dtcnt,ctrl;} rx,tx;
                     "chip_select_delay",
                     "BspEncoder_Begin",
                     "BspEncoder_ReadAngle",
+                    "BspEncoder_ReadCompletedFrame",
                 )
                 + r"""
 int main(void) {
@@ -107,6 +108,7 @@ int main(void) {
         assert(s_encoder_rx.status==((tail>>8)&0x07U));
         assert(s_encoder_rx.angle_low==(tail>>11));
         assert(BspEncoder_ReadAngle(BSP_ENCODER_16BIT)==word);
+        assert(BspEncoder_ReadCompletedFrame()==((uint32_t)word<<16U|tail));
         assert(rx.ctrl==0x100 && tx.ctrl==0x100 && spi.ctrl2==0x100);
         assert(gpio.scr==(1U<<12) && nops==72);
     }
@@ -118,6 +120,7 @@ int main(void) {
         memcpy((void *)&s_encoder_rx,received,sizeof(received));
         rx.dtcnt=0;
         assert(BspEncoder_ReadAngle(BSP_ENCODER_21BIT)==angle);
+        assert(BspEncoder_ReadCompletedFrame()==((angle>>5U)<<16U|tail));
         assert(rx.ctrl==0x100 && tx.ctrl==0x100 && spi.ctrl2==0x100);
         assert(gpio.scr==(1U<<12) && nops==72);
     }

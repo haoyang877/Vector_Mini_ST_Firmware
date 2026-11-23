@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 
-from _bsp_test_support import ROOT, arguments
+from _bsp_test_support import ROOT, arguments, bitrate_cases
 
 
 def main() -> None:
@@ -16,6 +16,8 @@ def main() -> None:
         ROOT / "firmware/platform/sdk/at32f45x/drivers/inc",
         ROOT / "firmware/platform/bsp/include",
         ROOT / "firmware/config",
+        ROOT / "shared/targets",
+        ROOT / "shared/protocol",
         ROOT / "firmware/platform/bsp",
     ]
     command = compiler + [
@@ -41,7 +43,7 @@ def main() -> None:
             "-o",
             str(executable),
         ],
-        [str(executable)],
+        *bitrate_cases(executable),
     ):
         result = subprocess.run(invocation, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)

@@ -6,14 +6,34 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const MAX_SAMPLES: usize = 6000;
+pub(crate) const MAX_SAMPLES: usize = 15000;
+const MAX_CURVE_UPDATES: usize = 20000;
 
 #[derive(Clone)]
 pub struct Sample {
     pub time_s: f64,
     pub segment: u32,
-    /// 位置/速度/Iq 实际量，随后是同顺序参考量；位置瞬时参考目前未确认。
-    pub values: [Option<f64>; 6],
+    /// 前六列保留位置/速度/Iq 实际及参考量；追加 Vq 实际及参考（协议未提供）。
+    pub values: [Option<f64>; 8],
+}
+
+impl Sample {
+    pub fn from_snapshot(time_s: f64, segment: u32, view: &Snapshot) -> Self {
+        Self {
+            time_s,
+            segment,
+            values: [
+                view.position_rad,
+                view.speed_rad_s,
+                view.iq_a,
+                view.position_reference_rad,
+                view.speed_reference_rad_s,
+                view.iq_reference_a,
+                view.vq_v,
+                None,
+            ],
+        }
+    }
 }
 
 pub struct Capture {
@@ -23,6 +43,8 @@ pub struct Capture {
     pub samples: VecDeque<Sample>,
     pub gaps: usize,
     pub evicted: usize,
+    curve_times: VecDeque<f64>,
+    last_curve_sample: Option<f64>,
     started_at: Instant,
     started_unix_ms: u128,
     last_at: Option<Instant>,
@@ -38,6 +60,8 @@ impl Default for Capture {
             samples: VecDeque::new(),
             gaps: 0,
             evicted: 0,
+            curve_times: VecDeque::new(),
+            last_curve_sample: None,
             started_at: Instant::now(),
             started_unix_ms: 0,
             last_at: None,
@@ -47,6 +71,9 @@ impl Default for Capture {
 }
 
 impl Capture {
+    pub(crate) fn recording_context(&self) -> (String, Instant, u32) {
+        (self.uid.clone(), self.started_at, self.segment)
+    }
     /// 显式开始或继续同一 UID；不同 UID 必须由操作者先导出并清空旧记录。
     pub fn start(&mut self, uid: &str) -> Result<()> {
         ensure!(!uid.is_empty(), "等待真实设备 UID");
@@ -63,6 +90,8 @@ impl Capture {
         if !self.observing {
             self.segment += 1;
             self.last_at = None;
+            self.curve_times.clear();
+            self.last_curve_sample = None;
         }
         self.observing = true;
         Ok(())
@@ -90,24 +119,17 @@ impl Capture {
         };
         if self
             .last_at
-            .is_some_and(|last| at.duration_since(last) > Duration::from_millis(750))
+            .is_some_and(|last| at.duration_since(last) > Duration::from_millis(100))
         {
             self.segment += 1;
             self.gaps += 1;
         }
         self.last_at = Some(at);
-        self.push(Sample {
-            time_s: elapsed.as_secs_f64(),
-            segment: self.segment,
-            values: [
-                view.position_rad,
-                view.speed_rad_s,
-                view.iq_a,
-                None,
-                view.speed_reference_rad_s,
-                view.iq_reference_a,
-            ],
-        });
+        self.push(Sample::from_snapshot(
+            elapsed.as_secs_f64(),
+            self.segment,
+            view,
+        ));
         true
     }
 
@@ -125,12 +147,55 @@ impl Capture {
             .samples
             .iter()
             .rev()
-            .take_while(|p| p.segment == last.segment);
+            .take_while(|p| p.segment == last.segment && last.time_s - p.time_s <= 2.0);
         let latest = points.next()?;
         let remaining: Vec<_> = points.collect();
         let earliest = remaining.last()?;
         let duration = latest.time_s - earliest.time_s;
         (duration > 0.0).then_some(remaining.len() as f64 / duration)
+    }
+
+    /// 仅记录曲线采用了新样本的快照；重复绘制同一快照不计数。
+    pub fn record_curve_update(&mut self, sample_time: Option<f64>) {
+        let Some(time) = sample_time.filter(|time| time.is_finite()) else {
+            return;
+        };
+        if !self.observing || self.last_curve_sample.is_some_and(|last| time <= last) {
+            return;
+        }
+        self.last_curve_sample = Some(time);
+        if self.curve_times.len() == MAX_CURVE_UPDATES {
+            self.curve_times.pop_front();
+        }
+        self.curve_times
+            .push_back(self.started_at.elapsed().as_secs_f64());
+    }
+
+    pub fn refresh_hz(&self) -> Option<f64> {
+        if !self.observing {
+            return None;
+        }
+        let latest = *self.curve_times.back()?;
+        let recent: Vec<_> = self
+            .curve_times
+            .iter()
+            .rev()
+            .take_while(|t| latest - **t <= 2.0)
+            .collect();
+        let duration = latest - **recent.last()?;
+        (duration > 0.0).then_some((recent.len() - 1) as f64 / duration)
+    }
+
+    pub fn write_curve_csv(&self, mut output: impl Write) -> Result<()> {
+        writeln!(
+            output,
+            "# YG_MC_HOST curve updates; timing=host_monotonic; unique_data_snapshots"
+        )?;
+        writeln!(output, "time_s")?;
+        for time in &self.curve_times {
+            writeln!(output, "{time:.6}")?;
+        }
+        Ok(())
     }
 
     /// 导出已接纳的主机回读，缺失值为空，主机时间不能冒充设备同步采样时间。
@@ -153,7 +218,7 @@ impl Capture {
         )?;
         writeln!(
             output,
-            "time_s,segment,position_rad,speed_rad_s,iq_a,position_reference_rad,speed_reference_rad_s,iq_reference_a"
+            "time_s,segment,position_rad,speed_rad_s,iq_a,position_reference_rad,speed_reference_rad_s,iq_reference_a,vq_v,vq_reference_v"
         )?;
         for point in &self.samples {
             write!(output, "{:.6},{}", point.time_s, point.segment)?;
@@ -175,8 +240,8 @@ impl Capture {
             preview: true,
             ..Self::default()
         };
-        for index in 0..101 {
-            let t = index as f64 * 0.2;
+        for index in 0..1201 {
+            let t = index as f64 / 60.0;
             let x = (t - 3.0).max(0.0);
             let speed = if x > 0.0 {
                 12.0 * (1.0 - (-x * 1.8).exp() * (x * 3.8).cos())
@@ -193,6 +258,8 @@ impl Capture {
                     None,
                     Some(if x > 0.0 { 12.0 } else { 0.0 }),
                     None,
+                    Some(1.2 + (-x).exp() * 0.2),
+                    None,
                 ],
             });
         }
@@ -203,6 +270,65 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn curve_refresh_counts_only_new_data_snapshots() {
+        let mut capture = Capture {
+            observing: true,
+            ..Default::default()
+        };
+        capture.record_curve_update(Some(1.0));
+        capture.record_curve_update(Some(1.0));
+        capture.record_curve_update(None);
+        capture.record_curve_update(Some(0.5));
+        assert_eq!(capture.curve_times.len(), 1);
+        capture.record_curve_update(Some(2.0));
+        assert_eq!(capture.curve_times.len(), 2);
+        capture.pause();
+        capture.record_curve_update(Some(3.0));
+        assert_eq!(capture.curve_times.len(), 2);
+    }
+
+    #[test]
+    fn curve_rate_is_measured_and_not_reported_when_paused() {
+        let mut capture = Capture {
+            observing: true,
+            ..Default::default()
+        };
+        for index in 0..=120 {
+            capture.curve_times.push_back(index as f64 / 60.0);
+        }
+        assert!((capture.refresh_hz().unwrap() - 60.0).abs() < 0.01);
+        capture.pause();
+        assert!(capture.refresh_hz().is_none());
+    }
+
+    #[test]
+    fn observed_rate_uses_recent_samples_and_current_segment() {
+        let mut capture = Capture::default();
+        for index in 0..=300 {
+            let t = index as f64 * 0.01;
+            capture.push(Sample {
+                time_s: t,
+                segment: 1,
+                values: [None; 8],
+            });
+        }
+        assert!((capture.observed_hz().unwrap() - 100.0).abs() < 0.01);
+        for index in 1..=50 {
+            capture.push(Sample {
+                time_s: 3.0 + index as f64 * 0.04,
+                segment: 1,
+                values: [None; 8],
+            });
+        }
+        assert!((capture.observed_hz().unwrap() - 25.0).abs() < 0.01);
+        capture.push(Sample {
+            time_s: 6.0,
+            segment: 2,
+            values: [None; 8],
+        });
+        assert!(capture.observed_hz().is_none());
+    }
 
     #[test]
     fn explicit_observe_uid_dedup_and_pause() {
@@ -237,7 +363,7 @@ mod tests {
             capture.push(Sample {
                 time_s: index as f64,
                 segment: 1,
-                values: [None, Some(3.25), None, None, None, None],
+                values: [None, Some(3.25), None, None, None, None, None, None],
             });
         }
         assert_eq!(capture.samples.len(), MAX_SAMPLES);

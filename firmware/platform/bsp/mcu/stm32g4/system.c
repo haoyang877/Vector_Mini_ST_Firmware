@@ -19,6 +19,11 @@ uint32_t BspSystem_TimeMs(void)
     return HAL_GetTick();
 }
 
+void BspSystem_Reset(void)
+{
+    NVIC_SystemReset();
+}
+
 /* 时基与PRIMASK恢复集中在本板同一系统原语文件。 */
 uint32_t BspSystem_EnterCritical(void)
 {
@@ -175,16 +180,6 @@ failed:
     BspPwm_Disable();
     s_startup_state = 4U;
     return BSP_IO_ERROR;
-}
-
-BspResult BspWatchdog_Start(void)
-{
-    return BSP_NOT_SUPPORTED;
-}
-
-void BspWatchdog_Feed(void)
-{
-    /* 独立APP没有应用看门狗；Loader继承看门狗仍由BootHw管理。 */
 }
 
 void Error_Handler(void)

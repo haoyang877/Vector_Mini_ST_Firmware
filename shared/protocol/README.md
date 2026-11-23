@@ -4,3 +4,5 @@
 帧、CRC、CAN ID、分片和升级字段统一见[通信协议](../../docs/protocols/README.md)。
 回归夹具在 `tests/fixtures/protocol/`。APP 实现位于 `firmware/communication/` 的
 `yg_protocol.c` 和 `yg_protocol_boot.c`，接口统一在 `yg_protocol.h`。
+
+在线参数共享目录为[parameter_catalog_v1.json](parameter_catalog_v1.json)，原生测试校验其ID、类型、倍率、权限及PI范围与生产实现一致。主控固定来源提交导入此目录。

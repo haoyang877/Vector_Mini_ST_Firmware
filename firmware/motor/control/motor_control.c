@@ -27,41 +27,24 @@ static float position_mode_maximum_speed(const MotorConfiguration *configuration
 
 /* 预留 4 ms 前台建表时间。旧轨迹照常推进；相同绝对时刻的 p/v/a 作为新段表起点。 */
 #define POSITION_PLAN_LEAD_TICKS (CASCADE_POSITION_LOOP_FREQ / 250U)
+#define ROLL_PLAN_LEAD_TICKS (3U * POSITION_PLAN_LEAD_TICKS)
 
-typedef enum
-{
-    PLAN_IDLE,
-    PLAN_QUEUED,
-    PLAN_BUILDING,
-    PLAN_READY,
-    PLAN_INVALID
-} PositionPlanState;
+#define ROLL_HOLD_CONFIRM_TICKS (CASCADE_POSITION_LOOP_FREQ / 20U) /* 50 ms */
 
-static struct
+bool MotorOuterLoop_TakePositionPlan(MotorOuterLoop *outer, MotorPositionPlan *work)
 {
-    MotorPositionPlan work;
-    PositionPlanState state;
-    uint32_t tick, apply_tick;
-    float initial_position_rad;
-    bool missed_deadline;
-} s_position_plan;
-/* 复位后仍递增，避免跨运行代际误收前台的旧副本。 */
-static uint32_t s_plan_serial;
-
-bool MotorOuterLoop_TakePositionPlan(MotorPositionPlan *work)
-{
-    if (s_position_plan.state != PLAN_QUEUED)
+    if (outer->plan.state != PLAN_QUEUED)
     {
         return false;
     }
-    *work = s_position_plan.work;
-    s_position_plan.state = PLAN_BUILDING;
+    *work = outer->plan.work;
+    outer->plan.state = PLAN_BUILDING;
     return true;
 }
 
 bool MotorOuterLoop_BuildPositionPlan(MotorPositionPlan *work)
 {
-    float lead_s = POSITION_PLAN_LEAD_TICKS * CASCADE_POSITION_LOOP_TS_S;
+    float lead_s = work->lead_ticks * CASCADE_POSITION_LOOP_TS_S;
     if (work->trajectory.has_plan && !PositionOtg_Sample(&work->trajectory, lead_s))
     {
         return false;
@@ -69,58 +52,64 @@ bool MotorOuterLoop_BuildPositionPlan(MotorPositionPlan *work)
     return PositionOtg_SetTarget(&work->trajectory, work->target_rad, work->limits);
 }
 
-void MotorOuterLoop_PublishPositionPlan(const MotorPositionPlan *work, bool valid)
+void MotorOuterLoop_PublishPositionPlan(MotorOuterLoop *outer,
+                                        const MotorPositionPlan *work,
+                                        bool valid)
 {
-    if (s_position_plan.state == PLAN_BUILDING && work->serial == s_position_plan.work.serial)
+    if (outer->plan.state == PLAN_BUILDING && work->serial == outer->plan.work.serial)
     {
         if (valid)
         {
-            s_position_plan.work.trajectory = work->trajectory;
+            outer->plan.work.trajectory = work->trajectory;
         }
-        s_position_plan.state = valid ? PLAN_READY : PLAN_INVALID;
+        outer->plan.state = valid ? PLAN_READY : PLAN_INVALID;
     }
 }
 
-static bool position_plan_sample(PositionOtg *otg, PositionOtgLimits limits, float target_rad)
+static bool position_plan_sample(MotorOuterLoop *outer,
+                                 PositionOtg *otg,
+                                 PositionOtgLimits limits,
+                                 float target_rad,
+                                 uint32_t lead_ticks)
 {
-    if (s_position_plan.state != PLAN_IDLE && s_position_plan.tick == s_position_plan.apply_tick)
+    if (outer->plan.state != PLAN_IDLE && outer->plan.tick == outer->plan.apply_tick)
     {
-        if (s_position_plan.state != PLAN_READY)
+        if (outer->plan.state != PLAN_READY)
         {
-            s_position_plan.missed_deadline = s_position_plan.state != PLAN_INVALID;
+            outer->plan.missed_deadline = outer->plan.state != PLAN_INVALID;
             return false;
         }
-        *otg = s_position_plan.work.trajectory;
-        s_position_plan.state = PLAN_IDLE;
+        *otg = outer->plan.work.trajectory;
+        outer->plan.state = PLAN_IDLE;
     }
-    if (s_position_plan.state == PLAN_IDLE &&
+    if (outer->plan.state == PLAN_IDLE &&
         (!otg->has_plan || target_rad != otg->target_rad ||
          limits.speed_rad_s != otg->limits.speed_rad_s ||
          limits.acceleration_rad_s2 != otg->limits.acceleration_rad_s2 ||
          limits.jerk_rad_s3 != otg->limits.jerk_rad_s3))
     {
-        s_position_plan.apply_tick = s_position_plan.tick + POSITION_PLAN_LEAD_TICKS;
-        MotorPositionPlan *work = &s_position_plan.work;
+        outer->plan.apply_tick = outer->plan.tick + lead_ticks;
+        MotorPositionPlan *work = &outer->plan.work;
+        work->lead_ticks = lead_ticks;
         work->trajectory = *otg;
         if (!otg->has_plan)
         {
             /* 从反馈起步到首个交接点，保持初始速度与零加速度。 */
             work->trajectory.reference.position_rad =
-                s_position_plan.initial_position_rad +
-                otg->reference.speed_rad_s *
-                    (s_position_plan.apply_tick * CASCADE_POSITION_LOOP_TS_S);
+                outer->plan.initial_position_rad +
+                otg->reference.speed_rad_s * (outer->plan.apply_tick * CASCADE_POSITION_LOOP_TS_S);
         }
         work->limits = limits;
         work->target_rad = target_rad;
-        work->serial = ++s_plan_serial;
-        s_position_plan.state = PLAN_QUEUED;
+        work->serial = ++outer->plan_serial;
+        outer->plan.state = PLAN_QUEUED;
     }
-    ++s_position_plan.tick;
+    ++outer->plan.tick;
     if (!otg->has_plan)
     {
         otg->reference.position_rad =
-            s_position_plan.initial_position_rad +
-            otg->reference.speed_rad_s * (s_position_plan.tick * CASCADE_POSITION_LOOP_TS_S);
+            outer->plan.initial_position_rad +
+            otg->reference.speed_rad_s * (outer->plan.tick * CASCADE_POSITION_LOOP_TS_S);
         return isfinite(otg->reference.position_rad) &&
                fabsf(otg->reference.speed_rad_s) <= limits.speed_rad_s;
     }
@@ -143,15 +132,19 @@ static bool position_plan_sample(PositionOtg *otg, PositionOtgLimits limits, flo
 }
 
 /* 规划器与外环同实例复位；控制器跟踪本拍位置和速度参考。 */
-static bool position_mode_update_control(const MotorConfiguration *configuration,
+static bool position_mode_update_control(MotorOuterLoop *outer,
+                                         const MotorConfiguration *configuration,
                                          const MotorControlState *motor,
-                                         PositionOtg *otg,
                                          float velocity_filter_hz,
                                          float position_rad,
                                          float speed_rad_s,
+                                         uint16_t position_q15,
                                          PositionCascadeControlOutput *output)
 {
+    PositionOtg *otg = &outer->position_otg;
+    const MotorAxisPreset *preset = configuration->preset;
     PositionCascadeConfig config = {0};
+    config.roll_motion_enabled = preset != NULL && preset->joint == MOTOR_JOINT_ROLL;
     /* 位置 PI 与 OTG 同拍推进，周期由位置外环节拍给出。 */
     config.update_period_s = CASCADE_POSITION_LOOP_TS_S;
     config.call_divider = 1U;
@@ -170,12 +163,17 @@ static bool position_mode_update_control(const MotorConfiguration *configuration
         {
             return false;
         }
-        s_position_plan.initial_position_rad = position_rad;
+        outer->plan.initial_position_rad = position_rad;
     }
     if (!(limit > 0.0f) || !isfinite(limits.jerk_rad_s3) ||
-        !position_plan_sample(otg, limits, motor->position_target_rad) ||
+        !position_plan_sample(outer,
+                              otg,
+                              limits,
+                              motor->position_target_rad,
+                              config.roll_motion_enabled ? ROLL_PLAN_LEAD_TICKS
+                                                         : POSITION_PLAN_LEAD_TICKS) ||
         /* 本拍已检查轴身份、实测位置和最终目标；生成的有限参考还须满足行程边界。 */
-        (configuration->application.axis_profile.magic != 0U &&
+        (!motor->host_position_unlimited && configuration->application.axis_profile.magic != 0U &&
          !MotorAxisProfile_TargetWithinBounds(&configuration->application.axis_profile,
                                               otg->reference.position_rad)))
     {
@@ -192,27 +190,44 @@ static bool position_mode_update_control(const MotorConfiguration *configuration
     config.speed_kp = configuration->application.speed_kp;
     config.speed_ki = configuration->application.speed_ki;
     config.current_limit_a = configuration->application.current_limit_a;
+    float available_current_a = config.current_limit_a;
+    if (config.roll_motion_enabled)
+    {
+        config.final_target_rad = motor->position_target_rad;
+        config.reference_acceleration_rad_s2 = otg->reference.acceleration_rad_s2;
+        config.measured_position_q15 = position_q15;
+        config.trajectory_matches_target =
+            otg->has_plan && otg->target_rad == config.final_target_rad;
+        config.velocity_filter_hz = ROLL_POSITION_VELOCITY_FILTER_HZ;
+        config.speed_limit_rad_s = configuration->application.speed_limit_rad_s;
+        float torque_per_amp =
+            1.5f * configuration->model.motor_pole_pairs * configuration->model.motor_flux_wb;
+        if (torque_per_amp > 0.0f && isfinite(torque_per_amp))
+        {
+            config.damper_current_a = preset->damper_torque_nm / torque_per_amp;
+        }
+        if (motor->thermal_limit_active)
+        {
+            available_current_a = motor->thermal_current_limit_a;
+        }
+        if (otg->finished && otg->target_rad == motor->position_target_rad)
+        {
+            config.hold_confirm_ticks = ROLL_HOLD_CONFIRM_TICKS;
+        }
+    }
     return PositionCascade_UpdateControlLimited(
-        &config, position_rad, speed_rad_s, configuration->application.current_limit_a, output);
+        &outer->cascade, &config, position_rad, speed_rad_s, available_current_a, output);
 }
 
 /* OUTER_RUNTIME_BEGIN
  * 慢拍外环：位置级联与速度 PI 在外环执行上下文运行，是位置/速度
  * 外环输出的唯一写者；20 kHz 快环只读取 motor_state.iq_target_a。复位与模式变化由
  * 请求标志在本函数内消费，跨上下文只交换标志与单字状态。 */
-static struct
-{
-    volatile bool reset_requested;
-    bool ready;
-    MotorControlMode mode;
-    PositionOtg position_otg;
-    SpeedFeedforwardState speed_feedforward;
-} s_outer;
 
-void MotorOuterLoop_RequestReset(void)
+void MotorOuterLoop_RequestReset(MotorOuterLoop *outer)
 {
-    s_outer.reset_requested = true;
-    s_outer.ready = false;
+    outer->reset_requested = true;
+    outer->ready = false;
 }
 
 /* 有限反馈、轴边界和原核心增益/电流/速度限值每个慢拍都复核。 */
@@ -237,11 +252,15 @@ static bool motor_outer_loop_inputs_valid(const MotorConfiguration *configuratio
                isfinite(configuration->application.speed_deceleration_rad_s2);
     }
     float maximum_speed_rad_s = position_mode_maximum_speed(configuration);
-    return MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
-                                           configuration->application.axis_profile_valid,
-                                           position_rad,
-                                           motor->position_target_rad) &&
-           isfinite(configuration->application.position_error_window_rad) &&
+    bool position_allowed =
+        motor->host_position_unlimited
+            ? configuration->application.axis_profile_valid && isfinite(position_rad) &&
+                  isfinite(motor->position_target_rad)
+            : MotorAxisProfile_AllowsPosition(&configuration->application.axis_profile,
+                                              configuration->application.axis_profile_valid,
+                                              position_rad,
+                                              motor->position_target_rad);
+    return position_allowed && isfinite(configuration->application.position_error_window_rad) &&
            configuration->application.position_error_window_rad > 0.0f &&
            configuration->application.position_error_window_rad <=
                POSITION_CASCADE_POSITION_ERROR_WINDOW_MAX_RAD &&
@@ -256,9 +275,9 @@ static bool motor_outer_loop_inputs_valid(const MotorConfiguration *configuratio
            configuration->application.cascade_position_kd <= CASCADE_POSITION_KD_MAX;
 }
 
-bool MotorOuterLoop_IsReady(void)
+bool MotorOuterLoop_IsReady(const MotorOuterLoop *outer)
 {
-    return s_outer.ready;
+    return outer->ready;
 }
 
 /**
@@ -270,7 +289,8 @@ bool MotorOuterLoop_IsReady(void)
  * @note 仅由外环 tick 调用；本函数是外环输出的唯一写者，快环只读取
  *       motor_state.iq_target_a；模式变化、故障与复位请求在当前慢拍内消费。
  */
-void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
+void MotorOuterLoop_SlowTick(MotorOuterLoop *outer,
+                             const MotorConfiguration *configuration,
                              MotorControlState *m,
                              PiController *pi,
                              EncoderState *encoder)
@@ -279,38 +299,39 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
     bool active =
         m->control_mode == MOTOR_CONTROL_POSITION || m->control_mode == MOTOR_CONTROL_SPEED;
     float position = Encoder_GetMechPos(encoder);
-    /* 产品轴的位置串级与速度模式共用电机端独立测速 PLL。 */
+    /* Roll 位置环使用连续速度及低速计数差，其他产品轴沿用独立测速 PLL。 */
     bool position_speed_pll =
         m->control_mode == MOTOR_CONTROL_POSITION && encoder->speed_pll_hz > 0.0f &&
-        (configuration->preset != NULL || configuration->application.axis_profile.magic == 0U);
+        (configuration->preset != NULL ? configuration->preset->joint != MOTOR_JOINT_ROLL
+                                       : configuration->application.axis_profile.magic == 0U);
     float speed = (m->control_mode == MOTOR_CONTROL_SPEED || position_speed_pll)
                       ? Encoder_GetMechVel(encoder)
                       : Encoder_GetMechVelContinuous(encoder);
 
-    if (m->control_mode != s_outer.mode)
+    if (m->control_mode != outer->mode)
     {
-        MotorOuterLoop_RequestReset();
-        s_outer.mode = m->control_mode;
+        MotorOuterLoop_RequestReset(outer);
+        outer->mode = m->control_mode;
         if (active)
         {
             m->id_target_a = 0.0f;
             m->iq_target_a = 0.0f;
         }
     }
-    if (s_outer.reset_requested)
+    if (outer->reset_requested)
     {
-        s_outer.position_otg = (PositionOtg){0};
-        s_position_plan.state = PLAN_IDLE;
-        s_position_plan.tick = 0U;
-        s_position_plan.missed_deadline = false;
-        PositionCascade_Reset();
-        SpeedFeedforward_Reset(&s_outer.speed_feedforward);
-        s_outer.reset_requested = false;
+        outer->position_otg = (PositionOtg){0};
+        outer->plan.state = PLAN_IDLE;
+        outer->plan.tick = 0U;
+        outer->plan.missed_deadline = false;
+        PositionCascade_Reset(&outer->cascade);
+        SpeedFeedforward_Reset(&outer->speed_feedforward);
+        outer->reset_requested = false;
     }
     if (!active || m->fault_code != MOTOR_FAULT_NONE)
     {
-        SpeedFeedforward_Reset(&s_outer.speed_feedforward);
-        s_outer.ready = false;
+        SpeedFeedforward_Reset(&outer->speed_feedforward);
+        outer->ready = false;
         return;
     }
     if (!motor_outer_loop_inputs_valid(configuration, m, position, speed))
@@ -318,31 +339,32 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
         MotorFault_Report(m, MOTOR_FAULT_INVALID_PARAMETERS);
         m->id_target_a = 0.0f;
         m->iq_target_a = 0.0f;
-        s_outer.ready = false;
-        PositionCascade_Reset();
-        SpeedFeedforward_Reset(&s_outer.speed_feedforward);
+        outer->ready = false;
+        PositionCascade_Reset(&outer->cascade);
+        SpeedFeedforward_Reset(&outer->speed_feedforward);
         return;
     }
 
     if (m->control_mode == MOTOR_CONTROL_POSITION)
     {
         bool valid = position_mode_update_control(
+            outer,
             configuration,
             m,
-            &s_outer.position_otg,
             position_speed_pll ? 0.0f : POSITION_SERVO_VELOCITY_FILTER_HZ,
             position,
             speed,
+            encoder->linearized_q15,
             &output);
         valid = valid && isfinite(output.iq_reference);
         if (!valid)
         {
             MotorFault_Report(m,
-                              s_position_plan.missed_deadline ? MOTOR_FAULT_CONTROL_OVERRUN
-                                                              : MOTOR_FAULT_INVALID_PARAMETERS);
+                              outer->plan.missed_deadline ? MOTOR_FAULT_CONTROL_OVERRUN
+                                                          : MOTOR_FAULT_INVALID_PARAMETERS);
             m->id_target_a = 0.0f;
             m->iq_target_a = 0.0f;
-            s_outer.ready = false;
+            outer->ready = false;
             return;
         }
         m->id_target_a = 0.0f;
@@ -353,28 +375,28 @@ void MotorOuterLoop_SlowTick(const MotorConfiguration *configuration,
         m->position_reference_rad = output.position_reference;
         m->speed_ramped_rad_s = output.speed_reference;
         m->position_velocity_filtered_rad_s = output.speed_feedback_rad_s;
-        m->position_target_reached = s_outer.position_otg.finished &&
-                                     s_outer.position_otg.target_rad == m->position_target_rad &&
+        m->position_target_reached = outer->position_otg.finished &&
+                                     outer->position_otg.target_rad == m->position_target_rad &&
                                      output.target_reached;
-        m->position_trajectory_speed_rad_s = s_outer.position_otg.reference.speed_rad_s;
+        m->position_trajectory_speed_rad_s = outer->position_otg.reference.speed_rad_s;
         m->position_trajectory_acceleration_rad_s2 =
-            s_outer.position_otg.reference.acceleration_rad_s2;
-        s_outer.ready = true;
+            outer->position_otg.reference.acceleration_rad_s2;
+        outer->ready = true;
     }
     else
     {
-        s_outer.ready = SpeedControl_UpdateOuter(configuration,
-                                                 m,
-                                                 pi,
-                                                 &s_outer.speed_feedforward,
-                                                 speed,
-                                                 configuration->application.current_limit_a);
-        if (!s_outer.ready)
+        outer->ready = SpeedControl_UpdateOuter(configuration,
+                                                m,
+                                                pi,
+                                                &outer->speed_feedforward,
+                                                speed,
+                                                configuration->application.current_limit_a);
+        if (!outer->ready)
         {
             MotorFault_Report(m, MOTOR_FAULT_INVALID_PARAMETERS);
             m->id_target_a = 0.0f;
             m->iq_target_a = 0.0f;
-            SpeedFeedforward_Reset(&s_outer.speed_feedforward);
+            SpeedFeedforward_Reset(&outer->speed_feedforward);
         }
     }
 }
@@ -391,6 +413,27 @@ MotorTaskResult MotorControl_Step(const MotorConfiguration *configuration,
     float d_reference = motor->id_target_a;
     float q_reference = motor->iq_target_a;
     FocControlLaw law = FOC_CONTROL_CURRENT;
+    const MotorAxisPreset *preset = configuration->preset;
+    if (motor->control_mode == MOTOR_CONTROL_POSITION && preset != NULL &&
+        preset->joint == MOTOR_JOINT_ROLL &&
+        (fabsf(foc->phase_current_a.a) > ROLL_POSITION_PHASE_CURRENT_LIMIT_A ||
+         fabsf(foc->phase_current_a.b) > ROLL_POSITION_PHASE_CURRENT_LIMIT_A ||
+         fabsf(foc->phase_current_a.c) > ROLL_POSITION_PHASE_CURRENT_LIMIT_A))
+    {
+        if (motor->roll_phase_overlimit_ticks < ROLL_POSITION_PHASE_OVERLIMIT_TICKS)
+        {
+            ++motor->roll_phase_overlimit_ticks;
+        }
+        if (motor->roll_phase_overlimit_ticks == ROLL_POSITION_PHASE_OVERLIMIT_TICKS)
+        {
+            MotorFault_Report(motor, MOTOR_FAULT_OVERCURRENT);
+            return (MotorTaskResult){MOTOR_TASK_RUNNING, MOTOR_FAULT_NONE};
+        }
+    }
+    else
+    {
+        motor->roll_phase_overlimit_ticks = 0U;
+    }
     switch (motor->control_mode)
     {
     case MOTOR_CONTROL_CURRENT:

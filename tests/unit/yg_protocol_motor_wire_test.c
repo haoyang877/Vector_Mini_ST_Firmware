@@ -10,14 +10,16 @@
 bool test_application_capabilities(void);
 
 static unsigned open_loop_calls[2];
-static void open_loop_start(const ProtocolCommand *request, ProtocolReply *reply)
+static void open_loop_start(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     CHECK(request->mode == 9U || request->mode == 10U);
     ++open_loop_calls[0];
     reply->status = PROTOCOL_OK;
 }
-static void open_loop_target(const ProtocolCommand *request, ProtocolReply *reply)
+static void open_loop_target(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     CHECK(request->mode == 9U || request->mode == 10U);
     ++open_loop_calls[1];
     reply->status = PROTOCOL_OK;
@@ -57,7 +59,7 @@ static void test_open_loop_vectors(void)
     CHECK(decode_target_command(&message, &decoded) == YG_PROTOCOL_INVALID_LENGTH);
     CHECK(test_reset_protocol(3U));
     memset(open_loop_calls, 0, sizeof(open_loop_calls));
-    s_test_motor = (ProtocolMotor){.start = open_loop_start, .target = open_loop_target};
+    endpoint.motor = (ProtocolMotor){.start = open_loop_start, .target = open_loop_target};
     uint8_t start_payload[4] = {9, 0, 0, 0};
     ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
                                              .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
@@ -67,33 +69,33 @@ static void test_open_loop_vectors(void)
                                              .message_type = PROTOCOL_START,
                                              .payload_length = 4U,
                                              .payload = start_payload}};
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     CHECK(open_loop_calls[0] == 1U && exchange.reply.data[0] == 0U);
     start_payload[0] = 10U;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
     start_payload[0] = 7U;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[0] == 2U);
     CHECK(exchange.reply.data[0] == 2U);
     for (size_t i = 1U; i < sizeof(start_payload); ++i)
     {
         start_payload[i] = 1U;
-        CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+        CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
         CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD && open_loop_calls[0] == 2U);
         start_payload[i] = 0U;
     }
     exchange.request.payload_length = 1U;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH && open_loop_calls[0] == 2U);
     exchange.request.message_type = PROTOCOL_CONTROL;
     exchange.request.payload_length = 32U;
     exchange.request.payload = voltage;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     CHECK(open_loop_calls[1] == 1U && open_loop_calls[0] == 2U && exchange.reply.data[0] == 0U);
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 2U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 2U);
     memcpy(invalid, voltage, sizeof(invalid));
     invalid[20] ^= 1U;
     exchange.request.payload = invalid;
-    CHECK(handle_command(&exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 3U);
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && open_loop_calls[1] == 3U);
     CHECK(exchange.reply.data[0] == 0U);
     printf("PASS v0.3 open-loop golden payloads, SI mapping, lengths, start whitelist and "
            "extended-payload replay\n");
@@ -101,13 +103,13 @@ static void test_open_loop_vectors(void)
 
 static void test_minimal_state(void)
 {
-    ProtocolMotorStatus source = {.state = 5U, .sample_available = true};
-    ProtocolFeedback feedback;
-    ProtocolResponse encoded_response = {0};
-    uint8_t *payload = encoded_response.data;
-    CHECK(Protocol_BuildFeedback(&source, 3U, 0U, 0U, &feedback) == YG_PROTOCOL_OK);
-    CHECK(feedback.valid_bits == 0U);
-    CHECK(encode_motor_feedback(&feedback, &encoded_response) == YG_PROTOCOL_OK);
+    CHECK(test_reset_protocol(3U));
+    s_test_motor_status = (TestMotorStatus){.state = 5U, .sample_available = true};
+    ProtocolExchange query = {
+        .request = {.message_type = PROTOCOL_GET_MOTOR_STATE, .destination_node = 3U}};
+    CHECK(handle_motor_status_query(&endpoint, &query) == YG_PROTOCOL_OK);
+    uint8_t *payload = query.reply.data;
+    CHECK(YgProtocol_ReadU16Le(payload + 24U) == 0U);
     printf("VECTOR minimal_state ");
     for (unsigned i = 0; i < PROTOCOL_FEEDBACK_SIZE; ++i)
     {
@@ -116,8 +118,208 @@ static void test_minimal_state(void)
     printf("\n");
 }
 
+static unsigned host_start_calls, keepalive_calls;
+static void capture_host_start(void *context, const ProtocolCommand *request, ProtocolReply *reply)
+{
+    (void)context;
+    CHECK(request->mode == 3U && request->start_flags <= 1U);
+    ++host_start_calls;
+    reply->status = PROTOCOL_ACCEPTED;
+}
+static void capture_keepalive(void *context)
+{
+    (void)context;
+    ++keepalive_calls;
+}
+static void test_host_position_session_wire(void)
+{
+    CHECK(test_reset_protocol(3U));
+    endpoint.motor.start = capture_host_start;
+    endpoint.motor.host_position_keepalive = capture_keepalive;
+    uint8_t payload[] = {3U, 1U, 0U, 0U};
+    ProtocolExchange exchange = {.request = {.message_type = PROTOCOL_START,
+                                             .source_node = PROTOCOL_MASTER_ID,
+                                             .destination_node = 3U,
+                                             .payload = payload,
+                                             .payload_length = sizeof(payload)}};
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD &&
+          host_start_calls == 0U);
+    endpoint.device.capabilities.features |= PROTOCOL_FEATURE_HOST_POSITION_SESSION;
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_ACCEPTED &&
+          host_start_calls == 1U);
+    puts("HOST_POSITION_START 03010000");
+    const uint8_t invalid[][4] = {
+        {3U, 2U, 0U, 0U}, {2U, 1U, 0U, 0U}, {3U, 1U, 1U, 0U}, {3U, 1U, 0U, 1U}};
+    for (unsigned i = 0U; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
+    {
+        exchange.request.payload = invalid[i];
+        CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD &&
+              host_start_calls == 1U);
+    }
+    exchange.request.payload = payload;
+    exchange.request.source_node = 9U;
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_FORBIDDEN &&
+          host_start_calls == 1U);
+    exchange.request.source_node = PROTOCOL_MASTER_ID;
+    payload[1] = 0U;
+    CHECK(handle_start_command(&endpoint, &exchange) == YG_PROTOCOL_OK && host_start_calls == 2U);
+    exchange.request.message_type = PROTOCOL_GET_MOTOR_STATE;
+    exchange.request.payload_length = 0U;
+    CHECK(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          keepalive_calls == 1U);
+    exchange.request.source_node = 9U;
+    CHECK(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          keepalive_calls == 1U);
+    exchange.request.source_node = PROTOCOL_MASTER_ID;
+    exchange.request.payload_length = 4U;
+    CHECK(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          keepalive_calls == 1U);
+}
+
+static ProtocolCode hardware_report(void *context,
+                                    uint8_t mode,
+                                    uint16_t sequence,
+                                    uint32_t expected_run,
+                                    ProtocolHardwareReport *report)
+{
+    CHECK(context == &endpoint && sequence == 0x1234U);
+    if (mode != 0U)
+    {
+        CHECK(mode == 2U && expected_run == 0x01020303U);
+    }
+    *report = (ProtocolHardwareReport){.run_id = 0x01020304U, .stage = 4U, .directions = 0x99U};
+    memset(report->items, 1, sizeof(report->items));
+    return mode == 0U ? PROTOCOL_RESULT_OK : PROTOCOL_RESULT_ACCEPTED;
+}
+
+static void test_hardware_wire(void)
+{
+    CHECK(test_reset_protocol(6U));
+    uint8_t start[8] = {2, 1, 2, 0, 3, 3, 2, 1};
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .message_type = 127U,
+                                             .source_node = 2U,
+                                             .destination_node = 6U,
+                                             .sequence = 0x1234U,
+                                             .payload = start,
+                                             .payload_length = 8U}};
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_ROUTE_NOT_FOUND);
+    endpoint.hardware_check =
+        (ProtocolHardwareCheck){.context = &endpoint, .handle = hardware_report};
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 21U &&
+          exchange.reply.data[0] == 1);
+    exchange.request.payload_length = 0;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 21U);
+    printf("HARDWARE_REPORT ");
+    for (unsigned i = 0; i < exchange.reply.length; ++i)
+    {
+        printf("%02x", exchange.reply.data[i]);
+    }
+    puts("");
+    exchange.request.payload_length = 7;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 4 &&
+          exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH);
+    exchange.request.payload_length = 8;
+    start[3] = 1;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD);
+    exchange.request.source_node = 8;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK &&
+          exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN);
+}
+
+static unsigned readback_calls;
+static ProtocolCode readback_record(void *context,
+                                    const ProtocolCalibrationRequest *request,
+                                    ProtocolCalibrationBlock *block,
+                                    uint16_t *detail)
+{
+    (void)context;
+    (void)detail;
+    ++readback_calls;
+    block->revision = 3U;
+    block->crc32 = 0x12345678U;
+    block->total = 4372U;
+    for (unsigned i = 0; i < request->count; ++i)
+    {
+        block->data[i] = (uint8_t)(request->offset + i);
+    }
+    return PROTOCOL_RESULT_OK;
+}
+static ProtocolCode readback_hall(void *context, ProtocolHallRaw *sample)
+{
+    (void)context;
+    *sample = (ProtocolHallRaw){.sample_counter = 10U,
+                                .read_time_ms = 123456U,
+                                .sin_counts = 100U,
+                                .cos_counts = 4000U,
+                                .flags = 1U};
+    return PROTOCOL_RESULT_OK;
+}
+static void print_readback(const char *name, const ProtocolResponse *response)
+{
+    printf("%s ", name);
+    for (unsigned i = 0; i < response->length; ++i)
+    {
+        printf("%02x", response->data[i]);
+    }
+    puts("");
+}
+static void test_calibration_readback(void)
+{
+    CHECK(test_reset_protocol(3U));
+    endpoint.calibration_readback =
+        (ProtocolCalibrationReadback){NULL, readback_record, readback_hall};
+    uint8_t data[12] = {0};
+    data[11] = 1U;
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .source_node = 2U,
+                                             .destination_node = 3U,
+                                             .message_type = PROTOCOL_READ_SAVED_CALIBRATION,
+                                             .payload_length = 12U,
+                                             .payload = data}};
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.length == 18U);
+    print_readback("CALIBRATION_METADATA", &exchange.reply);
+    YgProtocol_WriteU32Le(data, 3U);
+    YgProtocol_WriteU32Le(data + 4U, 0x12345678U);
+    data[8] = 4U;
+    data[10] = 3U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.length == 21U);
+    print_readback("CALIBRATION_BLOCK", &exchange.reply);
+    unsigned calls = readback_calls;
+    data[10] = 29U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD && readback_calls == calls);
+    exchange.request.source_node = 5U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN && readback_calls == calls);
+    exchange.request.source_node = 2U;
+    exchange.request.payload_length = 11U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH && readback_calls == calls);
+    exchange.request.message_type = PROTOCOL_READ_HALL_RAW;
+    exchange.request.payload_length = 0U;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.length == 20U);
+    print_readback("HALL_RAW", &exchange.reply);
+    endpoint.calibration_readback.read_hall = NULL;
+    CHECK(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    CHECK(exchange.reply.data[0] == PROTOCOL_RESULT_UNSUPPORTED);
+}
+
 int main(void)
 {
+    test_calibration_readback();
+    test_hardware_wire();
+    test_host_position_session_wire();
     test_minimal_state();
     test_open_loop_vectors();
     CHECK(test_application_capabilities());

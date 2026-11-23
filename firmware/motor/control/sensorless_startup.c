@@ -57,6 +57,7 @@ static float sensorless_angle_difference(float target_rad, float source_rad)
 const SensorlessStartupConfig SensorlessStartup_EncoderCalibConfig =
     CALIB_STARTUP_CONFIG(SENSORLESS_ENCODER_CALIB_ALIGN_CURRENT_A,
                          SENSORLESS_ENCODER_CALIB_STARTUP_IQ_A,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
                          SENSORLESS_ENCODER_CALIB_TARGET_ELEC_VEL_RAD_S,
                          0.05f,
                          0.5f);

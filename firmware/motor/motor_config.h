@@ -51,32 +51,37 @@ typedef struct
     int32_t pole_pairs;
     float resistance_ohm, inductance_h, flux_wb;
     float id_kp, id_ki, observer_gamma;
-    float speed_pll_hz, gear_ratio;
+    float speed_pll_hz;
+    /* 无已核实的型号热参数时，由工装提供本机数据。 */
+    const MotorWindingThermalConfig *default_thermal;
 } MotorElectricalPreset;
 
 typedef struct
 {
     uint8_t node_id;
     MotorJointType joint;
+    const char *model_name; /* 装配铭牌，可共用相同的电气模型。 */
     const MotorElectricalPreset *electrical;
     const SensorlessStartupConfig *startup;
     float calibration_speed_rad_s, calibration_limit_a, speed_ceiling_rad_s;
     MotorJointControlConfig control;
-    /* 装配标称阻尼力矩；用于标识工况，不直接作为电流前馈。 */
+    /* 装配标称阻尼力矩；Roll 位置控制按电机模型换算补偿电流。 */
     float damper_torque_nm;
     /* 对称机械行程的单侧上限，输出轴 rad；连续旋转轮填零。 */
     float output_travel_limit_rad;
+    float gear_ratio; /* 每输出轴一圈的电机轴圈数。 */
+    bool has_linear_hall;
+    uint16_t calibration_mechanical_turns; /* LUT采样机械圈数；零使用通用回退值。 */
 } MotorAxisPreset;
 
 /**
  * @brief 查询该装配是否带有用于输出轴测角的正交双线性霍尔。
  * @param preset 启动时匹配的轴配置，未配置时为 NULL。
- * @return 配置为减速传动的 PITCH 和 YAW 返回 true；直驱返回 false。
+ * @return 该装配带双线性霍尔时返回 true。
  */
 static inline bool MotorAxisPreset_HasLinearHall(const MotorAxisPreset *preset)
 {
-    return preset != NULL && preset->electrical != NULL && preset->electrical->gear_ratio > 1.0f &&
-           (preset->joint == MOTOR_JOINT_PITCH || preset->joint == MOTOR_JOINT_YAW);
+    return preset != NULL && preset->has_linear_hall;
 }
 
 /** @brief 应用运行包络、轨迹和外环整定；不含命令目标或 PI 积分状态。 */
@@ -102,6 +107,7 @@ typedef struct
 {
     float phase_a_offset_counts, phase_b_offset_counts, phase_c_offset_counts;
     uint8_t node_id;
+    uint8_t can_bitrate_profile; /* AT32 设备参数，保存后在下次启动时采用。 */
     EncoderCalibration encoder;
 } MotorDeviceConfig;
 

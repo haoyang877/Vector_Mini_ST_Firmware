@@ -1,0 +1,31 @@
+{
+  "can_arbitration_bps": 1000000,
+  "can_data_bps": 5000000,
+  "app_version": 67601,
+  "loader_version": 131844,
+  "hex_sha256": "9c47d0dd5179dfa8be786c40a1aeeaa58fb18ea8de4e5a2b823b7761e8b51ca9",
+  "can_image_sha256": "1c8b360f2fc9572ea697eb3d49cf9c44db42b5e497fed5b22c68feb12ce17a15",
+  "can_manifest_sha256": "f5fd1e6f8c24d06f7670d0307c55899625260786fefa8fcdf6567b0d38499db3",
+  "motors": [
+    {
+      "node": 3,
+      "uid": "133a58100840524519035d16"
+    },
+    {
+      "node": 4,
+      "uid": "103a58100840524519034816"
+    },
+    {
+      "node": 5,
+      "uid": "0b3a5810084052451903bc16"
+    },
+    {
+      "node": 6,
+      "uid": "ce3958100840524519839d16"
+    },
+    {
+      "node": 7,
+      "uid": "143a5810084052451903cd16"
+    }
+  ]
+}

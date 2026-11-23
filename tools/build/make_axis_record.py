@@ -12,9 +12,40 @@ from harness.common import zig_path
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
 
 
+def build_generator(executable: Path, cc: Path) -> None:
+    """构建可独立分发的本机记录生成器。"""
+    sources = [
+        "tools/build/make_axis_record.c",
+        "firmware/parameters/parameter_record.c",
+        "firmware/parameters/motor_axis_profile.c",
+        "shared/checksum/crc32.c",
+        "firmware/motor/protection/motor_thermal.c",
+        "firmware/motor/protection/motor_thermal_config.c",
+        "firmware/motor/math/control_math.c",
+        "firmware/motor/control/speed_feedforward.c",
+        "firmware/parameters/parameter_values.c",
+        "firmware/motor/math/scaled_integer.c",
+    ]
+    subprocess.run(
+        [
+            str(cc),
+            "cc",
+            *NATIVE_INCLUDE_FLAGS,
+            "-DBSP_BOARD=2",
+            "-Os",
+            *sources,
+            "-o",
+            str(executable),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--node", type=lambda s: int(s, 0), required=True, choices=range(3, 8))
+    parser.add_argument("--node", type=lambda s: int(s, 0), required=True, help="产品节点地址")
+    parser.add_argument("--model", help="核对实物铭牌型号，例如 HT8115-4 或 YQ-5740")
     parser.add_argument(
         "--travel",
         nargs=2,
@@ -34,8 +65,8 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if args.node >= 6 and args.thermal is None:
-        parser.error("YQ 热模型需提供已核对的 --thermal 七个参数")
+    if not 1 <= args.node <= 254:
+        parser.error("节点地址须在 1..254 内")
     travel = args.travel or []
     values = [*travel, args.speed, *(args.thermal or [])]
     if not all(math.isfinite(v) for v in values):
@@ -49,32 +80,8 @@ def main() -> None:
         work = Path(directory)
         executable = work / "make_axis_record.exe"
         record = work / "record.bin"
-        sources = [
-            "tools/build/make_axis_record.c",
-            "firmware/parameters/parameter_record.c",
-            "firmware/parameters/motor_axis_profile.c",
-            "shared/checksum/crc32.c",
-            "firmware/motor/protection/motor_thermal.c",
-            "firmware/motor/protection/motor_thermal_config.c",
-            "firmware/motor/math/control_math.c",
-            "firmware/motor/control/speed_feedforward.c",
-            "firmware/parameters/parameter_values.c",
-        ]
-        subprocess.run(
-            [
-                str(cc),
-                "cc",
-                *NATIVE_INCLUDE_FLAGS,
-                "-DBSP_BOARD=2",
-                "-Os",
-                *sources,
-                "-o",
-                str(executable),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
-        subprocess.run(
+        build_generator(executable, cc)
+        result = subprocess.run(
             [
                 str(executable),
                 str(args.node),
@@ -83,10 +90,13 @@ def main() -> None:
                 str(int(args.confirm_model)),
                 str(record),
                 str(int(args.output_shaft)),
+                args.model if args.model is not None else "",
                 *map(str, args.thermal or []),
             ],
-            check=True,
+            check=False,
         )
+        if result.returncode:
+            parser.exit(result.returncode)
         with args.output.open("xb") as dest:
             dest.write(record.read_bytes())
 

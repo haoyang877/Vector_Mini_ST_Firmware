@@ -3,12 +3,14 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "pi_controller.h"
 
 /* 基础串级配置：位置 rad、速度 rad/s、时间 s、电流 A；旧速度增益仍乘电流上限。 */
 typedef struct
 {
     float update_period_s;
     uint16_t call_divider;
+    uint16_t hold_confirm_ticks; /* 终点保持的确认间隔数，0 表示普通跟踪。 */
     float target_position;       /* 本拍位置参考，rad。 */
     float reference_speed_rad_s; /* 本拍规划速度，rad/s。 */
     float position_error_window;
@@ -20,7 +22,65 @@ typedef struct
     float speed_kp;
     float speed_ki;
     float current_limit_a;
+    float damper_current_a; /* 标称阻尼补偿电流，0 关闭。 */
+    float final_target_rad;
+    float reference_acceleration_rad_s2;
+    uint16_t measured_position_q15;
+    bool roll_motion_enabled;
+    bool trajectory_matches_target;
 } PositionCascadeConfig;
+
+/* 零初始化从普通跟踪开始。 */
+typedef enum
+{
+    POSITION_CASCADE_MOVE = 0,
+    POSITION_CASCADE_SETTLE,
+    POSITION_CASCADE_HOLD
+} PositionCascadeHoldPhase;
+
+enum
+{
+    POSITION_ROLL_SPEED_WINDOW_MS = 40
+};
+
+typedef struct
+{
+    float target_rad;
+    float direction;
+    float entry_speed_rad_s;
+    float distance_gain_per_s;
+    float transition;
+    bool parked;
+} PositionTerminalState;
+
+typedef struct
+{
+    uint16_t positions_q15[POSITION_ROLL_SPEED_WINDOW_MS + 1];
+    uint8_t index;
+    uint8_t ready_samples;
+    uint8_t interval_ticks;
+    float speed_rad_s;
+} PositionSpeedWindow;
+
+/** @brief 一根轴独占的位置控制器；零初始化后串行推进。 */
+typedef struct
+{
+    PositionCascadeConfig config;
+    PiController speed_controller;
+    float filtered_speed_rad_s;
+    float velocity_filter_alpha;
+    float current_budget_a;
+    float damper_feedforward_a;
+    float damper_assist_direction;
+    float damper_assist_speed_rad_s;
+    float inertia_feedforward_a;
+    PositionTerminalState terminal;
+    PositionSpeedWindow speed_window;
+    PositionCascadeHoldPhase hold_phase;
+    uint16_t hold_settle_ticks;
+    uint16_t loop_count;
+    bool configured;
+} PositionCascadeState;
 
 /* 串级输出；position_reference 为本拍所跟踪的位置。 */
 typedef struct
@@ -40,8 +100,10 @@ typedef struct
  * @param output 非空结果空间；仅在成功时填充。
  * @return 输入及计算有效返回 true，否则返回 false，不发布新结果。
  * @note 单实例串行调用，无硬件访问；下调限流立即生效，配置更新不清支撑积分。
+ * @param state 调用方持有的实例状态。
  */
-bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControl(PositionCascadeState *state,
+                                   const PositionCascadeConfig *config,
                                    float measured_position,
                                    float measured_speed,
                                    PositionCascadeControlOutput *output);
@@ -55,8 +117,10 @@ bool PositionCascade_UpdateControl(const PositionCascadeConfig *config,
  * @param output 非空结果；失败时不发布新结果。
  * @return 输入和计算有效返回true。
  * @note 仅串行外环调用；额度立即约束PI饱和及积分跟踪，不改变速度增益。
+ * @param state 调用方持有的实例状态。
  */
-bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
+bool PositionCascade_UpdateControlLimited(PositionCascadeState *state,
+                                          const PositionCascadeConfig *config,
                                           float measured_position,
                                           float measured_speed,
                                           float available_current_a,
@@ -69,24 +133,29 @@ bool PositionCascade_UpdateControlLimited(const PositionCascadeConfig *config,
  * @param measured_speed 有限机械速度，单位 rad/s。
  * @param output 非空结果空间；仅在成功时填充。
  * @return 已配置且输入/计算有效返回 true，否则返回 false。
- * @note 单实例串行调用；调参须先通过 UpdateControl，目标改变不复位 PI 或速度滤波。
+ * @note 单实例串行调用；调参须先通过 UpdateControl。目标改变撤销终点保持资格，
+ *       保留 PI 积分和速度滤波。
+ * @param state 调用方持有的实例状态。
  */
-bool PositionCascade_UpdateTargetControl(float target_position,
+bool PositionCascade_UpdateTargetControl(PositionCascadeState *state,
+                                         float target_position,
                                          float measured_position,
                                          float measured_speed,
                                          PositionCascadeControlOutput *output);
 
 /**
- * @brief 清零 PI、滤波和分频状态，撤销配置有效性。
+ * @brief 清零 PI、滤波、分频和保持状态，撤销配置有效性。
  * @note 单实例串行调用；用于启动/模式重置，不执行硬件操作。
+ * @param state 调用方持有的实例状态。
  */
-void PositionCascade_Reset(void);
+void PositionCascade_Reset(PositionCascadeState *state);
 
 /**
  * @brief 借用最近有效的基础配置。
  * @return 已配置时返回只读借用地址，否则返回 NULL。
  * @note 地址内容仅在下一更新或 Reset 前有效，不可修改；单实例串行调用。
+ * @param state 当前实例的级联状态。
  */
-const PositionCascadeConfig *PositionCascade_GetConfiguration(void);
+const PositionCascadeConfig *PositionCascade_GetConfiguration(const PositionCascadeState *state);
 
 #endif

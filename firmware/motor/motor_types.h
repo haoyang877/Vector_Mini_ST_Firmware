@@ -30,12 +30,15 @@ typedef enum
     MOTOR_FAULT_WINDING_THERMAL,
     MOTOR_FAULT_LINEAR_HALL_CALIBRATION,
     MOTOR_FAULT_CALIBRATION_STORAGE,
+    MOTOR_FAULT_CALIBRATION_OVERSPEED,
 } MotorFaultCode;
 
 /** @brief 单轴易失运行状态；不包含配置或配置指针，目标、故障和测量永不持久化。 */
 typedef struct
 {
     MotorControlMode control_mode;
+    /* 仅状态机发布/清除的上位机位置会话权限；外环只读，不属于配置或持久记录。 */
+    bool host_position_unlimited;
     /* 原子故障锁存字；保存MotorFaultCode值，不属于线上或持久化结构。 */
     volatile uint32_t fault_code;
     bool uses_sensorless_feedback;
@@ -50,6 +53,7 @@ typedef struct
     bool position_target_reached;
     float position_target_rad, position_reference_rad;
     float position_velocity_filtered_rad_s;
+    uint32_t roll_phase_overlimit_ticks; /* 快环独占，退出运行时清零。 */
     /* 模式 3 规划轨迹速度；遥测无效窗口为 NaN。 */
     float position_trajectory_speed_rad_s, position_trajectory_acceleration_rad_s2;
 

@@ -2,6 +2,7 @@
 #define YG_PROTOCOL_H
 
 #include "yg_protocol_common.h"
+#include "../../shared/protocol/hardware_check_limits.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -24,6 +25,8 @@ typedef enum
     PROTOCOL_RESULT_OUT_OF_RANGE = 11,
     PROTOCOL_RESULT_FAULT = 17,
 } ProtocolCode;
+
+typedef struct ProtocolEndpoint ProtocolEndpoint;
 
 /** @brief 命令回复的载荷；地址、序号和 CAN 发送由 yg_protocol.c 统一处理。 */
 typedef struct
@@ -56,18 +59,153 @@ typedef enum
     PROTOCOL_FAULT
 } ProtocolStatus;
 
-/** @brief 电机请求的处理结果；token 仅用于关联已受理的停机请求。 */
+/** @brief 电机请求的结果和明细，对应线上 4 字节回复。 */
 typedef struct
 {
     ProtocolStatus status;
-    uint32_t token;
     uint16_t detail;
 } ProtocolReply;
 
 #define PROTOCOL_MASTER_ID 2U
+#define PROTOCOL_HARDWARE_CHECK 127U
+#define PROTOCOL_HARDWARE_CHECK_VERSION 2U
+#define PROTOCOL_FEATURE_HARDWARE_CHECK (1UL << 19U)
+#define PROTOCOL_FEATURE_HARDWARE_MEASUREMENTS (1UL << 20U)
+#define PROTOCOL_FEATURE_PHASE_RESISTANCE (1UL << 21U)
+#define PROTOCOL_FEATURE_SEQUENTIAL_STATIC (1UL << 22U)
+#define PROTOCOL_FEATURE_HARDWARE_LIMITS (1UL << 23U)
+
+/** @brief 单轮硬件检查的值快照，通道顺序和两段旋向见 Type 127 契约。 */
+typedef struct
+{
+    uint32_t run_id;
+    uint8_t stage, items[10], directions;
+} ProtocolHardwareReport;
+
+/** @brief 同轮硬件实测页；valid低四位标记values中的有效项，单位见Type127契约。 */
+typedef struct
+{
+    uint32_t run_id, samples;
+    float values[4];
+    uint8_t valid;
+} ProtocolHardwareMeasurement;
+
+/** @brief 相电阻终态线路快照；字段及有效位见Type127契约。 */
+typedef struct
+{
+    uint32_t run_id;
+    float values[7];
+    uint8_t result, open_phases, low_phases, high_phases, open_lines, failure, valid;
+} ProtocolHardwareResistance;
+
+/** @brief 前台串行处理，mode=0只读，1静态，2旧动态，3含相电阻的完整检查。 */
+typedef struct
+{
+    void *context;
+    ProtocolCode (*handle)(void *context,
+                           uint8_t mode,
+                           uint16_t sequence,
+                           uint32_t expected_run,
+                           ProtocolHardwareReport *report);
+    ProtocolCode (*start_configured)(void *context,
+                                     uint8_t mode,
+                                     uint16_t sequence,
+                                     uint32_t expected_run,
+                                     uint32_t revision,
+                                     const uint16_t limits[16],
+                                     ProtocolHardwareReport *report);
+    void (*started)(void *context, uint8_t mode, uint16_t sequence);
+    ProtocolCode (*measure)(void *context,
+                            uint8_t item,
+                            uint32_t expected_run,
+                            ProtocolHardwareMeasurement *measurement);
+    ProtocolCode (*resistance)(void *context,
+                               uint32_t expected_run,
+                               ProtocolHardwareResistance *measurement);
+} ProtocolHardwareCheck;
 #define PROTOCOL_READ_PARAMETER 120U
 #define PROTOCOL_WRITE_PARAMETER 121U
 #define PROTOCOL_SAVE_PARAMETER 122U
+#define PROTOCOL_READ_MOTOR_CONFIGURATION 190U
+#define PROTOCOL_PREPARE_MOTOR_CONFIGURATION 191U
+#define PROTOCOL_COMMIT_MOTOR_CONFIGURATION 192U
+#define PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION 193U
+#define PROTOCOL_FEATURE_MOTOR_CONFIGURATION (1UL << 17U)
+#define PROTOCOL_READ_SAVED_CALIBRATION 194U
+#define PROTOCOL_READ_HALL_RAW 195U
+#define PROTOCOL_FEATURE_SAVED_CALIBRATION (1UL << 24U)
+#define PROTOCOL_FEATURE_HALL_RAW (1UL << 25U)
+#define PROTOCOL_CALIBRATION_BLOCK_BYTES 28U
+
+/** @brief 已保存记录的只读分块请求；全零修订/CRC/位置/长度表示查询元数据。 */
+typedef struct
+{
+    uint32_t revision, crc32;
+    uint16_t offset;
+    uint8_t count;
+} ProtocolCalibrationRequest;
+
+/** @brief 前台读取的保存记录片段；data只在成功且count非零时有效。 */
+typedef struct
+{
+    uint32_t revision, crc32;
+    uint16_t total;
+    uint8_t data[PROTOCOL_CALIBRATION_BLOCK_BYTES];
+} ProtocolCalibrationBlock;
+
+/** @brief 同拍Hall原码；时间为板端快照读取时间，计数为实际快采样计数。 */
+typedef struct
+{
+    uint32_t sample_counter, read_time_ms;
+    uint16_t sin_counts, cos_counts, flags;
+} ProtocolHallRaw;
+
+/** @brief 只读标定诊断绑定；仅由前台串行调用，空回调表示不支持。 */
+typedef struct
+{
+    void *context;
+    ProtocolCode (*read_record)(void *context,
+                                const ProtocolCalibrationRequest *request,
+                                ProtocolCalibrationBlock *block,
+                                uint16_t *detail);
+    ProtocolCode (*read_hall)(void *context, ProtocolHallRaw *sample);
+} ProtocolCalibrationReadback;
+
+/** @brief 型号配置值请求；速度 mrad/s，热参数依次为 mA/mA/ms 和四个百万分比。 */
+typedef struct
+{
+    uint8_t operation, page, version, model, node, flags;
+    uint8_t uid[12];
+    uint32_t revision;
+    int32_t speed_mrad_s, thermal[7];
+} ProtocolMotorConfigurationRequest;
+
+/** @brief 型号配置查询结果；flags 区分确认、标定及待重启，revision 用于冲突检测。 */
+typedef struct
+{
+    ProtocolStatus status;
+    uint16_t detail;
+    uint8_t version, model, node, flags;
+    uint32_t revision;
+    int32_t speed_mrad_s, thermal[7];
+} ProtocolMotorConfigurationReply;
+
+/**
+ * @brief 前台串行处理型号配置，不保留请求指针。
+ * @param context 配置事务所有者。
+ * @param request 已完成线路格式和主站权限检查的值请求。
+ * @param reply 后端必须填写业务状态，保存操作仍须复核停机、修订和范围。
+ */
+typedef void (*ProtocolMotorConfigurationHandler)(void *context,
+                                                  const ProtocolMotorConfigurationRequest *request,
+                                                  ProtocolMotorConfigurationReply *reply);
+
+/** @brief 独立型号配置服务绑定；空回调表示固件未实现。 */
+typedef struct
+{
+    void *context;
+    ProtocolMotorConfigurationHandler handler;
+} ProtocolMotorConfiguration;
 
 #define PROTOCOL_TRANSFER_DATA_SIZE 64U
 
@@ -153,20 +291,6 @@ typedef struct
     uint8_t control_mode;
 } ProtocolFeedback;
 
-/**
- * @brief 调用方提供的只读状态；所有编号已在APP边界转换为线路编号。
- * @note 不含运行对象或请求历史；测量为已缩放值，sample_available表示状态已完成初始化。
- */
-typedef struct
-{
-    uint32_t faults;
-    uint8_t state;
-    uint8_t mode;
-    bool sample_available;
-    bool measurements_available;
-    ProtocolFeedback measurements;
-} ProtocolMotorStatus;
-
 /* 电机命令与载荷长度。 */
 #define PROTOCOL_STOP 110U
 #define PROTOCOL_ENABLE 101U
@@ -175,6 +299,9 @@ typedef struct
 #define PROTOCOL_START 117U
 #define PROTOCOL_ENABLE_SIZE 4U
 #define PROTOCOL_START_SIZE 4U
+#define PROTOCOL_START_HOST_POSITION_UNLIMITED 1U
+#define PROTOCOL_FEATURE_HOST_POSITION_SESSION (1UL << 18U)
+#define PROTOCOL_FEATURE_CALIBRATION_STATUS (1UL << 15U)
 #define PROTOCOL_CONTROL_SIZE 20U
 #define PROTOCOL_OPEN_LOOP_SIZE 32U
 #define PROTOCOL_REPLY_SIZE 4U
@@ -185,6 +312,9 @@ typedef struct
     uint8_t source_node;
     uint16_t sequence;
     uint8_t mode;
+    uint32_t renewal_counter;
+    uint8_t start_flags;
+    bool motor_axis_speed;
     int32_t position_mrad;
     int32_t speed_mrad_s;
     int32_t iq_mA;
@@ -200,20 +330,36 @@ typedef struct
  * @param reply 所有者填充的结果，必须设置 status。
  * @note 前台串行调用；状态和范围由所有者校验，不能直接把线上值写入控制变量。
  */
-typedef void (*ProtocolMotorHandler)(const ProtocolCommand *request, ProtocolReply *reply);
+typedef void (*ProtocolMotorHandler)(void *context,
+                                     const ProtocolCommand *request,
+                                     ProtocolReply *reply);
 
-/** @brief 四个电机操作均由 APP 静态提供；不支持的操作直接返回 UNSUPPORTED。 */
+/** @brief Type126 v1，独立Hall实测单圈角与连续跟踪角分别表达。 */
 typedef struct
 {
+    uint16_t flags;
+    uint32_t age_ms, sample_counter;
+    int32_t hall_mrad, tracked_mrad, zero_mrad, gear_ratio_milli;
+} MotorOutputFeedback;
+
+/** @brief 电机操作均由 APP 静态提供；不支持的操作直接返回 UNSUPPORTED。 */
+typedef struct
+{
+    void *context;
+    ProtocolMotorHandler renew;
     ProtocolMotorHandler start;
     ProtocolMotorHandler target;
     ProtocolMotorHandler stop;
     ProtocolMotorHandler clear_fault;
-    const ProtocolMotorStatus *status; /**< APP 更新的只读快照，生命周期覆盖整个运行期。 */
+    /** 来源正确的合法状态查询续期；不参与其他来源或控制路径。 */
+    void (*host_position_keepalive)(void *context);
+    /** 前台填写线路状态和有效测量。未测字段保留预置哨兵，返回是否有状态样本。 */
+    bool (*read_feedback)(void *context, ProtocolFeedback *feedback);
+    /** 显式查询电机编码器坐标，单位和反馈布局同常规状态。 */
+    bool (*read_motor_axis)(void *context, ProtocolFeedback *feedback);
+    /** 前台读取有版本的输出轴状态；失败时通信回复BUSY。 */
+    bool (*read_output)(void *context, MotorOutputFeedback *feedback);
 } ProtocolMotor;
-
-/** @brief APP 在编译期提供的电机操作；运行中不替换。 */
-extern const ProtocolMotor Protocol_Motor;
 
 #define PROTOCOL_START_JOB 160U
 #define PROTOCOL_GET_JOB_STATUS 161U
@@ -264,6 +410,33 @@ typedef struct
     uint8_t source_node;
 } ProtocolJobRequest;
 
+/** @brief 参数请求值；type为120/121/122/123/125，所有权归前台调用者。 */
+typedef struct
+{
+    uint16_t type;
+    uint8_t id, value_type;
+    uint32_t expected_revision, value;
+} ProtocolParameterRequest;
+
+/** @brief 参数成功结果；flags位0已保存值有效，位1活动值未保存，位2最近保存失败。 */
+typedef struct
+{
+    ProtocolStatus status;
+    uint16_t detail;
+    uint8_t id, value_type, access, flags;
+    uint32_t value, revision, saved_revision;
+} ProtocolParameterReply;
+
+/** @brief 前台参数服务绑定，空handler返回不支持。 */
+typedef struct
+{
+    void *context;
+    /** 前台同步完成RAM或Flash业务；通信层独占线路编码。 */
+    void (*handler)(void *context,
+                    const ProtocolParameterRequest *request,
+                    ProtocolParameterReply *reply);
+} ProtocolParameters;
+
 /** @brief 设备查询页的三个小端字段。 */
 typedef struct
 {
@@ -278,6 +451,11 @@ typedef union
     ProtocolCommand motor;
     ProtocolJobRequest job;
     PageRequest page;
+    struct
+    {
+        uint32_t revision;
+        uint8_t operation, model, node;
+    } configuration;
     uint8_t enable;
     uint64_t boot_epoch;
     struct
@@ -298,8 +476,11 @@ typedef union
  * @brief 前台发布最近一条通过权限和载荷检查的命令到 Keil Watch。
  * @param request 已解码的请求，仅复制命令号、地址、序号和标志。
  * @param args 与命令号对应的值参数，无参数的请求传零值。
+ * @param endpoint 调用方持有的实例状态。
  */
-void Protocol_RecordCommand(const yg_protocol_message_t *request, ProtocolCommandArgs args);
+void Protocol_RecordCommand(ProtocolEndpoint *endpoint,
+                            const yg_protocol_message_t *request,
+                            ProtocolCommandArgs args);
 
 /** @brief 任务专用结果；phase/effects为固定线路值，不复用参数revision/value字段。 */
 typedef struct
@@ -330,19 +511,10 @@ typedef struct
     ProtocolJobHandler handler;
 } ProtocolJobs;
 
-/** @brief APP 在编译期提供的标定操作。 */
-extern const ProtocolJobs Protocol_Jobs;
-
-/** @brief APP 在编译期提供的 Loader 操作；独立 APP 为全零。 */
-extern const BootEntryService Protocol_Boot;
-
 #define PROTOCOL_BOOT_ENTER 56U
 #define PROTOCOL_BOOT_CONFIRM 57U
 #define PROTOCOL_BOOT_REQUEST_SIZE 8U
 #define PROTOCOL_BOOT_REPLY_SIZE 4U
-
-/** @brief APP 静态提供的只读启动快照地址。 */
-extern const ProtocolDeviceStatus *const Protocol_DeviceStatusSource;
 
 /* 收发入口：启动时 Init / Start，CAN 中断调用 RxInterrupt，主循环调用 Process */
 
@@ -351,27 +523,31 @@ extern const ProtocolDeviceStatus *const Protocol_DeviceStatusSource;
  * @param node_id 本机节点号，不能为广播地址。
  * @return 初始化成功返回 true；地址非法或已经初始化返回 false。
  * @note 仅在启动前调用；之后调用 Start，运行中不能重新初始化。
+ * @param endpoint 调用方持有的实例状态。
  */
-bool Protocol_Init(uint8_t node_id);
+bool Protocol_Init(ProtocolEndpoint *endpoint, uint8_t node_id);
 
 /**
  * @brief 启动 CAN 接收，重复调用不重复启动。
  * @return 已初始化返回 true，否则返回 false。
  * @note 仅在前台启动阶段调用，不启动电机。
+ * @param endpoint 调用方持有的实例状态。
  */
-bool Protocol_Start(void);
+bool Protocol_Start(ProtocolEndpoint *endpoint);
 
 /**
  * @brief 查询链路是否已成功初始化。
  * @return 已初始化返回 true，否则返回 false。
+ * @param endpoint 调用方持有的实例状态。
  */
-bool Protocol_IsReady(void);
+bool Protocol_IsReady(ProtocolEndpoint *endpoint);
 
 /**
  * @brief 唯一 CAN FD RX FIFO0 中断入口。
  * @note 单次最多取 3 帧，只复制入队；格式、CRC、分片及业务检查留在前台。
+ * @param endpoint 调用方持有的实例状态。
  */
-void Protocol_RxInterrupt(void);
+void Protocol_RxInterrupt(ProtocolEndpoint *endpoint);
 
 /**
  * @brief 把硬件接收的帧复制到协议 RX 队列，由前台统一校验。
@@ -379,35 +555,20 @@ void Protocol_RxInterrupt(void);
  * @return 帧已复制入队返回 true；未初始化、空指针或队列满返回 false。
  * @note 由唯一CAN RX IRQ生产；前台消费端负责互斥，生产端允许电机ISR抢占。
  *   不得从第二个并发生产者调用；报文格式、CRC 和命令均在前台检查。
+ * @param endpoint 调用方持有的实例状态。
  */
-bool Protocol_QueueReceivedFrame(const BspCanFrame *frame);
+bool Protocol_QueueReceivedFrame(ProtocolEndpoint *endpoint, const BspCanFrame *frame);
 
 /**
  * @brief 在主循环后台推进协议收发；未 Start 时不处理。
  * @param now_ms 单调毫秒时间，用于升级回复的发送超时。
- * @note 有界、不等待；一次调用最多处理 8 个输入和 8 个发送帧。116 回复与 124 反馈
+ * @note 有界，不等待 CAN 回复；型号配置提交可执行 BSP 的有界 Flash 事务。
+ *       一次调用最多处理 8 个输入和 8 个发送帧。116 回复与 124 反馈
  *       成对预留发送空间；队列拥塞时保留 RX 请求，发送重试不重新执行业务。
  *       电机的目标顺序和完成语义由业务所有者决定。不得在 CAN ISR 调用。
+ * @param endpoint 调用方持有的实例状态。
  */
-void Protocol_Process(uint32_t now_ms);
-
-/* 电机业务绑定与只读反馈 */
-
-/**
- * @brief 生成124状态反馈；复用来源的测量有效位和数值。
- * @param source 可为空；缺失或无新鲜样本时所有测量字段标为无效。
- * @param node_id 本机电机节点 ID。
- * @param result 本条 116 的线路结果码。
- * @param correlated_seq 本条 116 的公司帧序号。
- * @param feedback 输出反馈值；参数错误时保持不变。
- * @return 成功或节点/参数错误。
- * @note 不读取硬件或控制目标；保留固定线路布局，元数据由本次请求和状态重新填写。
- */
-yg_protocol_result_t Protocol_BuildFeedback(const ProtocolMotorStatus *source,
-                                            uint8_t node_id,
-                                            uint16_t result,
-                                            uint16_t correlated_seq,
-                                            ProtocolFeedback *feedback);
+void Protocol_Process(ProtocolEndpoint *endpoint, uint32_t now_ms);
 
 /* 设备信息与 Loader 业务绑定 */
 
@@ -419,8 +580,11 @@ yg_protocol_result_t Protocol_BuildFeedback(const ProtocolMotorStatus *source,
  * @note 后台串行调用，不与 Protocol_Process 并发；复制现有值缓冲，不保留输入指针。
  *       初始化或撤销后1/2查询回复4B result6/detail0，不提供占位版本或虚构能力。
  *       不访问UID寄存器，不探测硬件；组合层从平台端口和业务所有者收集数据。
+ * @param endpoint 调用方持有的实例状态。
  */
-bool Protocol_SetInfo(const ProtocolInfo *info, const ProtocolCaps *capabilities);
+bool Protocol_SetInfo(ProtocolEndpoint *endpoint,
+                      const ProtocolInfo *info,
+                      const ProtocolCaps *capabilities);
 
 /**
  * @brief 发布GET_INFO维护页快照。
@@ -428,8 +592,9 @@ bool Protocol_SetInfo(const ProtocolInfo *info, const ProtocolCaps *capabilities
  * @param payload 组合层编码的32B只读页，返回后不保留指针。
  * @return 页号为1或2且输入非空返回true。
  * @note 前台串行调用；通信层不访问Flash或参数所有者。
+ * @param endpoint 调用方持有的实例状态。
  */
-bool Protocol_SetInfoPage(uint16_t page, const uint8_t payload[32]);
+bool Protocol_SetInfoPage(ProtocolEndpoint *endpoint, uint16_t page, const uint8_t payload[32]);
 
 /**
  * @brief 将业务结果映射为线路码，不直接序列化枚举。
@@ -488,6 +653,73 @@ typedef struct
     volatile uint32_t consumed;
     uint32_t dropped;
 } CanQueue;
+
+typedef struct
+{
+    uint16_t type;
+    uint16_t sequence;
+    uint8_t source_node;
+    uint8_t destination_node;
+    uint8_t flags;
+    ProtocolCommandArgs args;
+} ProtocolReceivedCommand;
+
+typedef struct
+{
+    ProtocolInfo info;
+    uint8_t maintenance_pages[2][32];
+    ProtocolCaps capabilities;
+    bool device_description_available;
+} DeviceMessages;
+
+typedef struct
+{
+    uint16_t feedback_sequence;
+    bool feedback_pending;
+    uint8_t feedback_destination;
+    ProtocolResponse feedback;
+} MotorMessages;
+
+typedef enum
+{
+    BOOT_TX_IDLE,
+    BOOT_TX_QUEUED,
+    BOOT_TX_PENDING
+} BootTxState;
+
+typedef struct
+{
+    uint8_t node_id;
+    size_t tx_slot;
+    BootTxState tx_state;
+    uint64_t ticket;
+    uint32_t ready_ms;
+    uint16_t reply_sequence;
+    uint8_t reply_destination;
+} BootState;
+
+#define PROTOCOL_QUEUE_CAPACITY 8U
+
+/** @brief 一个 CAN 端点独占的队列、命令、身份、回调与交接状态。 */
+struct ProtocolEndpoint
+{
+    uint8_t node_id;
+    bool ready, started;
+    CanQueue rx_queue, tx_queue;
+    BspCanFrame rx_storage[PROTOCOL_QUEUE_CAPACITY], tx_storage[PROTOCOL_QUEUE_CAPACITY];
+    DeviceMessages device;
+    MotorMessages messages;
+    volatile ProtocolReceivedCommand command;
+    BootState boot;
+    ProtocolMotor motor;
+    ProtocolHardwareCheck hardware_check;
+    ProtocolJobs jobs;
+    ProtocolParameters parameters;
+    ProtocolCalibrationReadback calibration_readback;
+    ProtocolMotorConfiguration configuration;
+    BootEntryService loader;
+    ProtocolDeviceStatus device_status;
+};
 
 /**
  * @brief 返回已入队但未消费的帧数。
@@ -552,8 +784,10 @@ static inline bool queue_pop(CanQueue *queue, BspCanFrame *frame)
  * @brief 处理已经通过通用请求校验的 Loader 命令。
  * @param exchange 已解码的单播请求及由本函数填写的回复。
  * @return 处理结果；静态配置不支持 Loader 时返回 ROUTE_NOT_FOUND。
+ * @param endpoint 调用方持有的实例状态。
  */
-yg_protocol_result_t ProtocolBoot_HandleCommand(ProtocolExchange *exchange);
+yg_protocol_result_t ProtocolBoot_HandleCommand(ProtocolEndpoint *endpoint,
+                                                ProtocolExchange *exchange);
 
 /**
  * @brief 记录新产生的 READY 回复在发送队列中的准确位置。
@@ -561,8 +795,10 @@ yg_protocol_result_t ProtocolBoot_HandleCommand(ProtocolExchange *exchange);
  * @param previous_head 处理请求之前的写入位置。
  * @param result 处理请求与回复入队的结果。
  * @param now_ms 本轮前台时间，单位 ms。
+ * @param endpoint 调用方持有的实例状态。
  */
-void ProtocolBoot_TrackReply(const CanQueue *queue,
+void ProtocolBoot_TrackReply(ProtocolEndpoint *endpoint,
+                             const CanQueue *queue,
                              size_t previous_head,
                              yg_protocol_result_t result,
                              uint32_t now_ms);
@@ -571,22 +807,27 @@ void ProtocolBoot_TrackReply(const CanQueue *queue,
  * @brief 检查交接回复是否实际发出，并清理超时的待发回复。
  * @param queue 有效的 TX 队列。
  * @param now_ms 本轮前台时间，单位 ms。
+ * @param endpoint 调用方持有的实例状态。
  */
-void ProtocolBoot_Process(CanQueue *queue, uint32_t now_ms);
+void ProtocolBoot_Process(ProtocolEndpoint *endpoint, CanQueue *queue, uint32_t now_ms);
 
 /**
  * @brief 提交下一帧；等待交接回复完成时阻止后续帧覆盖硬件完成状态。
  * @param queue 有效的 TX 队列，帧均已通过发送编码。
  * @return 提交结果或队列空、硬件忙。
+ * @param endpoint 调用方持有的实例状态。
  */
-yg_protocol_result_t ProtocolBoot_SendNext(CanQueue *queue);
+yg_protocol_result_t ProtocolBoot_SendNext(ProtocolEndpoint *endpoint, CanQueue *queue);
 
 /**
  * @brief 将本机单帧消息复制入 TX 队列，不等待硬件发送。
  * @param message 借用的完整消息，源地址必须为本机。
  * @param priority CAN 优先级，范围 0～7。
  * @return 编码或入队结果；队满时不消费调用方数据。
+ * @param endpoint 调用方持有的实例状态。
  */
-yg_protocol_result_t Protocol_QueueMessage(const yg_protocol_message_t *message, uint8_t priority);
+yg_protocol_result_t Protocol_QueueMessage(ProtocolEndpoint *endpoint,
+                                           const yg_protocol_message_t *message,
+                                           uint8_t priority);
 
 #endif

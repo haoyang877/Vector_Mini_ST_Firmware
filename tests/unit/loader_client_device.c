@@ -98,7 +98,7 @@ LoaderParameterState LoaderParameters_ReadNode(uint8_t *value)
 }
 void LoaderPlatform_ReadIdentity(uint8_t uid[12], DeviceIdentity *identity)
 {
-    memset(uid, 1, 12U);
+    memset(uid, node - 2U, 12U);
     memset(identity, 0, sizeof(*identity));
 }
 void LoaderPlatform_Jump(void)
@@ -110,9 +110,14 @@ void LoaderPlatform_Reset(void)
     s_app = LoaderImage_PrepareBoot(&image_config);
     s_trial_ms = s_ticks;
 }
-bool LoaderCan_Init(uint8_t value)
+uint8_t LoaderParameters_ReadBitrate(LoaderParameterState state)
 {
-    return value == 3U;
+    (void)state;
+    return 0U;
+}
+bool LoaderCan_Init(uint8_t value, uint8_t profile)
+{
+    return value == 3U && profile == 0U;
 }
 bool LoaderCan_Ready(void)
 {
@@ -155,6 +160,11 @@ __declspec(dllexport) void Device_Reset(void)
     node = 3U;
     (void)initialize_image();
     (void)yg_protocol_fragment_init(&fragments, assembly, sizeof(assembly));
+}
+/** @brief 为独立模型实例设置五轴节点，模拟同一总线上的不同设备。 */
+__declspec(dllexport) void Device_SetNode(uint8_t value)
+{
+    node = value;
 }
 /** @brief 将模型切为旧APP查询/交接桩，Loader下载仍运行生产源码。 */
 __declspec(dllexport) void Device_StartApp(void)

@@ -202,6 +202,8 @@ bool LoaderPlatform_Init(bool *software_reset, bool *watchdog_reset)
     }
     HAL_Init();
     SystemClock_Config();
+    /* 受控SWD初装可能暂停过看门狗；正常启动恢复持续计时。 */
+    DBGMCU->APB1FZR1 &= ~(1U << 12U);
     IWDG->KR = 0xCCCCU;
     IWDG->KR = 0x5555U;
     IWDG->PR = 6;

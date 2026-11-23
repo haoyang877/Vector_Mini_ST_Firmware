@@ -154,6 +154,12 @@ class CalibrationResetTests(unittest.TestCase):
             refresh_crc(raw)
             with self.assertRaisesRegex(ValueError, "资格|方向"):
                 prepare(raw, hashlib.sha256(raw).hexdigest(), preserve_calibration=True)
+        for counts in (1748, 2348):
+            raw = source_page(14)
+            struct.pack_into("<f", raw, 4, counts)
+            refresh_crc(raw)
+            with self.assertRaisesRegex(ValueError, "偏置"):
+                prepare(raw, hashlib.sha256(raw).hexdigest(), preserve_calibration=True)
 
     def test_invalid_hash_length_crc_and_node_are_rejected(self) -> None:
         for schema in (10, 12, 13, 14):
@@ -286,6 +292,7 @@ int main(int argc, char **argv) {
             for path in (
                 "firmware/parameters/parameter_record.c",
                 "firmware/parameters/parameter_values.c",
+                "firmware/motor/math/scaled_integer.c",
                 "firmware/parameters/motor_axis_profile.c",
                 "firmware/motor/math/control_math.c",
                 "firmware/motor/protection/motor_thermal.c",
@@ -309,12 +316,15 @@ int main(int argc, char **argv) {
             log.append(f"schema{schema}: " + loaded.stdout + loaded.stderr)
             self.assertEqual(loaded.returncode, 0, log[-1])
             self.assertEqual(report["output_sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+            struct.pack_into("<2f", raw, 4, 1748.25, 2347.75)
+            refresh_crc(raw)
             migrated, migration = prepare(
                 raw,
                 hashlib.sha256(raw).hexdigest(),
                 preserve_calibration=True,
                 legacy_layout="vector-mini-schema10-delivery-v1",
             )
+            self.assertEqual(migrated[4:16], raw[4:16])
             self.assertEqual(migrated[36:42], raw[36:42])
             self.assertEqual(migrated[44:2092], raw[44:2092])
             self.assertEqual(migrated[RECORD_BYTES:], raw[RECORD_BYTES:])

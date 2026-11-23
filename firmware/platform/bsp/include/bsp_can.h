@@ -23,6 +23,14 @@ extern "C"
     } BspCanFrame;
 
     /**
+     * @brief 在 CAN 启动前选择设备保存的位时序。
+     * @param profile 参数服务校验过的档位；固定速率板只支持零。
+     * @return 已设置支持的档位返回 true。
+     * @note 仅在初始化的配置窗口内调用，不切换运行中的总线。
+     */
+    bool BspCan_ConfigureBitrate(uint8_t profile);
+
+    /**
      * @brief 开放已配置的CAN及接收中断。
      * @note 应用接收对象就绪后调用；AT32轮询台架不启用接收中断。
      */

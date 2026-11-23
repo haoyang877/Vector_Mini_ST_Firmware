@@ -5,6 +5,20 @@
 #include "bsp_system.h"
 #include "interrupt_map.h"
 
+/* 该板中断向量只服务本机应用。 */
+AppContext g_app;
+
+void BspApp_OnCanReceive(void)
+{
+    Protocol_RxInterrupt(&g_app.endpoint);
+}
+
+void BspApp_OnFastSample(void)
+{
+    MotorAxis_SampleFast(&g_app.axis);
+    MotorAxis_ControlFast(&g_app.axis);
+}
+
 static void startup_failed(void)
 {
     BspPwm_Disable();
@@ -17,7 +31,7 @@ static void startup_failed(void)
 /** @brief 在BSP确认监督事件后执行应用慢环。 */
 void BspApp_OnControlTick(void)
 {
-    App_SupervisorTick();
+    MotorAxis_SupervisorTick(&g_app.axis);
 }
 
 /** @brief 将ADC向量交给本板BSP，保留完成确认与回调顺序。 */
@@ -44,14 +58,14 @@ int main(void)
     {
         startup_failed();
     }
-    App_Init();
+    App_Init(&g_app);
     if (Bsp_Start() != BSP_OK)
     {
         startup_failed();
     }
-    App_Start();
+    App_Start(&g_app);
     for (;;)
     {
-        App_Process();
+        App_Process(&g_app);
     }
 }

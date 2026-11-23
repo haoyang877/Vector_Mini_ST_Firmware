@@ -22,6 +22,25 @@ import doctor
 
 
 class HarnessTests(unittest.TestCase):
+    def test_release_inventory_covers_both_products_and_excludes_bench(self):
+        """默认发布构建包含两板Loader/APP，不把台架激励工程纳入默认入口。"""
+        from build.build_firmware import RELEASE_PROJECTS
+
+        self.assertEqual(
+            set(RELEASE_PROJECTS),
+            {
+                "normal",
+                "at32f456-app-off",
+                "g431-loader",
+                "g431-loader-app",
+                "at32-loader",
+                "at32-loader-app",
+            },
+        )
+        for path in RELEASE_PROJECTS.values():
+            self.assertTrue(path.is_file())
+            self.assertNotIn("bench", path.parts)
+
     def test_interface_scanner_skips_macro_continuations(self):
         """宏续行中的调用/花括号不污染下一条声明，真实缺失契约仍被报告。"""
         source = r"""#define FILTER(value, sample) \
@@ -127,6 +146,31 @@ Counter_Reset(void);
     def test_docs_and_hygiene_have_no_unwaived_problem(self):
         self.assertEqual(check_docs.problems(), [])
         self.assertEqual(check_hygiene.problems(), [])
+
+    def test_design_documentation_checks_required_areas_and_local_targets(self):
+        """设计入口必须齐全，删除过程目录不能掩盖保留文档的断链。"""
+        with tempfile.TemporaryDirectory() as folder:
+            root = _Path(folder)
+            (root / "AGENTS.md").write_text("# 工作入口\n", encoding="utf-8")
+            docs = root / "docs"
+            areas = ("architecture", "protocols", "guides", "hardware")
+            for area in areas:
+                (docs / area).mkdir(parents=True)
+            index = docs / "README.md"
+            content = "\n".join(f"[{area}]({area}/)" for area in areas)
+            index.write_text(content, encoding="utf-8")
+            with patch.object(check_docs, "ROOT", root):
+                self.assertEqual(check_docs.problems(), [])
+                index.write_text(
+                    content + "\n[缺失设计](architecture/missing.md)", encoding="utf-8"
+                )
+                issues = check_docs.problems()
+                self.assertEqual(len(issues), 1)
+                self.assertIn("broken local link", issues[0]["message"])
+                index.write_text(content.replace("[hardware](hardware/)", ""), encoding="utf-8")
+                issues = check_docs.problems()
+                self.assertEqual(len(issues), 1)
+                self.assertIn("missing documentation area link: hardware/", issues[0]["message"])
 
     def test_all_product_modules_share_the_root_style_configuration(self):
         self.assertEqual(

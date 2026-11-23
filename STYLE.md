@@ -150,8 +150,7 @@ target、measured、filtered、applied；标志使用 requested、active、valid
 
 该样例只适合可信输入的确定性计算，不能把“不逐拍校验”照搬到协议、Flash 或硬件入口。
 有限输入也须确保中间计算不溢出；调用方不得把未初始化对象交给 Run。
-既有接口和布局保留，避免为形式改动全部调用方；具体验证见
-[统一规范与样例记录](docs/plans/completed/2026-11-06-programming-standard-v1.md)。
+既有接口和布局保留，避免为形式改动全部调用方；验证应覆盖调用契约与数值行为。
 
 新模块从 [templates](templates/README.md) 选择相近起点，删除不需要的状态和接口；
 模板是边界处理示例，不要求每个算法拥有配置结构、初始化标志或错误枚举。

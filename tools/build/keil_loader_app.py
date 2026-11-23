@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "loader/tools"))
 from package_image import build_package  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "shared/targets"))
-from target_contract import load_target  # noqa: E402
+from target_contract import load_target, target_value  # noqa: E402
 
 MARKERS = ((64, 0x41435433), (72, 0x54525933), (80, 0x4F4B4133))
 
@@ -146,8 +146,11 @@ def reuse_existing(
         normalized[descriptor + offset : descriptor + offset + 8] = b"\xff" * 8
     if bytes(normalized) != image or debug != axf.with_suffix(".bin").read_bytes():
         raise ValueError("现有调试镜像与 CAN 包不一致")
-    if report.get("image_bytes") != len(image):
-        raise ValueError("现有调试镜像长度与清单不一致")
+    if (
+        report.get("image_bytes") != len(image)
+        or report.get("image_version") != struct.unpack_from(">I", image, descriptor + 28)[0]
+    ):
+        raise ValueError("现有调试镜像长度或版本与清单不一致")
     return report
 
 
@@ -258,9 +261,18 @@ def main() -> int:
         ):
             selection = configured_target
         report = synchronize(args.axf, token, selection)
+        target = load_target(selection)
+        loader_version = target_value(target, "TARGET_LOADER_VERSION")
     except (OSError, ValueError, struct.error, KeyError) as exc:
         print(f"LoaderApp sync failed: {exc}", file=sys.stderr)
         return 1
+    app_version = report["image_version"]
+    print(f"Firmware target: {target['target']}")
+    print(f"APP version: v{app_version >> 16}.{(app_version >> 8) & 255}.{app_version & 255}")
+    print(
+        f"Required Loader version: "
+        f"v{loader_version >> 16}.{(loader_version >> 8) & 255}.{loader_version & 255}"
+    )
     print(
         f"LoaderApp synchronized: {report['image_bytes']} B, "
         f"CRC={report['image_crc32']}, token={report['image_token']:08X}"

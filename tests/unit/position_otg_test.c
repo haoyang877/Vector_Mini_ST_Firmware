@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <float.h>
 #include <string.h>
 #include "position_otg.h"
 
@@ -172,7 +173,8 @@ static void check_segment_limits(const PositionOtg *otg)
     for (unsigned i = 0; i < otg->segment_count; ++i)
     {
         const PositionOtgSegment *segment = &otg->segments[i];
-        const double t = segment->duration_s, j = segment->jerk_rad_s3;
+        const double t = (double)segment->duration.seconds + segment->duration.remainder_s,
+                     j = segment->jerk_rad_s3;
         assert(fabs(p - segment->start.position_rad) <= 5e-7);
         assert(fabs(v - segment->start.speed_rad_s) <= 2e-7);
         assert(fabs(a - segment->start.acceleration_rad_s2) <= 5e-7);
@@ -263,6 +265,49 @@ static void check_sample_period_equivalence(unsigned retarget_ms, float speed_li
     assert(0 && "axis did not finish within 60 s");
 }
 
+/* 同一运动改用不同数量级的角度单位，段时长和采样时刻应保持等价。 */
+static void check_unit_scaling(void)
+{
+    PositionOtg base;
+    assert(PositionOtg_Reset(&base, (PositionOtgReference){0, 0.25f, 0.5f}));
+    set_target(&base, 3.0f);
+    for (int exponent = -100; exponent <= 100; exponent += 200)
+    {
+        float factor = scalbnf(1.0f, exponent);
+        PositionOtg scaled, expected = base;
+        PositionOtgLimits scaled_limits = {factor, 2.0f * factor, 10.0f * factor};
+        assert(
+            PositionOtg_Reset(&scaled, (PositionOtgReference){0, 0.25f * factor, 0.5f * factor}));
+        assert(PositionOtg_SetTarget(&scaled, 3.0f * factor, scaled_limits));
+        assert(expected.segment_count == scaled.segment_count);
+        for (unsigned tick = 0; tick < 20000U && !expected.finished; ++tick)
+        {
+            assert(PositionOtg_Sample(&expected, dt) && PositionOtg_Sample(&scaled, dt));
+            assert(expected.finished == scaled.finished);
+            assert(fabsf(expected.reference.position_rad -
+                         scalbnf(scaled.reference.position_rad, -exponent)) < 5e-7f);
+        }
+        assert(expected.finished && scaled.finished);
+    }
+}
+
+static void check_long_cruise_clock(void)
+{
+    PositionOtg ticks, jump;
+    assert(PositionOtg_Reset(&ticks, (PositionOtgReference){0}));
+    set_target(&ticks, 32768.0f);
+    assert(PositionOtg_Sample(&ticks, 16384.0f));
+    jump = ticks;
+    for (unsigned tick = 0; tick < 4000U; ++tick)
+    {
+        assert(PositionOtg_Sample(&ticks, dt));
+    }
+    assert(PositionOtg_Sample(&jump, 1.0f));
+    assert(ticks.reference.position_rad == jump.reference.position_rad);
+    assert(PositionOtg_Sample(&ticks, FLT_MAX) && ticks.finished);
+    assert(ticks.reference.position_rad == 32768.0f);
+}
+
 int main(void)
 {
     const unsigned times[] = {50U, 350U, 1000U, 3250U};
@@ -276,6 +321,8 @@ int main(void)
     check_sample_period_equivalence(3500U, 0.785398163f);
     check_sample_period_equivalence(0U, 3.14159265f);
     check_sample_period_equivalence(3500U, 3.14159265f);
+    check_unit_scaling();
+    check_long_cruise_clock();
     check_random_states();
     check_profiles();
     check_interleaved_instances();

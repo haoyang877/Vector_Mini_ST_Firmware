@@ -1,0 +1,55 @@
+@startuml motor_start_sequence
+skinparam defaultFontName Microsoft YaHei
+skinparam defaultFontSize 14
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+hide footbox
+title 普通 START：请求受理到 ADC 确认启相
+autonumber
+
+actor "主机" as Host
+participant "前台\n协议 + 状态机" as Foreground
+participant "外环上下文\nMotorAxis_OuterTick" as Outer
+participant "ADC 快拍\nMotorAxis_ControlFast" as ADC
+participant "本轴 PWM\nBSP" as PWM
+
+note over Foreground,PWM
+  初始：state=IDLE，control_mode=NONE，三相通道关闭。
+  下图是一种允许的交错；ADC 可抢占前台和外环。
+  主机收到 ACCEPTED 前，外环和 ADC 也可能已经完成启相。
+end note
+Host -> Foreground : 117 / START(mode)
+Foreground -> Foreground : 检查状态、关相、配置、采样及模式准入
+alt 准入不满足
+    Foreground --> Host : FAULT / BUSY / DENIED
+else 准入满足
+    Foreground -> Foreground : epoch++，清目标/控制器\n登记模式，start_pending=true
+    Foreground --> Host : ACCEPTED（仅表示请求已受理）
+    Outer -> Outer : ReadOuterInputs：读取本会话快照
+    Outer -> Outer : 运行所需外环并检查结果可提交
+    Outer -> Outer : CommitOuterResult\nphase_enable_epoch=当前 epoch
+    note over Outer,ADC
+      速度/位置模式需要外环就绪；其余模式也经此提交点发许可。
+      AT32F456 由 PendSV 执行外环；STM32G4 在监督上下文分频执行。
+    end note
+    ADC -> ADC : BeginFastTick：检查 STOP、故障及一次性许可
+    alt STOP 或故障已到达
+        ADC -> PWM : disable()（仍有通道活动时）
+        ADC -> ADC : 清许可，不提交 RUNNING
+    else 无 STOP/故障且存在待消费许可
+        ADC -> ADC : 消费许可，复核 epoch、输入和模式准入
+        opt 许可与准入有效
+            ADC -> PWM : enable()
+            ADC -> PWM : phases_disabled()
+            PWM --> ADC : 通道启用读回结果
+        end
+        alt 准入通过且启相读回成功
+            ADC -> ADC : state=RUNNING\nstart_pending=false
+        else 许可失效、准入失败或启相读回失败
+            ADC -> ADC : 报告 CONTROL_OVERRUN，不提交 RUNNING
+            ADC -> PWM : disable()（仍有通道活动时）
+        end
+    end
+end
+@enduml

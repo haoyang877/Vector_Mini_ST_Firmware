@@ -333,10 +333,10 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls>--diag_suppress=1</MiscControls>
-              <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U,BSP_BOARD=1U,FIRMWARE_TARGET_STM32_APP</Define>
+              <MiscControls>--diag_suppress=1 -DFIRMWARE_TARGET_STM32_APP --preinclude ..\..\..\firmware\config\board_config.h</MiscControls>
+              <Define>USE_HAL_DRIVER,STM32G431xx,CURRENT_SENSE_SHUNT_MILLIOHM=6U,BSP_BOARD=1U,YG_APP_LOADER_IMAGE=1,YG_APP_IMAGE_VERSION=TARGET_APP_VERSION,YG_APP_IMAGE_ROLE=1U</Define>
               <Undefine />
-              <IncludePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app\composition;..\..\..\firmware\app\runtime;..\..\..\firmware\app\motor_state_machine;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\app\interfaces;..\..\..\firmware\platform\bsp;..\..\..\shared\targets\vector_mini_st_g431</IncludePath>
+              <IncludePath>..\..\..\shared\targets\vector_mini_st_g431;..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc;..\..\..\firmware\platform\sdk\stm32g4\Drivers\STM32G4xx_HAL_Driver\Inc\Legacy;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Device\ST\STM32G4xx\Include;..\..\..\firmware\platform\sdk\stm32g4\Drivers\CMSIS\Include;..\..\..\firmware\app;..\..\..\firmware\motor\math;..\..\..\firmware\communication;..\..\..\shared\checksum;..\..\..\shared\protocol;..\..\..\shared\boot;..\..\..\shared\image;..\..\..\shared\targets;..\..\..\firmware\motor;..\..\..\firmware\motor\control;..\..\..\firmware\config;..\..\..\firmware\motor\sensing;..\..\..\firmware\motor\calibration;..\..\..\firmware\motor\feedback;..\..\..\firmware\motor\protection;..\..\..\firmware\platform\bsp\include;..\..\..\firmware\platform\bsp\mcu\stm32g4;..\..\..\firmware\parameters;..\..\..\firmware\platform\bsp</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -383,12 +383,12 @@
             <File>
               <FileName>app.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\composition\app.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app.c</FilePath>
             </File>
             <File>
               <FileName>motor_axis.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\runtime\motor_axis.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_axis.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -442,9 +442,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_lifecycle.c</FileName>
+              <FileName>motor_calibration.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\runtime\motor_lifecycle.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_calibration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -466,7 +466,7 @@
                   <Cads>
                     <interw>2</interw>
                     <Optim>4</Optim>
-                    <oTime>0</oTime>
+                    <oTime>1</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
                     <Strict>2</Strict>
@@ -500,7 +500,7 @@
             <File>
               <FileName>motor_state_machine.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\motor_state_machine\motor_state_machine.c</FilePath>
+              <FilePath>..\..\..\firmware\app\motor_state_machine.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -556,7 +556,7 @@
             <File>
               <FileName>app_protocol.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\composition\app_protocol.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app_protocol.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -610,9 +610,9 @@
               </FileOption>
             </File>
             <File>
-              <FileName>motor_stop_request.c</FileName>
+              <FileName>app_motor_configuration.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\..\..\firmware\app\interfaces\motor_stop_request.c</FilePath>
+              <FilePath>..\..\..\firmware\app\app_motor_configuration.c</FilePath>
               <FileOption>
                 <CommonProperty>
                   <UseCPPCompiler>2</UseCPPCompiler>
@@ -633,7 +633,7 @@
                 <FileArmAds>
                   <Cads>
                     <interw>2</interw>
-                    <Optim>3</Optim>
+                    <Optim>4</Optim>
                     <oTime>0</oTime>
                     <SplitLS>2</SplitLS>
                     <OneElfS>2</OneElfS>
@@ -664,6 +664,11 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>app_loader.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\app\app_loader.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1536,6 +1541,11 @@
               </FileOption>
             </File>
             <File>
+              <FileName>phase_resistance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\calibration\phase_resistance.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_fault.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\motor\protection\motor_fault.c</FilePath>
@@ -1595,6 +1605,11 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>scaled_integer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\firmware\motor\math\scaled_integer.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1784,14 +1799,6 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\communication\yg_protocol_boot.c</FilePath>
             </File>
-
-
-
-
-
-
-
-
           </Files>
         </Group>
         <Group>
@@ -2030,7 +2037,7 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\firmware\platform\bsp\mcu\stm32g4\generated\Core\Src\tim.c</FilePath>
             </File>
-            </Files>
+          </Files>
         </Group>
         <Group>
           <GroupName>50_Shared</GroupName>

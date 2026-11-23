@@ -1,5 +1,7 @@
 #include "parameter_values.h"
+#include "can_bitrate.h"
 #include "motor_axis_profile.h"
+#include "scaled_integer.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -35,19 +37,19 @@ static const ScalarField s_fields[] = {
     READ_FIELD(7U, model.motor_phase_resistance_ohm, 1000000U),
     READ_FIELD(8U, model.motor_d_inductance_h, 1000000000U),
     READ_FIELD(9U, model.motor_q_inductance_h, 1000000000U),
-    READ_FIELD(11U, model.id_kp, 1000U),
-    READ_FIELD(12U, model.id_ki, 1000U),
-    READ_FIELD(13U, model.iq_kp, 1000U),
-    READ_FIELD(14U, model.iq_ki, 1000U),
-    READ_FIELD(16U, application.speed_kp, 1000000U),
-    READ_FIELD(17U, application.speed_ki, 1000000U),
-    READ_FIELD(19U, application.speed_acceleration_rad_s2, 1000U),
-    READ_FIELD(20U, application.speed_deceleration_rad_s2, 1000U),
+    WRITE_FIELD(11U, model.id_kp, 1000U),
+    WRITE_FIELD(12U, model.id_ki, 1000U),
+    WRITE_FIELD(13U, model.iq_kp, 1000U),
+    WRITE_FIELD(14U, model.iq_ki, 1000U),
+    WRITE_FIELD(16U, application.speed_kp, 1000000U),
+    WRITE_FIELD(17U, application.speed_ki, 1000000U),
+    WRITE_FIELD(19U, application.speed_acceleration_rad_s2, 1000U),
+    WRITE_FIELD(20U, application.speed_deceleration_rad_s2, 1000U),
     WRITE_FIELD(21U, application.cascade_position_kp, 1000000U),
     WRITE_FIELD(22U, application.cascade_position_kd, 1000000U),
     WRITE_FIELD(23U, application.position_maximum_speed_rad_s, 1000U),
-    READ_FIELD(24U, application.position_acceleration_rad_s2, 1000U),
-    READ_FIELD(25U, application.position_deceleration_rad_s2, 1000U),
+    WRITE_FIELD(24U, application.position_acceleration_rad_s2, 1000U),
+    WRITE_FIELD(25U, application.position_deceleration_rad_s2, 1000U),
     READ_FIELD(26U, application.position_error_window_rad, 1000U),
     CAL_FIELD(0x44U, device.phase_a_offset_counts, 1000U),
     CAL_FIELD(0x45U, device.phase_b_offset_counts, 1000U),
@@ -116,49 +118,20 @@ static const ScalarField *find_field(uint8_t id)
     return NULL;
 }
 
-/* 仅供本表的正整数缩放使用（1000/10^6/10^9），尾数乘积精确且不溢出 u64。
- * 保留原先 double 缩放后加正负半值、先检查 i32 边界再截断的顺序：
- * 舍入值到达端点时，只有精确半值允许通过；不可改成状态编码的舍入后检查。
- * binary32 非有限值直接拒绝，失败不修改输出；有界移位不依赖硬件或全局状态。 */
+/* 参数端点只接受精确半值；遥测编码另保留最小值作为无效哨兵。 */
 static ParameterStatus encode_float(float value, uint32_t scale, uint32_t *raw)
 {
-    uint32_t bits;
-    memcpy(&bits, &value, sizeof(bits));
-    unsigned exponent = (bits >> 23U) & 255U;
-    if (exponent == 255U)
+    ScaledInteger rounded;
+    if (!ScaledInteger_Round(value, scale, &rounded))
     {
         return PARAMETER_OUT_OF_RANGE;
     }
-    uint64_t product = (uint64_t)((bits & 0x7fffffU) | (exponent ? 0x800000U : 0U)) * scale;
-    int shift = exponent ? 150 - (int)exponent : 149;
-    uint64_t magnitude;
-    bool half = false;
-    if (shift > 63)
-    {
-        magnitude = 0U;
-    }
-    else if (shift > 0)
-    {
-        uint64_t midpoint = (uint64_t)1U << (shift - 1);
-        magnitude = (product >> shift) + ((product & midpoint) != 0U);
-        half = (product & ((midpoint << 1) - 1U)) == midpoint;
-    }
-    else
-    {
-        if (shift < -31 || product > (UINT32_MAX >> -shift))
-        {
-            return PARAMETER_OUT_OF_RANGE;
-        }
-        magnitude = product << -shift;
-    }
-    bool negative = (bits >> 31U) != 0U;
-
-    uint32_t limit = negative ? 0x80000000U : 0x7fffffffU;
-    if (magnitude > limit || (magnitude == limit && !half))
+    uint32_t limit = rounded.negative ? 0x80000000U : 0x7fffffffU;
+    if (rounded.magnitude > limit || (rounded.magnitude == limit && !rounded.exact_half))
     {
         return PARAMETER_OUT_OF_RANGE;
     }
-    *raw = negative ? 0U - (uint32_t)magnitude : (uint32_t)magnitude;
+    *raw = rounded.negative ? 0U - rounded.magnitude : rounded.magnitude;
     return PARAMETER_OK;
 }
 
@@ -190,12 +163,6 @@ ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
         }
         candidate.value_type = PARAMETER_VALUE_I32;
         candidate.access = field->access;
-        if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
-            (parameter_id == 21U || parameter_id == 22U || parameter_id == 23U))
-        {
-            /* 启动 joint profile 会覆盖这些字段，不能承诺单值改写的掉电持久语义。 */
-            candidate.access &= (uint8_t)~PARAMETER_ACCESS_WRITE_IDLE;
-        }
     }
     else
     {
@@ -250,6 +217,12 @@ ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
             candidate.raw_value = configuration->configuration_confirmed ? 1U : 0U;
             candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
             break;
+#if BSP_BOARD == BSP_BOARD_AT32F456
+        case 0x71U:
+            candidate.raw_value = CanBitrate_Value(configuration->device.can_bitrate_profile);
+            candidate.access |= PARAMETER_ACCESS_WRITE_IDLE;
+            break;
+#endif
         case 0x4EU:
             candidate.raw_value = (uint32_t)configuration->configuration_source;
             break;
@@ -276,11 +249,39 @@ static float speed_ceiling(const MotorConfiguration *configuration)
     {
         return 0.0f;
     }
-    if (configuration->application.axis_profile.magic != 0U)
+    if (configuration->preset == NULL && configuration->application.axis_profile.magic != 0U)
     {
         limit = fminf(limit, configuration->application.axis_profile.maximum_speed_rad_s);
     }
     return limit;
+}
+
+bool ParameterValue_MatchesRequest(const MotorConfiguration *configuration,
+                                   const ParameterWriteRequest *request)
+{
+    if (request->parameter_id == CAN_BITRATE_PARAMETER_ID)
+    {
+        return BSP_BOARD == BSP_BOARD_AT32F456 && request->value_type == PARAMETER_VALUE_U32 &&
+               request->raw_value == CanBitrate_Value(configuration->device.can_bitrate_profile);
+    }
+    if (request->parameter_id == 0x4DU || request->parameter_id == 0x68U)
+    {
+        bool active = request->parameter_id == 0x4DU
+                          ? configuration->configuration_confirmed
+                          : configuration->application.speed_feedforward.enabled;
+        return request->value_type == PARAMETER_VALUE_U32 && request->raw_value <= 1U &&
+               active == (request->raw_value == 1U);
+    }
+    const ScalarField *field = find_field(request->parameter_id);
+    if (field == NULL || request->value_type != PARAMETER_VALUE_I32)
+    {
+        return false;
+    }
+    int32_t raw;
+    float current;
+    memcpy(&raw, &request->raw_value, sizeof(raw));
+    memcpy(&current, (const uint8_t *)configuration + field->offset, sizeof(current));
+    return current == (float)raw / field->scale;
 }
 
 ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
@@ -289,6 +290,20 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     if (configuration == NULL || request == NULL)
     {
         return PARAMETER_INVALID_ARGUMENT;
+    }
+    if (BSP_BOARD == BSP_BOARD_AT32F456 && request->parameter_id == CAN_BITRATE_PARAMETER_ID)
+    {
+        if (request->value_type != PARAMETER_VALUE_U32)
+        {
+            return PARAMETER_BAD_TYPE;
+        }
+        uint8_t profile = CanBitrate_Profile(request->raw_value);
+        if (profile == UINT8_MAX)
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        configuration->device.can_bitrate_profile = profile;
+        return PARAMETER_OK;
     }
     if (request->parameter_id == 0x4DU)
     {
@@ -348,12 +363,6 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     {
         return PARAMETER_READ_ONLY;
     }
-    if (configuration->application.axis_profile.magic == MOTOR_AXIS_PROFILE_NUMERIC_MAGIC &&
-        (request->parameter_id == 21U || request->parameter_id == 22U ||
-         request->parameter_id == 23U))
-    {
-        return PARAMETER_READ_ONLY;
-    }
     if (request->value_type != PARAMETER_VALUE_I32)
     {
         return PARAMETER_BAD_TYPE;
@@ -388,6 +397,50 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     }
     switch (request->parameter_id)
     {
+    case 11U:
+    case 12U:
+    case 13U:
+    case 14U:
+    case 16U:
+    case 17U:
+    {
+        float maximum = PARAMETER_PI_KP_MAX;
+        if (request->parameter_id == 12U || request->parameter_id == 14U)
+        {
+            maximum = PARAMETER_CURRENT_KI_MAX;
+        }
+        else if (request->parameter_id == 17U)
+        {
+            maximum = PARAMETER_SPEED_KI_MAX;
+        }
+        if (si_value < 0.0f || si_value > maximum)
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        memcpy((uint8_t *)configuration + field->offset, &si_value, sizeof(si_value));
+        break;
+    }
+    case 19U:
+    case 20U:
+    case 24U:
+    case 25U:
+    {
+        float maximum = configuration->preset != NULL
+                            ? configuration->preset->control.acceleration_rad_s2
+                            : PARAM_APP_POSITION_ACCEL_MAX_RAD_S2;
+        if (request->parameter_id == 20U || request->parameter_id == 25U)
+        {
+            maximum = configuration->preset != NULL
+                          ? configuration->preset->control.deceleration_rad_s2
+                          : maximum;
+        }
+        if (si_value <= 0.0f || si_value > maximum)
+        {
+            return PARAMETER_OUT_OF_RANGE;
+        }
+        memcpy((uint8_t *)configuration + field->offset, &si_value, sizeof(si_value));
+        break;
+    }
     case 1U:
         if (si_value <= 0.0f || si_value > speed_ceiling(configuration))
         {
@@ -436,7 +489,11 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
         break;
     case 23U:
         if (si_value <= 0.0f || si_value > configuration->application.speed_limit_rad_s ||
-            si_value > speed_ceiling(configuration))
+            si_value > speed_ceiling(configuration) ||
+            (configuration->application.axis_profile.magic != 0U &&
+             si_value > configuration->application.axis_profile.maximum_speed_rad_s) ||
+            (configuration->preset == NULL &&
+             si_value > PARAM_APP_POSITION_RESTORE_SPEED_MAX_RAD_S))
         {
             return PARAMETER_OUT_OF_RANGE;
         }

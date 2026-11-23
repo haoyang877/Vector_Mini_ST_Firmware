@@ -1,4 +1,5 @@
 #include "parameter_record.h"
+#include "can_bitrate.h"
 
 #include <math.h>
 #include <string.h>
@@ -26,7 +27,10 @@ uint32_t Param_RecordCrc(const InterfaceParam *param)
 }
 
 typedef char
-    Schema14Layout[(offsetof(InterfaceParam, hall_sin_off_counts) == 2188U &&
+    Schema14Layout[(offsetof(InterfaceParam, can_bitrate_record) == CAN_BITRATE_RECORD_OFFSET &&
+                    offsetof(InterfaceParam, record_crc32) == CAN_BITRATE_RECORD_CRC_OFFSET &&
+                    sizeof(InterfaceParam) == CAN_BITRATE_BASE_RECORD_BYTES &&
+                    offsetof(InterfaceParam, hall_sin_off_counts) == 2188U &&
                     offsetof(InterfaceParam, hall_tag_status) == 2204U &&
                     offsetof(InterfaceParam, thermal) == 2240U && sizeof(InterfaceParam) == 2288U)
                        ? 1
@@ -73,7 +77,6 @@ void Param_RestoreLinearHall(const InterfaceParam *param, LinearHall *hall)
 /* OEN1 兼容读取；OEN2 为128点，OEN3 将1024点表与输出相位整体保存。 */
 #define PARAM_OUTPUT_ENCODER_V1 0x314e454fU
 #define PARAM_OUTPUT_ENCODER_V2 0x324e454fU
-#define PARAM_OUTPUT_ENCODER_V3 0x334e454fU
 typedef char OutputEncoderLayout[(sizeof(OutputEncoderRecord) == 2084U &&
                                   offsetof(OutputEncoderRecord, hall_lut_status) == 28U &&
                                   offsetof(OutputEncoderRecord, crc32) == 2080U &&
@@ -86,9 +89,11 @@ void Param_StoreOutputEncoder(MotorAxisRecord *record,
                               const OutputEncoder *encoder,
                               const LinearHall *hall)
 {
-    record->output = (OutputEncoderRecord){.magic = PARAM_OUTPUT_ENCODER_V3,
-                                           .motor_crc32 = record->motor.record_crc32,
-                                           .params = encoder->params};
+    /* 维护区由前台独占；原位编码，避免完整OEN3记录成为栈临时量。 */
+    memset(&record->output, 0, sizeof(record->output));
+    record->output.magic = PARAM_OUTPUT_ENCODER_V3;
+    record->output.motor_crc32 = record->motor.record_crc32;
+    record->output.params = encoder->params;
     if (hall != NULL)
     {
         record->output.hall_lut_status = hall->lut_status;
@@ -247,6 +252,8 @@ void Param_Return_Default(MotorConfiguration *configuration)
     configuration->application.axis_profile_valid = true;
     configuration->configuration_confirmed = false;
     configuration->configuration_source = MOTOR_CONFIGURATION_DEFAULTS;
+    configuration->device.can_bitrate_profile =
+        BSP_BOARD == BSP_BOARD_AT32F456 ? CAN_BITRATE_DEFAULT_PROFILE : 0U;
     /* 未装配的产品板不注册整车 CAN 地址。 */
     configuration->device.node_id =
         BSP_BOARD == BSP_BOARD_AT32F456 ? UINT8_MAX : PARAM_DEVICE_CAN_NODE_ID;
@@ -312,28 +319,22 @@ bool Param_CreateAxis(uint8_t node_id,
     {
         return false;
     }
-    /* HT 采用型号已有热输入；YQ 必须显式提供已核对的热输入。 */
-    MotorWindingThermalConfig heat = HT8115_HEAT_INITIALIZER;
-    if (thermal != NULL)
+    if (thermal == NULL)
     {
-        heat = *thermal;
+        thermal = p->electrical->default_thermal;
     }
-    else if (p->electrical->gear_ratio != 1.0f)
-    {
-        return false;
-    }
-    if (!MotorWindingThermal_Valid(&heat))
+    if (!MotorWindingThermal_Valid(thermal))
     {
         return false;
     }
     bind_preset(configuration, p);
-    configuration->model.thermal = heat;
+    configuration->model.thermal = *thermal;
     configuration->model.calibration_current_a = p->calibration_limit_a;
     configuration->device.node_id = node_id;
     MotorApplicationConfig *app = &configuration->application;
     app->axis_profile = axis;
     app->axis_profile_valid = true;
-    app->current_limit_a = fminf(p->control.maximum_current_a, heat.peak_a);
+    app->current_limit_a = fminf(p->control.maximum_current_a, thermal->peak_a);
     app->speed_ceiling_rad_s = app->speed_limit_rad_s = speed_rad_s;
     app->speed_feedforward.current_limit_a =
         fminf(app->current_limit_a, app->speed_feedforward.current_limit_a);
@@ -356,6 +357,12 @@ void Param_Upload(InterfaceParam *param, const MotorConfiguration *configuration
 
     memset(param, 0, sizeof(*param));
     param->node_id = (float)configuration->device.node_id;
+    if (BSP_BOARD == BSP_BOARD_AT32F456 &&
+        configuration->device.can_bitrate_profile != CAN_BITRATE_DEFAULT_PROFILE)
+    {
+        param->can_bitrate_record =
+            CAN_BITRATE_RECORD_V1 | configuration->device.can_bitrate_profile;
+    }
     param->currentoffset_a = (float)configuration->device.phase_a_offset_counts;
     param->currentoffset_b = (float)configuration->device.phase_b_offset_counts;
     param->currentoffset_c = (float)configuration->device.phase_c_offset_counts;
@@ -442,10 +449,13 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     }
     configuration->preset = NULL;
     const MotorAxisPreset *preset = NULL;
+    bool restore_geared_speed = false;
     MotorAxisProfile *axis = &configuration->application.axis_profile;
     if (BSP_BOARD == BSP_BOARD_AT32F456)
     {
         preset = MotorAxisProfile_ForNode((uint8_t)param->node_id);
+        restore_geared_speed = preset != NULL && (preset->joint == MOTOR_JOINT_PITCH ||
+                                                  preset->joint == MOTOR_JOINT_YAW);
         if (preset == NULL || !MotorAxisProfile_Restore(&param->axis_profile, axis) ||
             axis->magic != MOTOR_AXIS_PROFILE_NUMERIC_MAGIC ||
             axis->identity.numeric.config_revision != MOTOR_PRODUCT_AXIS_REVISION ||
@@ -499,6 +509,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
 
     /* 与 Loader 共用 node_id 字段；应用轴身份不能改写设备地址。 */
     configuration->device.node_id = (uint8_t)param->node_id;
+    configuration->device.can_bitrate_profile =
+        BSP_BOARD == BSP_BOARD_AT32F456 ? CanBitrate_FromRecord(param->can_bitrate_record) : 0U;
     configuration->application.axis_profile_valid =
         preset != NULL || MotorAxisProfile_Load(&param->axis_profile, axis);
     configuration->application.speed_ceiling_rad_s = application_speed_ceiling_rad_s(
@@ -550,7 +562,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             fminf(configuration->model.calibration_current_a, preset->calibration_limit_a);
         configuration->application.current_limit_a =
             fminf(configuration->application.current_limit_a, preset->control.maximum_current_a);
-        configuration->application.speed_ceiling_rad_s = param->axis_profile.maximum_speed_rad_s;
+        /* 产品运行限速取当前预设；旧AXS速度仍保留为位置模式包络。 */
+        configuration->application.speed_ceiling_rad_s = preset->speed_ceiling_rad_s;
     }
     else if (CURRENT_LOOP_USE_IDENTIFIED_GAINS)
     {
@@ -569,10 +582,24 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             configuration->model.motor_q_inductance_h * CURRENT_LOOP_BANDWIDTH_RAD_S;
         configuration->model.iq_ki = configuration->model.id_ki;
     }
+    /* 已保存的显式整定在模型默认装配后生效。零增益是合法的关闭整定。 */
+    if (isfinite(param->id_kp) && param->id_kp >= 0.0f && param->id_kp <= PARAMETER_PI_KP_MAX &&
+        isfinite(param->iq_kp) && param->iq_kp >= 0.0f && param->iq_kp <= PARAMETER_PI_KP_MAX &&
+        isfinite(param->id_ki) && param->id_ki >= 0.0f &&
+        param->id_ki <= PARAMETER_CURRENT_KI_MAX && isfinite(param->iq_ki) &&
+        param->iq_ki >= 0.0f && param->iq_ki <= PARAMETER_CURRENT_KI_MAX &&
+        !current_sense_profile_changed)
+    {
+        configuration->model.id_kp = param->id_kp;
+        configuration->model.iq_kp = param->iq_kp;
+        configuration->model.id_ki = param->id_ki;
+        configuration->model.iq_ki = param->iq_ki;
+    }
     configuration->application.speed_limit_rad_s =
         isfinite(param->speed_limit_rad_s) && param->speed_limit_rad_s > 0.0f &&
-                param->speed_limit_rad_s <=
-                    (preset == NULL ? PARAM_APP_SPEED_CEILING_RAD_S : preset->speed_ceiling_rad_s)
+                (restore_geared_speed ||
+                 param->speed_limit_rad_s <=
+                     (preset == NULL ? PARAM_APP_SPEED_CEILING_RAD_S : preset->speed_ceiling_rad_s))
             ? Math_Constrain(
                   param->speed_limit_rad_s, 0.0f, configuration->application.speed_ceiling_rad_s)
             : Math_Min(configuration->application.speed_ceiling_rad_s,
@@ -608,10 +635,37 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
     if (preset == NULL)
     {
         configuration->application.axis_profile_valid = param_apply_joint_profile(configuration);
+        configuration->application.speed_kp = param->speed_kp;
+        configuration->application.speed_ki = param->speed_ki;
+        configuration->application.cascade_position_kp = param->cascade_pos_kp;
+        configuration->application.cascade_position_kd = param->cascade_pos_kd;
+        configuration->application.speed_acceleration_rad_s2 = param->speed_acceleration_rad_s2;
+        configuration->application.speed_deceleration_rad_s2 = param->speed_deceleration_rad_s2;
+        configuration->application.position_acceleration_rad_s2 =
+            param->position_acceleration_rad_s2;
+        configuration->application.position_deceleration_rad_s2 =
+            param->position_deceleration_rad_s2;
+        configuration->application.position_maximum_speed_rad_s =
+            fminf(param->position_maximum_speed_rad_s, position_speed_limit);
     }
     else
     {
         MotorApplicationConfig *app = &configuration->application;
+        /* 仅将已知 Roll 历史默认组合迁移到当前整定，启动不回写 Flash。 */
+        if (preset->joint == MOTOR_JOINT_ROLL)
+        {
+            if ((app->speed_kp == 0.05f && app->speed_ki == 0.5f) ||
+                (app->speed_kp == 0.5f && app->speed_ki == 1.0f))
+            {
+                app->speed_kp = preset->control.speed_kp;
+                app->speed_ki = preset->control.speed_ki;
+            }
+            if (app->cascade_position_kp == 8.0f && app->cascade_position_kd == 2.0f)
+            {
+                app->cascade_position_kp = preset->control.position_kp;
+                app->cascade_position_kd = preset->control.position_kd;
+            }
+        }
         /* 旧轮记录的 0/0 表示当时未启用位置环，启动时采用车轮保持增益。 */
         if (MotorAxisProfile_IsContinuousWheel(&app->axis_profile) &&
             app->cascade_position_kp == 0.0f && app->cascade_position_kd == 0.0f)
@@ -630,7 +684,8 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
             param->position_maximum_speed_rad_s > 0.0f)
         {
             app->position_maximum_speed_rad_s =
-                fminf(app->speed_limit_rad_s, param->position_maximum_speed_rad_s);
+                fminf(app->axis_profile.maximum_speed_rad_s,
+                      fminf(app->speed_limit_rad_s, param->position_maximum_speed_rad_s));
         }
         app->current_limit_a = fminf(app->current_limit_a, configuration->model.thermal.peak_a);
         app->speed_feedforward.current_limit_a =
@@ -648,4 +703,20 @@ void Param_Download(const void *record, uint32_t size_bytes, MotorConfiguration 
         Param_Return_Default(configuration);
         configuration->configuration_source = MOTOR_CONFIGURATION_CORRUPT;
     }
+}
+
+uint32_t Param_CoordinateCrc(const MotorAxisRecord *record)
+{
+    const InterfaceParam *motor = &record->motor;
+    uint32_t crc = Crc32_Compute(&motor->motor_pole_pairs, sizeof(motor->motor_pole_pairs), 0U);
+    uint32_t bytes =
+        offsetof(InterfaceParam, id_kp) - offsetof(InterfaceParam, encoder_electrical_zero_q15);
+    crc = Crc32_Compute(&motor->encoder_electrical_zero_q15, bytes, crc);
+    crc = Crc32_Compute(&motor->hall_sin_off_counts, 20U, crc);
+    crc = Crc32_Compute(&record->output.magic, sizeof(record->output.magic), crc);
+    crc = Crc32_Compute(&record->output.params, sizeof(record->output.params), crc);
+    return Crc32_Compute(&record->output.hall_lut_status,
+                         sizeof(record->output.hall_lut_status) +
+                             sizeof(record->output.hall_lut_q15),
+                         crc);
 }

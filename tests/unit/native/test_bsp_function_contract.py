@@ -26,7 +26,10 @@ int main(void) {
                           (BSP_BOARD==1 ? 0.060f : 0.080f);
             assert(fabsf(BspAdc_ReadChannel((BspAdcChannel)phase)-expected)<0.00002f);
         }
-        float volts=counts*3.3f/4095.0f*(BSP_BOARD==1 ? 11.0f : 103.3f/3.3f);
+        float bus_counts=counts;
+        assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE)==bus_counts);
+        float volts=bus_counts*3.3f/4095.0f*(BSP_BOARD==1 ? 11.0f : 103.3f/3.3f);
+        if (BSP_BOARD==2) { volts-=0.4f; }
         assert(fabsf(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE)-volts)<0.00003f);
     }
 #if BSP_BOARD==2

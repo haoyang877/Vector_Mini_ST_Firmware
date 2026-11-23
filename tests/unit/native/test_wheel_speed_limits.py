@@ -21,6 +21,7 @@ def fixture():
 #include <stdio.h>
 #include <string.h>
 #include "parameter_record.h"
+#include "can_bitrate.h"
 #include "motor_axis_profile.h"
 #include "application_config.h"
 #include "crc32.h"
@@ -123,16 +124,13 @@ int main(void) {
                               configuration.model.id_ki,configuration.model.iq_ki};
         assert(memcmp(actual,expected,sizeof(expected))==0);
     }
-    /* 已保存R/L按当前目标带宽派生PI；旧增益不覆盖新带宽，导出反映实际值。 */
+    /* 显式保存的电流PI覆盖默认派生值，装载和再次导出保留人工整定。 */
     {
         p=saved;
         p.motor_phase_resistance_ohm=1.25f;
         p.motor_d_inductance_h=.003f; p.motor_q_inductance_h=.004f;
         p.id_kp=.875f; p.iq_kp=1.625f; p.id_ki=2.375f; p.iq_ki=3.125f;
-        const float expected[]={p.motor_d_inductance_h*CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                p.motor_q_inductance_h*CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                p.motor_phase_resistance_ohm*CURRENT_LOOP_BANDWIDTH_RAD_S,
-                                p.motor_phase_resistance_ohm*CURRENT_LOOP_BANDWIDTH_RAD_S};
+        const float expected[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         p.record_crc32=Param_RecordCrc(&p);
         Param_Download(&p,sizeof(p),&configuration);
         const float actual[]={configuration.model.id_kp,configuration.model.iq_kp,
@@ -143,7 +141,7 @@ int main(void) {
         const float exported[]={p.id_kp,p.iq_kp,p.id_ki,p.iq_ki};
         assert(memcmp(exported,expected,sizeof(expected))==0);
     }
-    puts("PASS default PI and stored model use current bandwidth without changing calibration");
+    puts("PASS default PI bandwidth and explicit stored tuning preserve calibration");
     policy_golden_vectors(&saved);
     for(node=1; node<=254; node++) {
         float cap=PARAM_APP_SPEED_CEILING_RAD_S;
@@ -227,7 +225,7 @@ int main(void) {
     }
     /* 当前布局的黄金字节与偏移保持；加载保留既有整定和标定数据。 */
     p=saved; p.node_id=1; p.speed_limit_rad_s=20;
-    p.configuration_flags=1U; p.reserved_pos_ki=0xffffffffU;
+    p.configuration_flags=1U; p.can_bitrate_record=0xffffffffU;
     p.record_crc32=0U; p.reserved_pos_integral_limit=0x80000000U;
     p.can_hb=NAN;
     p.cascade_pos_kp=.07f; p.cascade_pos_kd=.6f; p.speed_kp=.023f;
@@ -240,7 +238,7 @@ int main(void) {
         assert(offsetof(InterfaceParam,can_hb)==2156);
         assert(offsetof(InterfaceParam,configuration_flags)==2136);
         assert(offsetof(InterfaceParam,record_crc32)==2140);
-        assert(offsetof(InterfaceParam,reserved_pos_ki)==2168);
+        assert(offsetof(InterfaceParam,can_bitrate_record)==2168);
         assert(offsetof(InterfaceParam,reserved_pos_integral_limit)==2176);
         assert(memcmp((const uint8_t *)&p+2160,schema_bytes,sizeof(schema_bytes))==0);
         assert(memcmp((const uint8_t *)&p+2164,magic_bytes,sizeof(magic_bytes))==0);
@@ -255,7 +253,7 @@ int main(void) {
     assert(configuration.device.encoder.electrical_zero_q15==3155 && configuration.device.encoder.reverse==0);
     assert(configuration.device.encoder.calib_flag==3 && configuration.device.encoder.linearization_lut_q15[71]==-42);
     Param_Upload(&p,&configuration); p.magic_word=MAGIC_WORD;
-    assert(p.configuration_flags==1U && p.record_crc32==Param_RecordCrc(&p) && p.reserved_pos_ki==0 && p.reserved_pos_integral_limit==0);
+    assert(p.configuration_flags==1U && p.record_crc32==Param_RecordCrc(&p) && p.can_bitrate_record==0 && p.reserved_pos_integral_limit==0);
     {
         const uint8_t zero_bytes[] = {0,0,0,0};
         assert(memcmp((const uint8_t *)&p+2156,zero_bytes,sizeof(zero_bytes))==0);
@@ -382,6 +380,7 @@ def main():
         str(ROOT / "firmware/parameters/motor_axis_profile.c"),
         str(ROOT / "shared/checksum/crc32.c"),
         str(ROOT / "firmware/parameters/parameter_values.c"),
+        str(ROOT / "firmware/motor/math/scaled_integer.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal.c"),
         str(ROOT / "firmware/motor/protection/motor_thermal_config.c"),
         str(ROOT / "firmware/motor/control/speed_feedforward.c"),
@@ -423,7 +422,13 @@ def main():
         else part
         for part in command
     ]
-    for cmd in (tuning_command, [str(tuning_exe)]):
+    tuning_command[-2:-2] = ["-DTARGET_CONFIGURABLE_CAN=1"]
+    commands = [tuning_command, [str(tuning_exe)]]
+    for scope in ("pitch", "joint"):
+        debug_exe = out / f"{scope}_debug_tuning_test.exe"
+        define = f"-DMOTOR_DEBUG_{scope.upper()}_NO_TRAVEL_LIMITS=1"
+        commands.extend(([*tuning_command[:-1], str(debug_exe), define], [str(debug_exe)]))
+    for cmd in commands:
         result = subprocess.run(cmd, capture_output=True, text=True)
         logs.append(result.stdout + result.stderr)
         print(logs[-1], end="")

@@ -24,6 +24,11 @@ void McuCan_Init(void)
     MCU_CAN->ILS = 0U;
 }
 
+bool BspCan_ConfigureBitrate(uint8_t profile)
+{
+    return profile == 0U && (MCU_CAN->CCCR & FDCAN_CCCR_INIT) != 0U;
+}
+
 void BspCan_Start(void)
 {
     MCU_CAN->CCCR &= ~FDCAN_CCCR_INIT;

@@ -1,4 +1,6 @@
 #include "app.h"
+#include "status_lights.h"
+#include "hardware_check.h"
 #include "application_config.h"
 #include "motor_axis.h"
 #include "bsp.h"
@@ -7,6 +9,23 @@
 #include "bsp_system.h"
 #include "interrupt_map.h"
 
+/* 该板中断向量只服务本机应用。 */
+AppContext g_app;
+static StatusLights s_lights;
+
+#if defined(AT32_KEIL_CALIBRATION) && AT32_KEIL_CALIBRATION
+/* Watch 单次写入：1 请求 LUT 标定，2 请求停机。前台消费后清零。 */
+volatile uint32_t s_keil_calibration_command;
+#endif
+
+/* RTT 只读观测板级实例；不复制反馈。 */
+const MotorAxisFeedback MotorAxis_Feedback = {.linear_hall = &g_app.axis.linear_hall};
+
+void BspApp_OnCanReceive(void)
+{
+    Protocol_RxInterrupt(&g_app.endpoint);
+}
+
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
 /* ADC 为单一派发者；PendSV 完成后才允许派发下一拍。 */
 static volatile bool s_outer_outstanding;
@@ -14,7 +33,7 @@ static volatile bool s_outer_outstanding;
 /** @brief 同优先级的监督与外环串行执行；ADC 可以抢占此处理。 */
 void PendSV_Handler(void)
 {
-    MotorAxis_OuterTick();
+    MotorAxis_OuterTick(&g_app.axis);
     s_outer_outstanding = false;
 }
 #endif
@@ -28,11 +47,17 @@ static void startup_failed(void)
     }
 }
 
-/** @brief 在BSP确认监督事件后执行应用慢环。 */
+/** @brief 每个 2 kHz 中频控制拍先更新轴状态，再推进状态灯。 */
 void BspApp_OnControlTick(void)
 {
-    App_SupervisorTick();
-    RTT_Sampling();
+    MotorAxis_SupervisorTick(&g_app.axis);
+    if (StatusLights_Step(&s_lights,
+                          g_app.axis.state_machine.state,
+                          g_app.axis.motor.fault_code != MOTOR_FAULT_NONE,
+                          g_hardware_check_capture))
+    {
+        BspSystem_WriteStatusLights(s_lights.red, s_lights.blue);
+    }
 }
 
 /** @brief 确认并清除ADC完成事件后直接执行轴快环，完成后推进健康计数。 */
@@ -40,9 +65,14 @@ void MCU_ADC_IRQ_HANDLER(void)
 {
     if (BspAdc_CompleteFast())
     {
-        MotorAxis_SampleFast();
-        MotorAxis_ControlFast();
-        ++g_app_fast_samples;
+        MotorAxis_SampleFast(&g_app.axis);
+        MotorAxis_ControlFast(&g_app.axis);
+        RTT_Sampling(g_app.axis.state_machine.fast_sample_ticks);
+        if (g_hardware_check_capture)
+        {
+            HardwareCheck_CaptureFast(&g_app.axis);
+        }
+
 #if OUTER_LOOP_DIVIDER != SUPERVISOR_DIVIDER
         static unsigned outer_ticks;
         if (++outer_ticks == OUTER_LOOP_DIVIDER)
@@ -50,7 +80,7 @@ void MCU_ADC_IRQ_HANDLER(void)
             outer_ticks = 0U;
             if (s_outer_outstanding)
             {
-                MotorAxis_OuterOverrun();
+                MotorAxis_OuterOverrun(&g_app.axis);
             }
             else
             {
@@ -80,16 +110,39 @@ int main(void)
     {
         startup_failed();
     }
-    App_Init();
+    g_app.endpoint.hardware_check = HardwareCheck_Bind(&g_app.axis);
+    App_Init(&g_app);
     RTT_Init();
     BspSystem_StartCycleCounter();
     if (Bsp_Start() != BSP_OK)
     {
         startup_failed();
     }
-    App_Start();
+    App_Start(&g_app);
     for (;;)
     {
-        App_Process();
+#if defined(AT32_KEIL_CALIBRATION) && AT32_KEIL_CALIBRATION
+        uint32_t command = s_keil_calibration_command;
+        if (command != 0U)
+        {
+            s_keil_calibration_command = 0U;
+            if (command == 1U)
+            {
+                (void)MotorStateMachine_RequestCalibration(&g_app.axis.state_machine,
+                                                           MOTOR_CALIBRATION_ENCODER_LINEARIZATION);
+            }
+            else if (command == 3U)
+            {
+                (void)MotorStateMachine_RequestCalibration(&g_app.axis.state_machine,
+                                                           MOTOR_CALIBRATION_ELECTRICAL_ZERO);
+            }
+            else if (command == 2U)
+            {
+                MotorStateMachine_RequestStop(&g_app.axis.state_machine);
+            }
+        }
+#endif
+        App_Process(&g_app);
+        HardwareCheck_Process(&g_app.axis);
     }
 }

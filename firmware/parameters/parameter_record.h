@@ -17,6 +17,7 @@
 #define MAGIC_WORD ((uint32_t)0x454E4332U)
 
 #define PARAM_SCHEMA_VERSION 14U
+#define PARAM_OUTPUT_ENCODER_V3 0x334e454fU
 
 typedef struct
 {
@@ -63,8 +64,8 @@ typedef struct
     float can_hb;
     uint32_t schema_version;
     uint32_t magic_word;
-    /* 退役位置积分字段保留槽：读取忽略，导出清零。 */
-    uint32_t reserved_pos_ki;
+    /* 原位置积分保留槽；AT32 仅识别带版本标记的 CAN 档位，默认档仍导出零。 */
+    uint32_t can_bitrate_record;
     /* Appended in schema v6; identifies the current-sense scaling in Flash. */
     uint32_t current_sense_shunt_milliohm;
     /* 退役积分限值保留槽：读取忽略，导出清零。 */
@@ -102,6 +103,14 @@ typedef struct
     InterfaceParam motor;
     OutputEncoderRecord output;
 } MotorAxisRecord;
+
+/**
+ * @brief 从当前schema14/OEN3规范字节计算坐标指纹v1。
+ * @param record 已校验或由Param_Upload/Store生成的整轴记录。
+ * @return 编码器零位/方向/LUT、Hall系数/LUT及输出安装关系的CRC32。
+ * @note 不含PI、电流零偏和RAM修订号；跨重启相同坐标得到相同值。
+ */
+uint32_t Param_CoordinateCrc(const MotorAxisRecord *record);
 
 /**
  * @brief 编码输出轴标定扩展，绑定同次保存的电机及 Hall 参数。

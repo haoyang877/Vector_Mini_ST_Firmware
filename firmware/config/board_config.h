@@ -7,7 +7,9 @@
 
 /* AT32正式工程的应用装配。 */
 #if defined(FIRMWARE_TARGET_AT32_OFF)
-#define BSP_APP_LIFECYCLE              1
+/* 由板级预包含统一选择 RTT 配置，SEGGER 实现与应用共享同一缓冲布局。 */
+#include "SEGGER_RTT_Conf.h"
+#define BSP_APP_STATE_MACHINE              1
 #endif
 
 #if BSP_BOARD == BSP_BOARD_AT32F456
@@ -42,6 +44,8 @@
 #define AT32_BUS_CURRENT_GAIN      20.0f
 #define AT32_VBUS_TOP_KOHM         100.0f
 #define AT32_VBUS_BOTTOM_KOHM      3.3f
+/* 按指定固定偏置修正物理电压，单位 V；原码及采样配置不变。 */
+#define AT32_VBUS_OFFSET_V         0.4f
 
 /* CN5: 3V3--NTC--TEMP_MOT_IN--R92(1k)--GND；R91(22Ω)只串在ADC滤波支路。
  * 用户确认R25=10kΩ、B=3950K；误差和B值标定温区尚未提供。 */
@@ -85,20 +89,18 @@
 #define AT32_CORE_HZ   ((uint32_t)AT32_CORE_CLOCK_DERIVED_HZ)
 #define AT32_TIMER_HZ  AT32_CORE_HZ
 #define AT32_CAN_HZ    AT32_CORE_HZ
-/* CAN 固定 1 Mbps / 5 Mbps、75% 采样点；分频为 1。 */
-#define AT32_CAN_NOMINAL_SEG2  ((uint32_t)(AT32_CORE_CLOCK_DERIVED_HZ / 4000000ULL))
-#define AT32_CAN_NOMINAL_SEG1  (AT32_CAN_NOMINAL_SEG2 * 3U)
-#define AT32_CAN_DATA_SEG2     ((uint32_t)(AT32_CORE_CLOCK_DERIVED_HZ / 20000000ULL))
-#define AT32_CAN_DATA_SEG1     (AT32_CAN_DATA_SEG2 * 3U)
+/* APP 与 Loader 的 12 种 CAN 位时序基于 180 MHz 内核时钟。 */
+#if AT32_CORE_CLOCK_DERIVED_HZ != 180000000ULL
+#error Recalculate AT32F456 CAN bit timing for this clock
+#endif
 
 
-/* AT32F456CCU7 256KiB主Flash，末16KiB仅供参数。与旧板物理地址隔离。
- * 当前整轴记录4372字节（含OEN3），擦除只覆盖前三个2KiB扇区，后续扩展区保持原样。
- * 完整APP身份/Loader布局仍由后续目标打包定义，不在这里伪造产品描述符。 */
+/* 物理Flash为256KiB，运行分区位于前128KiB，参数和身份共16KiB。
+ * 整轴记录4372字节（含OEN3），参数写入覆盖前三个2KiB扇区。 */
 #define AT32_FLASH_BASE          0x08000000U
-#define AT32_FLASH_BYTES         0x00040000U
+#define AT32_FLASH_BYTES         0x00020000U
 #define AT32_FLASH_SECTOR_BYTES  0x800U
-#define AT32_PARAM_BASE          0x0803C000U
+#define AT32_PARAM_BASE          0x0801C000U
 #define AT32_PARAM_BYTES         0x4000U
 #define AT32_PARAM_RAW_BYTES     4372U
 

@@ -49,3 +49,6 @@ data_recoder/
 *.egg-info/
 /host_app/build/
 /host_app/dist/
+
+# Cargo build output
+/host_app/rust/target/

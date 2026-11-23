@@ -1,93 +1,86 @@
-# 电机驱动软件架构
+# APP 与 Loader 软件架构
 
-更新：2026-10-30。本页描述当前工作树，旧阶段报告不代表当前行为或实机验收。
-目录归属见[代码框架](code_structure.md)，协议开放范围见[核心 v1.8](../protocols/README.md#implementation)。
+适用STM32G431与AT32F456。两板共用单轴APP和升级核心，分别链接板级入口、SDK与BSP实现。
+工程及镜像选择见[仓库入口](../../README.md)，稳定边界见[ARCHITECTURE](../../ARCHITECTURE.md)。
 
-## 结构与所有权
+## 产品及依赖
 
-这是无 RTOS 的单轴应用，由 ADC 快中断、监督中断和前台主循环协作。
-APP 组装对象并决定动作；motor 提供控制、反馈、测量与标定算法；
-BSP 提供统一硬件能力，各 MCU 文件直接实现；通信通过 APP 绑定的服务请求动作。
-Loader 和主机程序独立构建，只通过 shared 契约与 APP 协作。
-
-| 所有者 | 数据与责任 |
-| --- | --- |
-| MotorAxis | 单份配置、MotorControlState、FocState、编码器、观测器和标定工作区 |
-| MotorLifecycle | 五态、启停意图、功率许可、故障恢复、标定类型和会话代际 |
-| MotorStateMachine | state/event 到下一状态的纯函数，无上下文和副作用 |
-| motor/control | PI 与外环内部状态；不决定启相和生命周期 |
-| parameters | 默认值、配置校验及记录转换；不保存运行状态 |
-| communication | 帧队列、分片、命令和回复；不直接读写 Watch 对象 |
-| BSP | 寄存器、DMA、片内初始化、硬件数值换算与系统同步原语 |
-
-FocState 同时持有实测量、PI、调制和估算量；设备 LUT/零位位于配置 device.encoder。
-外环和标定仍有单实例静态状态，不能只增加一个 Axis 对象就扩展成多轴。
-
-## 启动和调度
-
-两板 main 均执行 `Bsp_Init → App_Init → Bsp_Start → App_Start`，随后循环 `App_Process`。
-BSP 先准备关相硬件，APP 再装载配置和绑定服务，之后才开放采样与监督时钟。
-生命周期从 IDLE 开始；SELF_TEST 当前仅占位。
-
-| 上下文 | 入口 | 顺序 |
-| --- | --- | --- |
-| 20 kHz ADC | main直接调用（AT32）或HAL回调（STM32） → MotorAxis_SampleFast → MotorAxis_ControlFast | 编码器 Begin、母线电压、零偏/电流、Clarke、观测器、编码器读回、生命周期复核、控制或标定、结果与故障关相 |
-| 2 kHz 监督 | BspApp_OnControlTick → App_SupervisorTick | 编码器慢估计、MCU 温度、STOP/故障/标定收尾、外环计算和最终提交 |
-| 前台 | App_Process | LUT 候选发布、状态刷新、协议服务、Loader 交接、看门狗健康检查 |
-
-编码器传输与中间计算重叠。上电零偏在关相 IDLE 累计 2048 个快拍，约 102.4 ms，
-完成前电流无效；每次上电重校，Flash 旧偏置不提供本次资格。
-监督先取得运行副本，在可抢占区计算外环，最后复核代际、STOP 和故障，
-只提交仍有效的输出字段。启相请求由下一 ADC 快拍复核并执行。
-
-## 生命周期与控制
-
-`IDLE → RUNNING` 仅在实际启相确认后完成；`IDLE → CALIBRATION` 由明确标定请求进入。
-运行或标定停止/完成后先关相再回 IDLE；故障进入 FAULT，满足恢复条件并明确清错后回 IDLE。
-清错不恢复旧目标。STOP 受理会撤销待启动意图，回复 OK 还必须确认数字相通道已关闭。
-会话代际阻止旧控制结果或标定候选在停止之后重新生效。
-
-正常控制模式包括电流、速度、位置、Vq、电压开环和电流开环。
-位置/速度外环在 2 kHz 生成 Iq；快环选择角度来源、控制律和参考，统一进入：
-
-```text
-Foc_Prepare：电流变换、参考限幅、PI、电压矢量限幅、逆 Park、SVPWM
-  → BspPwm_SetDuty：提交三相占空比
-  → Foc_Complete：滤波、母线电流/功率估算和积分跟踪
+```mermaid
+flowchart TD
+    P[projects 板级入口] --> A[APP组装与状态机]
+    A --> M[motor 控制与反馈]
+    A --> C[communication]
+    A --> R[parameters]
+    M --> B[BSP公共接口]
+    R --> B
+    C --> S[shared协议与目标契约]
+    L[独立Loader] --> S
+    L --> H[Loader板级端口]
+    B --> D[MCU实现与SDK]
 ```
 
-FOC 不自行启相；独立母线电流实测与 FOC 估算分开保存。
-绕组热模型源码和参数布局保留，但 APP 调度已移除，当前限流使用配置值。
-18 A 过流宏当前用于恢复判断，不构成已验证的统一三相快保护。
+| 产品/目录 | 所有者与职责 |
+| --- | --- |
+| `firmware/app` | AppContext组装、状态机、MotorAxis、标定发布和Loader交接 |
+| `firmware/motor` | 控制律、传感器反馈、观测器、标定和保护算法 |
+| `firmware/communication` | 帧、队列、校验、编解码与绑定的业务回调 |
+| `firmware/parameters`、`config` | 默认值、校验、记录转换、板型及电机输入 |
+| `firmware/platform/bsp` | 统一公共接口及各MCU真实硬件操作 |
+| `loader` | 独立启动、下载、校验、激活和端口；不链接到APP |
+| `shared` | 跨产品协议、CRC、邮箱、镜像与目标布局，不存放产品运行状态 |
+| `host_app`、`tools/bench` | 独立主机产品，不代替固件功率准入 |
 
-## 标定、参数和通信
+## 启动与调度
 
-通信 Type 160 的 kind 1/2/6 分别请求 LUT、电气零位、机械零位。
-前两种有功率，机械零位要求关相。LUT 采样、成表和验证在快环分批推进，
-完成后先关相，再由前台在原会话仍有效时发布。标定只改 RAM，不自动保存。
+普通APP从自身向量启动；LoaderApp先由Loader验证镜像并交接。
+各板main静态持有一个AppContext，顺序为 `Bsp_Init → App_Init → Bsp_Start → App_Start`，
+前台持续调用App_Process。中断开放前完成对象和回调绑定。
+ADC快拍执行采样、控制或标定；独立监督处理状态和慢任务；AT32可由有效快拍分频请求PendSV外环。
+前台负责通信、位置段表构建、关相后的参数保存及升级交接。
+频率与板级触发由配置定义，详细时序见[采样](sampling_chain_v1.md)。
 
-配置分为电机 model、应用 application 和设备 device。
-启动读取固定 Flash 区，校验 schema14/CRC 后装配配置；无效记录回退默认值。
-当前记录固定 2288 字节，保留槽不改变。默认值不自动覆盖已有有效记录。
-当前默认电机为 YQ-5708，热参数仍为空，配置校验会拒绝该占位配置的启动准入；
-AT32 MCU 温度校准也尚未提供。源码整理不替代实际参数确认。
+## 对象、状态与并发
 
-CAN RX 中断每次最多搬运 3 帧，RX/TX 队列各 8 帧。
-前台负责帧/CRC/地址校验、分片、命令路由与回复；内部枚举与线上编号显式映射。
-当前开放零目标启动、STOP、清错、三类标定和状态/身份读取。
-普通目标、在线参数读写/保存、标定进度查询/取消未开放；状态反馈只提供状态、模式和故障，
-测量字段不宣称有效。RTT 模块保留但当前 APP 无调用。
+MotorAxis持有活动配置、FOC、转子/Hall/输出反馈、标定工作区和外环状态。
+MotorStateMachine拥有主状态、运行代际、目标写入、功率许可及停止收尾。
+ProtocolEndpoint拥有接收/发送队列和协议事务，不直接写算法积分。
+AppLoader拥有停机交接票据、截止时间和镜像确认条件。
 
-STM32 LoaderApp 在停机、健康检查及交接回复实际发送完成后进入 Loader；
-独立 STM32 APP 和 AT32 不提供该能力。STM32 应用看门狗入口当前返回 NOT_SUPPORTED，
-Loader 继承看门狗由 BootHw 管理；AT32 APP 提供硬件看门狗。
+状态机受理启动不等于硬件已经启相；ADC在实际输出前复核代际、输入、故障和STOP。
+前台与监督的短临界区允许ADC抢占；多字段更新不自动成为快环原子快照。
+完整载荷先写、发布标志后写，必要处使用内存屏障和代际拒绝。
+反馈快照在有限重试仍不一致时返回忙或无效，不通过长时间禁止ADC来获得一致性。
+具体迁移与取消契约见[状态机](motor_state_machine_v1.md)。
 
-## 硬件与验证边界
+## 参数、标定与共享内存
 
-BSP 只保留八个公开头和一个内部声明头，硬件实现位于各 MCU。
-PWM 直接写比较值和通道位；ADC 返回数值或 NaN，没有帧序号与同拍保证；
-编码器 Begin/ReadAngle 当前没有 CRC、错误状态或等待超时。
-这些是当前接口语义，不能从旧保护或诊断设计推导出额外保证。
+启动加载有效记录，否则按规定回退并保留参数故障；编译默认值不自动覆盖有效Flash记录。
+标定先产生候选，关相后由前台登记发布，ADC在读角前安装LUT，再由前台保存并回读。
+旧会话、STOP和故障会使候选失效。参数格式和兼容读取见[参数设计](parameter_ownership_v1.md)。
+标定采样、检测队列和记录编码串行复用MotorCalibration的维护区，不能同时读写重叠视图。
+检测结果和事务身份独立保存；消费者须遵循占用状态，不缓存已被下一阶段覆盖的视图。
+AT32 APP的代码/数据/栈预算由链接输入约束；邮箱地址与大小服从shared目标及Loader ABI。
+资源上限与运行栈水位是不同约束，源码布局不证明最坏嵌套栈已经测得。
 
-PR 检查只覆盖离线行为；构建成功也不表示采样时序、PWM 波形、机械响应或保护已实机验收。
-本轮清理范围和证据见[清理计划](../plans/active/2026-10-30-firmware-cleanup-v1.md)。
+## 硬件与控制边界
+
+BSP不拥有电机运行状态，控制算法不直接访问寄存器。板级main只接线公共硬件事件。
+共用控制、协议和参数实现不得散布板型分支；板间差异在配置、BSP与目标布局收敛。
+控制链见[算法设计](motor_execution_core_v3.md)，硬件语义见[BSP](bsp_design_rules.md)，
+采样窗口及PWM装载见[时序设计](at32f456_pwm_adc_driver.md)。
+
+## 升级和主机
+
+独立Loader只写APP槽；LoaderApp完成停机、同一回复物理发送确认后交接。
+启动尝试、确认标记、继承看门狗与失败驻留见[Loader设计](loader/loader_product_v3.md)。
+主机按UID、目标契约和设备能力建立会话，旧回复或本地包版本不能替代板端事实。
+主机产品分别见[Qt生产工具](qt_production_design_v1.md)和[Rust工作台](yg_mc_host_design_v1.md)。
+
+## 设计验证与能力边界
+
+当前包含双板APP/Loader、单轴位置OTG、Hall初始定位与输出遥测。
+普通位置串级和限位仍使用电机编码器坐标，不声明独立输出轴闭环。
+UART业务、镜像签名、A/B回滚和多轴同步不属于现行实现承诺。
+ADC窗口、最坏中断/栈预算、闭环带载稳定性和实际掉电恢复必须按匹配设备与镜像验证；
+离线算法、接口与布局检查不能替代这些硬件性质。
+接口及协议变更同步调用者、兼容约束和对应回归，通用入口见[tests](../../tests/README.md)。

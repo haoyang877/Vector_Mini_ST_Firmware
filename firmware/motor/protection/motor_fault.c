@@ -84,6 +84,7 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
                configuration->application.current_limit_a > 0.0f;
     case MOTOR_FAULT_CONTROL_OVERRUN:
     case MOTOR_FAULT_SELF_TEST_TIMEOUT:
+    case MOTOR_FAULT_CAN_DISCONNECTED:
         return samples_fresh;
     case MOTOR_FAULT_PHASE_RESISTANCE:
     case MOTOR_FAULT_PHASE_INDUCTANCE:
@@ -92,6 +93,7 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
     case MOTOR_FAULT_FRICTION_IDENTIFICATION:
     case MOTOR_FAULT_COGGING_CALIBRATION:
     case MOTOR_FAULT_LINEAR_HALL_CALIBRATION:
+    case MOTOR_FAULT_CALIBRATION_OVERSPEED:
     case MOTOR_FAULT_CALIBRATION_STORAGE:
         /* 终止型辨识故障由显式 CLEAR 确认；资源已释放才允许重试，各模式标定准入不变。 */
         return configuration->application.axis_profile_valid && maintenance_released;

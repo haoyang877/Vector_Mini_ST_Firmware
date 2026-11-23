@@ -74,6 +74,7 @@ def main() -> None:
             "firmware/motor/math/control_math.c",
             "firmware/parameters/parameter_record.c",
             "firmware/parameters/parameter_values.c",
+            "firmware/motor/math/scaled_integer.c",
             "firmware/parameters/motor_axis_profile.c",
             "firmware/motor/protection/motor_thermal.c",
             "firmware/motor/protection/motor_thermal_config.c",

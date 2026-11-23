@@ -5,7 +5,6 @@
 #include "application_config.h"
 #include "motor_fault.h"
 #include "bsp_adc.h"
-#include "bsp_system.h"
 #include "bsp_pwm.h"
 #include "control_math.h"
 
@@ -17,8 +16,10 @@ void MotorCurrentOffsets_Init(CurrentOffsetCalibration *calibration,
                               FocState *foc,
                               bool bus_current_enabled)
 {
-    *calibration = (CurrentOffsetCalibration){0};
-    calibration->bus_current_enabled = bus_current_enabled;
+    *calibration = (CurrentOffsetCalibration){.bus_current_enabled = bus_current_enabled,
+                                              .phases_disabled = BspPwm_ArePhasesDisabled,
+                                              .phase_offset_counts = {NAN, NAN, NAN},
+                                              .bus_offset_counts = NAN};
     configuration->device.phase_a_offset_counts = NAN;
     configuration->device.phase_b_offset_counts = NAN;
     configuration->device.phase_c_offset_counts = NAN;
@@ -44,7 +45,7 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
     {
         return false;
     }
-    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    if (!calibration->phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
     {
         fail_current_offset_calibration(calibration, motor_state);
         return false;
@@ -80,6 +81,16 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
     const float offsets[3] = {(float)calibration->phase_sum_raw[0] * scale,
                               (float)calibration->phase_sum_raw[1] * scale,
                               (float)calibration->phase_sum_raw[2] * scale};
+    float bus_offset_counts = NAN;
+    if (calibration->bus_current_enabled)
+    {
+        bus_offset_counts = (float)calibration->bus_sum_raw / (float)CURRENT_OFFSET_SAMPLE_COUNT;
+    }
+    for (unsigned phase = 0U; phase < 3U; ++phase)
+    {
+        calibration->phase_offset_counts[phase] = offsets[phase];
+    }
+    calibration->bus_offset_counts = bus_offset_counts;
     for (unsigned phase = 0U; phase < 3U; ++phase)
     {
         if (!MotorCurrentOffset_InRange(offsets[phase]))
@@ -88,17 +99,14 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
             return false;
         }
     }
-    float bus_offset_counts = (float)calibration->bus_sum_raw / (float)CURRENT_OFFSET_SAMPLE_COUNT;
     if (calibration->bus_current_enabled && !MotorCurrentOffset_InRange(bus_offset_counts))
     {
         fail_current_offset_calibration(calibration, motor_state);
         return false;
     }
-    uint32_t key = BspSystem_EnterCritical();
-    if (!BspPwm_ArePhasesDisabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
+    if (!calibration->phases_disabled() || motor_state->control_mode != MOTOR_CONTROL_NONE)
     {
         fail_current_offset_calibration(calibration, motor_state);
-        BspSystem_ExitCritical(key);
         return false;
     }
     BspAdc_SetPhaseOffsets(offsets);
@@ -110,7 +118,6 @@ bool MotorCurrentOffsets_Calibrate(CurrentOffsetCalibration *calibration,
     configuration->device.phase_b_offset_counts = offsets[1];
     configuration->device.phase_c_offset_counts = offsets[2];
     calibration->complete = true;
-    BspSystem_ExitCritical(key);
     return true;
 }
 

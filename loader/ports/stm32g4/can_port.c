@@ -45,11 +45,11 @@ bool LoaderCan_Ready(void)
 {
     return running && !(FDCAN1->PSR & FDCAN_PSR_BO) && !(FDCAN1->CCCR & FDCAN_CCCR_INIT);
 }
-bool LoaderCan_Init(uint8_t node)
+bool LoaderCan_Init(uint8_t node, uint8_t profile)
 {
     volatile uint32_t *ram = (volatile uint32_t *)SRAMCAN_BASE;
     uint32_t i;
-    if (initialized_once || node == 255)
+    if (initialized_once || node == 255 || profile != 0U)
     {
         return false;
     }

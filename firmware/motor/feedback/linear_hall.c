@@ -75,11 +75,12 @@ bool LinearHall_CalibrationFinish(LinearHallCalibration *cal, LinearHall *hall)
 
 void LinearHall_Init(LinearHall *hall)
 {
-    *hall = (LinearHall){.sin_off_counts = 1930.5f,
-                         .cos_off_counts = 1906.0f,
-                         .sin_amp = 1829.5f,
-                         .cos_amp = 1787.0f,
-                         .calibration_success = false};
+    /* 原位清零，避免ARMCC为含1024点LUT的复合字面量生成2 KiB栈临时量。 */
+    memset(hall, 0, sizeof(*hall));
+    hall->sin_off_counts = 1930.5f;
+    hall->cos_off_counts = 1906.0f;
+    hall->sin_amp = 1829.5f;
+    hall->cos_amp = 1787.0f;
 }
 
 void LinearHall_Update(LinearHall *hall, float sin_counts, float cos_counts)

@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from project_paths import NATIVE_INCLUDE_FLAGS, ROOT
+from run_position_servo_tests import function_source
 
 
 def main() -> int:
@@ -38,8 +39,8 @@ def main() -> int:
                 "-Werror",
                 f"-DBSP_BOARD={profile}",
                 str(native / "app_bus_current_test.c"),
-                str(ROOT / "firmware/app/composition/app_protocol.c"),
-                str(ROOT / "firmware/app/interfaces/motor_stop_request.c"),
+                str(ROOT / "firmware/app/app_protocol.c"),
+                str(ROOT / "firmware/motor/math/scaled_integer.c"),
                 str(ROOT / "shared/protocol/yg_protocol_crc.c"),
                 str(ROOT / "shared/protocol/yg_protocol_frame_codec.c"),
                 str(ROOT / "shared/protocol/yg_protocol_can_id.c"),
@@ -66,6 +67,23 @@ def main() -> int:
         )
         if "VECTOR live_current_feedback " + expected not in result.stdout.splitlines():
             raise RuntimeError("实时反馈黄金向量不匹配")
+        coordinates = json.loads(
+            (ROOT / "tests/fixtures/protocol/output_coordinates_v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected_coordinates = coordinates["feedback_offsets_8_to_23_hex"]
+        if "VECTOR output_coordinates_v2 " + expected_coordinates not in result.stdout.splitlines():
+            raise RuntimeError("输出轴坐标v2黄金向量不匹配")
+        motor_axis = json.loads(
+            (ROOT / "tests/fixtures/protocol/motor_axis_speed_v1.json").read_text(encoding="utf-8")
+        )
+        for name, key in (
+            ("motor_axis_speed_v1", "feedback_offsets_8_to_23_hex"),
+            ("motor_axis_target_v1", "target_payload_hex"),
+        ):
+            if f"VECTOR {name} {motor_axis[key]}" not in result.stdout.splitlines():
+                raise RuntimeError(f"电机轴速度黄金向量不匹配 {name}")
     executable = args.out.resolve() / "at32f456_foundation.exe"
     command = [args.cc] + (["cc"] if Path(args.cc).stem == "zig" else [])
     command += [
@@ -178,6 +196,41 @@ def main() -> int:
         check=True,
     )
     subprocess.run([str(keil_executable)], check=True)
+    bench = ROOT / "tests/bench/at32f456"
+    source = (bench / "openloop_main.c").read_text(encoding="utf-8")
+    mailbox_start = source.index("volatile struct", source.index("/* 独立验证目标"))
+    mailbox_end = source.index(";", source.index(".version = 1U", mailbox_start)) + 1
+    request_start = source.rindex("typedef struct", 0, source.index("} BenchControlRequest;"))
+    request_end = source.index("static void consume_controls(void);", request_start)
+    handoff = "\n".join(
+        [source[mailbox_start:mailbox_end], source[request_start:request_end]]
+        + [
+            function_source(source, name)
+            for name in ("apply_command", "post_controls", "consume_controls")
+        ]
+    )
+    fixture = (native / "bench_control_handoff_test.c").read_text(encoding="utf-8")
+    generated = args.out / "bench_control_handoff.c"
+    generated.write_text(fixture.replace("/* REAL_HANDOFF */", handoff), encoding="utf-8")
+    executable = args.out.resolve() / "bench_control_handoff.exe"
+    subprocess.run(
+        command[: command.index("-I")]
+        + [
+            "-I",
+            str(bench),
+            "-DAT32_KEIL_OPENLOOP=1",
+            "-DAT32_OPENLOOP_POWER_ENABLED=1",
+            str(generated),
+            str(bench / "openloop_keil_control.c"),
+            str(bench / "openloop_model.c"),
+            str(motor / "math/control_math.c"),
+            "-lm",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+    )
+    subprocess.run([str(executable)], check=True)
     rtt_executable = args.out.resolve() / "at32f456_rtt.exe"
     subprocess.run(
         command[: command.index("-I")]

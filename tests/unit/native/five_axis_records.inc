@@ -1,20 +1,92 @@
 
+/* 检查有效记录经过 APP 写入、重新装载和 Loader 的分块 CRC 后得到相同的档位。 */
+static void check_bitrate(const InterfaceParam *original)
+{
+    const unsigned data_kbps[] = {500, 1000, 2000, 3000, 4000, 5000};
+    InterfaceParam record;
+    MotorConfiguration cfg;
+    ParameterValue read;
+    ParameterWriteRequest write = {.parameter_id = 0x71, .value_type = PARAMETER_VALUE_U32};
+    Param_Download(original, sizeof(*original), &cfg);
+    assert(cfg.device.can_bitrate_profile == 11U);
+    assert(ParameterValue_Read(&cfg, 1, 0x71, &read) == PARAMETER_OK);
+    assert(read.raw_value == ((1000UL << 16U) | 5000U));
+    for (unsigned nominal = 500; nominal <= 1000; nominal += 500)
+    {
+        for (unsigned i = 0; i < 6; ++i)
+        {
+            write.raw_value = (nominal << 16) | data_kbps[i];
+            assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_OK);
+            assert(ParameterValue_MatchesRequest(&cfg, &write));
+            assert(ParameterValue_Read(&cfg, 2, 0x71, &read) == PARAMETER_OK);
+            assert(read.raw_value == write.raw_value && read.access == 3 && read.value_type == 2);
+            uint8_t profile = cfg.device.can_bitrate_profile;
+            Param_Upload(&record, &cfg);
+            assert(record.can_bitrate_record == (profile == 11U ? 0U : 0x43420100U | profile));
+            memcpy(parameter_flash, &record, sizeof(record));
+            assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == profile);
+            assert(LoaderParameters_ReadBitrate(YI_PARAMS_BLANK) == 11U);
+            assert(LoaderParameters_ReadBitrate(YI_PARAMS_UNSAFE) == 11U);
+            Param_Download(&record, sizeof(record), &cfg);
+            assert(cfg.device.can_bitrate_profile == profile);
+            assert(cfg.device.node_id == original->node_id);
+        }
+    }
+    write.raw_value = (250U << 16) | 2000U;
+    assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_OUT_OF_RANGE);
+    write.raw_value = (500U << 16) | 2500U;
+    assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_OUT_OF_RANGE);
+    write.value_type = PARAMETER_VALUE_I32;
+    assert(ParameterValue_Apply(&cfg, &write) == PARAMETER_BAD_TYPE);
+    assert(cfg.device.can_bitrate_profile == 11);
+    /* v0.7.0 曾显式保存所有非零档位，包括现在的默认档 11。 */
+    for (unsigned id = 0; id < 12; ++id)
+    {
+        record.can_bitrate_record = 0x43420100U | id;
+        record.record_crc32 = Param_RecordCrc(&record);
+        memcpy(parameter_flash, &record, sizeof(record));
+        Param_Download(&record, sizeof(record), &cfg);
+        assert(cfg.device.can_bitrate_profile == id);
+        assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == id);
+    }
+    record.can_bitrate_record = 0x43420100U; /* 显式 500K/2M 也必须通过基础 CRC。 */
+    record.record_crc32 = Param_RecordCrc(&record) ^ 1U;
+    memcpy(parameter_flash, &record, sizeof(record));
+    assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == 11U);
+    Param_Download(&record, sizeof(record), &cfg);
+    assert(cfg.device.can_bitrate_profile == 11U);
+    const uint32_t legacy[] = {0U, 0xFFFFFFFFU, 0x4342010CU, 0x43420201U};
+    for (unsigned i = 0; i < sizeof(legacy)/sizeof(legacy[0]); ++i)
+    {
+        record.can_bitrate_record = legacy[i];
+        record.record_crc32 = Param_RecordCrc(&record);
+        memcpy(parameter_flash, &record, sizeof(record));
+        assert(LoaderParameters_ReadBitrate(YI_PARAMS_RAW11) == 11U);
+        Param_Download(&record, sizeof(record), &cfg);
+        assert(cfg.device.can_bitrate_profile == 11U && cfg.device.node_id == original->node_id);
+    }
+}
+
 /* 模拟电机轴范围和热参数，仅供离线测试。 */
 int main(void)
 {
     const MotorJointType roles[] = {MOTOR_JOINT_WHEEL_LEFT, MOTOR_JOINT_WHEEL_RIGHT,
-                                    MOTOR_JOINT_ROLL, MOTOR_JOINT_PITCH, MOTOR_JOINT_YAW};
+                                    MOTOR_JOINT_ROLL, MOTOR_JOINT_PITCH, MOTOR_JOINT_YAW, MOTOR_JOINT_LIFT};
     MotorWindingThermalConfig heat = {3, 7, 66, .8f, .7f, 1, .5f};
     InterfaceParam record;
     Param_Return_Default(&configuration);
     assert(configuration.device.node_id == UINT8_MAX && !configuration.configuration_confirmed);
-    assert(!Param_CreateAxis(6, -1, 1, .5f, NULL, &configuration));
-    for (unsigned node = 3; node <= 7; ++node)
+    assert(!Param_CreateAxis(6, 0, 0, .5f, NULL, &configuration));
+    for (unsigned node = 3; node <= 8; ++node)
     {
-        bool wheel = node < 5, ht = node <= 5;
-        assert(Param_CreateAxis(node, wheel ? 0 : -1, wheel ? 0 : 1, .5f, &heat, &configuration));
+        bool wheel = node < 5, ht = node <= 5, pitch_parameters = node == 6 || node == 8;
+        bool continuous = node <= 7;
+        bool unrestricted = continuous || MOTOR_DEBUG_JOINT_NO_TRAVEL_LIMITS ||
+                            MOTOR_DEBUG_PITCH_NO_TRAVEL_LIMITS;
+        assert(Param_CreateAxis(node, continuous ? 0 : -1, continuous ? 0 : 1, .5f, &heat, &configuration));
         Param_Upload(&record, &configuration);
         assert(record.record_crc32 == five_axis_crc[node - 3]);
+        check_bitrate(&record);
         configuration.configuration_confirmed = true;
         configuration.device.encoder.calib_flag = ENC_CALIB_ALL;
         configuration.device.encoder.linearization_lut_q15[71] = -42;
@@ -25,16 +97,17 @@ int main(void)
         Param_Download(&record, sizeof(record), &configuration);
         const MotorAxisPreset *p = configuration.preset;
         assert(configuration.configuration_confirmed && p && p->node_id == node);
+        assert(strcmp(p->model_name, ht ? "HT8115-4" : pitch_parameters ? "YQ-5740" : "YQ-5708") == 0);
         assert(p->joint == roles[node-3] && configuration.model.motor_pole_pairs == (ht ? 21 : 14));
         assert(configuration.model.motor_phase_resistance_ohm == (ht ? 1.905f : .55f));
-        assert(configuration.model.calibration_current_a == (ht ? 3.f : 1.6f));
+        assert(configuration.model.calibration_current_a == (node == 5 ? 5.f : ht ? 3.f : 1.6f));
         assert(configuration.application.current_limit_a == 7);
         assert(configuration.model.thermal.continuous_vector_a == 3);
         if (node == 5)
         {
-            assert(fabsf(p->speed_ceiling_rad_s - 3.14159265f) < 1e-6f);
-            assert(p->control.acceleration_rad_s2 == p->speed_ceiling_rad_s);
-            assert(p->control.deceleration_rad_s2 == p->speed_ceiling_rad_s);
+            assert(fabsf(p->speed_ceiling_rad_s - 5.0f * CONFIG_TWO_PI) < 1e-6f);
+            assert(fabsf(p->control.acceleration_rad_s2 - 3.14159265f) < 1e-6f);
+            assert(fabsf(p->control.deceleration_rad_s2 - 3.14159265f) < 1e-6f);
         }
         assert(configuration.application.speed_acceleration_rad_s2 == (wheel ? 20.0f : p->control.acceleration_rad_s2));
         assert(configuration.application.speed_deceleration_rad_s2 == (wheel ? 20.0f : p->control.deceleration_rad_s2));
@@ -42,29 +115,110 @@ int main(void)
         assert(configuration.application.position_deceleration_rad_s2 == configuration.application.speed_deceleration_rad_s2);
         if (node >= 6)
         {
-            const float ratio = p->electrical->gear_ratio;
-            const float output_limit = 2.094395102f;
+            const float ratio = p->gear_ratio;
+            const float output_limit = node == 8 ? 30.0f : CONFIG_TWO_PI;
             assert(fabsf(p->speed_ceiling_rad_s / ratio - output_limit) < 1e-6f);
-            assert(fabsf(p->control.acceleration_rad_s2 / ratio - output_limit) < 1e-6f);
-            assert(fabsf(p->control.deceleration_rad_s2 / ratio - output_limit) < 1e-6f);
+            assert(fabsf(p->control.acceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
+            assert(fabsf(p->control.deceleration_rad_s2 / ratio - 2.094395102f) < 1e-6f);
             MotorConfiguration full;
-            assert(Param_CreateAxis(node, -1, 1, output_limit * ratio, &heat, &full));
-            assert(!Param_CreateAxis(node, -1, 1, (output_limit + 0.001f) * ratio, &heat, &full));
+            const float travel = continuous ? 0.0f : 1.0f;
+            assert(Param_CreateAxis(node, -travel, travel, output_limit * ratio, &heat, &full));
+            assert(!Param_CreateAxis(node, -travel, travel, (output_limit + 0.001f) * ratio, &heat, &full));
         }
-        assert(configuration.application.speed_kp == (wheel ? .05f : ht ? .5f : .048f));
-        assert(configuration.application.speed_ki == (node == 5 ? 1.f : .5f));
+        assert(configuration.application.speed_kp == (node == 5 ? .55f : ht ? .05f : .048f));
+        assert(configuration.application.speed_ki == (node == 5 ? 2.5f : .5f));
+        if (node == 5)
+        {
+            assert(configuration.application.cascade_position_kp == 16.0f);
+            assert(configuration.application.cascade_position_kd == 1.6f);
+            InterfaceParam old = record;
+            old.cascade_pos_kp = 8.0f;
+            old.cascade_pos_kd = 2.0f;
+            old.speed_kp = .5f;
+            old.speed_ki = 1.f;
+            old.record_crc32 = Param_RecordCrc(&old);
+            InterfaceParam unchanged = old;
+            MotorConfiguration migrated;
+            Param_Download(&old, sizeof(old), &migrated);
+            assert(migrated.application.speed_kp == .55f && migrated.application.speed_ki == 2.5f);
+            assert(migrated.application.cascade_position_kp == 16.0f);
+            assert(migrated.application.cascade_position_kd == 1.6f);
+            assert(migrated.configuration_confirmed && migrated.device.encoder.calib_flag == ENC_CALIB_ALL);
+            assert(migrated.device.encoder.linearization_lut_q15[71] == -42);
+            assert(migrated.model.calibration_current_a == 5.f);
+            assert(memcmp(&old, &unchanged, sizeof(old)) == 0);
+            old.speed_kp = .05f;
+            old.speed_ki = .5f;
+            old.cascade_pos_kp = 17.0f;
+            old.cascade_pos_kd = 2.0f;
+            old.record_crc32 = Param_RecordCrc(&old);
+            Param_Download(&old, sizeof(old), &migrated);
+            assert(migrated.application.speed_kp == .55f && migrated.application.speed_ki == 2.5f);
+            assert(migrated.application.cascade_position_kp == 17.0f);
+            assert(migrated.application.cascade_position_kd == 2.0f);
+            old.speed_kp = .7f;
+            old.speed_ki = 2.5f;
+            old.record_crc32 = Param_RecordCrc(&old);
+            Param_Download(&old, sizeof(old), &migrated);
+            assert(migrated.application.speed_kp == .7f && migrated.application.speed_ki == 2.5f);
+        }
+        /* 标定使用独立增益；调整标定PI不能改动运行速度PI。 */
+        assert(p->startup->speed_kp == (ht ? .05f : .012f));
+        assert(p->startup->speed_ki == .5f);
         assert(fabsf(configuration.model.iq_kp - (ht ? 12.32761f : .60995855f)) < .0001f);
         assert(fabsf(configuration.model.iq_ki - (ht ? 14363.36f : 3226.22067f)) < .01f);
-        assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : node == 6 ? 336 : 420));
+        assert(p->startup->target_electrical_velocity_rad_s == (ht ? 315 : pitch_parameters ? 336 : 420));
         assert(p->electrical->speed_pll_hz == 600);
-        assert(p->electrical->gear_ratio == (ht ? 1 : 8));
+        assert(p->gear_ratio == (ht ? 1 : 40));
         assert(p->electrical->observer_gamma == 800000);
         assert(configuration.device.encoder.linearization_lut_q15[71] == -42);
-        assert(p->damper_torque_nm == (wheel ? 0.0f : 2.0f));
-        assert(MotorAxisPreset_HasLinearHall(p) == (node == 6 || node == 7));
+        {
+            MotorConfiguration cfg = configuration;
+            const float limit = node <= 5 ? 5.0f * CONFIG_TWO_PI :
+                                node <= 7 ? CONFIG_TWO_PI * 40.0f : 1200.0f;
+            assert(cfg.application.speed_ceiling_rad_s == limit);
+            ParameterWriteRequest request = {.parameter_id=1, .value_type=PARAMETER_VALUE_I32,
+                                              .raw_value=(uint32_t)(limit * 1000)};
+            assert(ParameterValue_Apply(&cfg, &request) == PARAMETER_OK);
+            assert(cfg.application.speed_limit_rad_s <= limit);
+            assert(limit - cfg.application.speed_limit_rad_s < 0.0011f);
+            assert(cfg.application.axis_profile.maximum_speed_rad_s == .5f);
+            request.raw_value++;
+            assert(ParameterValue_Apply(&cfg, &request) == PARAMETER_OUT_OF_RANGE);
+            assert(cfg.device.encoder.linearization_lut_q15[71] == -42);
+            InterfaceParam narrow = record;
+            narrow.speed_limit_rad_s = limit;
+            narrow.position_maximum_speed_rad_s = limit;
+            narrow.record_crc32 = Param_RecordCrc(&narrow);
+            Param_Download(&narrow, sizeof(narrow), &cfg);
+            assert(cfg.application.speed_limit_rad_s == limit);
+            assert(cfg.application.position_maximum_speed_rad_s == .5f);
+            if (node == 6 || node == 7)
+            {
+                InterfaceParam old = record;
+                old.axis_profile.maximum_speed_rad_s = node == 6 ? 1200.0f : 300.0f;
+                old.speed_limit_rad_s = 300.0f;
+                old.position_maximum_speed_rad_s = 300.0f;
+                old.current_limit_a = 3.0f;
+                old.axis_profile.crc32 = Crc32_Compute(&old.axis_profile, offsetof(MotorAxisProfile, crc32), 0);
+                old.record_crc32 = Param_RecordCrc(&old);
+                InterfaceParam unchanged = old;
+                Param_Download(&old, sizeof(old), &cfg);
+                assert(cfg.configuration_confirmed && cfg.application.axis_profile_valid);
+                assert(cfg.application.axis_profile.maximum_speed_rad_s == limit);
+                assert(cfg.application.speed_limit_rad_s == limit);
+                assert(cfg.application.position_maximum_speed_rad_s == limit);
+                assert(cfg.application.current_limit_a == 3.0f);
+                assert(cfg.device.encoder.linearization_lut_q15[71] == -42);
+                assert(memcmp(&unchanged, &old, sizeof(old)) == 0);
+            }
+        }
+        assert(p->damper_torque_nm == (node == 5 ? 1.5f : wheel ? 0.0f : 2.0f));
+        assert(MotorAxisPreset_HasLinearHall(p) == (!ht));
         assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, 0, 0));
-        assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, -8.0f, 14.0f) == wheel);
-        assert(MotorAxisProfile_TargetWithinBounds(&record.axis_profile, -16.0f) == wheel);
+        assert(MotorAxisProfile_AllowsPosition(&record.axis_profile, true, -8.0f, 14.0f) == unrestricted);
+        assert(MotorAxisProfile_TargetWithinBounds(&record.axis_profile, -16.0f) == unrestricted);
+        assert(!MotorAxisProfile_AllowsPosition(&record.axis_profile, false, 0, 0));
         assert(!MotorAxisProfile_AllowsPosition(&record.axis_profile, true, NAN, 0));
         assert(!MotorAxisProfile_TargetWithinBounds(&record.axis_profile, INFINITY));
         if (wheel)
@@ -80,21 +234,41 @@ int main(void)
             assert(replay.application.current_limit_a == 3);
             assert(replay.application.speed_acceleration_rad_s2 == 1.0f);
         }
-        if (!wheel)
+        if (continuous && !wheel)
         {
-            const float degrees = node == 5 ? 150.0f : node == 6 ? 30.0f : 180.0f;
-            assert(fabsf(p->output_travel_limit_rad - degrees * 0.01745329252f) < 1e-6f);
-            const float limit = p->output_travel_limit_rad * p->electrical->gear_ratio;
+            InterfaceParam old = record;
+            old.axis_profile.minimum_position_rad = -1.0f;
+            old.axis_profile.maximum_position_rad = 1.0f;
+            old.axis_profile.crc32 = Crc32_Compute(&old.axis_profile, offsetof(MotorAxisProfile, crc32), 0);
+            old.record_crc32 = Param_RecordCrc(&old);
+            InterfaceParam unchanged = old;
+            MotorConfiguration restored;
+            assert(!Param_CreateAxis(node, -1, 1, .5f, &heat, &restored));
+            Param_Download(&old, sizeof(old), &restored);
+            const MotorAxisProfile *axis = &restored.application.axis_profile;
+            assert(restored.configuration_confirmed && restored.application.axis_profile_valid);
+            assert(axis->minimum_position_rad == 0 && axis->maximum_position_rad == 0);
+            assert(axis->crc32 == Crc32_Compute(axis, offsetof(MotorAxisProfile, crc32), 0));
+            assert(restored.device.encoder.linearization_lut_q15[71] == -42);
+            assert(MotorAxisProfile_AllowsPosition(axis, true, -10000.0f, 10000.0f));
+            assert(memcmp(&old, &unchanged, sizeof(old)) == 0);
+        }
+        if (!continuous)
+        {
+            assert(fabsf(p->output_travel_limit_rad - 30.0f * 0.01745329252f) < 1e-6f);
+            const float limit = p->output_travel_limit_rad * p->gear_ratio;
             MotorConfiguration full;
             assert(Param_CreateAxis(node, -limit, limit, .5f, &heat, &full));
             const MotorAxisProfile *axis = &full.application.axis_profile;
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, limit));
             assert(MotorAxisProfile_AllowsPosition(axis, true, 0, -limit));
-            assert(!MotorAxisProfile_AllowsPosition(axis, true, limit, 0));
-            assert(!MotorAxisProfile_TargetWithinBounds(axis, limit + 0.001f));
+            assert(MotorAxisProfile_AllowsPosition(axis, true, limit, 0) == unrestricted);
+            assert(MotorAxisProfile_AllowsPosition(axis, true, -limit - 1.0f, 0) == unrestricted);
+            assert(MotorAxisProfile_TargetWithinBounds(axis, limit + 0.001f) == unrestricted);
+            assert(MotorAxisProfile_AllowsPosition(axis, true, 0, -limit - 1.0f) == unrestricted);
             InterfaceParam old = record;
             old.axis_profile.minimum_position_rad = -21.949001f;
-            old.axis_profile.maximum_position_rad = node == 6 ? 19.939001f : 1.0f;
+            old.axis_profile.maximum_position_rad = pitch_parameters ? 19.939001f : 1.0f;
             old.axis_profile.crc32 = Crc32_Compute(&old.axis_profile, offsetof(MotorAxisProfile, crc32), 0);
             old.record_crc32 = Param_RecordCrc(&old);
             Param_Download(&old, sizeof(old), &full);
@@ -137,6 +311,6 @@ int main(void)
     record.record_crc32 ^= 1;
     Param_Download(&record, sizeof(record), &configuration);
     assert(!configuration.preset && !configuration.configuration_confirmed);
-    puts("PASS five-axis record matrix, limits, mismatches and reboot");
+    puts("PASS six-axis record matrix, limits, mismatches and reboot");
     return 0;
 }

@@ -4,39 +4,53 @@
 #include <stdio.h>
 #include "../../../firmware/platform/bsp/mcu/at32f456/adc.c"
 #include "../../../firmware/platform/bsp/mcu/at32f456/can.c"
+#include "can_bitrate_register_test.h"
 
 void BspApp_OnCanReceive(void)
 {
     assert(0 && "unexpected CAN receive");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     McuCan_Init();
     assert(sim_can.ctrlstat_bit.reset && sim_can.ctrlstat_bit.fd_iso);
     assert(sim_timing.bittime_div == 1U);
-    assert(sim_timing.ac_bts1_size == 135U && sim_timing.ac_bts2_size == 45U);
+    assert(sim_timing.ac_bts1_size == 144U && sim_timing.ac_bts2_size == 36U);
     assert(sim_timing.fd_bts1_size == 27U && sim_timing.fd_bts2_size == 9U);
+    assert(sim_timing.fd_ssp_offset == 28U);
+    assert(argc == 7 && !BspCan_ConfigureBitrate(12U));
+    assert(BspCan_ConfigureBitrate((uint8_t)strtoul(argv[1], NULL, 10)));
+    check_can_timing(&sim_timing, argv);
     assert(sim_filter.code_para.id_type == CAN_ID_EXTENDED);
     assert(sim_filter.code_para.frame_type == CAN_FRAME_DATA);
     assert(!sim_filter.mask_para.id_type && !sim_filter.mask_para.frame_type);
     assert(sim_can.inten == 0U);
     BspCan_Start();
-    assert(!sim_can.ctrlstat_bit.reset);
+    assert(!sim_can.ctrlstat_bit.reset && !BspCan_ConfigureBitrate(0U));
+    check_can_timing(&sim_timing, argv);
     assert(sim_can.lbtcfg_bit.retlim == CAN_RE_TRANS_TIMES_1);
     assert(sim_can.lbtcfg_bit.realim == CAN_RE_ARBI_TIMES_UNLIMIT);
     McuAdc_Init();
     assert(sim_analog_pins == 0xFFU);
     assert(sim_adc_common.div == ADC_HCLK_DIV_3 && !sim_adc_common.tempervintrv_state);
     assert(sim_adc[0].enabled && sim_adc[1].enabled);
-    for (unsigned rank = 0; rank < 4; rank++)
+    assert(sim_adc[0].length == 4);
+    for (unsigned rank = 0; rank < 3; rank++)
     {
         assert(sim_adc[0].channels[rank] == rank);
     }
     assert(sim_adc[0].sample_times[0] == ADC_SAMPLETIME_12_5);
-    assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_24_5);
-    assert(sim_adc[1].channels[0] == 4 && sim_adc[1].sample_times[0] == ADC_SAMPLETIME_92_5);
-    assert(sim_adc[1].length == 3 && sim_adc[1].channels[1] == 5 && sim_adc[1].channels[2] == 6);
+    assert(sim_adc[0].channels[3] == ADC_CHANNEL_3);
+    assert(sim_adc[0].sample_times[3] == ADC_SAMPLETIME_2_5);
+    for (unsigned rank = 0; rank < 3; ++rank)
+    {
+        assert(sim_adc[1].channels[rank] == rank + 4U);
+        assert(sim_adc[1].sample_times[rank] == ADC_SAMPLETIME_47_5);
+    }
+    assert(sim_adc[1].length == 3);
+    /* ADC1: 3*4*25+4*15=360周期(6us)；ADC2为180周期(3us)。 */
+    assert(3U * 60U < 3U * 4U * 25U + 4U * 15U);
     assert(sim_adc[1].ordinary_length == 1 && sim_adc[1].ordinary_channels[0] == 7);
     assert(sim_adc[0].oversampled && sim_adc[0].ratio == ADC_OVERSAMPLE_RATIO_4 &&
            sim_adc[0].shift == 0);
@@ -55,6 +69,13 @@ int main(void)
     sim_adc[0].flags = sim_adc[1].flags = ADC_PCCE_FLAG;
     assert(BspAdc_CompleteFast() && !(sim_adc[0].flags & ADC_PCCE_FLAG) &&
            !(sim_adc[1].flags & ADC_PCCE_FLAG));
+    ADC1->pdt4 = 4825;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 1206.25f);
+    assert(fabsf(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE) - (1206.25f * 103.3f / 4095.0f - 0.4f)) <
+           0.00003f);
+    ADC1->pdt4 = 0;
+    assert(BspAdc_ReadRawChannel(BSP_ADC_BUS_VOLTAGE) == 0.0f);
+    assert(BspAdc_ReadChannel(BSP_ADC_BUS_VOLTAGE) == -0.4f);
     ADC2->pdt1 = 1999;
     ADC2->pdt2 = 1234;
     ADC2->pdt3 = 2345;
@@ -68,8 +89,15 @@ int main(void)
     ADC2->odt = 372;
     assert(BspAdc_ReadRawChannel(BSP_ADC_MOTOR_TEMPERATURE) == 372);
     assert(fabsf(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE) - 25.0f) < 0.1f);
+    float ntc = -99.0f;
+    assert(!BspAdc_ReadMotorTemperature(&ntc) && ntc == -99.0f);
+    sim_adc[1].flags |= ADC_OCCE_FLAG;
+    assert(BspAdc_ReadMotorTemperature(&ntc) && fabsf(ntc - 25.0f) < 0.1f);
+    assert(!BspAdc_ReadMotorTemperature(&ntc));
     ADC2->odt = 0;
     assert(isnan(BspAdc_ReadChannel(BSP_ADC_MOTOR_TEMPERATURE)));
+    sim_adc[1].flags |= ADC_OCCE_FLAG;
+    assert(BspAdc_ReadMotorTemperature(&ntc) && isnan(ntc));
     Adc_Stop();
     assert(!sim_dma_enabled && !sim_temperature_dma_enabled);
     assert(sim_adc[0].edge == ADC_PREEMPT_TRIG_EDGE_NONE &&

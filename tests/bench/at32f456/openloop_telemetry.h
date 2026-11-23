@@ -6,7 +6,7 @@
 /* 20kHz快采样每10拍发布一次，对应2kHz；主入口与发布器共用同一时隙。 */
 #define AT32_RTT_FAST_TICKS 10U
 
-/* 仅台架前台使用的采样值，快照来源由入口在短临界区中复制。 */
+/* 仅台架前台使用的采样值，前台核对 ADC 拍号后发布一致快照。 */
 typedef struct
 {
     uint32_t fast_samples, state, fault, running_samples, encoder_errors;

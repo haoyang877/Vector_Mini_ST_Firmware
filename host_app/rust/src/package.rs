@@ -164,13 +164,22 @@ mod tests {
 
     #[test]
     fn current_layout_package_accepts_only_matching_bytes() {
-        let target = Target::bundled().unwrap();
+        check_target_package("vector_mini_st_g431", "yg_esc_v1_at32f456");
+        check_target_package("yg_esc_v1_at32f456", "vector_mini_st_g431");
+    }
+
+    fn check_target_package(name: &str, other: &str) {
+        let target = Target::named(name).unwrap();
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../tests/fixtures/loader_image_v3.json"))
                 .unwrap();
         let mut image = hex::decode(fixture["image_hex"].as_str().unwrap()).unwrap();
         let mut manifest = hex::decode(fixture["manifest_hex"].as_str().unwrap()).unwrap();
         image[4..8].copy_from_slice(&(target.app_base + 0x261).to_le_bytes());
+        image[0..4].copy_from_slice(&target.ram_end.to_le_bytes());
+        put32(&mut image, target.descriptor_offset + 16, target.mcu);
+        put32(&mut image, target.descriptor_offset + 20, target.product);
+        put32(&mut image, target.descriptor_offset + 24, target.hardware);
         put32(&mut image, target.descriptor_offset + 12, target.layout);
         put32(&mut image, target.descriptor_offset + 36, target.abi);
         image[target.descriptor_offset + 40..target.descriptor_offset + 42]
@@ -178,6 +187,9 @@ mod tests {
         image[target.descriptor_offset + 42..target.descriptor_offset + 44]
             .copy_from_slice(&(target.schema as u16).to_be_bytes());
         put32(&mut manifest, 8, target.layout);
+        put32(&mut manifest, 12, target.mcu);
+        put32(&mut manifest, 16, target.product);
+        put32(&mut manifest, 20, target.hardware);
         put32(&mut manifest, 40, target.abi);
         manifest[44..46].copy_from_slice(&(target.schema as u16).to_be_bytes());
         manifest[46..48].copy_from_slice(&(target.schema as u16).to_be_bytes());
@@ -203,6 +215,7 @@ mod tests {
         )
         .unwrap();
         assert!(UpgradePackage::load(&dir, &target).is_ok());
+        assert!(UpgradePackage::load(&dir, &Target::named(other).unwrap()).is_err());
         let last = image.len() - 1;
         image[last] ^= 1;
         fs::write(dir.join("image.bin"), &image).unwrap();

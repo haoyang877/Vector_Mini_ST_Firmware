@@ -6,9 +6,11 @@ bool BootHw_Init(void)
 {
     return false;
 }
-bool BootHw_EnterLoader(uint8_t node)
+bool BootHw_EnterLoader(uint8_t node, uint32_t started_ms, uint32_t timeout_ms)
 {
     (void)node;
+    (void)started_ms;
+    (void)timeout_ms;
     return false;
 }
 void BootHw_Watchdog(bool healthy)

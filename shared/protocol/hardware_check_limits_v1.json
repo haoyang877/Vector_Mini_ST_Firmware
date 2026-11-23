@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "fields": [
+    ["phase_rms_counts", 10, 1, 1000],
+    ["bus_rms_counts", 50, 1, 1000],
+    ["current_bias_counts", 300, 1, 1000],
+    ["bus_min_mv", 27000, 1000, 60000],
+    ["bus_max_mv", 29000, 1000, 60000],
+    ["temperature_min_offset_deci_c", 1000, 600, 2200],
+    ["temperature_max_offset_deci_c", 1600, 600, 2200],
+    ["temperature_max_age_ms", 30, 1, 1000],
+    ["rotor_static_max_counts", 58, 1, 5800],
+    ["hall_rms_counts", 10, 1, 1000],
+    ["hall_raw_min", 95, 0, 4094],
+    ["hall_raw_max", 4000, 1, 4095],
+    ["motor_trend_per_3000", 2000, 1, 3000],
+    ["hall_trend_permille", 400, 0, 999],
+    ["resistance_min_permille", 500, 1, 1000],
+    ["resistance_max_permille", 1500, 1000, 5000]
+  ]
+}

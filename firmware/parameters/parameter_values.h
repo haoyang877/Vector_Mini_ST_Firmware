@@ -2,6 +2,10 @@
 #define PARAMETER_VALUES_H
 
 #include <stdint.h>
+
+#define PARAMETER_PI_KP_MAX 1000.0f
+#define PARAMETER_CURRENT_KI_MAX 100000.0f
+#define PARAMETER_SPEED_KI_MAX 1000.0f
 #include "motor_config.h"
 
 /** 内部业务结果，通信层显式映射，不直接作为线上 result 编号。 */
@@ -64,6 +68,14 @@ typedef struct
     uint32_t expected_revision;
 } ParameterSaveRequest;
 
+/** @brief 本次上电内的活动/已保存版本；零保存版本表示尚无可验证记录。 */
+typedef struct
+{
+    uint32_t revision, saved_revision;
+    uint32_t stored_record_crc; /* 最近装载或成功保存的基础记录 CRC，独立于读请求暂存区。 */
+    ParameterStatus save_status;
+} ParameterPersistence;
+
 /**
  * @brief 从稳定活动配置读取一个有明确来源的标量。
  * @param configuration APP 所有者提供的稳定配置，含编码器标定。
@@ -77,6 +89,15 @@ ParameterStatus ParameterValue_Read(const MotorConfiguration *configuration,
                                     uint32_t revision,
                                     uint8_t parameter_id,
                                     ParameterValue *value);
+/**
+ * @brief 比较请求解码后的物理值与当前值，处理定点到float32的量化合并。
+ * @param configuration 有效活动配置。
+ * @param request 有效请求对象；未知ID或不匹配类型返回false。
+ * @return 解码后的实际值相同时返回true，不修改配置。
+ */
+bool ParameterValue_MatchesRequest(const MotorConfiguration *configuration,
+                                   const ParameterWriteRequest *request);
+
 /**
  * @brief 校验并应用具备既有产品范围的停机单标量。
  * @param configuration APP 独占配置，任何失败均保持原值。

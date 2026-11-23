@@ -19,8 +19,9 @@
 #define AXIS_JOINT_V1_PITCH_MIN_RAD (-0.3f)
 #define AXIS_JOINT_V1_PITCH_MAX_RAD (0.9f)
 
-/* 五个产品节点共用两种电气模型。角速度和行程均以电机轴表示。
+/* 六个产品节点共用两种电气模型。角速度和行程均以电机轴表示。
  * YQ 电流 PI 来自 AT32 台架；HT 按额定 R/L 与 1.2 kHz 带宽派生。 */
+static const MotorWindingThermalConfig s_ht_thermal = HT8115_HEAT_INITIALIZER;
 static const MotorElectricalPreset s_ht = {
     HT8115_POLE_PAIRS,
     HT8115_PHASE_RESISTANCE_OHM,
@@ -30,7 +31,7 @@ static const MotorElectricalPreset s_ht = {
     HT8115_PHASE_RESISTANCE_OHM *CURRENT_LOOP_BANDWIDTH_RAD_S,
     800000.0f,
     ENCODER_SPEED_PLL_HZ,
-    1.0f};
+    &s_ht_thermal};
 static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            YQ5708_PHASE_RESISTANCE_OHM,
                                            YQ5708_INDUCTANCE_H,
@@ -39,79 +40,114 @@ static const MotorElectricalPreset s_yq = {YQ5708_POLE_PAIRS,
                                            AT32_YQ5708_CURRENT_KI,
                                            800000.0f,
                                            ENCODER_SPEED_PLL_HZ,
-                                           YQ5708_GEAR_RATIO};
+                                           NULL};
 
-/* ROLL/PITCH/YAW 各装 2 N·m 阻尼轴；标定起点按脱开负载的工装设置。 */
+/* ROLL 带摩擦轴标定；4.9 A 的 q 轴目标为 0.5 A 的 d 轴电流留出余量。 */
+#define ROLL_CALIB_CURRENT_A 5.0f
 #define PRODUCT_RUN_CURRENT_LIMIT_A 7.0f
-/* 输出轴最高 120°/s，恒加速 1 s 达到上限；控制与存储使用电机轴单位。 */
-#define YQ_OUTPUT_SPEED_RAD_S (CONFIG_TWO_PI / 3.0f)
-#define YQ_MOTOR_SPEED_RAD_S (YQ_OUTPUT_SPEED_RAD_S * YQ5708_GEAR_RATIO)
-#define YQ_MOTOR_ACCEL_RAD_S2 (YQ_MOTOR_SPEED_RAD_S / 1.0f)
+#define HT_SPEED_CEILING_RAD_S (5.0f * CONFIG_TWO_PI)                /* 输出轴 300 rpm，直驱。 */
+#define YQ_SPEED_CEILING_RAD_S (CONFIG_TWO_PI * YQ_JOINT_GEAR_RATIO) /* 输出轴 60 rpm。 */
+#define YQ_MOTOR_ACCEL_RAD_S2 ((CONFIG_TWO_PI / 3.0f) * YQ_JOINT_GEAR_RATIO)
 
 static const SensorlessStartupConfig s_wheel_start =
-    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.05f, 0.5f);
-static const SensorlessStartupConfig s_roll_start =
-    CALIB_STARTUP_CONFIG(2.0f, 0.5f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.5f, 1.0f);
+    CALIB_STARTUP_CONFIG(2.0f,
+                         0.5f,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                         HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS,
+                         0.05f,
+                         0.5f);
+static const SensorlessStartupConfig s_roll_start = CALIB_STARTUP_CONFIG(
+    ROLL_CALIB_CURRENT_A, 4.9f, 0.25f, HT8115_CALIB_SPEED_RAD_S *HT8115_POLE_PAIRS, 0.05f, 0.5f);
 /* PITCH 长扫圈的电机轴速度目标，保持在观测器最低锁定速度以上。 */
 #define PITCH_CALIB_SPEED_RAD_S 24.0f
 static const SensorlessStartupConfig s_pitch_start =
-    CALIB_STARTUP_CONFIG(1.6f, 0.5f, PITCH_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.012f, 0.5f);
+    CALIB_STARTUP_CONFIG(1.6f,
+                         0.5f,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                         PITCH_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
+                         0.012f,
+                         0.5f);
 static const SensorlessStartupConfig s_yq_start =
-    CALIB_STARTUP_CONFIG(1.6f, 0.5f, YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS, 0.048f, 0.5f);
+    CALIB_STARTUP_CONFIG(1.6f,
+                         0.5f,
+                         SENSORLESS_ENCODER_CALIB_STARTUP_IQ_RAMP_TIME_S,
+                         YQ5708_CALIB_SPEED_RAD_S *YQ5708_POLE_PAIRS,
+                         0.012f,
+                         0.5f);
+#define YQ5740_AXIS(node, role, speed_limit, output_travel)                                        \
+    {(node),                                                                                       \
+     (role),                                                                                       \
+     YQ5740_MODEL_NAME,                                                                            \
+     &s_yq,                                                                                        \
+     &s_pitch_start,                                                                               \
+     PITCH_CALIB_SPEED_RAD_S,                                                                      \
+     1.6f,                                                                                         \
+     (speed_limit),                                                                                \
+     {2.0f,                                                                                        \
+      0.0f,                                                                                        \
+      0.048f,                                                                                      \
+      0.5f,                                                                                        \
+      YQ_MOTOR_ACCEL_RAD_S2,                                                                       \
+      YQ_MOTOR_ACCEL_RAD_S2,                                                                       \
+      PRODUCT_RUN_CURRENT_LIMIT_A},                                                                \
+     2.0f,                                                                                         \
+     (output_travel),                                                                              \
+     .gear_ratio = YQ_JOINT_GEAR_RATIO,                                                            \
+     .has_linear_hall = true,                                                                      \
+     .calibration_mechanical_turns = SENSORLESS_ENCODER_CALIB_MECH_TURNS}
+
 static const MotorAxisPreset s_presets[] = {
     {0x03,
      MOTOR_JOINT_WHEEL_LEFT,
+     HT8115_MODEL_NAME,
      &s_ht,
      &s_wheel_start,
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
-     20.0f,
+     HT_SPEED_CEILING_RAD_S,
      {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
      0.0f,
-     0.0f},
+     0.0f,
+     .gear_ratio = 1.0f,
+     .has_linear_hall = false,
+     .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
     {0x04,
      MOTOR_JOINT_WHEEL_RIGHT,
+     HT8115_MODEL_NAME,
      &s_ht,
      &s_wheel_start,
      HT8115_CALIB_SPEED_RAD_S,
      3.0f,
-     20.0f,
+     HT_SPEED_CEILING_RAD_S,
      {2.0f, 0.0f, 0.05f, 0.5f, 20.0f, 20.0f, PRODUCT_RUN_CURRENT_LIMIT_A},
      0.0f,
-     0.0f},
+     0.0f,
+     .gear_ratio = 1.0f,
+     .has_linear_hall = false,
+     .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
     {0x05,
      MOTOR_JOINT_ROLL,
+     HT8115_MODEL_NAME,
      &s_ht,
      &s_roll_start,
      HT8115_CALIB_SPEED_RAD_S,
-     3.0f,
-     3.14159265f,
-     {8.0f, 2.0f, 0.5f, 1.0f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
-     2.0f,
-     CONFIG_TWO_PI * (150.0f / 360.0f)},
-    {0x06,
-     MOTOR_JOINT_PITCH,
-     &s_yq,
-     &s_pitch_start,
-     PITCH_CALIB_SPEED_RAD_S,
-     1.6f,
-     YQ_MOTOR_SPEED_RAD_S,
-     {2.0f,
-      0.0f,
-      0.048f,
-      0.5f,
-      YQ_MOTOR_ACCEL_RAD_S2,
-      YQ_MOTOR_ACCEL_RAD_S2,
-      PRODUCT_RUN_CURRENT_LIMIT_A},
-     2.0f,
-     CONFIG_TWO_PI / 12.0f},
+     ROLL_CALIB_CURRENT_A,
+     HT_SPEED_CEILING_RAD_S,
+     {16.0f, 1.6f, 0.55f, 2.5f, 3.14159265f, 3.14159265f, PRODUCT_RUN_CURRENT_LIMIT_A},
+     1.5f,
+     0.0f,
+     .gear_ratio = 1.0f,
+     .has_linear_hall = false,
+     .calibration_mechanical_turns = HT8115_CALIB_MECHANICAL_TURNS},
+    YQ5740_AXIS(0x06, MOTOR_JOINT_PITCH, YQ_SPEED_CEILING_RAD_S, 0.0f),
     {0x07,
      MOTOR_JOINT_YAW,
+     YQ5708_MODEL_NAME,
      &s_yq,
      &s_yq_start,
      YQ5708_CALIB_SPEED_RAD_S,
      1.6f,
-     YQ_MOTOR_SPEED_RAD_S,
+     YQ_SPEED_CEILING_RAD_S,
      {2.0f,
       0.0f,
       0.048f,
@@ -120,7 +156,11 @@ static const MotorAxisPreset s_presets[] = {
       YQ_MOTOR_ACCEL_RAD_S2,
       PRODUCT_RUN_CURRENT_LIMIT_A},
      2.0f,
-     CONFIG_TWO_PI / 2.0f},
+     0.0f,
+     .gear_ratio = YQ_JOINT_GEAR_RATIO,
+     .has_linear_hall = true,
+     .calibration_mechanical_turns = SENSORLESS_ENCODER_CALIB_MECH_TURNS},
+    YQ5740_AXIS(0x08, MOTOR_JOINT_LIFT, 30.0f * YQ_JOINT_GEAR_RATIO, CONFIG_TWO_PI / 12.0f),
 };
 
 static const MotorAxisPreset *product_joint(uint32_t joint)
@@ -161,6 +201,8 @@ const char *MotorJointType_Name(uint32_t joint_type)
         return "roll";
     case MOTOR_JOINT_PITCH:
         return "pitch";
+    case MOTOR_JOINT_LIFT:
+        return "Lift";
     case MOTOR_JOINT_YAW:
         return "yaw";
     case MOTOR_JOINT_WHEEL_RIGHT:
@@ -210,16 +252,39 @@ static bool load_profile(const MotorAxisProfile *stored, MotorAxisProfile *outpu
             const uint32_t role = stored->identity.numeric.joint_type;
             const MotorAxisPreset *p = product_joint(role);
             if (p == NULL || !isfinite(stored->maximum_speed_rad_s) ||
-                stored->maximum_speed_rad_s <= 0.0f ||
-                stored->maximum_speed_rad_s > p->speed_ceiling_rad_s)
+                stored->maximum_speed_rad_s <= 0.0f)
             {
                 return false;
             }
-            if (role == MOTOR_JOINT_WHEEL_LEFT || role == MOTOR_JOINT_WHEEL_RIGHT)
+            if (stored->maximum_speed_rad_s > p->speed_ceiling_rad_s)
             {
-                return stored->minimum_position_rad == 0.0f && stored->maximum_position_rad == 0.0f;
+                if (!restore)
+                {
+                    return false;
+                }
+                output->maximum_speed_rad_s = p->speed_ceiling_rad_s;
+                output->crc32 = record_crc(output);
             }
-            const float limit = p->output_travel_limit_rad * p->electrical->gear_ratio;
+            if (p->output_travel_limit_rad == 0.0f)
+            {
+                if (stored->minimum_position_rad == 0.0f && stored->maximum_position_rad == 0.0f)
+                {
+                    return true;
+                }
+                if (!restore || MotorAxisProfile_IsContinuousWheel(stored) ||
+                    !isfinite(stored->minimum_position_rad) ||
+                    !isfinite(stored->maximum_position_rad) ||
+                    stored->minimum_position_rad >= stored->maximum_position_rad)
+                {
+                    return false;
+                }
+                /* 旧 ROLL/PITCH/YAW 的行程由主控管理，只清除活动记录的上下界。 */
+                output->minimum_position_rad = 0.0f;
+                output->maximum_position_rad = 0.0f;
+                output->crc32 = record_crc(output);
+                return true;
+            }
+            const float limit = p->output_travel_limit_rad * p->gear_ratio;
             if (!isfinite(stored->minimum_position_rad) || !isfinite(stored->maximum_position_rad))
             {
                 return false;

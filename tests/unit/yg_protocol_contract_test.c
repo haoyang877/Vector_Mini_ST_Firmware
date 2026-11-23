@@ -1,5 +1,6 @@
 /* 核心接口替换性测试：无真实业务处理器、无 HAL、无硬件动作。 */
 #include <assert.h>
+#include <stdio.h>
 #include "yg_protocol.h"
 #include <limits.h>
 #include <math.h>
@@ -10,15 +11,114 @@
 #include "yg_protocol.h"
 
 static unsigned contract_motor_calls;
-static void motor_handler(const ProtocolCommand *request, ProtocolReply *reply)
+static unsigned contract_configuration_calls;
+static void configuration_handler(void *context,
+                                  const ProtocolMotorConfigurationRequest *request,
+                                  ProtocolMotorConfigurationReply *reply)
 {
+    (void)context;
+    ++contract_configuration_calls;
+    if (request->operation == 1U)
+    {
+        assert(request->version == 1U && request->model == 3U && request->node == 6U &&
+               request->flags == 1U);
+        assert(request->revision == 0x12345678U && request->speed_mrad_s == 1000 &&
+               request->thermal[0] == 3000);
+    }
+    *reply = (ProtocolMotorConfigurationReply){
+        .status = PROTOCOL_OK,
+        .version = 1U,
+        .model = 3U,
+        .node = 6U,
+        .flags = 9U,
+        .revision = 0x12345678U,
+        .speed_mrad_s = 1000,
+        .thermal = {3000, 7000, 65000, 800000, 700000, 1000000, 500000}};
+    if (request->operation == 1U)
+    {
+        reply->revision = 1U;
+        reply->flags = 33U;
+    }
+    if (request->operation == 2U)
+    {
+        for (unsigned i = 0; i < 12U; ++i)
+        {
+            assert(request->uid[i] == 0x11U);
+        }
+        assert(request->revision == 1U);
+    }
+}
+
+static void configuration_service_boundaries(void)
+{
+    assert(test_reset_protocol(3U));
+    uint8_t payload[40] = {1U, 3U, 6U, 1U};
+    YgProtocol_WriteU32Le(payload + 4U, 0x12345678U);
+    YgProtocol_WriteU32Le(payload + 8U, 1000U);
+    const int32_t thermal[] = {3000, 7000, 65000, 800000, 700000, 1000000, 500000};
+    for (unsigned i = 0; i < 7U; ++i)
+    {
+        YgProtocol_WriteU32Le(payload + 12U + i * 4U, (uint32_t)thermal[i]);
+    }
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .source_node = 2U,
+                                             .destination_node = 3U,
+                                             .message_type = PROTOCOL_PREPARE_MOTOR_CONFIGURATION,
+                                             .payload = payload,
+                                             .payload_length = 40U}};
+    contract_configuration_calls = 0U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 2U);
+    endpoint.configuration = (ProtocolMotorConfiguration){NULL, configuration_handler};
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 7U);
+    exchange.request.source_node = 2U;
+    exchange.request.payload_length = 39U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 3U);
+    exchange.request.payload_length = 40U;
+    payload[3] = 0U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 4U);
+    assert(contract_configuration_calls == 0U);
+    payload[3] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 12U);
+    assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) == 1U && exchange.reply.data[10] == 6U);
+    exchange.request.message_type = PROTOCOL_READ_MOTOR_CONFIGURATION;
+    exchange.request.payload_length = 4U;
+    memset(payload, 0, 4U);
+    payload[0] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 44U);
+    assert(exchange.reply.data[5] == 3U && exchange.reply.data[6] == 6U &&
+           YgProtocol_ReadU32Le(exchange.reply.data + 16U) == 3000U);
+    const uint8_t golden_read[] = {0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x03U, 0x06U, 0x09U, 0x78U,
+                                   0x56U, 0x34U, 0x12U, 0xe8U, 0x03U, 0x00U, 0x00U, 0xb8U, 0x0bU,
+                                   0x00U, 0x00U, 0x58U, 0x1bU, 0x00U, 0x00U, 0xe8U, 0xfdU, 0x00U,
+                                   0x00U, 0x00U, 0x35U, 0x0cU, 0x00U, 0x60U, 0xaeU, 0x0aU, 0x00U,
+                                   0x40U, 0x42U, 0x0fU, 0x00U, 0x20U, 0xa1U, 0x07U, 0x00U};
+    assert(memcmp(exchange.reply.data, golden_read, sizeof(golden_read)) == 0);
+    payload[1] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 4U);
+    exchange.request.message_type = PROTOCOL_COMMIT_MOTOR_CONFIGURATION;
+    exchange.request.payload_length = 16U;
+    memset(payload, 0x11, 12U);
+    YgProtocol_WriteU32Le(payload + 12U, 1U);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.length == 12U &&
+           exchange.reply.data[11] == 9U);
+    exchange.request.message_type = PROTOCOL_ACTIVATE_MOTOR_CONFIGURATION;
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK && exchange.reply.data[0] == 7U);
+    assert(contract_configuration_calls == 3U);
+}
+static void motor_handler(void *context, const ProtocolCommand *request, ProtocolReply *reply)
+{
+    (void)context;
     ++contract_motor_calls;
     assert(request->position_mrad == -1000);
     reply->status = PROTOCOL_ACCEPTED;
-    reply->token = 7U;
 }
-static void missing_motor_result(const ProtocolCommand *request, ProtocolReply *reply)
+static void
+missing_motor_result(void *context, const ProtocolCommand *request, ProtocolReply *reply)
 {
+    (void)context;
     (void)request;
     (void)reply;
 }
@@ -30,10 +130,18 @@ static void job_handler(void *context, const ProtocolJobRequest *request, Protoc
     reply->status = PROTOCOL_BUSY;
 }
 
+static void renew_handler(void *context, const ProtocolCommand *request, ProtocolReply *reply)
+{
+    (void)context;
+    assert(request->renewal_counter == 256U);
+    ++contract_motor_calls;
+    reply->status = PROTOCOL_OK;
+}
+
 static void service_boundaries(void)
 {
     assert(test_reset_protocol(3U));
-    s_test_motor = (ProtocolMotor){.start = missing_motor_result, .target = motor_handler};
+    endpoint.motor = (ProtocolMotor){.start = missing_motor_result, .target = motor_handler};
     uint8_t payload[20] = {3U};
     YgProtocol_WriteU32Le(payload + 4U, (uint32_t)-1000);
     ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
@@ -44,70 +152,91 @@ static void service_boundaries(void)
                                              .payload = payload,
                                              .payload_length = sizeof(payload)}};
     contract_motor_calls = 0U;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 1U && contract_motor_calls == 1U);
     exchange.request.payload_length = 19U;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 3U && contract_motor_calls == 1U);
     exchange.request.payload_length = sizeof(payload);
-    s_test_motor.target = NULL;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    endpoint.motor.target = NULL;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 2U && contract_motor_calls == 1U);
     exchange.request.message_type = PROTOCOL_START;
     exchange.request.payload_length = 4U;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 8U);
-    s_test_jobs = (ProtocolJobs){NULL, job_handler};
+    exchange.request.message_type = PROTOCOL_RENEW_MOTION;
+    endpoint.motor.renew = renew_handler;
+    const uint8_t renewal_golden[] = {0U, 1U, 0U, 0U};
+    memcpy(payload, renewal_golden, sizeof(renewal_golden));
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 4U && YgProtocol_ReadU32Le(exchange.reply.data) == 0U);
+    assert(contract_motor_calls == 2U);
+    exchange.request.payload_length = 3U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH && contract_motor_calls == 2U);
+    exchange.request.payload_length = 4U;
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN && contract_motor_calls == 2U);
+    exchange.request.source_node = PROTOCOL_MASTER_ID;
+    endpoint.jobs = (ProtocolJobs){NULL, job_handler};
     exchange.request.message_type = PROTOCOL_GET_JOB_STATUS;
     YgProtocol_WriteU32Le(payload, 42U);
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 6U);
-    s_test_jobs.handler = NULL;
-    assert(handle_command(&exchange) == YG_PROTOCOL_OK);
+    endpoint.jobs.handler = NULL;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
     assert(exchange.reply.data[0] == 2U);
-}
-
-static ProtocolMotorStatus status_source(void)
-{
-    return (ProtocolMotorStatus){.state = 1U, .sample_available = true};
 }
 
 static void numeric_boundaries(void)
 {
-    ProtocolMotorStatus source = status_source();
-    ProtocolFeedback feedback = {.result = 0x1234U};
-    source.state = 10U;
-    assert(Protocol_BuildFeedback(&source, 3U, 0U, 0U, &feedback) == YG_PROTOCOL_INVALID_FIELD &&
-           feedback.result == 0x1234U);
-    source.state = 1U;
-    source.mode = 11U;
-    assert(Protocol_BuildFeedback(&source, 3U, 0U, 0U, &feedback) == YG_PROTOCOL_INVALID_FIELD);
-    source.mode = 0U;
-    source.faults = 0x40000U;
-    assert(Protocol_BuildFeedback(&source, 3U, 0U, 0U, &feedback) == YG_PROTOCOL_INVALID_FIELD);
+    assert(test_reset_protocol(3U));
+    yg_protocol_message_t request = {.message_type = PROTOCOL_CONTROL};
+    ProtocolResponse response = {.length = 2U, .data = {0x34U, 0x12U}};
+    s_test_motor_status.state = 10U;
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_OK, &response) ==
+           YG_PROTOCOL_INVALID_FIELD);
+    s_test_motor_status.state = 1U;
+    s_test_motor_status.mode = 11U;
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_OK, &response) ==
+           YG_PROTOCOL_INVALID_FIELD);
+    s_test_motor_status.mode = 0U;
+    s_test_motor_status.faults = 0x40000U;
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_OK, &response) ==
+           YG_PROTOCOL_INVALID_FIELD);
+    assert(response.length == 2U && YgProtocol_ReadU16Le(response.data) == 0x1234U);
 }
 
 static void full_feedback_snapshot(void)
 {
-    ProtocolMotorStatus source = status_source();
-    ProtocolFeedback feedback;
-    source.mode = 2U;
-    source.faults = 4U;
-    assert(Protocol_BuildFeedback(&source, 3U, 1U, 41U, &feedback) == YG_PROTOCOL_OK);
-    assert(feedback.result == 1U && feedback.correlated_seq == 41U && feedback.fault_code == 4U &&
-           feedback.control_mode == 2U && feedback.motor_state == 1U && feedback.valid_bits == 0U);
-    assert(feedback.reference_position_mrad == INT32_MIN &&
-           feedback.actual_position_mrad == INT32_MIN &&
-           feedback.reference_speed_mrad_s == INT32_MIN &&
-           feedback.actual_speed_mrad_s == INT32_MIN && feedback.reference_iq_mA == INT16_MIN &&
-           feedback.actual_iq_mA == INT16_MIN && feedback.bus_voltage_cV == INT16_MIN &&
-           feedback.bus_current_mA == INT16_MIN && feedback.mcu_temperature_centi_c == INT16_MIN &&
-           feedback.motor_temperature_centi_c == INT16_MIN && feedback.v_q_mV == INT16_MIN &&
-           feedback.v_d_mV == INT16_MIN);
-    source.sample_available = false;
-    assert(Protocol_BuildFeedback(&source, 3U, 6U, 42U, &feedback) == YG_PROTOCOL_OK);
-    assert(feedback.valid_bits == 0U && feedback.correlated_seq == 42U &&
-           feedback.fault_code == 4U);
+    assert(test_reset_protocol(3U));
+    s_test_motor_status =
+        (TestMotorStatus){.state = 1U, .mode = 2U, .faults = 4U, .sample_available = true};
+    yg_protocol_message_t request = {.message_type = PROTOCOL_CONTROL, .sequence = 41U};
+    ProtocolResponse response;
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_ACCEPTED, &response) ==
+           YG_PROTOCOL_OK);
+    const uint8_t *data = response.data;
+    assert(response.length == PROTOCOL_FEEDBACK_SIZE);
+    assert(YgProtocol_ReadU16Le(data) == 1U && YgProtocol_ReadU16Le(data + 2U) == 41U &&
+           YgProtocol_ReadU32Le(data + 4U) == 4U && data[43] == 1U && data[44] == 2U &&
+           YgProtocol_ReadU16Le(data + 24U) == 0U);
+    for (unsigned offset = 8U; offset < 24U; offset += 4U)
+    {
+        assert((int32_t)YgProtocol_ReadU32Le(data + offset) == INT32_MIN);
+    }
+    for (unsigned offset = 26U; offset < 42U; offset += 2U)
+    {
+        assert((int16_t)YgProtocol_ReadU16Le(data + offset) == INT16_MIN);
+    }
+    s_test_motor_status.sample_available = false;
+    request.sequence = 42U;
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_BUSY, &response) ==
+           YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(data + 24U) == 0U && YgProtocol_ReadU16Le(data + 2U) == 42U &&
+           YgProtocol_ReadU32Le(data + 4U) == 4U);
 }
 
 static void full_feedback_vector(void)
@@ -207,10 +336,10 @@ static void motor_command_vectors(void)
     assert(encode_can_frame(&message, 2U, &frame) == YG_PROTOCOL_OK);
     assert(frame.identifier == 0x08EF0302U && frame.length == sizeof(enable_frame));
     assert(memcmp(frame.data, enable_frame, sizeof(enable_frame)) == 0);
-    assert(handle_command(&enable) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &enable) == YG_PROTOCOL_OK);
     assert(YgProtocol_ReadU16Le(enable.reply.data) == PROTOCOL_RESULT_UNSUPPORTED);
     enable_payload[1] = 1U;
-    assert(handle_command(&enable) == YG_PROTOCOL_OK);
+    assert(handle_command(&endpoint, &enable) == YG_PROTOCOL_OK);
     assert(YgProtocol_ReadU16Le(enable.reply.data) == PROTOCOL_RESULT_BAD_FIELD);
     enable_payload[1] = 0U;
 
@@ -293,9 +422,94 @@ static void maintenance_kind_extension_vectors(void)
     assert(memcmp(encoded, unsupported_reply, sizeof(unsupported_reply)) == 0);
 }
 
+static unsigned parameter_calls;
+static void parameter_service(void *context,
+                              const ProtocolParameterRequest *request,
+                              ProtocolParameterReply *reply)
+{
+    (void)context;
+    ++parameter_calls;
+    *reply = (ProtocolParameterReply){
+        .status = PROTOCOL_OK, .flags = 1U, .revision = 1U, .saved_revision = 1U};
+    if (request->type == PROTOCOL_READ_PARAMETER)
+    {
+        assert(request->id == 1U);
+        reply->id = 1U;
+        reply->value_type = 1U;
+        reply->access = 3U;
+        reply->value = 1000U;
+    }
+    else
+    {
+        assert(request->type == PROTOCOL_SAVE_PARAMETER && request->expected_revision == 1U);
+    }
+}
+
+static bool output_service(void *context, MotorOutputFeedback *reply)
+{
+    (void)context;
+    *reply = (MotorOutputFeedback){.age_ms = UINT32_MAX,
+                                   .hall_mrad = INT32_MIN,
+                                   .tracked_mrad = INT32_MIN,
+                                   .zero_mrad = INT32_MIN,
+                                   .gear_ratio_milli = INT32_MIN};
+    return true;
+}
+
+static void print_service_vector(const char *name, const ProtocolResponse *reply)
+{
+    printf("VECTOR %s ", name);
+    for (uint32_t i = 0; i < reply->length; ++i)
+    {
+        printf("%02x", reply->data[i]);
+    }
+    puts("");
+}
+
+static void parameter_and_output_contract(void)
+{
+    assert(test_reset_protocol(3U));
+    endpoint.parameters = (ProtocolParameters){NULL, parameter_service};
+    endpoint.motor.read_output = output_service;
+    parameter_calls = 0U;
+    uint8_t payload[4] = {1U, 0U, 0U, 0U};
+    ProtocolExchange exchange = {.request = {.version = YG_PROTOCOL_VERSION,
+                                             .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                             .source_node = 2U,
+                                             .destination_node = 3U,
+                                             .message_type = PROTOCOL_READ_PARAMETER,
+                                             .payload = payload,
+                                             .payload_length = 4U}};
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 20U && parameter_calls == 1U);
+    print_service_vector("parameter_read_revision1_saved1_value1000", &exchange.reply);
+    payload[1] = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_FIELD && parameter_calls == 1U);
+    payload[1] = 0U;
+    exchange.request.source_node = 4U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_FORBIDDEN && parameter_calls == 1U);
+    exchange.request.source_node = 2U;
+    exchange.request.message_type = PROTOCOL_SAVE_PARAMETER;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 20U && parameter_calls == 2U);
+    print_service_vector("save_success_revision1", &exchange.reply);
+    exchange.request.message_type = PROTOCOL_OUTPUT_FEEDBACK;
+    exchange.request.payload_length = 0U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.length == 32U);
+    print_service_vector("output_v1_empty", &exchange.reply);
+    exchange.request.payload_length = 1U;
+    assert(handle_command(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(exchange.reply.data[0] == PROTOCOL_RESULT_BAD_LENGTH);
+}
+
 void yg_protocol_contract_test(void)
 {
+    parameter_and_output_contract();
     service_boundaries();
+    configuration_service_boundaries();
     numeric_boundaries();
     full_feedback_snapshot();
     full_feedback_vector();

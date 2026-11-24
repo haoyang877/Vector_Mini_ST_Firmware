@@ -164,8 +164,8 @@ static void motor_status_adapter(void)
     exchange.request.payload = NULL;
     s_test_motor_status.sample_available = false;
     assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
-    assert(exchange.reply.length == PROTOCOL_FEEDBACK_SIZE && exchange.reply.data[0] == 6U &&
-           exchange.reply.data[24] == 0U);
+    assert(exchange.reply.length == PROTOCOL_FEEDBACK_SIZE && exchange.reply.data[0] == 0U &&
+           exchange.reply.data[24] == 0U && exchange.reply.data[43] == 0U);
 }
 
 static void fragments_reassemble(void)

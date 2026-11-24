@@ -74,6 +74,7 @@ bool MotorFault_SourceRecovered(const MotorConfiguration *configuration,
     case MOTOR_FAULT_CURRENT_OFFSET:
         return MotorCurrentOffsets_IsValid(configuration);
     case MOTOR_FAULT_WINDING_THERMAL:
+    case MOTOR_FAULT_VOLTAGE_MODE_CURRENT_LIMIT:
         return motor_state->thermal_clear_ready;
     case MOTOR_FAULT_POLE_PAIRS:
         return configuration->model.motor_pole_pairs > 0;

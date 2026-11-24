@@ -35,7 +35,7 @@ typedef struct
     PositionOtgTime segment_elapsed;
     unsigned segment_count, segment_index;
     float target_rad;
-    bool initialized, has_plan, finished;
+    bool initialized, has_plan, finished, recovered_rounded_stop;
 } PositionOtg;
 
 /**

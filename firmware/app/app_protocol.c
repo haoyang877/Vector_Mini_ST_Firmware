@@ -85,17 +85,10 @@ static bool target_values_match(const ProtocolCommand *previous, const ProtocolC
            request->id_mA == previous->id_mA && request->vd_mV == previous->vd_mV;
 }
 
-/* 只有新鲜、已定位的输出坐标可用于双向换算。 */
-static float output_coordinate_scale(const MotorStatus *status)
+static bool output_coordinate_valid(float position_rad, float gear_ratio, int8_t direction)
 {
-    const MotorOutputTelemetry *output = &status->output;
-    if (!status->measurements_valid || (output->flags & 2U) == 0U ||
-        !isfinite(output->tracked_position_rad) || !isfinite(output->gear_ratio) ||
-        output->gear_ratio < 1.0f || (output->direction != 1 && output->direction != -1))
-    {
-        return NAN;
-    }
-    return (float)output->direction / output->gear_ratio;
+    return isfinite(position_rad) && isfinite(gear_ratio) && gear_ratio >= 1.0f &&
+           (direction == 1 || direction == -1);
 }
 
 static void set_motor_target(void *context, const ProtocolCommand *request, ProtocolReply *reply)
@@ -146,25 +139,21 @@ static void set_motor_target(void *context, const ProtocolCommand *request, Prot
     if (mode == MOTOR_CONTROL_POSITION ||
         (mode == MOTOR_CONTROL_SPEED && !request->motor_axis_speed))
     {
-        MotorStatus status;
-        if (!MotorStateMachine_ReadStatus(adapter->state_machine, &status))
-        {
-            reply->status = PROTOCOL_BUSY;
-            return;
-        }
-        float scale = output_coordinate_scale(&status);
-        if (!isfinite(scale))
+        MotorOutputCoordinates coordinates;
+        if (!MotorStateMachine_ReadOutputCoordinates(adapter->state_machine, &coordinates) ||
+            !output_coordinate_valid(
+                coordinates.output_position_rad, coordinates.gear_ratio, coordinates.direction))
         {
             reply->status = PROTOCOL_DENIED;
             return;
         }
         /* 使用同一输出原点反算电机目标；内部限位及控制器保持电机坐标。 */
-        float motor_scale = (float)status.output.direction * status.output.gear_ratio;
+        float motor_scale = (float)coordinates.direction * coordinates.gear_ratio;
         if (mode == MOTOR_CONTROL_POSITION)
         {
-            target.position_rad = status.position_rad + (request->position_mrad / 1000.0f -
-                                                         status.output.tracked_position_rad) *
-                                                            motor_scale;
+            target.position_rad =
+                coordinates.motor_position_rad +
+                (request->position_mrad / 1000.0f - coordinates.output_position_rad) * motor_scale;
         }
         /* 整数先换算，避免0.6rad/s×50被float中间舍入为略超30rad/s。 */
         target.speed_rad_s = ((float)request->speed_mrad_s * motor_scale) / 1000.0f;
@@ -391,6 +380,7 @@ static uint32_t encode_fault_bits(MotorFaultCode error)
     switch (error)
     {
     case MOTOR_FAULT_OVERCURRENT:
+    case MOTOR_FAULT_VOLTAGE_MODE_CURRENT_LIMIT:
         return 1U << 0U;
     case MOTOR_FAULT_OVERVOLTAGE:
         return 1U << 1U;
@@ -401,14 +391,17 @@ static uint32_t encode_fault_bits(MotorFaultCode error)
         return 1U << 4U;
     case MOTOR_FAULT_TEMPERATURE_SENSOR:
         return 1U << 12U;
+    case MOTOR_FAULT_WINDING_THERMAL:
+        return PROTOCOL_FAULT_WINDING_THERMAL;
     case MOTOR_FAULT_ENCODER:
         return 1U << 5U;
     case MOTOR_FAULT_CAN_DISCONNECTED:
         return 1U << 6U;
     case MOTOR_FAULT_INVALID_PARAMETERS:
     case MOTOR_FAULT_POLE_PAIRS:
+        return PROTOCOL_FAULT_CONFIGURATION_GROUP | PROTOCOL_FAULT_INVALID_PARAMETERS;
     case MOTOR_FAULT_ENCODER_NOT_CALIBRATED:
-        return 1U << 9U;
+        return PROTOCOL_FAULT_CONFIGURATION_GROUP | PROTOCOL_FAULT_ENCODER_NOT_CALIBRATED;
     case MOTOR_FAULT_CURRENT_OFFSET:
     case MOTOR_FAULT_COGGING_CALIBRATION:
     case MOTOR_FAULT_CALIBRATION_OVERSPEED:
@@ -462,6 +455,22 @@ static int32_t encode_feedback_measurement(
     return rounded.negative ? -(int32_t)rounded.magnitude : (int32_t)rounded.magnitude;
 }
 
+static void encode_status_metadata(const MotorStatus *status, ProtocolFeedback *values)
+{
+    values->fault_code = encode_fault_bits((MotorFaultCode)status->fault);
+    values->control_mode = encode_control_mode((MotorControlMode)status->mode);
+    values->motor_state =
+        status->fault != MOTOR_FAULT_NONE ? 8U : encode_motor_state(status->state);
+}
+
+static void read_status_metadata(void *context, ProtocolFeedback *values)
+{
+    AppProtocol *adapter = context;
+    MotorStatus status;
+    MotorStateMachine_ReadStatusMetadata(adapter->state_machine, &status);
+    encode_status_metadata(&status, values);
+}
+
 static bool read_feedback(void *context, ProtocolFeedback *values, bool motor_axis)
 {
     AppProtocol *adapter = context;
@@ -470,9 +479,7 @@ static bool read_feedback(void *context, ProtocolFeedback *values, bool motor_ax
     {
         return false;
     }
-    values->fault_code = encode_fault_bits((MotorFaultCode)status.fault);
-    values->control_mode = encode_control_mode((MotorControlMode)status.mode);
-    values->motor_state = status.fault != MOTOR_FAULT_NONE ? 8U : encode_motor_state(status.state);
+    encode_status_metadata(&status, values);
     if (!status.measurements_valid)
     {
         return true;
@@ -485,7 +492,10 @@ static bool read_feedback(void *context, ProtocolFeedback *values, bool motor_ax
     if (!motor_axis)
     {
         const MotorOutputTelemetry *output = &status.output;
-        float scale = output_coordinate_scale(&status);
+        bool valid = status.measurements_valid && (output->flags & 2U) != 0U &&
+                     output_coordinate_valid(
+                         output->tracked_position_rad, output->gear_ratio, output->direction);
+        float scale = valid ? (float)output->direction / output->gear_ratio : NAN;
         position = isfinite(scale) ? output->tracked_position_rad : NAN;
         /* 参考位置沿用同一输出原点；保留多圈值，不作单圈回绕。 */
         reference = position + (reference - status.position_rad) * scale;
@@ -585,6 +595,7 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorSta
                                       .host_position_keepalive = keep_host_position_alive,
                                       .read_feedback = read_motor_feedback,
                                       .read_motor_axis = read_motor_axis,
+                                      .read_status_metadata = read_status_metadata,
                                       .read_output = read_output_feedback};
     endpoint->jobs = (ProtocolJobs){adapter, request_encoder_calibration};
     endpoint->device_status.role = PROTOCOL_DEVICE_ROLE_APP;

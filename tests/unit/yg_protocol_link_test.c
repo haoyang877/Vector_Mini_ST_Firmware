@@ -645,7 +645,7 @@ static void status_binding_reset(void)
         sent = false;
         enqueue_request(&request);
         Protocol_Process(&endpoint, 0U);
-        assert(sent && sent_frame.data[16] == 6U && sent_frame.data[40] == 0U &&
+        assert(sent && sent_frame.data[16] == 0U && sent_frame.data[40] == 0U &&
                sent_frame.data[59] == 0U && sent_frame.data[60] == 0U);
     }
 }
@@ -1324,7 +1324,7 @@ int main(void)
     assert(decode_can_frame(&response_frame, 1U, &response) == YG_PROTOCOL_OK);
     assert(response.message_type == PROTOCOL_GET_MOTOR_STATE);
     assert(response.payload_length == PROTOCOL_FEEDBACK_SIZE);
-    assert(response.payload[0] == 6U && response.payload[1] == 0U && response.payload[24] == 0U &&
+    assert(response.payload[0] == 0U && response.payload[1] == 0U && response.payload[24] == 0U &&
            response.payload[42] == 7U);
     enable_route();
     start_route_contract();

@@ -1153,9 +1153,12 @@ static yg_protocol_result_t encode_feedback_reply(const ProtocolEndpoint *endpoi
                                                   ProtocolResponse *response)
 {
     bool query = request->message_type == PROTOCOL_GET_MOTOR_STATE;
-    bool motor_axis = query && request->payload_length == 1U && code == PROTOCOL_RESULT_OK;
+    uint8_t selector = query && request->payload_length == 1U && code == PROTOCOL_RESULT_OK
+                           ? request->payload[0]
+                           : 0U;
     bool (*read_feedback)(void *, ProtocolFeedback *) =
-        motor_axis ? endpoint->motor.read_motor_axis : endpoint->motor.read_feedback;
+        (selector & PROTOCOL_MOTOR_AXIS_SELECTOR) != 0U ? endpoint->motor.read_motor_axis
+                                                        : endpoint->motor.read_feedback;
     uint8_t node_id = query ? request->destination_node : endpoint->node_id;
     if (node_id == 0U || node_id == YG_PROTOCOL_BROADCAST_NODE_ID ||
         (query && read_feedback == NULL))
@@ -1168,7 +1171,12 @@ static yg_protocol_result_t encode_feedback_reply(const ProtocolEndpoint *endpoi
         bool available = read_feedback(endpoint->motor.context, &feedback);
         if (query && !available && code == PROTOCOL_RESULT_OK)
         {
-            code = PROTOCOL_RESULT_BUSY;
+            /* 旧主控用全空帧识别缺测并保留采样时间。只有显式选择才填入元数据。 */
+            feedback = s_empty_feedback;
+            if ((selector & PROTOCOL_STATUS_METADATA_SELECTOR) != 0U)
+            {
+                endpoint->motor.read_status_metadata(endpoint->motor.context, &feedback);
+            }
         }
     }
     if (feedback.motor_state > 9U || feedback.control_mode > 10U || feedback.fault_code > 0x3FFFFU)
@@ -1282,17 +1290,24 @@ static yg_protocol_result_t handle_motor_status_query(ProtocolEndpoint *endpoint
     }
     else if (request->payload_length == 1U)
     {
-        bool supported =
-            (endpoint->device.capabilities.features & PROTOCOL_FEATURE_MOTOR_AXIS_SPEED) != 0U &&
-            endpoint->motor.read_motor_axis != NULL;
-        bool motor_axis = supported && request->payload != NULL &&
-                          request->payload[0] == PROTOCOL_MOTOR_AXIS_SELECTOR;
-        code = motor_axis  ? PROTOCOL_RESULT_OK
-               : supported ? PROTOCOL_RESULT_BAD_FIELD
-                           : PROTOCOL_RESULT_BAD_LENGTH;
-        if (motor_axis)
+        uint8_t supported = 0U;
+        uint32_t features = endpoint->device.capabilities.features;
+        if ((features & PROTOCOL_FEATURE_MOTOR_AXIS_SPEED) &&
+            endpoint->motor.read_motor_axis != NULL)
+        {
+            supported |= PROTOCOL_MOTOR_AXIS_SELECTOR;
+        }
+        if ((features & PROTOCOL_FEATURE_FEEDBACK_METADATA) &&
+            endpoint->motor.read_status_metadata != NULL)
+        {
+            supported |= PROTOCOL_STATUS_METADATA_SELECTOR;
+        }
+        code = supported == 0U ? PROTOCOL_RESULT_BAD_LENGTH : PROTOCOL_RESULT_BAD_FIELD;
+        if (request->payload != NULL && request->payload[0] != 0U &&
+            (request->payload[0] & ~supported) == 0U)
         {
             Protocol_RecordCommand(endpoint, request, (ProtocolCommandArgs){0});
+            code = PROTOCOL_RESULT_OK;
         }
     }
     return encode_feedback_reply(endpoint, request, code, &exchange->reply);

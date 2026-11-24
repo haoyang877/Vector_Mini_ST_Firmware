@@ -207,7 +207,7 @@ class MotorStateMachineBoundaryTests(unittest.TestCase):
             "MotorStateMachine_ReadOuterInputs",
             "MotorStateMachine_ReadStatus",
             "validate_and_set_mode_target",
-            "build_motor_feedback_snapshot",
+            "read_slow_feedback",
         ):
             control = function_source(owner, name)
             self.assertNotRegex(control, writes)

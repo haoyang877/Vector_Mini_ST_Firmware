@@ -44,6 +44,8 @@ bool MotorOuterLoop_TakePositionPlan(MotorOuterLoop *outer, MotorPositionPlan *w
 
 bool MotorOuterLoop_BuildPositionPlan(MotorPositionPlan *work)
 {
+    /* 复用现成段表时不沿用上一次建表的诊断。 */
+    work->trajectory.recovered_rounded_stop = false;
     float lead_s = work->lead_ticks * CASCADE_POSITION_LOOP_TS_S;
     if (work->trajectory.has_plan && !PositionOtg_Sample(&work->trajectory, lead_s))
     {
@@ -52,7 +54,7 @@ bool MotorOuterLoop_BuildPositionPlan(MotorPositionPlan *work)
     return PositionOtg_SetTarget(&work->trajectory, work->target_rad, work->limits);
 }
 
-void MotorOuterLoop_PublishPositionPlan(MotorOuterLoop *outer,
+bool MotorOuterLoop_PublishPositionPlan(MotorOuterLoop *outer,
                                         const MotorPositionPlan *work,
                                         bool valid)
 {
@@ -63,7 +65,9 @@ void MotorOuterLoop_PublishPositionPlan(MotorOuterLoop *outer,
             outer->plan.work.trajectory = work->trajectory;
         }
         outer->plan.state = valid ? PLAN_READY : PLAN_INVALID;
+        return valid;
     }
+    return false;
 }
 
 static bool position_plan_sample(MotorOuterLoop *outer,

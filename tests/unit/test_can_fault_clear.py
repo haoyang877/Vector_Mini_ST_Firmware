@@ -57,6 +57,11 @@ class FaultClearTests(unittest.TestCase):
     def test_combined_fault_names_and_unknown_bits(self):
         self.assertEqual(ops.describe_faults(0), "无故障")
         self.assertEqual(ops.describe_faults(0x20), "编码器故障")
+        self.assertEqual(ops.describe_faults(0x200), "配置/标定错误")
+        self.assertEqual(ops.describe_faults(0x600), "参数非法")
+        self.assertEqual(ops.describe_faults(0x2200), "编码器未完成标定")
+        self.assertEqual(ops.describe_faults(0x0010), "MCU过温")
+        self.assertEqual(ops.describe_faults(0x10000), "电机绕组热保护")
         text = ops.describe_faults(0x80000021)
         self.assertIn("过流", text)
         self.assertIn("编码器故障", text)

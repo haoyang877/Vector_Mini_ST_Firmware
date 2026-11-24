@@ -15,6 +15,7 @@ static AppProtocol adapter;
 static MotorStateMachine machine = {.epoch = 1U};
 static MotorStatus s_status;
 static unsigned s_status_reads;
+static bool s_status_busy;
 static MotorTarget s_last_target;
 static unsigned s_target_calls;
 
@@ -22,7 +23,35 @@ bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus
 {
     assert(instance == &machine);
     ++s_status_reads;
+    if (s_status_busy)
+    {
+        return false;
+    }
     *status = s_status;
+    return true;
+}
+
+void MotorStateMachine_ReadStatusMetadata(const MotorStateMachine *instance, MotorStatus *status)
+{
+    assert(instance == &machine);
+    status->state = s_status.state;
+    status->mode = s_status.mode;
+    status->fault = s_status.fault;
+}
+
+bool MotorStateMachine_ReadOutputCoordinates(const MotorStateMachine *instance,
+                                             MotorOutputCoordinates *coordinates)
+{
+    assert(instance == &machine);
+    if (!s_status.measurements_valid || (s_status.output.flags & 2U) == 0U)
+    {
+        return false;
+    }
+    *coordinates =
+        (MotorOutputCoordinates){.motor_position_rad = s_status.position_rad,
+                                 .output_position_rad = s_status.output.tracked_position_rad,
+                                 .gear_ratio = s_status.output.gear_ratio,
+                                 .direction = s_status.output.direction};
     return true;
 }
 
@@ -152,8 +181,17 @@ static void check_output_coordinates(void)
                               .sequence = (uint16_t)(adapter.last_target.sequence + 1U),
                               .position_mrad = 7000};
     ProtocolReply reply;
+    s_status_busy = true;
+    unsigned status_reads = s_status_reads;
     endpoint.motor.target(endpoint.motor.context, &target, &reply);
     assert(reply.status == PROTOCOL_OK && s_last_target.position_rad == 24.0f);
+    assert(s_status_reads == status_reads);
+    assert(encode_feedback_reply(&endpoint, &request, PROTOCOL_RESULT_OK, &response) ==
+           YG_PROTOCOL_OK);
+    assert(s_status_reads == status_reads + 1U);
+    assert(YgProtocol_ReadU16Le(response.data) == PROTOCOL_RESULT_OK &&
+           YgProtocol_ReadU16Le(response.data + 24U) == 0U);
+    s_status_busy = false;
     ++target.sequence;
     target.mode = 2U;
     target.position_mrad = 0;
@@ -244,6 +282,89 @@ static void check_motor_axis_speed(void)
            s_target_calls == before + 1U);
 }
 
+static void print_status_vector(const char *name, unsigned index, const ProtocolResponse *reply)
+{
+    printf("VECTOR %s_%u ", name, index);
+    for (unsigned byte = 0; byte < reply->length; ++byte)
+    {
+        printf("%02x", reply->data[byte]);
+    }
+    puts("");
+}
+
+/* 旧主控只识别全空帧。带能力声明的客户端才可按坐标选择在争用时读取故障。 */
+static void check_status_contention(void)
+{
+    static const MotorFaultCode s_faults[] = {MOTOR_FAULT_INVALID_PARAMETERS,
+                                              MOTOR_FAULT_ENCODER_NOT_CALIBRATED,
+                                              MOTOR_FAULT_WINDING_THERMAL};
+    uint8_t selector = 0U;
+    ProtocolExchange exchange = {.request = {.source_node = PROTOCOL_MASTER_ID,
+                                             .destination_node = 1U,
+                                             .message_type = PROTOCOL_GET_MOTOR_STATE,
+                                             .payload = &selector}};
+    uint32_t features = endpoint.device.capabilities.features;
+    endpoint.device.capabilities.features =
+        PROTOCOL_FEATURE_FEEDBACK_METADATA | PROTOCOL_FEATURE_MOTOR_AXIS_SPEED;
+    s_status = (MotorStatus){
+        .state = MOTOR_STATE_RUNNING,
+        .mode = MOTOR_CONTROL_POSITION,
+        .measurements_valid = true,
+        .fault = MOTOR_FAULT_INVALID_PARAMETERS,
+        .position_rad = 20.0f,
+        .output = {.tracked_position_rad = 7.5f, .gear_ratio = 8.0f, .direction = 1, .flags = 2U}};
+    for (selector = 0U; selector < 4U; ++selector)
+    {
+        exchange.request.payload_length = selector == 0U ? 0U : 1U;
+        assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_OK);
+        assert(YgProtocol_ReadU32Le(exchange.reply.data + 12U) ==
+               ((selector & PROTOCOL_MOTOR_AXIS_SELECTOR) ? 20000U : 7500U));
+        assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) == 0x0600U);
+    }
+    s_status_busy = true;
+    for (selector = 0U; selector < 2U; ++selector)
+    {
+        exchange.request.payload_length = selector == 0U ? 0U : 1U;
+        assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        print_status_vector("legacy_empty", selector, &exchange.reply);
+    }
+    selector = PROTOCOL_STATUS_METADATA_SELECTOR;
+    exchange.request.payload_length = 1U;
+    for (unsigned i = 0; i < sizeof(s_faults) / sizeof(s_faults[0]); ++i)
+    {
+        s_status.fault = s_faults[i];
+        assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        print_status_vector("status_metadata", i, &exchange.reply);
+    }
+    selector |= PROTOCOL_MOTOR_AXIS_SELECTOR;
+    s_status.fault = MOTOR_FAULT_ENCODER_NOT_CALIBRATED;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_OK &&
+           YgProtocol_ReadU32Le(exchange.reply.data + 4U) == 0x2200U &&
+           YgProtocol_ReadU16Le(exchange.reply.data + 24U) == 0U);
+    s_status.fault = MOTOR_FAULT_POLE_PAIRS;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) == 0x0600U);
+    s_status.fault = MOTOR_FAULT_OVERTEMPERATURE;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU32Le(exchange.reply.data + 4U) == 0x0010U);
+    endpoint.device.capabilities.features = PROTOCOL_FEATURE_FEEDBACK_METADATA;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD);
+    selector = PROTOCOL_STATUS_METADATA_SELECTOR;
+    assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+    assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_OK);
+    endpoint.device.capabilities.features = PROTOCOL_FEATURE_MOTOR_AXIS_SPEED;
+    for (selector = 2U; selector <= 4U; ++selector)
+    {
+        assert(handle_motor_status_query(&endpoint, &exchange) == YG_PROTOCOL_OK);
+        assert(YgProtocol_ReadU16Le(exchange.reply.data) == PROTOCOL_RESULT_BAD_FIELD);
+    }
+    endpoint.device.capabilities.features = features;
+    s_status_busy = false;
+}
+
 /* 同一轮查询、写目标、再查询；发送忙时读取已排队的真实反馈，不重复采样。 */
 static void check_feedback_dispatch(void)
 {
@@ -318,6 +439,7 @@ int main(void)
     check_scaling_boundaries();
     check_output_coordinates();
     check_motor_axis_speed();
+    check_status_contention();
     const uint8_t states[] = {5U, 3U, 4U, 6U, 8U};
     for (unsigned i = 0; i <= MOTOR_STATE_FAULT; ++i)
     {

@@ -308,8 +308,70 @@ static void check_long_cruise_clock(void)
     assert(ticks.reference.position_rad == 32768.0f);
 }
 
+/* 回零制动时，坐标换算的末位变化仍是有效目标。对正反两个方向逐拍重建，
+ * 检查从原参考接续、有界时间到达新目标及每段 jerk/加速度/速度约束。 */
+static void check_retarget_near_stop(float travel_rad, float target_rad, PositionOtgLimits limits)
+{
+    PositionOtg path;
+    assert(PositionOtg_Reset(&path, (PositionOtgReference){travel_rad, 0.0f, 0.0f}));
+    assert(PositionOtg_SetTarget(&path, 0.0f, limits));
+    unsigned braking_ticks = 0U;
+    for (unsigned tick = 0U; tick < 16000U && !path.finished; ++tick)
+    {
+        assert(PositionOtg_Sample(&path, dt));
+        if (path.reference.speed_rad_s * path.reference.acceleration_rad_s2 >= 0.0f)
+        {
+            continue;
+        }
+        ++braking_ticks;
+        PositionOtg next = path;
+        assert(PositionOtg_SetTarget(&next, target_rad, limits));
+        assert(memcmp(&next.reference, &path.reference, sizeof(next.reference)) == 0);
+        assert(next.segment_count <= 7U);
+        double duration = 0.0;
+        double integrated_position = path.reference.position_rad;
+        for (unsigned i = 0U; i < next.segment_count; ++i)
+        {
+            const PositionOtgSegment *segment = &next.segments[i];
+            double t = (double)segment->duration.seconds + segment->duration.remainder_s;
+            double jerk = segment->jerk_rad_s3;
+            double accel = segment->start.acceleration_rad_s2;
+            double speed = segment->start.speed_rad_s;
+            assert(t > 0.0 && fabs(jerk) <= limits.jerk_rad_s3);
+            assert(fabs(integrated_position - segment->start.position_rad) <=
+                   8.0 * FLT_EPSILON * fabsf(travel_rad));
+            integrated_position += t * (speed + t * (0.5 * accel + t * jerk / 6.0));
+            assert(fabs(accel + jerk * t) <= limits.acceleration_rad_s2 * (1.0 + 4e-6));
+            assert(fabs(speed + t * (accel + 0.5 * jerk * t)) <= limits.speed_rad_s * (1.0 + 4e-6));
+            duration += t;
+        }
+        assert(duration < 1.0);
+        assert(fabs(integrated_position - target_rad) <= 8.0 * FLT_EPSILON * fabsf(travel_rad));
+        assert(PositionOtg_Sample(&next, 1.0f) && next.finished);
+        assert(next.reference.position_rad == target_rad && next.reference.speed_rad_s == 0.0f &&
+               next.reference.acceleration_rad_s2 == 0.0f);
+    }
+    assert(path.finished && braking_ticks > 0U);
+}
+
+/* 1 号样机 Yaw 的 Type120 制动记录。十六进制浮点常量精确保留七个 binary32 输入。 */
+static void check_recorded_yaw_stop(void)
+{
+    const PositionOtgReference initial = {-0x1.a77920p+2f, 0x1.2c8006p+4f, -0x1.25bff0p+6f};
+    const float target_rad = -0x1.1d9aa2p+2f;
+    const PositionOtgLimits yaw_limits = {22.0f, 0x1.4f1a6cp+6f, 0x1.a2e106p+9f};
+    PositionOtg otg;
+    assert(PositionOtg_Reset(&otg, initial));
+    assert(PositionOtg_SetTarget(&otg, target_rad, yaw_limits));
+    assert(memcmp(&otg.reference, &initial, sizeof(initial)) == 0);
+    assert(PositionOtg_Sample(&otg, 1.0f) && otg.finished);
+    assert(otg.reference.position_rad == target_rad && otg.reference.speed_rad_s == 0.0f &&
+           otg.reference.acceleration_rad_s2 == 0.0f);
+}
+
 int main(void)
 {
+    check_recorded_yaw_stop();
     const unsigned times[] = {50U, 350U, 1000U, 3250U};
     for (unsigned i = 0; i < sizeof(times) / sizeof(times[0]); ++i)
     {
@@ -323,6 +385,14 @@ int main(void)
     check_sample_period_equivalence(3500U, 3.14159265f);
     check_unit_scaling();
     check_long_cruise_clock();
+    const PositionOtgLimits roll = {0.38f, 3.14159265f, 3.14159265f / 0.1f};
+    const float yaw_accel = (6.283185307f / 3.0f) * 40.0f;
+    const PositionOtgLimits yaw = {0.55f * 40.0f, yaw_accel, yaw_accel / 0.1f};
+    for (int sign = -1; sign <= 1; sign += 2)
+    {
+        check_retarget_near_stop(sign * 0.262f, sign * 1e-9f, roll);
+        check_retarget_near_stop(sign * 1.396f * 40.0f, sign * 4e-8f, yaw);
+    }
     check_random_states();
     check_profiles();
     check_interleaved_instances();

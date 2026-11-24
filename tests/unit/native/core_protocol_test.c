@@ -51,6 +51,22 @@ bool MotorStateMachine_ReadStatus(const MotorStateMachine *instance, MotorStatus
     return true;
 }
 
+void MotorStateMachine_ReadStatusMetadata(const MotorStateMachine *instance, MotorStatus *status)
+{
+    assert(instance == &machine);
+    status->state = MOTOR_STATE_IDLE;
+    status->mode = MOTOR_CONTROL_NONE;
+    status->fault = MOTOR_FAULT_NONE;
+}
+
+bool MotorStateMachine_ReadOutputCoordinates(const MotorStateMachine *instance,
+                                             MotorOutputCoordinates *coordinates)
+{
+    assert(instance == &machine);
+    *coordinates = (MotorOutputCoordinates){.gear_ratio = 1.0f, .direction = 1};
+    return true;
+}
+
 MotorControlResult MotorStateMachine_RequestCalibration(MotorStateMachine *instance,
                                                         MotorCalibrationType calibration_type)
 {

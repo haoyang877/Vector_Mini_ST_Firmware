@@ -89,10 +89,11 @@ bool MotorOuterLoop_BuildPositionPlan(MotorPositionPlan *work);
  * @brief 发布已计算的段表；外环仅在约定的采样边界切换。
  * @param work 前台计算副本。
  * @param valid 建表是否成功。
+ * @return 本次有效段表已发布时为 true，过期、撤销或建表失败返回 false。
  * @note 前台调用者须屏蔽外环直到复制完成；撤销或过期结果直接丢弃。
  * @param outer 调用方持有的实例状态。
  */
-void MotorOuterLoop_PublishPositionPlan(MotorOuterLoop *outer,
+bool MotorOuterLoop_PublishPositionPlan(MotorOuterLoop *outer,
                                         const MotorPositionPlan *work,
                                         bool valid);
 

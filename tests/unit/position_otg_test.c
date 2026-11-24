@@ -354,8 +354,24 @@ static void check_retarget_near_stop(float travel_rad, float target_rad, Positio
     assert(path.finished && braking_ticks > 0U);
 }
 
+/* 1 号样机 Yaw 的 Type120 制动记录。十六进制浮点常量精确保留七个 binary32 输入。 */
+static void check_recorded_yaw_stop(void)
+{
+    const PositionOtgReference initial = {-0x1.a77920p+2f, 0x1.2c8006p+4f, -0x1.25bff0p+6f};
+    const float target_rad = -0x1.1d9aa2p+2f;
+    const PositionOtgLimits yaw_limits = {22.0f, 0x1.4f1a6cp+6f, 0x1.a2e106p+9f};
+    PositionOtg otg;
+    assert(PositionOtg_Reset(&otg, initial));
+    assert(PositionOtg_SetTarget(&otg, target_rad, yaw_limits));
+    assert(memcmp(&otg.reference, &initial, sizeof(initial)) == 0);
+    assert(PositionOtg_Sample(&otg, 1.0f) && otg.finished);
+    assert(otg.reference.position_rad == target_rad && otg.reference.speed_rad_s == 0.0f &&
+           otg.reference.acceleration_rad_s2 == 0.0f);
+}
+
 int main(void)
 {
+    check_recorded_yaw_stop();
     const unsigned times[] = {50U, 350U, 1000U, 3250U};
     for (unsigned i = 0; i < sizeof(times) / sizeof(times[0]); ++i)
     {

@@ -1097,58 +1097,27 @@ bool MotorStateMachine_ReadOutputCoordinates(const MotorStateMachine *machine,
     return true;
 }
 
-static MotorStatus build_motor_feedback_snapshot(const MotorStateMachine *machine)
+/* 输出反馈由外环发布，温度和快采样新鲜度由监督拍发布。 */
+static void read_slow_feedback(const MotorStateMachine *machine, MotorStatus *sample)
 {
-    const MotorControlState *motor = machine->drive.motor;
-    const FocState *foc = machine->drive.foc;
-    const EncoderState *encoder = machine->drive.rotor_encoder;
-    bool active =
-        machine->state == MOTOR_STATE_RUNNING && motor->control_mode != MOTOR_CONTROL_NONE;
-    bool current = active && motor->control_mode != MOTOR_CONTROL_OPEN_VOLTAGE &&
-                   motor->control_mode != MOTOR_CONTROL_VQ;
-    bool position = active && motor->control_mode == MOTOR_CONTROL_POSITION;
-    bool speed = active && motor->control_mode == MOTOR_CONTROL_SPEED;
-    MotorOutputTelemetry output = {0};
+    const MotorOutputTelemetry *output = machine->drive.output;
+    sample->output = output != NULL ? *output : (MotorOutputTelemetry){0};
     uint32_t now_ms = BspSystem_TimeMs();
-    uint32_t age_ms = UINT32_MAX;
-    if (machine->drive.output != NULL)
+    sample->output_age_ms =
+        output_feedback_age_ms(sample->output.sample_counter, sample->output.sample_ms, now_ms);
+    if (sample->output_age_ms > 10U)
     {
-        output = *machine->drive.output;
-        age_ms = output_feedback_age_ms(output.sample_counter, output.sample_ms, now_ms);
-        if (age_ms > 10U)
-        {
-            output.flags &= (uint16_t)~3U;
-        }
+        sample->output.flags &= (uint16_t)~3U;
     }
     const MotorTemperatureTelemetry *ntc = machine->drive.motor_temperature;
-    float motor_temperature_c =
+    sample->motor_temperature_c =
         ntc != NULL && ntc->valid && (uint32_t)(now_ms - ntc->sample_ms) <= 30U ? ntc->celsius
                                                                                 : NAN;
-    return (MotorStatus){
-        .output = output,
-        .output_age_ms = age_ms,
-        .motor_temperature_c = motor_temperature_c,
-        .motor_temperature_valid = isfinite(motor_temperature_c),
-        .state = machine->state,
-        .mode = (uint16_t)motor->control_mode,
-        .fault = (uint16_t)motor->fault_code,
-        .measurements_valid = machine->fast_samples_fresh,
-        .position_reference_rad = position ? motor->position_reference_rad : NAN,
-        .position_rad = encoder->has_valid_sample ? encoder->mechanical_position_rad : NAN,
-        .speed_reference_rad_s = speed      ? motor->speed_target_rad_s
-                                 : position ? motor->speed_ramped_rad_s
-                                            : NAN,
-        .speed_rad_s =
-            encoder->has_valid_sample ? encoder->mechanical_velocity_continuous_rad_s : NAN,
-        .bus_voltage_v = foc->bus_voltage_filtered_v,
-        .bus_current_a = foc->bus_current_filtered_a,
-        .iq_reference_a = current ? motor->iq_target_a : NAN,
-        .iq_a = active ? foc->current_dq_a.q : NAN,
-        .temperature_c =
-            McuTemperature_IsFresh(machine->drive.temperature) ? foc->temperature_c : NAN,
-        .vq_v = active ? foc->voltage_dq_v.q : NAN,
-        .vd_v = active ? foc->voltage_dq_v.d : NAN,
-    };
+    sample->motor_temperature_valid = isfinite(sample->motor_temperature_c);
+    sample->temperature_c = McuTemperature_IsFresh(machine->drive.temperature)
+                                ? machine->drive.foc->temperature_c
+                                : NAN;
+    sample->measurements_valid = machine->fast_samples_fresh;
 }
 
 void MotorStateMachine_ReadStatusMetadata(const MotorStateMachine *machine, MotorStatus *status)
@@ -1162,21 +1131,70 @@ void MotorStateMachine_ReadStatusMetadata(const MotorStateMachine *machine, Moto
 
 bool MotorStateMachine_ReadStatus(const MotorStateMachine *machine, MotorStatus *status)
 {
-    /* 每个计数只有对应 ISR 写。前台被抢占后重读一次，连续争用则报告本帧不可用。 */
-    for (unsigned attempt = 0U; attempt < 2U; ++attempt)
+    const MotorControlState *motor = machine->drive.motor;
+    const FocState *foc = machine->drive.foc;
+    const EncoderState *encoder = machine->drive.rotor_encoder;
+    MotorStatus sample;
+    for (unsigned attempt = 0U; attempt < 3U; ++attempt)
     {
-        uint32_t fast = machine->fast_sample_ticks;
         uint32_t outer = machine->outer_ticks;
         uint32_t supervisor = machine->supervisor_ticks;
         BspSystem_MemoryBarrier();
-        MotorStatus sample = build_motor_feedback_snapshot(machine);
+        read_slow_feedback(machine, &sample);
+
+        /* 慢域覆盖整个读取。ADC 只需在快域字段复制期间稳定，允许其抢占慢域读取。 */
+        uint32_t fast = machine->fast_sample_ticks;
         BspSystem_MemoryBarrier();
-        if (fast == machine->fast_sample_ticks && outer == machine->outer_ticks &&
-            supervisor == machine->supervisor_ticks)
+        sample.state = machine->state;
+        sample.mode = (uint16_t)motor->control_mode;
+        sample.fault = (uint16_t)motor->fault_code;
+        bool encoder_valid = encoder->has_valid_sample;
+        sample.position_reference_rad = motor->position_reference_rad;
+        sample.position_rad = encoder->mechanical_position_rad;
+        sample.speed_reference_rad_s = sample.mode == MOTOR_CONTROL_SPEED
+                                           ? motor->speed_target_rad_s
+                                           : motor->speed_ramped_rad_s;
+        sample.speed_rad_s = encoder->mechanical_velocity_continuous_rad_s;
+        sample.bus_voltage_v = foc->bus_voltage_filtered_v;
+        sample.bus_current_a = foc->bus_current_filtered_a;
+        sample.iq_reference_a = motor->iq_target_a;
+        sample.iq_a = foc->current_dq_a.q;
+        sample.vq_v = foc->voltage_dq_v.q;
+        sample.vd_v = foc->voltage_dq_v.d;
+        BspSystem_MemoryBarrier();
+        if (fast != machine->fast_sample_ticks || outer != machine->outer_ticks ||
+            supervisor != machine->supervisor_ticks)
         {
-            *status = sample;
-            return true;
+            continue;
         }
+
+        bool active = sample.state == MOTOR_STATE_RUNNING && sample.mode != MOTOR_CONTROL_NONE;
+        bool position = active && sample.mode == MOTOR_CONTROL_POSITION;
+        if (!encoder_valid)
+        {
+            sample.position_rad = NAN;
+            sample.speed_rad_s = NAN;
+        }
+        if (!position)
+        {
+            sample.position_reference_rad = NAN;
+        }
+        if (!position && !(active && sample.mode == MOTOR_CONTROL_SPEED))
+        {
+            sample.speed_reference_rad_s = NAN;
+        }
+        if (!active || sample.mode == MOTOR_CONTROL_OPEN_VOLTAGE || sample.mode == MOTOR_CONTROL_VQ)
+        {
+            sample.iq_reference_a = NAN;
+        }
+        if (!active)
+        {
+            sample.iq_a = NAN;
+            sample.vq_v = NAN;
+            sample.vd_v = NAN;
+        }
+        *status = sample;
+        return true;
     }
     return false;
 }

@@ -393,7 +393,7 @@ bool MotorStateMachine_IsStopped(const MotorStateMachine *machine);
 /**
  * @brief 在前台读取同一时刻的状态机、反馈与目标。
  * @param machine 本轴实例。
- * @param status 成功时写入一致快照，连续两次被抢占时保持原值。
+ * @param status 成功时写入一致快照，连续三次读取均争用时保持原值。
  * @return 本次取得完整快照时返回 true。
  * @note 仅串行前台调用，不屏蔽 ADC、外环或监督中断。
  */

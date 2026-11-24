@@ -20,7 +20,7 @@ def main() -> None:
         for name in (
             "output_feedback_age_ms",
             "MotorStateMachine_ReadOutputCoordinates",
-            "build_motor_feedback_snapshot",
+            "read_slow_feedback",
             "MotorStateMachine_ReadStatusMetadata",
             "MotorStateMachine_ReadStatus",
         )

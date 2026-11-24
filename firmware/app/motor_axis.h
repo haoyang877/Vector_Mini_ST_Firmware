@@ -50,6 +50,9 @@ typedef struct
     MotorTemperatureTelemetry motor_temperature;
     MotorOutputTelemetry output_feedback;
     MotorPositionPlan position_work;
+    /* 前台独占本次上电的已发布恢复事件。输入顺序见 Type120 参数 0x73–0x79。 */
+    uint32_t recovered_plan_count;
+    float last_recovered_plan_inputs[7];
 } MotorAxis;
 
 /**

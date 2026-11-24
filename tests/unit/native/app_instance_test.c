@@ -723,6 +723,39 @@ static void output_mechanical_zero(void)
     assert(MotorCalibration_StepFast(&axis->calibration).result == MOTOR_TASK_FAILED);
 }
 
+static void test_recovered_plan_parameters(void)
+{
+    MotorAxis *axis = &apps[0].axis;
+    MotorPositionPlan *work = &axis->outer.plan.work;
+    const PositionOtgReference start = {-0x1.57d594p-5f, 0x1.851eb8p-2f, -0x1.b224cep-11f};
+    ParameterValue value;
+    assert(MotorAxis_ReadParameter(axis, 0x72U, false, &value) == PARAMETER_OK &&
+           value.raw_value == 0U);
+    assert(PositionOtg_Reset(&work->trajectory, start));
+    work->target_rad = -1e-9f;
+    work->limits = (PositionOtgLimits){0.38f, 3.14159265f, 3.14159265f / 0.1f};
+    axis->outer.plan.state = PLAN_QUEUED;
+    MotorAxis_ProcessPositionPlan(axis);
+    assert(axis->outer.plan.state == PLAN_READY && axis->recovered_plan_count == 1U);
+    printf("OTG_RECOVERY");
+    for (uint8_t id = 0x72U; id <= 0x79U; ++id)
+    {
+        assert(MotorAxis_ReadParameter(axis, id, false, &value) == PARAMETER_OK);
+        assert(value.parameter_id == id && value.access == PARAMETER_ACCESS_READ &&
+               value.value_type == PARAMETER_VALUE_U32);
+        printf(" %08x", (unsigned)value.raw_value);
+        assert(MotorAxis_ReadParameter(axis, id, true, &value) == PARAMETER_UNSUPPORTED);
+        ParameterWriteRequest attempt = {.parameter_id = id};
+        assert(MotorAxis_WriteParameter(axis, &attempt) == PARAMETER_READ_ONLY);
+    }
+    puts("");
+    work->lead_ticks = 1U;
+    axis->outer.plan.state = PLAN_QUEUED;
+    MotorAxis_ProcessPositionPlan(axis);
+    assert(axis->outer.plan.state == PLAN_READY && axis->recovered_plan_count == 1U);
+    assert(apps[1].axis.recovered_plan_count == 0U);
+}
+
 int main(void)
 {
     run(false);
@@ -736,6 +769,7 @@ int main(void)
     parameter_and_output_services();
     calibration_readback_services();
     output_mechanical_zero();
+    test_recovered_plan_parameters();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");
     return 0;

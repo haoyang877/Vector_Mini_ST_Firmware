@@ -67,6 +67,10 @@ int main(void)
     interrupts = 2U;
     sample.mode = MOTOR_CONTROL_SPEED;
     assert(!MotorStateMachine_ReadStatus(&machine, &sample) && sample.mode == MOTOR_CONTROL_SPEED);
+    unsigned metadata_barriers = barriers;
+    MotorStateMachine_ReadStatusMetadata(&machine, &sample);
+    assert(sample.state == MOTOR_STATE_RUNNING && sample.mode == MOTOR_CONTROL_CURRENT &&
+           sample.fault == MOTOR_FAULT_OVERCURRENT && barriers == metadata_barriers);
     MotorOutputCoordinates coordinates;
     assert(!MotorStateMachine_ReadOutputCoordinates(&machine, &coordinates));
     encoder.has_valid_sample = true;

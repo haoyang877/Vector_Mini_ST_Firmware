@@ -106,13 +106,16 @@ def describe_faults(bits: int, *, include_codes: bool = True) -> str:
         (4, "MCU过温"),
         (5, "编码器故障"),
         (6, "CAN断连"),
-        (9, "参数/极对数/编码器未标定"),
+        (9, "配置/标定错误"),
+        (10, "参数非法"),
+        (13, "编码器未完成标定"),
         (12, "温度传感器或其他未分类故障"),
         (14, "电流校零/角度标定故障"),
         (15, "电气辨识故障"),
+        (16, "电机绕组热保护"),
     ):
         known |= 1 << bit
-        if bits & (1 << bit):
+        if bits & (1 << bit) and (bit != 9 or not bits & 0x2400):
             names.append(name)
     if bits & ~known:
         names.append(f"未知故障位0x{bits & ~known:08X}" if include_codes else "未识别故障")

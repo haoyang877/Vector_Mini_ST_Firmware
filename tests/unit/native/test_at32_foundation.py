@@ -67,6 +67,21 @@ def main() -> int:
         )
         if "VECTOR live_current_feedback " + expected not in result.stdout.splitlines():
             raise RuntimeError("实时反馈黄金向量不匹配")
+        metadata = json.loads(
+            (ROOT / "tests/fixtures/protocol/feedback_metadata_v1.json").read_text(encoding="utf-8")
+        )
+        for index, request in enumerate(metadata["legacy_request_payloads_hex"]):
+            if (
+                f"VECTOR legacy_empty_{index} {metadata['legacy_empty_payload_hex']}"
+                not in result.stdout.splitlines()
+            ):
+                raise RuntimeError(f"旧主控缺测黄金向量不匹配，选择字节 {request!r}")
+        for index, vector in enumerate(metadata["vectors"]):
+            if (
+                f"VECTOR status_metadata_{index} " + vector["payload_hex"]
+                not in result.stdout.splitlines()
+            ):
+                raise RuntimeError(f"状态元数据黄金向量不匹配 {vector['name']}")
         coordinates = json.loads(
             (ROOT / "tests/fixtures/protocol/output_coordinates_v2.json").read_text(
                 encoding="utf-8"

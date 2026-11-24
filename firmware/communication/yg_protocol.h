@@ -357,6 +357,8 @@ typedef struct
     bool (*read_feedback)(void *context, ProtocolFeedback *feedback);
     /** 显式查询电机编码器坐标，单位和反馈布局同常规状态。 */
     bool (*read_motor_axis)(void *context, ProtocolFeedback *feedback);
+    /** Type108 显式请求元数据且快照争用时填写状态、模式和故障，测量字段保留哨兵。 */
+    void (*read_status_metadata)(void *context, ProtocolFeedback *feedback);
     /** 前台读取有版本的输出轴状态；失败时通信回复BUSY。 */
     bool (*read_output)(void *context, MotorOutputFeedback *feedback);
 } ProtocolMotor;

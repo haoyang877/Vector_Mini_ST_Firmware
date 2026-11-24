@@ -1151,6 +1151,15 @@ static MotorStatus build_motor_feedback_snapshot(const MotorStateMachine *machin
     };
 }
 
+void MotorStateMachine_ReadStatusMetadata(const MotorStateMachine *machine, MotorStatus *status)
+{
+    const volatile MotorStateMachine *source = machine;
+    const volatile MotorControlState *motor = machine->drive.motor;
+    status->state = source->state;
+    status->mode = (uint16_t)motor->control_mode;
+    status->fault = (uint16_t)motor->fault_code;
+}
+
 bool MotorStateMachine_ReadStatus(const MotorStateMachine *machine, MotorStatus *status)
 {
     /* 每个计数只有对应 ISR 写。前台被抢占后重读一次，连续争用则报告本帧不可用。 */

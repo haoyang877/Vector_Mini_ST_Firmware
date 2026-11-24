@@ -108,7 +108,7 @@ static void test_disabled_runtime(void)
     MotorThermalControl_UpdateProtection(&settings, &foc, &motor, true, true, true, false);
     assert(motor.fault_code == MOTOR_FAULT_NONE && motor.thermal_current_limit_a == 2.5f);
     MotorThermalControl_UpdateProtection(&settings, &foc, &motor, true, false, true, false);
-    assert(motor.fault_code == MOTOR_FAULT_WINDING_THERMAL);
+    assert(motor.fault_code == MOTOR_FAULT_VOLTAGE_MODE_CURRENT_LIMIT);
 }
 int main(void)
 {

@@ -5,6 +5,23 @@
   "write_state": "idle_phases_disabled",
   "saved_read_state": "stopped",
   "range_authority": "firmware/parameters/parameter_values.c and product axis envelope",
+  "optional_diagnostics": {
+    "otg_recovery_v1": {
+      "type": 120,
+      "value_type": 2,
+      "access": 1,
+      "count_id": 114,
+      "float32_bits": {
+        "115": "position_rad",
+        "116": "speed_rad_s",
+        "117": "acceleration_rad_s2",
+        "118": "target_rad",
+        "119": "maximum_speed_rad_s",
+        "120": "maximum_acceleration_rad_s2",
+        "121": "maximum_jerk_rad_s3"
+      }
+    }
+  },
   "parameters": [
     {
       "id": 0,

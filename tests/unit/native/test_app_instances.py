@@ -46,6 +46,9 @@ def main() -> None:
         log = (args.out / f"instances_{board}.log").read_text(encoding="utf-8")
         if f"COORDINATE_CRC {vector['coordinate_crc_v1_hex']}" not in log.splitlines():
             raise RuntimeError("坐标CRC与独立zlib黄金向量不一致")
+        recovery = json.loads((ROOT / "tests/fixtures/protocol/otg_recovery_v1.json").read_text())
+        if "OTG_RECOVERY " + " ".join(recovery["words_0x72_through_0x79"]) not in log.splitlines():
+            raise RuntimeError("恢复计数或原始规划字段与黄金向量不一致")
 
 
 if __name__ == "__main__":

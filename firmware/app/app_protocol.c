@@ -380,6 +380,7 @@ static uint32_t encode_fault_bits(MotorFaultCode error)
     switch (error)
     {
     case MOTOR_FAULT_OVERCURRENT:
+    case MOTOR_FAULT_VOLTAGE_MODE_CURRENT_LIMIT:
         return 1U << 0U;
     case MOTOR_FAULT_OVERVOLTAGE:
         return 1U << 1U;
@@ -390,14 +391,17 @@ static uint32_t encode_fault_bits(MotorFaultCode error)
         return 1U << 4U;
     case MOTOR_FAULT_TEMPERATURE_SENSOR:
         return 1U << 12U;
+    case MOTOR_FAULT_WINDING_THERMAL:
+        return PROTOCOL_FAULT_WINDING_THERMAL;
     case MOTOR_FAULT_ENCODER:
         return 1U << 5U;
     case MOTOR_FAULT_CAN_DISCONNECTED:
         return 1U << 6U;
     case MOTOR_FAULT_INVALID_PARAMETERS:
     case MOTOR_FAULT_POLE_PAIRS:
+        return PROTOCOL_FAULT_CONFIGURATION_GROUP | PROTOCOL_FAULT_INVALID_PARAMETERS;
     case MOTOR_FAULT_ENCODER_NOT_CALIBRATED:
-        return 1U << 9U;
+        return PROTOCOL_FAULT_CONFIGURATION_GROUP | PROTOCOL_FAULT_ENCODER_NOT_CALIBRATED;
     case MOTOR_FAULT_CURRENT_OFFSET:
     case MOTOR_FAULT_COGGING_CALIBRATION:
     case MOTOR_FAULT_CALIBRATION_OVERSPEED:
@@ -451,6 +455,22 @@ static int32_t encode_feedback_measurement(
     return rounded.negative ? -(int32_t)rounded.magnitude : (int32_t)rounded.magnitude;
 }
 
+static void encode_status_metadata(const MotorStatus *status, ProtocolFeedback *values)
+{
+    values->fault_code = encode_fault_bits((MotorFaultCode)status->fault);
+    values->control_mode = encode_control_mode((MotorControlMode)status->mode);
+    values->motor_state =
+        status->fault != MOTOR_FAULT_NONE ? 8U : encode_motor_state(status->state);
+}
+
+static void read_status_metadata(void *context, ProtocolFeedback *values)
+{
+    AppProtocol *adapter = context;
+    MotorStatus status;
+    MotorStateMachine_ReadStatusMetadata(adapter->state_machine, &status);
+    encode_status_metadata(&status, values);
+}
+
 static bool read_feedback(void *context, ProtocolFeedback *values, bool motor_axis)
 {
     AppProtocol *adapter = context;
@@ -459,9 +479,7 @@ static bool read_feedback(void *context, ProtocolFeedback *values, bool motor_ax
     {
         return false;
     }
-    values->fault_code = encode_fault_bits((MotorFaultCode)status.fault);
-    values->control_mode = encode_control_mode((MotorControlMode)status.mode);
-    values->motor_state = status.fault != MOTOR_FAULT_NONE ? 8U : encode_motor_state(status.state);
+    encode_status_metadata(&status, values);
     if (!status.measurements_valid)
     {
         return true;
@@ -577,6 +595,7 @@ void AppProtocol_Init(AppProtocol *adapter, ProtocolEndpoint *endpoint, MotorSta
                                       .host_position_keepalive = keep_host_position_alive,
                                       .read_feedback = read_motor_feedback,
                                       .read_motor_axis = read_motor_axis,
+                                      .read_status_metadata = read_status_metadata,
                                       .read_output = read_output_feedback};
     endpoint->jobs = (ProtocolJobs){adapter, request_encoder_calibration};
     endpoint->device_status.role = PROTOCOL_DEVICE_ROLE_APP;

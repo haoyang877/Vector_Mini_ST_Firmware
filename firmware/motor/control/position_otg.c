@@ -155,7 +155,9 @@ static float
 select_cruise_speed(RampState initial_state, float displacement_rad, PositionOtgLimits limits)
 {
     float stopping_displacement = ramp_displacement(initial_state, 0.0f, limits);
-    if (displacement_rad == stopping_displacement)
+    /* 接近刹停点时，浮点位移相减已不能可靠判定微小巡航速度的方向。 */
+    if (fabsf(displacement_rad - stopping_displacement) <=
+        8.0f * FLT_EPSILON * fabsf(stopping_displacement))
     {
         return 0.0f;
     }
@@ -238,10 +240,25 @@ static bool build_segments(PositionOtg *plan, float target_rad, PositionOtgLimit
     }
     if (cruise_speed_rad_s == 0.0f)
     {
-        /* 当前刹停点已舍入到请求的位置时，无需补巡航段。 */
         float stop_position = (plan->reference.position_rad + stopped.displacement_rad) +
                               stopped.displacement_tail_rad;
-        return cruise_displacement_rad == 0.0f || stop_position == target_rad;
+        if (cruise_displacement_rad != 0.0f && stop_position != target_rad)
+        {
+            /* 此时若旧算法以相等的单精度位移选了零巡航，旧版建表必然拒绝。 */
+            plan->recovered_rounded_stop =
+                displacement_rad == stopped.displacement_rad + stopped.displacement_tail_rad;
+            /* 从静止补齐剩余位移。三段 jerk 为 +j/-j/+j，时长 t/2t/t，
+             * 总位移 2jt³，峰值速度 jt²、加速度 jt。制动与修正共至多六段。 */
+            float distance = fabsf(cruise_displacement_rad);
+            float time_s = fmaxf(cbrtf(distance) / cbrtf(limits.jerk_rad_s3),
+                                 fmaxf(sqrtf(distance) / sqrtf(limits.acceleration_rad_s2),
+                                       distance / limits.speed_rad_s));
+            float jerk = ((cruise_displacement_rad / time_s) / time_s) / (2.0f * time_s);
+            append_segment(&ramp, plan, jerk, time_s, 0.0f);
+            append_segment(&ramp, plan, -jerk, 2.0f * time_s, 0.0f);
+            append_segment(&ramp, plan, jerk, time_s, 0.0f);
+        }
+        return true;
     }
 
     float cruise_s = cruise_displacement_rad / cruise_speed_rad_s;

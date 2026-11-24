@@ -370,7 +370,8 @@ static void check_runtime(void)
     tick_without_foreground();
     MotorPositionPlan fresh;
     CHECK(MotorOuterLoop_TakePositionPlan(&outer, &fresh) && fresh.serial != stale.serial);
-    MotorOuterLoop_PublishPositionPlan(&outer, &stale, MotorOuterLoop_BuildPositionPlan(&stale));
+    CHECK(!MotorOuterLoop_PublishPositionPlan(
+        &outer, &stale, MotorOuterLoop_BuildPositionPlan(&stale)));
     for (unsigned i = 0; i < CASCADE_POSITION_LOOP_FREQ / 250U; ++i)
     {
         tick_without_foreground();

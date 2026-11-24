@@ -23,6 +23,13 @@
 #include <stddef.h>
 #include "crc32.h"
 
+enum
+{
+    PLAN_RECOVERY_COUNT_ID = 0x72U,
+    PLAN_RECOVERY_FIRST_INPUT_ID = 0x73U,
+    PLAN_RECOVERY_LAST_INPUT_ID = 0x79U
+};
+
 /* 当前产品各有一组板级 PWM 和一个参数区；模拟轴可显式绑定独立端点。 */
 static const MotorAxisHardware s_board_hardware = {
     .power = {BspPwm_Enable,
@@ -387,8 +394,22 @@ void MotorAxis_ProcessPositionPlan(MotorAxis *axis)
     {
         bool valid = MotorOuterLoop_BuildPositionPlan(work);
         mask = BspSystem_EnterControlCritical();
-        MotorOuterLoop_PublishPositionPlan(&axis->outer, work, valid);
+        bool published = MotorOuterLoop_PublishPositionPlan(&axis->outer, work, valid);
         BspSystem_ExitControlCritical(mask);
+        if (published && work->trajectory.recovered_rounded_stop)
+        {
+            /* 工作副本与查询均由前台独占，诊断复制放在临界区外。 */
+            const PositionOtgReference *start = &work->trajectory.reference;
+            const float inputs[] = {start->position_rad,
+                                    start->speed_rad_s,
+                                    start->acceleration_rad_s2,
+                                    work->target_rad,
+                                    work->limits.speed_rad_s,
+                                    work->limits.acceleration_rad_s2,
+                                    work->limits.jerk_rad_s3};
+            memcpy(axis->last_recovered_plan_inputs, inputs, sizeof(inputs));
+            ++axis->recovered_plan_count;
+        }
     }
 }
 
@@ -420,7 +441,8 @@ static void finish_parameter_update(MotorAxis *axis)
 
 ParameterStatus MotorAxis_WriteParameter(MotorAxis *axis, const ParameterWriteRequest *request)
 {
-    if (request->parameter_id == 0x70U)
+    if (request->parameter_id == 0x70U || (request->parameter_id >= PLAN_RECOVERY_COUNT_ID &&
+                                           request->parameter_id <= PLAN_RECOVERY_LAST_INPUT_ID))
     {
         return PARAMETER_READ_ONLY;
     }
@@ -527,6 +549,25 @@ ParameterStatus MotorAxis_SaveParameters(MotorAxis *axis, uint32_t expected_revi
 ParameterStatus
 MotorAxis_ReadParameter(MotorAxis *axis, uint8_t id, bool saved, ParameterValue *value)
 {
+    if (id >= PLAN_RECOVERY_COUNT_ID && id <= PLAN_RECOVERY_LAST_INPUT_ID)
+    {
+        if (saved)
+        {
+            return PARAMETER_UNSUPPORTED;
+        }
+        *value = (ParameterValue){.parameter_id = id,
+                                  .value_type = PARAMETER_VALUE_U32,
+                                  .access = PARAMETER_ACCESS_READ,
+                                  .revision = axis->parameters.revision,
+                                  .raw_value = axis->recovered_plan_count};
+        if (id != PLAN_RECOVERY_COUNT_ID)
+        {
+            memcpy(&value->raw_value,
+                   &axis->last_recovered_plan_inputs[id - PLAN_RECOVERY_FIRST_INPUT_ID],
+                   sizeof(value->raw_value));
+        }
+        return PARAMETER_OK;
+    }
     if (!saved && id == 0x70U)
     {
         if (axis->state_machine.maintenance_capture ||

@@ -119,7 +119,7 @@ void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuratio
         float limit_a = motor->thermal_current_limit_a;
         if (!(vector_squared_a2 <= limit_a * limit_a))
         {
-            MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
+            MotorFault_Report(motor, MOTOR_FAULT_VOLTAGE_MODE_CURRENT_LIMIT);
         }
     }
 }
@@ -241,7 +241,7 @@ void MotorThermalControl_UpdateProtection(const MotorConfiguration *configuratio
                                                    foc->phase_current_a.c * foc->phase_current_a.c);
         if (!(vector_squared_a2 <= limit_a * limit_a))
         {
-            MotorFault_Report(motor, MOTOR_FAULT_WINDING_THERMAL);
+            MotorFault_Report(motor, MOTOR_FAULT_VOLTAGE_MODE_CURRENT_LIMIT);
         }
     }
 }

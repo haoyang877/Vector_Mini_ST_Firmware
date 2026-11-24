@@ -90,3 +90,5 @@ PI数值上限是本服务的配置边界，实际整定仍需对应电机的台
 AT32F456 的 0x71 是停机可写的 u32，两段速率均以 kbit/s 表示。见[通信与生效顺序](../../docs/protocols/README.md#at32f456-can-波特率-v1)。
 
 可供主控导入的共享目录为[parameter_catalog_v1.json](../../shared/protocol/parameter_catalog_v1.json)，原生回归校验与生产映射一致。
+
+Type120 的可选只读诊断 ID `0x72…0x79` 由 MotorAxis 的前台规划和查询共用，字段见[位置规划制动舍入诊断 v1](../../docs/protocols/README.md#位置规划制动舍入诊断-v1)。

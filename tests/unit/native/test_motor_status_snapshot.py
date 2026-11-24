@@ -21,6 +21,7 @@ def main() -> None:
             "output_feedback_age_ms",
             "MotorStateMachine_ReadOutputCoordinates",
             "build_motor_feedback_snapshot",
+            "MotorStateMachine_ReadStatusMetadata",
             "MotorStateMachine_ReadStatus",
         )
     )

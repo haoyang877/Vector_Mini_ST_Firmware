@@ -400,6 +400,14 @@ bool MotorStateMachine_IsStopped(const MotorStateMachine *machine);
 bool MotorStateMachine_ReadStatus(const MotorStateMachine *machine, MotorStatus *status);
 
 /**
+ * @brief 直接读取状态、模式和锁存故障，用于测量快照争用时的反馈。
+ * @param machine 已初始化的状态机。
+ * @param status 非空接收对象，仅填写state、mode、fault。
+ * @note 仅前台调用。读取期间允许中断，三个字段可以来自相邻控制周期。
+ */
+void MotorStateMachine_ReadStatusMetadata(const MotorStateMachine *machine, MotorStatus *status);
+
+/**
  * @brief 直接读取输出跟踪坐标及电机位置。
  * @param machine 已初始化的状态机。
  * @param coordinates 非空坐标接收对象；无有效转子样本时电机位置为NAN。

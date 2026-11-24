@@ -22,7 +22,7 @@ INSPECTION_STAGES = {
     "power": "高速角度、转速及功率检测",
     "archive": "关相与归档",
 }
-PRODUCTION_VERSION = "2.3.16"
+PRODUCTION_VERSION = "2.3.17"
 
 
 def inspection_numbers(motor_serial: str, test_requirement: str) -> dict[str, str]:

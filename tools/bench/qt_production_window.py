@@ -1,6 +1,7 @@
 """Qt生产工作台：原生控件与任务映射，不直接调用设备SDK。"""
 
 import json
+import math
 import os
 import queue
 import sys
@@ -18,7 +19,6 @@ from hardware_check import empty_report
 from hardware_limits import default_path, read_limits
 from production_backend import (
     AXES,
-    AXIS_SPEED_LIMITS,
     MODES,
     RATES,
     STATUS_REFRESH_S,
@@ -798,9 +798,10 @@ class ProductionWindow(QMainWindow):
         controls = QGroupBox("速度模式")
         settings = QVBoxLayout(controls)
         settings.setSpacing(14)
-        self.add_fields(
-            settings, [("speed", "目标速度 rad/s", "3"), ("speed_limit", "电机轴上限 rad/s", "300")]
-        )
+        self.add_fields(settings, [("speed", "输出轴目标速度 rad/s", "0")])
+        self.motion_limit = label("", "subtitle", True)
+        self.show_motion_limit()
+        settings.addWidget(self.motion_limit)
         self.add_action(settings, "使能速度控制", self.start_speed, True, icon_name="start")
         self.speed_update = button("更新速度目标", self.update_speed, icon_name="refresh")
         settings.addWidget(self.speed_update)
@@ -823,7 +824,7 @@ class ProductionWindow(QMainWindow):
         self.speed_parameter_values = {}
         for identifier, title in GROUPS["speed"][1]:
             value = label("—")
-            fields.addRow(title, value)
+            fields.addRow("电机轴速度上限" if identifier == 1 else title, value)
             self.speed_parameter_values[identifier] = value
         parameter_layout.addLayout(fields)
         settings.addWidget(parameters)
@@ -915,7 +916,8 @@ class ProductionWindow(QMainWindow):
             self.curve_path = None
             self.calibration_preview.display(None)
             self.calibration_result.setText("等待标定")
-            self.edits["speed_limit"].setText(str(AXIS_SPEED_LIMITS[self.node()]))
+            self.show_motion_limit()
+            self.speed_label.setText("等待速度反馈")
         if self.identity and (
             self.identity.get("node") not in (None, self.node())
             or self.current_motor
@@ -1388,12 +1390,17 @@ class ProductionWindow(QMainWindow):
 
     def start_speed(self) -> None:
         try:
-            settings = motor_speed_fields(
-                dict(speed=self.edits["speed"].text(), limit=self.edits["speed_limit"].text())
-            )
+            settings = motor_speed_fields(dict(speed=self.edits["speed"].text()))
             self.launch(dict(profile="motor_speed", **settings))
         except ValueError as exc:
             self.error(str(exc))
+
+    def show_motion_limit(self, value: float | None = None) -> None:
+        self.motion_limit.setText(
+            f"板端输出轴限速 ±{value:.6g} rad/s（±{value * 60 / math.tau:.2f} rpm）"
+            if value is not None
+            else "使能前自动读取板端输出轴限速"
+        )
 
     def update_speed(self) -> None:
         try:
@@ -1567,6 +1574,8 @@ class ProductionWindow(QMainWindow):
                     self.verified_uid = None
                 if profile == "motor_speed":
                     self.plot.clear()
+                    self.show_motion_limit()
+                    self.speed_label.setText("正在读取限速")
                 if profile in ("motor_calibration", "calibration_readback"):
                     self.curve_path = None
                     self.calibration_preview.display(None)
@@ -1666,6 +1675,7 @@ class ProductionWindow(QMainWindow):
                     self.upgrade_table.item(row, 6).setText(text)
         elif tag == "motor_feedback":
             self.plot.append(value)
+            self.show_motion_limit(value.get("output_speed_limit_rad_s"))
             self.speed_label.setText(
                 f"目标 {value['target_rad_s']:+.3f} rad/s    实际 {value['actual_rad_s']:+.3f} rad/s"
             )
@@ -1740,8 +1750,7 @@ class ProductionWindow(QMainWindow):
             self.render_device()
         elif profile == "parameters":
             self.parameters.display(report)
-            if report.get("passed") and 1 in report.get("rows", {}):
-                self.edits["speed_limit"].setText(value_text(1, report["rows"][1]["raw"]))
+            self.show_motion_limit()
         elif profile == "can_scan":
             self.devices.clear()
             self.upgrade_table.setRowCount(0)
@@ -1854,6 +1863,12 @@ class ProductionWindow(QMainWindow):
                 self.set_inspection_progress(f"检测结束 · {detail}")
             self.display_hardware_rows(report)
         elif profile in ("motor_calibration", "motor_speed", "calibration_readback"):
+            if profile == "motor_speed":
+                self.show_motion_limit(report.get("output_speed_limit_rad_s"))
+                self.speed_label.setText(
+                    report.get("fatal")
+                    or ("已确认关相" if report.get("stop_confirmed") else "任务结束")
+                )
             curve = report.get("curves", {}).get("png") or report.get("hall_raw_png")
             if curve or profile == "motor_calibration":
                 self.curve_path = directory / curve if directory and curve else None

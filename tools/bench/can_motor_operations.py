@@ -502,11 +502,12 @@ def run_speed_control(
     speed_limit: float | None = None,
     expected_uid: str | None = None,
     output_test: OutputSpeedTest | None = None,
+    output_target: bool = False,
     stopped: Callable[[], bool] = lambda: False,
     progress: Callable[[str], None] = lambda _: None,
     feedback: Callable[[dict], None] = lambda _: None,
 ) -> dict:
-    """模式2持续到停止或定时结束；定时任务按输出轴给目标，不改板端限速。"""
+    """执行模式2；定时任务和输出轴手动面板均沿用板端限速。"""
     link = Link(bus, node)
     report = dict(
         profile="motor_speed",
@@ -523,6 +524,8 @@ def run_speed_control(
         settling = output_test.settling if output_test else None
         if travel_deg is not None and (not math.isfinite(travel_deg) or travel_deg <= 0):
             raise ValueError("两侧可用输出行程须为正数")
+        if output_target and (speed_limit is not None or output_test is not None):
+            raise ValueError("手动输出轴速度控制沿用板端限速")
         if output_test is not None and (
             speed_limit is not None
             or not 0 < output_test.duration_s <= 12
@@ -577,7 +580,11 @@ def run_speed_control(
         ratio = struct.unpack_from("<i", geometry, 24)[0] / 1000
         if limit <= 0 or ratio < 1 or status[24] & required_feedback != required_feedback:
             raise Rejected("速度限额、减速比或编码器反馈无效")
-        report.update(speed_limit_rad_s=active_limit, gear_ratio=ratio)
+        report.update(
+            speed_limit_rad_s=active_limit,
+            output_speed_limit_rad_s=active_limit / ratio,
+            gear_ratio=ratio,
+        )
         if output_test is not None:
             output_limit = min(limit, output_test.motor_limit_rad_s) / ratio
             if abs(target) > output_limit:
@@ -590,8 +597,20 @@ def run_speed_control(
                 target *= ratio
         feedback_ratio = 1.0 if output_coordinates else ratio
         target_limit = limit / ratio if output_coordinates else limit
-        if abs(target) > target_limit:
-            raise ValueError(f"目标速度超出板端限值±{target_limit:g} rad/s")
+        target_scale = feedback_ratio if output_target else 1.0
+        target_shaft = "输出轴" if output_coordinates or output_target else "电机轴"
+
+        def checked_target(value, source):
+            command_value = value * target_scale
+            input_limit = target_limit / target_scale
+            if abs(command_value) > target_limit:
+                raise ValueError(
+                    f"{target_shaft}目标 {value:.6g} rad/s 超出{source} "
+                    f"±{input_limit:.6g} rad/s（±{input_limit * 60 / math.tau:.2f} rpm）"
+                )
+            return command_value
+
+        checked_target(target, "本次输入限值" if speed_limit is not None else "板端限值")
         if not stopped() and hall_fault and status[43] == 8:
             clear = run_clear_fault(
                 bus,
@@ -623,9 +642,15 @@ def run_speed_control(
         if speed_limit is not None and not int.from_bytes(caps[:4], "little") & (1 << 14):
             raise Rejected("固件未声明速度参数配置能力")
         limit = _speed_limit(link, speed_limit, report)
-        report["speed_limit_rad_s"] = limit
+        if limit <= 0.0:
+            raise Rejected("板端速度限额无效")
         target_limit = limit / ratio if output_coordinates else limit
-        report["target_speed_limit_rad_s"] = target_limit
+        report.update(
+            speed_limit_rad_s=limit,
+            output_speed_limit_rad_s=limit / ratio,
+            target_speed_limit_rad_s=target_limit,
+        )
+        checked_target(target, "板端限值")
         counters = MotionCounters(counter_db, report["uid"], previous, previous_target)
         origin_mrad = struct.unpack_from("<i", status, 12)[0]
         if origin_mrad == -0x80000000:
@@ -649,19 +674,17 @@ def run_speed_control(
         def set_target(value):
             nonlocal target
             value = speed_value(str(value))
-            if abs(value) > target_limit:
-                raise ValueError(f"目标速度超出板端限值±{target_limit:g} rad/s")
-            magnitude = math.floor(abs(value) * 1000 + 0.5)
-            scaled = -magnitude if value < 0 else magnitude
+            command_value = checked_target(value, "板端限值")
+            magnitude = math.floor(abs(command_value) * 1000 + 0.5)
+            scaled = -magnitude if command_value < 0 else magnitude
             link.command(
                 116,
                 struct.pack("<BB2x4i", 2, int(motor_axis_speed), 0, scaled, 0, 0),
                 sequence=counters.target(),
             )
-            target = value
+            target = command_value
             report["updates"] += 1
-            coordinate = "输出轴" if output_coordinates else "电机轴"
-            progress(f"速度模式已使能 · {coordinate}目标{target:g} rad/s")
+            progress(f"速度模式已使能 · {target_shaft}目标 {value:g} rad/s")
 
         set_target(target)
         collection_started = time.monotonic()
@@ -753,7 +776,20 @@ def run_speed_control(
                     next_flush = now + 0.25
                 report["samples"] += 1
                 report["last_feedback"] = row
-                feedback(row)
+                if output_target:
+                    display_row = dict(row, output_speed_limit_rad_s=limit / ratio)
+                    for key in (
+                        "target_rad_s",
+                        "reference_speed_rad_s",
+                        "actual_rad_s",
+                        "reference_position_rad",
+                        "position_rad",
+                    ):
+                        if row[key] is not None:
+                            display_row[key] = row[key] / feedback_ratio
+                    feedback(display_row)
+                else:
+                    feedback(row)
                 time.sleep(0.05)
         if settling and "steady_window_s" not in report and not stopped():
             report.update(

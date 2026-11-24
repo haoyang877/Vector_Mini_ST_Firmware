@@ -268,22 +268,23 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertEqual(self.endpoint.commands, [])
 
-    def speed_run(self, targets=(), fault="", speed_limit=None):
+    def speed_run(self, targets=(), fault="", speed_limit=None, *, target=0, output_target=False):
         self.endpoint.fault = fault
         commands, samples = queue.Queue(), []
-        for target in targets:
-            commands.put(target)
+        for update in targets:
+            commands.put(update)
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
             report = ops.run_speed_control(
                 None,
                 6,
-                0,
+                target,
                 360,
                 commands,
                 out,
                 counter_db=out / "counter.db",
                 speed_limit=speed_limit,
+                output_target=output_target,
                 stopped=lambda: len(samples) >= 2,
                 feedback=samples.append,
             )
@@ -326,6 +327,33 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertEqual(report["motion_coordinate"], "output_shaft")
         self.assertEqual(report["target_speed_limit_rad_s"], 0.1)
         self.assertEqual([row["actual_rad_s"] for row in samples], [0.05, -0.05])
+
+    def test_manual_output_target_uses_board_limit_and_both_wire_coordinates(self):
+        for features, wire_target in ((0, 209440), ((1 << 26) | (1 << 27), 5236)):
+            with self.subTest(features=features):
+                self.endpoint.__init__()
+                self.endpoint.features = features
+                self.endpoint.speed_limit = 251327
+                report, samples = self.speed_run((-5.236,), target=5.236, output_target=True)
+                self.assertTrue(report["passed"] and report["stop_confirmed"], report)
+                self.assertAlmostEqual(report["output_speed_limit_rad_s"], 6.283175)
+                targets = [
+                    struct.unpack_from("<i", payload, 8)[0]
+                    for kind, payload, _ in self.endpoint.commands
+                    if kind == 116
+                ]
+                self.assertEqual(targets, [wire_target, -wire_target])
+                self.assertEqual([row["actual_rad_s"] for row in samples], [-5.236, -5.236])
+                self.assertFalse(any(kind == 121 for kind, *_ in self.endpoint.requests))
+
+    def test_manual_output_target_over_board_limit_stops_before_enable(self):
+        self.endpoint.features = 1 << 26
+        self.endpoint.speed_limit = 251327
+        report, _ = self.speed_run(target=7, output_target=True)
+        self.assertFalse(report["enable_attempted"])
+        self.assertIn("输出轴目标 7 rad/s 超出板端限值", report["fatal"])
+        self.assertIn("±60.00 rpm", report["fatal"])
+        self.assertEqual(self.endpoint.commands, [])
 
     def test_output_coordinates_travel_is_not_divided_by_ratio_again(self):
         self.endpoint.features = 1 << 26
@@ -373,8 +401,6 @@ class MotorOperationsTests(unittest.TestCase):
         self.assertEqual(motor_speed_fields(fields)["speed"], 0)
         for key, value in (
             ("speed", "nan"),
-            ("speed", "31"),
-            ("limit", "0"),
             ("target", "65536"),
             ("lease", "-1"),
         ):
@@ -726,6 +752,7 @@ class MotorOperationsTests(unittest.TestCase):
             patch.object(desktop, "controlcan_dll_path", return_value=Path("test.dll")),
             patch.object(desktop.os, "add_dll_directory", create=True),
             patch.object(desktop, "ControlCanFd"),
+            patch.object(desktop, "check_current_motor"),
             patch.object(
                 desktop.mp, "parent_process", return_value=SimpleNamespace(is_alive=lambda: False)
             ),
@@ -744,6 +771,7 @@ class MotorOperationsTests(unittest.TestCase):
                     profile="motor_speed",
                     bus={},
                     node=6,
+                    expected_uid="01" * 12,
                     speed=0,
                     travel=360,
                     last_lease=0,
@@ -755,3 +783,6 @@ class MotorOperationsTests(unittest.TestCase):
                 queue.Queue(),
             )
             self.assertTrue(run.call_args.kwargs["stopped"]())
+            self.assertTrue(run.call_args.kwargs["output_target"])
+            self.assertEqual(run.call_args.kwargs["expected_uid"], "01" * 12)
+            self.assertNotIn("speed_limit", run.call_args.kwargs)

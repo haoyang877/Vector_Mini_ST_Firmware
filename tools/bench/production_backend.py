@@ -45,7 +45,6 @@ TITLE = f"电机生产测试上位机 v{PRODUCTION_VERSION}"
 AXES = {3: "左轮", 4: "右轮", 5: "ROLL", 6: "PITCH", 7: "YAW", 8: "Lift"}
 MODES = {"常规查询": "fixed", "阶梯压测": "ladder", "五轴稳定性验收": "acceptance"}
 RATES = {"500K": 500000, "1M": 1000000, "2M": 2000000, "3M": 3000000, "4M": 4000000, "5M": 5000000}
-AXIS_SPEED_LIMITS = {3: 30, 4: 30, 5: 30, 6: 300, 7: 300}
 FD_LENGTHS = (*range(9), 12, 16, 20, 24, 32, 48, 64)
 CHECK_DEFAULTS = {
     "node": "6",
@@ -72,14 +71,8 @@ def _number_field(text, label, kind=float):
 
 
 def motor_speed_fields(fields: dict[str, str]) -> dict:
-    """解析速度面板；目标坐标按设备能力，上限参数仍为电机轴rad/s。"""
+    """解析输出轴目标与可选计数值，限速由速度会话从板端读取。"""
     result = dict(speed=speed_value(fields["speed"]), travel=None)
-    limit = speed_value(fields.get("limit", "30"))
-    if limit < 0.001:
-        raise ValueError("速度上限至少为0.001 rad/s")
-    if abs(result["speed"]) > limit:
-        raise ValueError(f"目标速度超出本次速度上限±{limit:g} rad/s")
-    result["speed_limit"] = limit
     for key, label, upper in (
         ("lease", "首次续租计数", 0xFFFFFFFF),
         ("target", "首次目标序号", 65535),
@@ -292,7 +285,8 @@ def acquire(settings: dict, out: Path, events, stop, commands=None) -> None:
                         out,
                         previous=settings["last_lease"],
                         previous_target=settings["last_target"],
-                        speed_limit=settings.get("speed_limit"),
+                        expected_uid=settings["expected_uid"],
+                        output_target=True,
                         stopped=operation_stopped,
                         progress=lambda value: events.put(("stage", value)),
                         feedback=lambda value: events.put(("motor_feedback", value)),

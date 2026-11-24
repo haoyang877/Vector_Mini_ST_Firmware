@@ -1009,13 +1009,38 @@ class QtProductionTests(unittest.TestCase):
         self.assertEqual(request["archive"]["test_serial"], "0001")
 
         self.controller.busy = False
+        w.edits["speed"].setText("5.236")
         w.start_speed()
-        self.assertEqual(self.controller.calls[-1][0]["speed_limit"], 300)
+        request = self.controller.calls[-1][0]
+        self.assertEqual(request["speed"], 5.236)
+        self.assertEqual(request["expected_uid"], self.uid)
+        self.assertNotIn("speed_limit", request)
         w.edits["speed"].setText("-2")
         w.update_speed()
         self.assertEqual(self.controller.speeds, [-2])
         w.stop_button.click()
         self.assertEqual(self.controller.stops, 1)
+
+    def test_motion_limit_and_failure_are_visible_and_reset_on_axis_change(self):
+        self.bind(7)
+        w = self.window
+        self.assertEqual(w.edits["speed"].text(), "0")
+        w.on_completed(
+            dict(
+                profile="motor_speed",
+                passed=False,
+                uid=self.uid,
+                output_speed_limit_rad_s=6.283175,
+                fatal="输出轴目标 7 rad/s 超出板端限值",
+            ),
+            None,
+            False,
+        )
+        self.assertIn("±60.00 rpm", w.motion_limit.text())
+        self.assertIn("输出轴目标 7 rad/s", w.speed_label.text())
+        self.bind(6, uid="02" * 12)
+        self.assertIn("使能前自动读取", w.motion_limit.text())
+        self.assertEqual(w.speed_label.text(), "等待速度反馈")
 
     def test_saved_calibration_readback_does_not_start_calibration(self):
         self.bind()
@@ -1056,7 +1081,7 @@ class QtProductionTests(unittest.TestCase):
         self.assertFalse(self.window.navigation.isEnabled())
         self.assertFalse(self.window.axis.isEnabled())
         self.assertTrue(self.window.edits["speed"].isEnabled())
-        self.assertFalse(self.window.edits["speed_limit"].isEnabled())
+        self.assertNotIn("speed_limit", self.window.edits)
 
     def test_next_board_archives_preserves_batch_and_drops_results(self):
         self.bind(7)

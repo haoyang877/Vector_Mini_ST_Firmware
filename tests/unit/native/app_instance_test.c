@@ -6,6 +6,7 @@
 #include "bsp_pwm.h"
 #include "bsp_system.h"
 #include "motor_axis_profile.h"
+#include "yg_protocol_frame_codec.h"
 #include "crc32.h"
 #include <assert.h>
 #include <limits.h>
@@ -756,6 +757,153 @@ static void test_recovered_plan_parameters(void)
     assert(apps[1].axis.recovered_plan_count == 0U);
 }
 
+/* 经实际 CAN 编解码、参数分发和轴维护写入口，使用当前读回的修订号。 */
+static uint32_t exchange_ramp_parameter(ProtocolEndpoint *host,
+                                        ProtocolEndpoint *drive,
+                                        uint16_t type,
+                                        uint8_t id,
+                                        uint32_t value,
+                                        uint32_t *revision,
+                                        ProtocolCode expected)
+{
+    uint8_t payload[12] = {id};
+    bool write = type == PROTOCOL_WRITE_PARAMETER;
+    if (write)
+    {
+        payload[1] = PARAMETER_VALUE_I32;
+        payload[2] = 4U;
+        YgProtocol_WriteU32Le(payload + 4, *revision);
+        YgProtocol_WriteU32Le(payload + 8, value);
+    }
+    yg_protocol_message_t request = {.version = YG_PROTOCOL_VERSION,
+                                     .flags = YG_PROTOCOL_FLAGS_ACK_REQUEST,
+                                     .source_node = host->node_id,
+                                     .destination_node = drive->node_id,
+                                     .message_type = type,
+                                     .sequence = (uint16_t)(++now_ms),
+                                     .payload_length = write ? 12U : 4U,
+                                     .payload = payload};
+    assert(Protocol_QueueMessage(host, &request, 3U) == YG_PROTOCOL_OK);
+    BspCanFrame frame;
+    assert(queue_pop(&host->tx_queue, &frame) && Protocol_QueueReceivedFrame(drive, &frame));
+    Protocol_Process(drive, now_ms);
+    assert(queue_pop(&drive->tx_queue, &frame));
+    yg_protocol_message_t reply;
+    size_t length =
+        YG_PROTOCOL_HEADER_SIZE + YgProtocol_ReadU32Le(frame.data + 10U) + YG_PROTOCOL_TRAILER_SIZE;
+    assert(length <= frame.length &&
+           yg_protocol_frame_decode(frame.data, length, &reply) == YG_PROTOCOL_OK);
+    assert(reply.source_node == drive->node_id && reply.destination_node == host->node_id &&
+           reply.message_type == type && reply.sequence == request.sequence);
+    if (YgProtocol_ReadU16Le(reply.payload) != expected)
+    {
+        fprintf(stderr,
+                "node %u type %u parameter %u value %u: result %u, expected %u\n",
+                drive->node_id,
+                type,
+                id,
+                value,
+                YgProtocol_ReadU16Le(reply.payload),
+                expected);
+    }
+    assert(YgProtocol_ReadU16Le(reply.payload) == expected);
+    if (expected != PROTOCOL_RESULT_OK)
+    {
+        assert(reply.payload_length == 4U && YgProtocol_ReadU16Le(reply.payload + 2) == 4U);
+        return 0U;
+    }
+    assert(reply.payload_length == 20U && reply.payload[4] == id &&
+           reply.payload[5] == PARAMETER_VALUE_I32);
+    *revision = YgProtocol_ReadU32Le(reply.payload + 12);
+    return YgProtocol_ReadU32Le(reply.payload + 8);
+}
+
+static void test_ramp_parameter_roundtrip(void)
+{
+    ProtocolEndpoint host = {0};
+    assert(Protocol_Init(&host, 2U));
+    MotorAxis *axis = &apps[0].axis;
+    nested = false;
+    load_saved = false;
+    memset(&apps[0], 0, sizeof(apps[0]));
+    axis->hardware = &hardware[0];
+    devices[0].disabled = true;
+    App_Init(&apps[0]);
+    axis->state_machine.state = MOTOR_STATE_IDLE;
+    axis->motor.fault_code = MOTOR_FAULT_NONE;
+    const unsigned writes = devices[0].record_writes;
+    const MotorAxisRecord saved = devices[0].saved;
+    const uint32_t saved_revision = axis->parameters.saved_revision;
+    /* 左轮、右轮、Roll、Pitch、Yaw、Lift 的产品上限，以 mrad/s² 表示。 */
+    const uint32_t wire_limits[] = {20000U, 20000U, 3142U, 83776U, 83776U, 83776U};
+    const MotorWindingThermalConfig thermal = {3, 7, 66, .8f, .7f, 1, .5f};
+    for (unsigned node = 3U; node <= 8U; ++node)
+    {
+        bool lift = node == 8U;
+        assert(Param_CreateAxis(
+            node, lift ? -1.0f : 0.0f, lift ? 1.0f : 0.0f, 1.0f, &thermal, &axis->configuration));
+        ProtocolEndpoint drive = {0};
+        assert(Protocol_Init(&drive, node) && Protocol_Start(&drive));
+        drive.parameters = apps[0].endpoint.parameters;
+        const uint32_t limit = wire_limits[node - 3U];
+        const MotorApplicationConfig *app = &axis->configuration.application;
+        const uint8_t ids[] = {19U, 20U, 24U, 25U};
+        const float *values[] = {&app->speed_acceleration_rad_s2,
+                                 &app->speed_deceleration_rad_s2,
+                                 &app->position_acceleration_rad_s2,
+                                 &app->position_deceleration_rad_s2};
+        for (unsigned i = 0; i < sizeof(ids); ++i)
+        {
+            uint8_t id = ids[i];
+            const float ceiling = *values[i];
+            uint32_t revision = 0U;
+            uint32_t original = exchange_ramp_parameter(
+                &host, &drive, PROTOCOL_READ_PARAMETER, id, 0, &revision, PROTOCOL_RESULT_OK);
+            assert(original == limit);
+            assert(exchange_ramp_parameter(&host,
+                                           &drive,
+                                           PROTOCOL_WRITE_PARAMETER,
+                                           id,
+                                           limit - 1U,
+                                           &revision,
+                                           PROTOCOL_RESULT_OK) == limit - 1U);
+            assert(*values[i] < ceiling);
+            assert(
+                exchange_ramp_parameter(
+                    &host, &drive, PROTOCOL_READ_PARAMETER, id, 0, &revision, PROTOCOL_RESULT_OK) ==
+                limit - 1U);
+            assert(exchange_ramp_parameter(&host,
+                                           &drive,
+                                           PROTOCOL_WRITE_PARAMETER,
+                                           id,
+                                           original,
+                                           &revision,
+                                           PROTOCOL_RESULT_OK) == original);
+            assert(*values[i] == ceiling);
+            assert(
+                exchange_ramp_parameter(
+                    &host, &drive, PROTOCOL_READ_PARAMETER, id, 0, &revision, PROTOCOL_RESULT_OK) ==
+                original);
+            uint32_t restored_revision = revision;
+            (void)exchange_ramp_parameter(&host,
+                                          &drive,
+                                          PROTOCOL_WRITE_PARAMETER,
+                                          id,
+                                          limit + 1U,
+                                          &revision,
+                                          PROTOCOL_RESULT_OUT_OF_RANGE);
+            assert(
+                exchange_ramp_parameter(
+                    &host, &drive, PROTOCOL_READ_PARAMETER, id, 0, &revision, PROTOCOL_RESULT_OK) ==
+                original);
+            assert(revision == restored_revision && *values[i] == ceiling);
+        }
+    }
+    assert(devices[0].record_writes == writes && !memcmp(&saved, &devices[0].saved, sizeof(saved)));
+    assert(axis->parameters.saved_revision == saved_revision);
+    puts("PASS Type120/121 ramp limit round trips for nodes 3-8 without Flash writes");
+}
+
 int main(void)
 {
     run(false);
@@ -770,6 +918,7 @@ int main(void)
     calibration_readback_services();
     output_mechanical_zero();
     test_recovered_plan_parameters();
+    test_ramp_parameter_roundtrip();
     puts("PASS independent and nested startup, fast PWM, calibration records, STOP epoch/PI and "
          "CAN queues");
     return 0;

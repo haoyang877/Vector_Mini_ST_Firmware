@@ -256,6 +256,41 @@ static float speed_ceiling(const MotorConfiguration *configuration)
     return limit;
 }
 
+static bool decode_scalar(const MotorConfiguration *configuration,
+                          const ScalarField *field,
+                          uint32_t raw,
+                          float *value)
+{
+    int32_t signed_raw;
+    memcpy(&signed_raw, &raw, sizeof(signed_raw));
+    *value = (float)signed_raw / field->scale;
+    if (field->id != 19U && field->id != 20U && field->id != 24U && field->id != 25U)
+    {
+        return true;
+    }
+
+    float maximum = PARAM_APP_POSITION_ACCEL_MAX_RAD_S2;
+    if (configuration->preset != NULL)
+    {
+        maximum = field->id == 19U || field->id == 24U
+                      ? configuration->preset->control.acceleration_rad_s2
+                      : configuration->preset->control.deceleration_rad_s2;
+    }
+    uint32_t encoded_maximum;
+    if (signed_raw <= 0 || maximum <= 0.0f ||
+        encode_float(maximum, field->scale, &encoded_maximum) != PARAMETER_OK ||
+        raw > encoded_maximum)
+    {
+        return false;
+    }
+    if (*value > maximum)
+    {
+        /* 产品上限向上舍入时，仅读回的那一档映射到原始物理上限。 */
+        *value = maximum;
+    }
+    return true;
+}
+
 bool ParameterValue_MatchesRequest(const MotorConfiguration *configuration,
                                    const ParameterWriteRequest *request)
 {
@@ -277,11 +312,9 @@ bool ParameterValue_MatchesRequest(const MotorConfiguration *configuration,
     {
         return false;
     }
-    int32_t raw;
-    float current;
-    memcpy(&raw, &request->raw_value, sizeof(raw));
+    float current, decoded;
     memcpy(&current, (const uint8_t *)configuration + field->offset, sizeof(current));
-    return current == (float)raw / field->scale;
+    return decode_scalar(configuration, field, request->raw_value, &decoded) && current == decoded;
 }
 
 ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
@@ -367,9 +400,11 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     {
         return PARAMETER_BAD_TYPE;
     }
-    int32_t signed_raw;
-    memcpy(&signed_raw, &request->raw_value, sizeof(signed_raw));
-    float si_value = (float)signed_raw / field->scale;
+    float si_value;
+    if (!decode_scalar(configuration, field, request->raw_value, &si_value))
+    {
+        return PARAMETER_OUT_OF_RANGE;
+    }
     if (request->parameter_id >= 0x60U && request->parameter_id <= 0x66U)
     {
         MotorWindingThermalConfig candidate = configuration->model.thermal;
@@ -424,23 +459,8 @@ ParameterStatus ParameterValue_Apply(MotorConfiguration *configuration,
     case 20U:
     case 24U:
     case 25U:
-    {
-        float maximum = configuration->preset != NULL
-                            ? configuration->preset->control.acceleration_rad_s2
-                            : PARAM_APP_POSITION_ACCEL_MAX_RAD_S2;
-        if (request->parameter_id == 20U || request->parameter_id == 25U)
-        {
-            maximum = configuration->preset != NULL
-                          ? configuration->preset->control.deceleration_rad_s2
-                          : maximum;
-        }
-        if (si_value <= 0.0f || si_value > maximum)
-        {
-            return PARAMETER_OUT_OF_RANGE;
-        }
         memcpy((uint8_t *)configuration + field->offset, &si_value, sizeof(si_value));
         break;
-    }
     case 1U:
         if (si_value <= 0.0f || si_value > speed_ceiling(configuration))
         {

@@ -6,6 +6,8 @@
 | 标定算法与结果发布 | [标定设计](calibration_process.md) |
 | Loader移植的输入与契约 | [移植设计](loader_mcu_porting_v1.md) |
 | 仓库环境、验证与CI | [项目工具](project_harness.md) |
+| 独立 KF600、整数均值和参数 | [测速算法](speed_estimator_module.md) |
+| 连续负载观测与摩擦前馈 | [负载观测与前馈](speed_load_observer_module.md) |
 | 分支、评审与发布回流 | [开发流程](development_workflow.md) |
 | 镜像命名、版本和交付契约 | [发布标准](firmware_release_standard.md) |
 | 文档维护 | [维护规则](documentation.md) |
